@@ -210,7 +210,7 @@ test.describe("Groups", () => {
       ).toBeVisible();
     });
 
-    test("the homepage's plans strip shows the newest group and links to the rest", async ({
+    test("the homepage's plan panel shows the newest group and links to the rest", async ({
       page,
       resetData,
     }) => {
@@ -218,10 +218,13 @@ test.describe("Groups", () => {
       await page.goto("/");
 
       /*
-       * One line since the usability pass (2026-10-15): the newest group —
-       * the head page of `pagination:groups:by-date`, as `/groups` reads it.
+       * The newest group — the head page of `pagination:groups:by-date`, as
+       * `/groups` reads it — in the right rail's "On the plan" since 42f.
        */
-      const plans = page.getByRole("region", { name: "Plans", exact: true });
+      const plans = page.getByRole("region", {
+        name: "On the plan",
+        exact: true,
+      });
       await expect(plans.getByTestId("plans-strip-latest")).toContainText(
         "Week of May 4",
       );
@@ -230,7 +233,7 @@ test.describe("Groups", () => {
       await expect(page).toHaveURL(/\/groups$/);
     });
 
-    test("the homepage shows no plans strip when there are none", async ({
+    test("the homepage shows no plan panel when there are none", async ({
       page,
       resetData,
     }) => {
@@ -242,7 +245,7 @@ test.describe("Groups", () => {
       await page.goto("/");
 
       await expect(
-        page.getByRole("region", { name: "Plans", exact: true }),
+        page.getByRole("region", { name: "On the plan", exact: true }),
       ).toHaveCount(0);
       await expect(page.getByRole("link", { name: "All plans" })).toHaveCount(
         0,

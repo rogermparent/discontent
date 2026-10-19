@@ -115,7 +115,9 @@ export function GroupItems({ items }: { items: ResolvedGroupItem[] }) {
  * A recipe row's multiplier, as the badge says it and as the link carries it
  * — or `null` for a sub-group, no scale, 1×, or a value the parser refuses.
  */
-function scaleOf(item: GroupItem): { label: string; value: string } | null {
+export function scaleOf(
+  item: GroupItem,
+): { label: string; value: string } | null {
   if (item.recipe === undefined || !item.scale) return null;
   const scale = parseScale(item.scale);
   if (!scale || scale.equals(1)) return null;

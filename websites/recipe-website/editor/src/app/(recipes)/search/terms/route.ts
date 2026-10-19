@@ -8,7 +8,7 @@ import { readSearchTerms } from "recipe-website-common/controller/data/readTermP
  * what `SearchContext` expands `tag:` with, so `tag:dessert` reaches the
  * recipes tagged with anything under `dessert`. Its own document for the
  * reason `/search/groups` is one: a term write moves no recipe record, and the
- * recipe corpus is what gates the FlexSearch populate.
+ * recipe corpus is what the FlexSearch index is built from.
  */
 export async function GET() {
   return Response.json(await readSearchTerms());

@@ -143,8 +143,8 @@ export function flattenMarkdown(input: string): string {
  * would bloat every page load for no matching benefit.
  *
  * `ingredients` below is *not* on that path since F4a — it is served separately
- * by `/search/ingredients`, fetched only when the index needs populating or a
- * filter asks for it — which is why it has no cap and needs none.
+ * by `/search/ingredients`, fetched only when the search index is first wanted
+ * or a filter asks for it — which is why it has no cap and needs none.
  *
  * **300 until F23 measured what it was costing (§12.11).** F23 made the field
  * real, which took `search/all` from 64.6 KiB to 145.6 KiB; 160 takes it back

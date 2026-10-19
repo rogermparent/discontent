@@ -7,8 +7,8 @@ import { getSearchCorpus } from "recipe-website-common/controller/data/read";
  *
  * Why the line falls here: this document is fetched on **every** page load, and
  * `ingredients` was ~80% of it (199 of 247 KiB across the 436-recipe corpus)
- * while never being rendered from this array — it exists only to populate
- * FlexSearch, which is version-gated and persisted in IndexedDB, and to back
+ * while never being rendered from this array — it exists only to build the
+ * FlexSearch index (in memory, on first need, since 42s) and to back
  * `ingredient:` filters. `description` and the times stay: the ⌘K palette
  * renders descriptions, and `time:`/sort read the times.
  *

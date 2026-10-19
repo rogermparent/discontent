@@ -93,11 +93,10 @@ test.describe("Recipe Edit View", () => {
           "Recipe 2",
         ]);
 
-        const dateText = new Date(recipeDate + "Z").toLocaleString(undefined, {
-          year: "numeric",
-          month: "numeric",
-          day: "numeric",
-        });
+        /* New this week's "12/8" (42f): month/day, the server's calendar —
+         * the same machine and time zone as this runner. */
+        const date = new Date(recipeDate + "Z");
+        const dateText = `${date.getMonth() + 1}/${date.getDate()}`;
         await expect(
           page
             .getByText("Recipe 2", { exact: true })
@@ -174,11 +173,10 @@ test.describe("Recipe Edit View", () => {
           "Recipe 2",
         ]);
 
-        const dateText = new Date(recipeDate + "Z").toLocaleString(undefined, {
-          year: "numeric",
-          month: "numeric",
-          day: "numeric",
-        });
+        /* New this week's "12/8" (42f): month/day, the server's calendar —
+         * the same machine and time zone as this runner. */
+        const date = new Date(recipeDate + "Z");
+        const dateText = `${date.getMonth() + 1}/${date.getDate()}`;
         await expect(
           page
             .getByText("Recipe 2", { exact: true })
@@ -249,11 +247,10 @@ test.describe("Recipe Edit View", () => {
           "Recipe 2",
         ]);
 
-        const dateText = new Date(recipeDate + "Z").toLocaleString(undefined, {
-          year: "numeric",
-          month: "numeric",
-          day: "numeric",
-        });
+        /* New this week's "12/8" (42f): month/day, the server's calendar —
+         * the same machine and time zone as this runner. */
+        const date = new Date(recipeDate + "Z");
+        const dateText = `${date.getMonth() + 1}/${date.getDate()}`;
         await expect(
           page
             .getByText("Recipe 2", { exact: true })
@@ -331,15 +328,21 @@ test.describe("Recipe Edit View", () => {
           "/image/uploads/recipe/recipe-6/uploads/recipe-6-test-image-alternate.png/recipe-6-test-image-alternate-w3840q75.webp",
         );
 
+        /*
+         * The homepage's New this week row shows the new photo. A small,
+         * decorative thumbnail since 42f (`alt=""`, its own size), so the
+         * file is matched, not the size.
+         */
         await page.goto("/");
         await expect(
           page
-            .getByText("Recipe 6", { exact: true })
-            .locator("xpath=ancestor::li[1]")
-            .getByRole("img", { name: "Recipe thumbnail" }),
+            .getByTestId("recipe-list")
+            .getByRole("listitem")
+            .filter({ hasText: "Recipe 6" })
+            .locator("img"),
         ).toHaveAttribute(
           "src",
-          "/image/uploads/recipe/recipe-6/uploads/recipe-6-test-image-alternate.png/recipe-6-test-image-alternate-w3840q75.webp",
+          /^\/image\/uploads\/recipe\/recipe-6\/uploads\/recipe-6-test-image-alternate\.png\/recipe-6-test-image-alternate-w\d+q75\.webp$/,
         );
       });
 
@@ -420,15 +423,17 @@ test.describe("Recipe Edit View", () => {
           "/image/uploads/recipe/recipe-5/uploads/recipe-6-test-image-alternate.png/recipe-6-test-image-alternate-w3840q75.webp",
         );
 
+        /* The homepage's row, as above (42f: a small decorative thumbnail). */
         await page.goto("/");
         await expect(
           page
-            .getByText("Recipe 5", { exact: true })
-            .locator("xpath=ancestor::li[1]")
-            .getByRole("img", { name: "Recipe thumbnail" }),
+            .getByTestId("recipe-list")
+            .getByRole("listitem")
+            .filter({ hasText: "Recipe 5" })
+            .locator("img"),
         ).toHaveAttribute(
           "src",
-          "/image/uploads/recipe/recipe-5/uploads/recipe-6-test-image-alternate.png/recipe-6-test-image-alternate-w3840q75.webp",
+          /^\/image\/uploads\/recipe\/recipe-5\/uploads\/recipe-6-test-image-alternate\.png\/recipe-6-test-image-alternate-w\d+q75\.webp$/,
         );
       });
 

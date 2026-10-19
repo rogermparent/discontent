@@ -145,8 +145,9 @@ export async function openPalette(page: Page): Promise<void> {
 }
 
 /**
- * Resolves once the palette's shared FlexSearch index is populated — the
- * palette's analogue of `/search`'s ticker. Without it every result assertion
+ * Resolves once the palette's shared FlexSearch index is built (in memory,
+ * since 42s; opening the palette starts it) — the palette's analogue of
+ * `/search`'s ticker. Without it every result assertion
  * has to carry a bare long timeout and hope.
  */
 export async function paletteIndexReady(page: Page): Promise<void> {

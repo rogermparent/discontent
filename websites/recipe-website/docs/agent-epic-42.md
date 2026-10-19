@@ -1446,6 +1446,172 @@ linking to `/holidays/<slug>`; a dot-leader index of spirit & base, style
 and classics. Tests: `drinks.spec` (seasonal, frozen clock), `make.spec`
 links, baselines `drinks-page-{e2e,mobile}`.
 
+#### Results (42d)
+
+Branch `agent/42d-drinks`. **Reindex needed: no. Deploy: yes** (the
+`/drinks` page changes in both apps; no content, index or settings change).
+
+**What changed.** `/drinks` is canvas B, top to bottom:
+
+1. **The question over the shelf** (`DrinksPage/MakePanel.tsx`,
+   `DrinksShelf`). The eyebrow reads "Drinks · N in the book", and the h1
+   is `MakeQuestion` with its kind fixed. Below them: whose list the shelf
+   is ("From this browser's list — 2 things on the shelf. Tap a label to
+   ask about it."), the labels as tape, `/make`'s ticker in the drinks
+   word, Count from when the page has a second list, "Add to the shelf",
+   and "Open in Make". Beside them are **Pour now** (the ready drinks,
+   sources of one drink grouped by family as 38a did, with picture, name
+   and base · style, and "Lavender Syrup first" when a sub-recipe comes
+   first; up to 8 entries, then "+N more in Make") and **Buy next**
+   (`/make`'s own `BuyNextList`, top 3).
+2. **In season** (`Seasonal.tsx`, `SeasonPair`) shows the current and next
+   holiday side by side: `holidayPair` keeps the holidays with drinks
+   within 38a's 60-day seasonal window (Roger's) and cuts them to two. Each
+   holiday has a badge ("Now", "Next"), a countdown and a date ("in 3 days
+   · Sat 31 Oct"). Its name links to `/holidays/<slug>` and "All N" to
+   `/holidays/<slug>?kind=drinks` (42e's menu, on its drinks). The sooner
+   holiday shows four cards and the later one two, with "Also: …" naming
+   the rest. On a phone each holiday is a row that scrolls sideways. When
+   only one holiday is in season, the next one within 180 days gets a
+   quiet line instead of cards: "Then Christmas, in 71 days — 1 drink.",
+   in 42e's wording, linking to its menu.
+3. **Browse the bar** (`BarIndex.tsx`) is spirit & base, style and classics
+   as one dot-leader index of real terms and drink counts, each linking to
+   `/tags/<slug>`, with "All N drinks" (and "All N" classics past 24)
+   linking to `/tags/drink`. On a phone the three columns become
+   disclosures, with Spirit & base open.
+
+Removed, as B drops them: the spirit tiles, the style and classic chips,
+"For Halloween" (`nextSeasonal` is no longer used by the page; the util
+and its tests stay), "New drinks" (its role is now a NEW mark on a drink
+dated within 30 days, judged in the browser), the "What's on your shelf?"
+panel, and the U6 "Also makeable with…" group, which Count from replaces,
+as it did on `/make` (41-Dh1). `DrinksPageData.latest` is gone. It gains
+`meta`, the base and style lookup, so the server's cards and the browser's
+Pour now rows share `drinkMeta`, and each holiday's `rule`.
+
+**Decisions.**
+
+- **Dd1 — the shelf follows Count from, not a role.** The brief listed the
+  saved list for a signed-in editor, the house list on the export, and the
+  browser's list otherwise. 41h already decided which list counts: a
+  per-browser `source` in `make-settings-v1` that defaults to this
+  browser's list (U6). `/drinks` reads that same setting (`useMakeable`
+  now judges `countFromItems(source, have, second)`), shows the same Count
+  from control whenever a second list exists, and shows the labels of the
+  list that counts (`shelfLabels`). On the second list alone, this
+  browser's labels follow muted and uncounted (`data-counted="false"`), as
+  on `/make`, so "Add to the shelf" and Buy next's "I have this" (both add
+  to this browser's list) always show where the item went. A signed-in
+  editor who never chose therefore sees this browser's list first, with
+  "Saved list · 23 items" one tap away, and a choice made on either page
+  holds on the other. Signed in, the second list is the saved list even
+  when it is empty, as on `/make`: a stored "Saved" then counts an empty
+  list on both pages. Before 42d the editor route skipped an empty saved
+  list.
+- **Dd2 — the kind word links to Make** (`MakeQuestion`'s `kindHref`, no
+  menu): "What **drinks** can I make?" goes to `/make?q=tag:drink`. A label
+  links to `/make?q=tag:drink ingredient:<item>`, which is Make asking
+  "What drinks can I make with lime?".
+- **Dd3 — the saved list is read-only here.** Per-item editing (42a) stays
+  on Make, so the saved and house labels have no ×. When Count from is on
+  the saved list alone, a line says so and links to Make: "Counting from
+  the saved list — edit it on Make. What you add here goes on this
+  browser's list, not counted." On the house list it reads "Counting from
+  the house list, which is read-only. …". "Add to the shelf" always adds
+  to this browser's list, with Undo in `/make`'s toast. It is a plain
+  field (comma lists work), without Make's suggestion combobox.
+- **Dd4 — Roger's 60-day window stays** (38a). The pair is the holidays
+  with drinks within 60 days, "Now" then "Next". With one holiday in
+  season, the next one within the homepage's 180-day window gets the
+  quiet "Then …" line, and with none in season there is no section. Only
+  holidays with at least one drink count, and an undated holiday never
+  does. The rule is looked up by slug, then by alias, with 42e's
+  `holidayRule`.
+- **Dd5 — the browser's day and clock.** The pair and its countdowns wait
+  for `useToday(null)`, as the old row did, so the export's static HTML
+  never names a holiday or a number of days; the section appears after
+  hydration. NEW is judged against the browser's `Date.now()`, read once
+  per load (`useNow`, `0` on the server), and never against a day key: a
+  day key parsed as UTC midnight would make a drink added earlier today
+  look like it is in the future, west of UTC.
+- **Dd6 — Buy next is `/make`'s list**, cut to three. Its "I have this"
+  adds to this browser's list, as on `/make`, and a tap on its label opens
+  Make featuring that item.
+
+**Roger to confirm.**
+
+- **Dd1: a signed-in editor no longer sees what the saved list makes by
+  default.** Before 42d, `/drinks` showed "Also makeable with your saved
+  inventory" under the panel. Now the page counts this browser's list
+  until Count from is switched to Saved or Both (once, per browser, shared
+  with `/make`), and the canvas drew the saved list. The alternative is to
+  default Count from to Saved when signed in, which would change 41h's
+  rule on `/make` as well.
+- Dd3: the saved list is edited on Make, not here (no × or "Add to saved
+  list" on `/drinks`).
+- Dd4: with one holiday in season, the next is a "Then …" line rather than
+  a second column of cards.
+- NEW lasts 30 days from a recipe's date (`NEW_DRINK_DAYS`).
+
+**Gates** (2026-10-19, every heavy step through the capped slot).
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: clean.
+- `pnpm exec vitest run`: **123 files, 2526 tests passed**. In
+  `test/drinksPage.test.ts`: the pair within 60 days, the "Then" line
+  within 180, no section past 60, a pair item dated by `rule`, each
+  holiday's rule by slug then alias (`xmas` → christmas; `new-years` keeps
+  its own over the `new-years-eve` alias), the shelf per Count from with
+  uncounted labels, the source line, `drinkMeta` (and the lookup), NEW at
+  29/30 days and earlier today, and "Also: …".
+  `exportInventoryGuard` and `exportHouseInventory` are unchanged and
+  green: the export reaches no editor code.
+- Playwright, Docker, build mode: `drinks`, `make`, `accessibility`,
+  `export-page`: **112 passed, 9 failed**. All nine failures were axe's
+  `link-in-text-block` on the "Then Christmas" line, which the live clock
+  showed in accessibility.spec's `/drinks` sweeps; fixed by underlining
+  links inside a line of text. After the fix, `drinks` + `accessibility`:
+  **78 passed**, no retries.
+- Playwright, Docker, dev mode (once, for the new spec): `drinks`: **12
+  passed**.
+- Baselines (Docker, build mode): `drinks-page-e2e` and
+  `drinks-page-mobile` regenerated, and opened against canvas B. They
+  match its order: eyebrow, the h1 question with the dotted accent word,
+  tape labels, the mono ticker, "Add to the shelf" and "Open in Make" on
+  the left; Pour now and Buy next on the right; "In season" with Halloween
+  ("Now", four-card grid) beside Christmas ("Next", two-card grid, divider
+  on the left); then "Browse the bar" in three dot-leader columns, with
+  Classics in two. On the phone the index folds into three disclosures,
+  Spirit & base open. The fixture has no photos, so every picture is a
+  monogram; with a two-item shelf Pour now holds one row and the left
+  column is short beside Buy next. In the narrow Next column the countdown
+  and "All 1" wrap under the name.
+- Phone: no sideways scroll (`drinks.spec` @mobile); axe target size
+  (WCAG 2.2) passes with the chrome released.
+- After merging `origin/main` (42e #284, 42b's tighter screenshot
+  tolerance #286, 42h): both typechecks clean; `drinks` in Docker build
+  mode **12 passed**, the baselines held under 42b's tolerance.
+
+**Backlog:** no row matches 42d.
+
+#### Traps (42d)
+
+- **Td1 — `--update-snapshots` (changed) keeps a baseline whose change is
+  under 42b's tolerance.** A one-space fix ("All1" → "All 1") passed the
+  comparison, so the file wasn't rewritten and the PNG kept the bug. When
+  a fix is small, regenerate with `--update-snapshots=all` and open the
+  PNG.
+- **Td2 — `inline-flex` trims the space between "All" and its count.** A
+  flex container makes "All " an anonymous item, and its trailing space is
+  dropped. Links that mix text and a `<span>` use `inline-block` instead.
+- **Td3 — the masthead's brand is an h1 too.** Find the question by name
+  (`getByRole("heading", {level: 1, name: …})`), never as "the" h1.
+- **Td4 — a live clock shows what a frozen one hides.** accessibility.spec
+  doesn't freeze the clock, so on 19 October it met the "Then Christmas"
+  line, which `drinks.spec`'s 28 October never shows. The spec now runs
+  axe at a date that shows the line.
+
 ### 42f — Homepage: now and next (M)
 
 Canvas B. A real search field beside the Make tile (submits to
@@ -1455,6 +1621,165 @@ Canvas B. A real search field beside the Make tile (submits to
 plan and, for a signed-in editor, a shopping-list link; about half today's
 height, the duplicate holiday showings gone. Tests: `homepage.spec`,
 `homepage-browse.spec`, `empty-state.spec`, baselines `homepage-*`.
+
+#### Results (42f)
+
+**What changed** (`common/components/Homepage/`, one component per part;
+`route.tsx` still does every read, `index.tsx` only arranges).
+
+- **The band** (`HomeIntro`): the date, "What are you making?" (still the
+  `h2`), a real **search field** (`HomeSearch`: a `next/form` GET to
+  `/search?q=…`, so it works before hydration and with no script; labelled
+  "Search recipes", the placeholder "Search N recipes — a name, an
+  ingredient, a tag"; the palette's `⌘K` / `Ctrl+K` chip from the
+  masthead's `useShortcutModifier`, `aria-hidden`, `SearchShortcutHint`),
+  the intents as **`tag:` chips** (`tag:quick 121`, a `nav` "Start a search
+  from"), and the **Make tile** beside them from `lg` as the accent block
+  (`MakeTile`, its count logic and `make-tile-status` unchanged).
+- **"This season"** (`ThisSeason` + the client `SeasonSection`): the next
+  three dated holidays within 180 days, each a row — a calendar leaf
+  (`SAT / 31 / OCT`, a `<time>`), the name linking to `/holidays/<slug>`,
+  the countdown, "32 recipes · 1 plan · featured", and a strip of four
+  recipes (`seasonPicks`: photographed first, newest first, then
+  monograms); "All holidays" goes to `/holidays`.
+- **The right rail** from `lg`, spanning the main column's rows (rows
+  `auto 1fr`, so a tall rail never opens a gap under the season): **"On the
+  plan"** (`PlanPanel`: the newest plan, its first six lines with pictures
+  through `resolveGroupItems`, "and N more", "Open the plan", "All plans",
+  and "Shopping list" for a signed-in editor only) and **"Featured"**
+  (`FeaturedPanel`'s rows in the client `HomeRail`: 44 px rows, the same
+  `featured-*-card` / `card-meta` test ids).
+- **"New this week"** (`NewThisWeek`): a compact two-column list (56 px
+  picture, name, "Mains · 10/17"), still `data-testid="recipe-list"`.
+- **"Browse"** (`BrowseTerms`): one cell per facet root, three to a row,
+  the root's label and its three biggest children on one line.
+- **Phone:** one column — band, season, the rail (plan, then featured),
+  New this week, Browse; the season's strip drops under its row.
+- **Removed:** `ComingUp` / `ComingUpCards` (now `ThisSeason` /
+  `SeasonSection`), `FeaturedStrip` (`FeaturedPanel`), `PlansStrip`
+  (`PlanPanel`), `tileStyles.ts`, the intents' descriptions and the drink
+  intent's `/drinks` href.
+- **Controller** (`homepageComingUp.ts`, pure): `seasonPicks`,
+  `seasonRows` (`SEASON_LIMIT` 3), `datedHolidays`, `markFeaturedHolidays`,
+  `withoutSeasonFeatures`, `featureCandidates`; `homepageIntents.ts`:
+  `intentSearchHref`. `Monogram` and `TermPicture` take `small`;
+  `RecipeThumb` is the one 160 px square every small picture uses (one
+  transform per photo on the export).
+- **Routes:** the editor's `/` reads the session (`showShopping: !!session`,
+  as the masthead's `ownerOnly` link); the export's passes nothing.
+
+**Decisions.**
+
+- **Df1 — each holiday once.** A featured holiday term shows as its season
+  row, marked "featured", and the featured list hides it while that row
+  shows; the server hands over enough features (`featureCandidates`) that
+  six remain after the hiding, so the list doesn't shrink. Browse keeps
+  leaving the `holidays` root to the season.
+- **Df2 — the browser's day decides the season, not the server's.** Which
+  rows show, whether the section shows at all, and which features they
+  stand in for are computed in the browser (`useToday`), the server's day
+  only for the first render. Until now the server's day decided whether
+  "Coming up" rendered, so a page served — or a spec run — after 25
+  December with only Christmas tagged had no section whatever the
+  browser's clock said (homepage-browse's Christmas test was a time bomb
+  for 26 Dec – 27 Jun). The server only checks that some holiday with
+  something under it has a date (`hasSeason`).
+- **Df3 — intents are searches.** A chip opens `/search?q=tag:<slug>` (the
+  canvas: "open search with the query"), the drink chip included; until
+  now the tiles went to the term pages and `/drinks`. `tag:` search is
+  hierarchy-aware (24d), so it finds the counted set. The four intents are
+  unchanged; the canvas's extra `tag:thanksgiving` / `tag:cookies` chips
+  were not added (no rule says which terms earn one).
+- **Df4 — "Featured", not "Pinned".** The rail's list keeps the heading
+  Roger chose on 2026-10-15 and every spec's region name.
+- **Df5 — the masthead keeps its search trigger on `/`.** The canvas drops
+  it on the homepage; it stays, so the masthead is the same on every page
+  (and `header` / `command-palette` specs unchanged).
+- **Df6 — no shopping count.** "Shopping list" is a plain link; the
+  canvas's "On the list · 66 lines" would read the shopping store on every
+  homepage render, which the route has never done.
+- **Df7 — three holidays, four pictures, three children per facet**, the
+  canvas's numbers (`SEASON_LIMIT`, `SEASON_PICKS`, `BROWSE_CHILD_LIMIT`).
+- **Df8 — counts are recipes and plans.** The canvas's "16 sides · 7
+  drinks" per holiday is 42e's menu data (`holidaysPage.ts`, unmerged at
+  the time); the row says "N recipes · N plans · featured".
+- **Df9 — the date on New this week's rows** is a `<time>` (masked), month/day in a fixed format (not the server's locale); the
+  bookmark button on those rows is gone (the rows are a way in);
+  `bookmarks.spec`'s hover check moved to `/recipes`.
+- **Df10 — the export prints no build-day date, and leaves no empty box**
+  (review round). A season row's calendar leaf stays empty, at its fixed
+  size, until the browser's day is known. The season section and the rail
+  are placed by the grid themselves (no wrapper), the laptop grid has no
+  gaps (each part brings its margin) and the rail's column is `auto`, so a
+  section the browser's day doesn't render leaves no empty track; the rail
+  (`HomeRail`, client) renders nothing when there's no plan and every
+  feature is an in-season holiday. The "featured" mark comes from the
+  features the list could show (`featureCandidates`), not the whole head
+  page. Plan lines link with the plan page's `scaleOf`.
+
+**Gates** (after merging main with 42e, capped wrappers): editor
+typecheck ✅; export `tsc --noEmit` ✅; vitest **123 files, 2524 tests**
+✅. Playwright in Docker, build mode: homepage-browse, homepage, groups,
+bookmarks, featured-recipes, empty-state, accessibility, visual, mobile,
+api-write, reference-updates — **251/252** on the first run (e2e + mobile).
+The one failure was the new phone check: axe's `target-size` counted a strip
+link the fixed tab bar covered at that scroll as "partially obscured", so
+the phone half now measures the season's links (≥ 24 px) instead. The rerun
+of homepage-browse, visual and mobile passed **48/48**. homepage-browse in
+dev mode (Docker) passed **18/18**.
+
+**Baselines** (Docker, `--update-snapshots`, each opened): moved —
+`homepage-three-recipes-e2e`, `homepage-two-pages-e2e`,
+`homepage-empty-e2e`, `homepage-mobile-mobile` (the band and the compact
+New this week), and `layout-footer-signed-{in,out}-e2e` (both are
+full-page shots of the empty homepage). New — `homepage-season-rail-e2e`
+(`drinks-bar` on 18 Oct with Halloween and a recipe featured: two season
+rows, Halloween's marked "featured" and absent from the featured list) and
+`homepage-season-mobile-mobile`. Against canvas B: the band, chips, Make
+block, season rows and rail sit where the board has them. The fixtures
+have no photos, so the strips and thumbnails are monograms.
+
+**Heights** (full-page baselines, before → after): three recipes 1,172 →
+876 px (−25%); seven recipes 1,172 → 953 (−19%); empty 964 → 826; phone,
+three recipes 1,770 → 1,428 (−19%). The fixtures are short, so the
+~350 px footer is most of each page; above the footer, the seven-recipe
+page went from 822 to 603 px (−27%). The canvas measured the real corpus
+at 2,734 → ~1,400 px (−49%). The real repo is off-limits to code phases,
+so that page wasn't measured here — Roger's check after `pnpm workstation
+update`.
+
+**Roger to confirm.** Df3 (chips open search; the drink chip no longer
+goes to `/drinks`); Df4 ("Featured" over "Pinned"); Df5 (masthead search
+kept on `/`); Df6 (no line count on the shopping link); Df7's numbers;
+Df8 (no per-kind counts on the season rows — a follow-up once 42e's
+`holidaysPage` is on main); the phone order (the rail after the season,
+the featured list before New this week — the canvas puts "Pinned" after
+it).
+
+#### Traps (42f)
+
+- **`/holidays` had to be on main first.** "All holidays" and every
+  season row link into 42e's pages; 42f merged main after #284. Its
+  alias-aware lookup reaches the homepage too: `comingUpEntries` carries
+  `rule` (`holidayRuleKey`: the slug, else an alias's), and
+  `datedHolidays`, `seasonRows` and the row's date use `rule ?? slug`, so a
+  holiday dated only through an alias gets a row.
+- **`HOLIDAY_RULES[slug]` is an object lookup**: a term slugged
+  `constructor` or `toString` would find `Object.prototype`'s.
+  `datedHolidays` uses `hasOwnProperty`; `nextOccurrence` still indexes
+  directly (unchanged, 42e touches it).
+- **The palette baselines move with the homepage.** `command-palette.spec`
+  opens the palette over `/`, and `snapshotLocator`'s default masks paint
+  every `<time>` on the page — the homepage's date line and New this
+  week's dates included — so the masked boxes show through the dialog's
+  shot at the homepage's coordinates. 42f moved them: all seven
+  `palette-*` baselines regenerated in Docker (the dialog itself
+  unchanged), then 3× in build and dev mode, and every `@visual` once in
+  dev (41/41). Any later homepage layout change moves them again; scoping
+  the masks to the locator would end it.
+- **A spec can't freeze the server's clock.** `page.clock` moves the
+  browser only, so anything the server decides by date is decided by the
+  real date — Df2 is what makes the season specs hold on any day.
 
 ### 42h — Holidays for the agents (S–M)
 
@@ -1804,6 +2129,224 @@ did). The holiday tags came from `term assign`.
   crust line is a link. Sally's page warns that frozen fruit gives a soupy
   filling.
 - No features changed; the new terms are not on the homepage strip.
+
+### 42s — Search without the IndexedDB wait (S–M)
+
+Added overnight after a design agent's first free-text search in a fresh
+browser stayed on "Searching…" for 10–31 s, while ⌘K said "No results
+found." The diagnosis (2026-10-18) traced it to FlexSearch's `IdxDB` adapter:
+its commit does one `get` and one `put` per prefix key on the main thread,
+18,257 gets and 18,881 puts for the 807-recipe corpus. That took 5–14 s on
+the workstation, longer under load. It ran in every fresh browser and in
+every browser after any content write, because the version marker moves on
+each write, and search was gated on it. The server answers in under 0.8 s.
+An in-memory build of the same index takes under 1.3 s, and a query about
+1 ms. Scope: (A) build the index in memory and fetch `/search/ingredients`
+lazily, (B) a palette loading state, (C) "Loading recipes…" in place of
+"All 0 recipes".
+
+#### Results (42s)
+
+**What changed.**
+
+- `common/components/SearchForm/searchIndex.ts` (new) is the engine, kept
+  pure so it can be tested. `buildSearchIndex` builds the same FlexSearch
+  `Document` as before (`tokenize: "forward"`; fields in the priority order
+  name > tags > ingredients > description) in memory. It yields to the page
+  whenever a slice passes a 10 ms budget, through `scheduler.yield()` or a
+  `MessageChannel`, never `setTimeout`, which background tabs clamp.
+  `searchSlugs` searches with `limit` set to the corpus size. `searchRecipes`
+  looks the slugs up in the corpus the provider holds. `store` is off, so
+  every hit carries the current `groups` and there is no stored copy that
+  can go stale. `deleteLegacySearchIndex` removes the old databases and
+  markers.
+- `SearchContext.tsx` drops the `IdxDB` mount, the probe, the
+  `/search/version` fetch and the populated-version marker. The
+  ingredients, and the build after them, start on the first free text, on
+  the ⌘K palette opening (`prefetchIndex`, a new context member), or on a
+  filter that reads ingredients. A page that searches nothing never fetches
+  `/search/ingredients`. The build waits for the ingredients to settle, so
+  an ingredient-only word never gets a premature "No matches"; the previous
+  build keeps answering during a rebuild (`keepPreviousData`, `gcTime: 0`).
+  The search itself is a synchronous `useMemo`. The browse view's
+  `displayedRecipes` stays `undefined` until `/search/all` lands, so the
+  ticker says "Loading recipes…" instead of "All 0 recipes" (C).
+  `indexReady` is gone from the context; nothing read it.
+- ⌘K (B) has an always-mounted `role="status"` line above the listbox. It
+  says "Searching recipes…" while text is typed, nothing has failed, no
+  recipe hit is showing, and the index is unbuilt or the engine has not
+  answered. Meanwhile the list is `aria-busy` and "No results found." is
+  withheld. Opening the palette, from the shortcut or the trigger, calls
+  `prefetchIndex`.
+- The old persisted index is deleted once per browser, best effort. Where
+  `indexedDB.databases()` exists, only names that are present are deleted;
+  elsewhere only when an old marker is found. A fresh browser's IndexedDB
+  is never touched. Route comments (`search/all`, `ingredients`, `groups`,
+  `terms`, `version` in both apps) are updated. **The routes are
+  unchanged.**
+
+**Decisions.**
+
+- **Ds1 — no persistence.** This reverses the IndexedDB persistence chosen
+  in the original search overhaul (`ui-overhaul.md`, "Two latent IndexedDB
+  bugs fixed": the `recipe-search-v2` rename, `clear()` before repopulate,
+  `commit: false`). It also reverses what F4a and F27 built on it
+  (`packages/cms/docs/incremental-regeneration.md` §12.8 and §12.12: "the
+  version gate holds and the index is already in IndexedDB", so a repeat
+  visit skips `/search/ingredients`). Those premises no longer hold, for
+  three reasons. The editor re-downloads `/search/all` on every load
+  anyway. Persistence saved only `/search/ingredients` (≈320 KB, ~30 ms
+  from localhost) and a build of under a second. And it cost 5–30 s of
+  serialized IndexedDB round trips in every fresh browser and after every
+  content write, which on the workstation is often. The persisted index
+  also brought two bug classes this removes: a marker outliving its
+  database (`search-index-recovery.spec`), and a schema bump needing a DB
+  rename (27d's `-v3`).
+- **Ds2 — `limit` = corpus size (the 108 vs 103 discrepancy).** See below.
+  Every query now returns every match.
+- **Ds3 — lazy ingredients.** The triggers are free text, the palette
+  opening, and an ingredient-reading filter. The palette prefetches on open
+  rather than on hover, because open is the one signal that a search is
+  coming. `/search` with no query no longer fetches them (F4a's saving, now
+  on every cold load too).
+- **Ds4 — the client stops reading `/search/version`.** Both apps keep the
+  route (`measure-corpus-caching.ts` reads it, and it is the cheap "has the
+  corpus moved" probe).
+- **Ds5 — yielding by time budget (10 ms), not by recipe count**, per
+  review: 100 recipes are ~100–150 ms on a desktop and several times that
+  on a phone, while the user is typing after ⌘K.
+
+**108 vs 103, explained.** Neither index was stale. FlexSearch's default
+`limit` is 100 per field. For "lime" the ingredients field has 107 hits,
+spread across nine resolution slots ([—, 2, 9, 9, 19, 16, 17, 19, 16]).
+
+- The in-memory index honours the limit and cuts at 100, which gives 103
+  merged hits.
+- The `IdxDB` adapter's `get` (`src/db/indexeddb/index.js` l.218–250) takes
+  `min(slot, limit)` from each slot and stops only when the count lands
+  exactly on the limit. So for one-word queries it overshot to every hit:
+  all 107, giving 108. "salt" got all 504 of its ingredient hits the same
+  way, where the in-memory default answers 120.
+- Multi-word queries go through `intersect`, which applied the limit in
+  both engines.
+
+The intended behaviour is every match: the ticker reports totals, and
+`/search` reveals them 60 at a time. So the in-memory build was the one
+missing hits, and passing `limit: corpusSize` fixes it. The vitest pins this
+with 150 + 150 synthetic hits.
+
+Measured against the old build in a browser on the real corpus (the
+workstation's, `/search/all` 333 KB):
+
+- One-word queries answer the same count and the same first 60 results: lime
+  112 = 112, salt 525 = 525, sugar 308 = 308, chicken 100 = 100, creme 9 = 9.
+- Multi-word queries now return their whole tail: "lime juice" went from 133
+  to 272, with the first 60 identical.
+
+Against a _capped_ search, ranks past ~100 regroup by field: every field's
+hits now precede the next field's, so the name > tags > ingredients >
+description tiering holds all the way down. The old build already behaved
+this way for one-word queries. `store: true` with `enrich` and `store:
+false` with slug lookup give identical results (six queries compared).
+
+**Tests.** `test/searchIndex.test.ts` (new) pins the set and order for nine
+fixture queries copied from `search-corpus`: accent folding, tag order,
+ingredient-only, field priority, position ranking within a field, suggest,
+and prefix. It also covers every match beyond 100 per field, the
+time-budget yields, the real `yieldToMain`, the groups lookup, blank text,
+and the legacy cleanup (present, absent, no `databases()`, blocked
+storage). In Playwright: `search-cold-load.spec.ts` is new (a fresh
+context's `/search?q=ginger` answers within 5 s of the corpus responses
+with no IndexedDB database created; the browse view reads "Loading
+recipes…" while `/search/all` is held; an old `flexsearch:recipe-search-v3`
+plus marker is deleted on the next load). `search-corpus-split.spec.ts` is
+rewritten: browsing skips the ingredients and free text fetches them; a
+filter-only query fetches them; a query typed while they are held stays
+"Searching…" and does not settle to "No matches"; the palette opening
+fetches them; the bare negation. `command-palette.spec.ts` gains "a cold
+palette says it is searching, never that nothing matched" (ingredients
+held, status and axe, then rows, then a no-hit word shows "No results
+found."). `drinks.spec.ts`' invitation test now opens the palette to
+produce the failing ingredients request, which nothing on `/drinks` makes
+unprompted any more. `search-index-recovery.spec.ts` is **retired**: its
+subject, a localStorage marker vouching for an IndexedDB database it
+outlived, no longer exists.
+
+**Gates** (all through the capped wrappers):
+
+- `pnpm --filter recipe-editor typecheck`: 0 errors.
+- `pnpm --filter recipe-website exec tsc --noEmit`: 0 errors.
+- `pnpm exec vitest run`: **123 files, 2,497 tests passed**, including
+  `searchIndex.test.ts`'s 10.
+- Playwright, Docker build mode, on `search-cold-load`,
+  `search-corpus-split`, `command-palette`, `drinks`, `search-autocomplete`,
+  `search-live` and `search-query-language`: **107 passed, 1 flaky**. The
+  flaky one was `search-query-language` "a half-typed query…", which failed
+  in its `beforeEach` on two tickers (42s-T1) and passed on retry.
+- The four specs whose ticker is now scoped to `<main>`, rerun in build
+  mode: **42/42 passed**.
+- All seven specs once in Docker dev mode: **108/108 passed**.
+- No baselines moved: every visual's end state is unchanged, and the new
+  status line is `sr-only` and empty when idle.
+
+**Timings**, before and after, back to back:
+
+- **Before:** the workstation on `:3000`, the pre-42s production build.
+- **After:** this branch's production build on `:3077`, against a scratch
+  clone of the content repo (the same corpus: `/search/all` 333,084 B on
+  both).
+- Diagnosis script `repro.mjs`, one fresh context per run, headless Chromium
+  at 1366 px.
+- Load average 4.0–4.7 on 8 cores throughout. The diagnosis ran at 15–24,
+  which is why its "before" was 5–7 s.
+
+| run       | `/search?q=lime` → "112 results" (from navigation) | ⌘K "lime" → recipe rows (from Ctrl+K)               | warm reload          | IndexedDB after               | long tasks |
+| --------- | -------------------------------------------------- | --------------------------------------------------- | -------------------- | ----------------------------- | ---------- |
+| before    | 4.32 / 4.22 / 4.23 s                               | 2.27 / 2.14 / 2.26 s, "No results found." till then | 0.51 / 0.43 / 0.53 s | `flexsearch:recipe-search-v3` | 439–585 ms |
+| **after** | **1.26 / 0.81 / 0.82 s**                           | **0.29 / 0.32 / 0.38 s**, never empty               | 0.76 / 0.58 / 0.68 s | none                          | 127–227 ms |
+
+- **The cold first search is 3.4–5.2× faster.** What remains is the
+  network plus a sub-second build.
+- **⌘K is ready about 7× sooner**, and never claims "No results found."
+  while it waits.
+- **A warm reload costs ~0.1–0.2 s more** than restoring from IndexedDB,
+  because each page load rebuilds the index. That cost now also replaces
+  the 5–30 s full repopulate that every content write used to trigger.
+
+**Traps.**
+
+- **42s-T1 — a hidden second copy of `/search`.** Strict mode failed on
+  two `search-ticker`s: the visible one read "All 67 recipes", and a hidden
+  one stayed on "Loading recipes…". It is the same shape as 41-Th6 (there
+  on `/make`, in dev) and was seen once, in build mode, in
+  `search-query-language`'s `beforeEach`. The aria snapshot shows one
+  ticker, so the copy is not exposed. It most likely predates 42s: a hidden
+  copy before it would have read "All 0 recipes" and failed the same way. The fix:
+  the search specs read the ticker inside `getByRole("main")`. Do the same
+  in any new spec that reads a ticker.
+- **42s-T2 — a production editor build against the real corpus can time
+  out on `/tags/[tag]`.** At load ~30, the default 7 static-generation
+  workers had three pages each take more than 60 s (`/tags/easy`,
+  `/tags/holidays`), and the build failed. A scratch-only
+  `experimental.cpus: 2` plus `staticPageGenerationTimeout: 600` built all
+  292 pages in 71 s. The change was reverted and is not committed. It
+  matters only for timing builds outside the workstation's own update.
+
+**Roger to confirm.**
+
+- Multi-word queries now return every match ("lime juice" 133 → 272). Ranks
+  past ~100 group by field; the first 60 are unchanged in every query
+  measured. One-word queries are unchanged against the old build. The
+  alternative is a cap again (`limit: 100`), which gives the in-memory
+  103-style truncation.
+- Both apps keep `/search/version`, but the client no longer reads it
+  (Ds4). Remove it in a later hygiene pass, or keep it?
+- The palette prefetches on open only, not on hovering or focusing the
+  trigger. A cold ⌘K waits ~0.3 s for the ingredients fetch and the build.
+- A browser on the old build keeps its ~5.5 MB database until it next loads
+  a 42s page, which deletes it.
+- The warm reload is ~0.1–0.2 s slower (above). A Web Worker or an idle
+  prebuild could hide it if it is ever noticed; neither was built.
 
 ### 42m — Bean swaps on Make (M)
 
@@ -2382,14 +2925,14 @@ https://claude.ai/artifact/5BY2PY7STnvb4wxEmV6WCG.
   - Plan, at home: "What's on it" by plan and recipe with Remove these,
     sub-recipes and the switches beside the list.
   - The shared view, the copy text and `shopping_get` are unchanged (D5).
-- **42d, `/drinks` (#291, `MERGE291`).**
+- **42d, `/drinks` (#291, `f94a8d37`).**
   - "What drinks can I make?" over the shelf, which follows `/make`'s Count
     from, then Pour now and Buy next.
   - In season: the current and next holiday side by side, inside 38a's
     60-day window, linking to their menus.
   - Browse the bar: a dot-leader index of spirit & base, style and
     classics. A NEW mark replaces "New drinks".
-- **42f, the homepage (#287, `MERGE287`).**
+- **42f, the homepage (#287, `3a51cfbe`).**
   - A search field beside the Make tile, with the intents as `tag:` chips.
   - "This season": rows for the next three dated holidays, linking into
     42e's pages.
@@ -2412,7 +2955,7 @@ https://claude.ai/artifact/5BY2PY7STnvb4wxEmV6WCG.
     rows, and the other groups are at most four across.
   - `any bean` is a matcher that meets every family bean. Its tape opens
     "Which beans do you have?" to narrow it.
-- **42s, search without the IndexedDB wait (#292, `MERGE292`).**
+- **42s, search without the IndexedDB wait (#292, `7c5d3b96`).**
   - The FlexSearch index is built in memory, with no IndexedDB, and
     `/search/ingredients` is fetched lazily. The old database is deleted.
   - ⌘K shows "Searching recipes…" instead of "No results found."

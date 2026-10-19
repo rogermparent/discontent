@@ -5,7 +5,10 @@ import { recipeContentConfig } from "recipe-website-common/controller/recipeCont
 export const dynamic = "force-dynamic";
 
 /**
- * The marker the client's cached search index is keyed on.
+ * The corpus version marker. Until 42s the client's IndexedDB-cached search
+ * index was keyed on it; the index is now built in memory on each page load,
+ * so the client no longer reads it. It stays for the measurement scripts and
+ * as the cheap "has the corpus moved" probe it is.
  *
  * It used to be `data.mdb`'s mtime and size, a proxy that lied in both
  * directions: it moved when nothing semantic did — re-copying the corpus
