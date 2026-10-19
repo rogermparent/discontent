@@ -71,10 +71,14 @@ async function shoppingSummary(
 
 export default async function GroupPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ mode?: string | string[] }>;
 }) {
   const { slug } = await params;
+  /* `?mode=cook` from /groups' Cook button: rendered Cook from the start. */
+  const { mode } = await searchParams;
   let group;
   try {
     group = await getGroupBySlug({ slug });
@@ -108,9 +112,9 @@ export default async function GroupPage({
     ]);
     second = { kind: "saved" as const, items: saved.items };
     editor = {
-      saveItems: async (next: GroupItem[]) => {
+      saveItems: async (next: GroupItem[], base: string) => {
         "use server";
-        return savePlanItems(slug, next);
+        return savePlanItems(slug, next, base);
       },
       addItem: async (ref: GroupItemRef) => {
         "use server";
@@ -142,6 +146,7 @@ export default async function GroupPage({
       items={items}
       editor={editor}
       second={second}
+      mode={typeof mode === "string" ? mode : undefined}
     />
   );
 }

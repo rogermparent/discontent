@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, useTransition, type ReactNode } from "react";
 import {
   ChevronDown,
   Ellipsis,
@@ -36,6 +36,7 @@ import {
   initialDraft,
   labelRuns,
   moveRow,
+  planItemsKey,
   readLabel,
   removeRow,
   rowCaption,
@@ -652,6 +653,13 @@ export function PlanList({
   const [dragging, setDragging] = useState<number | null>(null);
   const [armed, setArmed] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  /*
+   * After a Save lands, the bar stays disabled until the refreshed rows do
+   * (and the draft resets over them): no flash back to "2 changes", no
+   * second Save of the same draft over the first.
+   */
+  const [refreshing, startRefresh] = useTransition();
+  const busy = saving || refreshing;
   const [error, setError] = useState<string>();
   const changes = editor ? draftChanges(draft, items) : 0;
   const ordered = draft.order.map((index) => ({ row: rows[index], index }));
@@ -667,13 +675,16 @@ export function PlanList({
     });
 
   async function save() {
-    if (!editor) return;
+    if (!editor || busy) return;
     setSaving(true);
     setError(undefined);
     try {
-      const result = await editor.saveItems(draftItems(draft, items));
+      const result = await editor.saveItems(
+        draftItems(draft, items),
+        planItemsKey(items),
+      );
       if ("error" in result) setError(result.error);
-      else router.refresh();
+      else startRefresh(() => router.refresh());
     } catch {
       setError(
         "Couldn't reach the editor — check the connection and try again.",
@@ -707,7 +718,7 @@ export function PlanList({
               type="button"
               variant="outline"
               size="sm"
-              disabled={saving}
+              disabled={busy}
               onClick={() => {
                 setDraft(initialDraft(rows.length));
                 setError(undefined);
@@ -718,10 +729,10 @@ export function PlanList({
             <Button
               type="button"
               size="sm"
-              disabled={saving}
+              disabled={busy}
               onClick={() => void save()}
             >
-              {saving ? "Saving…" : "Save"}
+              {busy ? "Saving…" : "Save"}
             </Button>
           </div>
         ) : (

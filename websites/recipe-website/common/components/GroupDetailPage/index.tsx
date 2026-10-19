@@ -42,6 +42,12 @@ export interface GroupDetailPageProps {
   editor?: PlanEditor;
   /** From your shelf's second list (the saved one, or the export's house list). */
   second?: SecondList;
+  /**
+   * The address's `?mode=` as the server read it — the editor's page is
+   * dynamic, so a `?mode=cook` link renders Cook from the first byte. Absent
+   * on the export (static: it renders Plan and switches as it hydrates).
+   */
+  mode?: string;
 }
 
 /**
@@ -61,6 +67,7 @@ export default async function GroupDetailPage({
   items,
   editor,
   second,
+  mode,
 }: GroupDetailPageProps) {
   const data = await readPlanPage(group, slug, items);
   const images: Record<string, ReactNode> = {};
@@ -101,6 +108,7 @@ export default async function GroupDetailPage({
           images={images}
           editor={editor}
           second={second}
+          serverMode={mode === "cook" || mode === "plan" ? mode : undefined}
           description={
             group.description ? (
               <Markdown>{group.description}</Markdown>

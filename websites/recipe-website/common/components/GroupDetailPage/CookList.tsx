@@ -466,6 +466,9 @@ export function CookList({
 
       {byLabel ? (
         <section aria-label="The plan, by label">
+          {/* The labels are h3s (`LabelHeading`): an h2 first keeps the
+           * page's outline in order (43p1 review). */}
+          <h2 className="sr-only">The plan, by label</h2>
           {labelRuns(rows).map((run, r) => {
             const nextHere = run.rows.some(
               ({ index }) => index === next?.index,

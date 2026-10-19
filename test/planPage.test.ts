@@ -9,6 +9,7 @@ import {
   madeStorageKey,
   moveRow,
   parseTicks,
+  planItemsKey,
   readLabel,
   removeRow,
   rowCaption,
@@ -191,5 +192,31 @@ describe("ticks", () => {
       "recipe:a",
       "group:b",
     ]);
+  });
+});
+
+describe("planItemsKey", () => {
+  /* The review's concurrent-write check: a Save carries the key of the rows
+   * its draft was made over; the action refuses when the stored key differs. */
+  const rows: GroupItem[] = [
+    { recipe: "spritz", label: "Mon", scale: "2" },
+    { group: "cookie-tray" },
+  ];
+
+  it("ignores key order and absent fields", () => {
+    expect(
+      planItemsKey([
+        { scale: "2", label: "Mon", recipe: "spritz" },
+        { group: "cookie-tray", label: undefined } as GroupItem,
+      ]),
+    ).toBe(planItemsKey(rows));
+  });
+
+  it("changes with the rows' order, a value, an added or a removed row", () => {
+    const base = planItemsKey(rows);
+    expect(planItemsKey([rows[1], rows[0]])).not.toBe(base);
+    expect(planItemsKey([{ ...rows[0], scale: "3" }, rows[1]])).not.toBe(base);
+    expect(planItemsKey([...rows, { recipe: "linzer" }])).not.toBe(base);
+    expect(planItemsKey([rows[0]])).not.toBe(base);
   });
 });

@@ -42,6 +42,14 @@ export interface PlanChill {
   overnight?: boolean;
 }
 
+/** A rest: "10 minutes", "5–10 minutes", "overnight". */
+export interface PlanRest {
+  /** Minutes; absent for a bare "rest overnight". */
+  min?: number;
+  max?: number;
+  overnight?: boolean;
+}
+
 /** How long it keeps made ahead: "up to 3 days", "2–3 days ahead". */
 export interface PlanKeeps {
   count: number;
@@ -100,7 +108,7 @@ export interface PlanFact<T> {
 export interface PlanTimes {
   chill?: PlanFact<PlanChill>;
   keeps?: PlanFact<PlanKeeps>;
-  rest?: PlanFact<PlanSpan>;
+  rest?: PlanFact<PlanRest>;
   bake?: PlanFact<PlanBake>;
   oven?: PlanFact<PlanOven>;
   /** From `recipeYield`, not the steps — so it has no sentence. */
@@ -139,7 +147,8 @@ function countValue(text: string): number {
 /** A sentence about keeping what is already made, or leftovers. */
 const LEFTOVERS_RE =
   /\b(?:leftovers?|room temperature|airtight|baked cookies|cooled cookies)\b/i;
-const FREEZE_RE = /\bfreez(?:e|es|er|ing)\b|\bfrozen\b/i;
+/* Not "freeze-dried strawberries": an ingredient, not a wait. */
+const FREEZE_RE = /\bfreez(?:e|es|er|ing)\b(?!-dried)|\bfrozen\b/i;
 
 /**
  * A chill as a verb: "chill", "refrigerate", "cover and chill the dough",
@@ -161,12 +170,20 @@ const BAKE_VERB_RE = /(?<![-\w])(?<!blind\s)bake(?:s)?\b/i;
 
 /**
  * The oven's temperature: "preheat the oven to 350°F (177°C)", "Bake at
- * 375 °F", "350 degrees F", "180°C". The unit is required — "preheat to 350
- * degrees" is not plain enough to say F.
+ * 375 °F", "350 degrees F", "in a 180°C oven". The unit is required —
+ * "preheat to 350 degrees" is not plain enough to say F — and so is the
+ * oven's own wording before the number ("preheat … to", "oven to", "bake at",
+ * "roast at") or "in a N° oven" around it: a number that only shares a
+ * sentence with "oven" is a thermometer's, the oil's or a warm oven's.
  */
-const OVEN_RE =
-  /\b(\d{3})\s*(?:°|º|˚|degrees?)\s*(F|C|Fahrenheit|Celsius)\b|\b(\d{3})\s*(F|C)\b(?=\s*[(.,;]|\s+(?:oven|for|until)\b)/i;
-const OVEN_CONTEXT_RE = /\b(?:preheat|oven|bake|roast)\b/i;
+const DEGREES = String.raw`(\d{3})\s*(?:(?:°|º|˚|degrees?)\s*(F|C|Fahrenheit|Celsius)\b|(F|C)\b(?=\s*[(.,;]|\s+(?:oven|for|until|and)\b|\s*$))`;
+const OVEN_RE = new RegExp(
+  String.raw`(?:\bpreheat\b[^.!?;]{0,30}?\bto|\boven\s+to|\b(?:bake|roast)(?:s|ed)?\s+(?:it\s+|them\s+)?at)\s+${DEGREES}|\bin\s+an?\s+${DEGREES}\s*oven\b`,
+  "i",
+);
+/** Sentences whose numbers are never the oven's. */
+const NOT_OVEN_RE =
+  /\b(?:internal|thermometer|reads?|registers?|reach(?:es)?|oil|fry|fries|frying|deep-fry|keep\s+(?:it\s+|them\s+)?warm)\b/i;
 
 /** "the icing sets", "allow the glaze to set", "until the chocolate hardens". */
 const SET_RE =
@@ -196,23 +213,48 @@ function spanOf(time: StepTime): PlanSpan {
 }
 
 /**
- * The first time after `from` in `sentence`, within `NEAR` characters, with
- * the words between — or `undefined`.
+ * Where a verb's clause ends: a semicolon, "then", or another timed verb
+ * (bake, chill, refrigerate, let/allow …). "Refrigerate dough overnight; the
+ * next day bake 10 minutes" — the 10 minutes are the bake's, not the chill's.
+ */
+const CLAUSE_END_RE =
+  /;|\bthen\b|(?<![-\w])bake(?:s)?\b|\bchill(?:s|ing)?\b|\brefrigerat(?:e|es|ing)\b|\b(?:let|allow)\b/i;
+
+/** `text` up to the end of its first clause (see `CLAUSE_END_RE`). */
+function clause(text: string): string {
+  const end = CLAUSE_END_RE.exec(text);
+  return end ? text.slice(0, end.index) : text;
+}
+
+/**
+ * The first time after `from` in `sentence`, within `NEAR` characters and
+ * the verb's own clause, with the words between — or `undefined`.
  */
 function timeAfter(
   sentence: string,
   from: number,
   near = NEAR,
-): { time: StepTime; lead: string } | undefined {
-  const rest = sentence.slice(from);
+): { time: StepTime; lead: string; tail: string } | undefined {
+  const rest = clause(sentence.slice(from));
   const [time] = findStepTimes(rest);
   if (!time || time.start > near) return undefined;
-  return { time, lead: rest.slice(0, time.start) };
+  return {
+    time,
+    lead: rest.slice(0, time.start),
+    tail: rest.slice(time.end),
+  };
 }
 
 const UP_TO_RE = /\bup\s+to\s*$/i;
 const AT_LEAST_RE = /\b(?:at\s+least|a\s+minimum\s+of|minimum)\s*$/i;
 const ABOUT_RE = /\b(?:about|around|approximately|roughly)\s*$/i;
+/** "Bake 2 to 3 minutes longer", "another 5 minutes": a top-up, not the bake. */
+const MORE_AFTER_RE = /^\s*(?:longer|more)\b/i;
+const MORE_BEFORE_RE = /\b(?:another|additional|more|extra)\s*$/i;
+/** "Chill a coupe", "chill the glasses": the glassware, not the dish. */
+const GLASSWARE_RE =
+  /^\s+(?:(?:a|an|the|your|two|\d+)\s+)?(?:\w+\s+)?(?:glass(?:es)?|coupes?|shakers?|mugs?|tins?)\b/i;
+const OVERNIGHT_RE = /\bovernight\b/i;
 
 /** A chill, read from one sentence, or `undefined`. */
 export function readChill(sentence: string): PlanChill | undefined {
@@ -222,12 +264,20 @@ export function readChill(sentence: string): PlanChill | undefined {
   const verb = CHILL_VERB_RE.exec(sentence);
   if (!verb) return undefined;
   const after = verb.index + verb[0].length;
-  const tail = sentence.slice(after);
-  const overnight = /^[^.!?]{0,40}?\bovernight\b/i.test(tail);
+  const tail = clause(sentence.slice(after));
+  if (GLASSWARE_RE.test(tail)) return undefined;
+  const night = OVERNIGHT_RE.exec(tail);
+  const overnight = night !== null && night.index <= 40;
   const found = timeAfter(sentence, after);
+  /* "Refrigerate overnight, or 8 hours": a lone overnight first is the answer. */
+  if (night && overnight && (!found || night.index < found.time.start)) {
+    return { overnight: true };
+  }
   if (!found || UP_TO_RE.test(found.lead)) {
     return overnight ? { overnight: true } : undefined;
   }
+  /* "Shake for 15 seconds": under a minute is never a chill. */
+  if (found.time.seconds < 60) return undefined;
   const span = spanOf(found.time);
   return {
     min: span.min,
@@ -275,10 +325,19 @@ export function readKeeps(sentence: string): PlanKeeps | undefined {
 }
 
 /** A rest, from one sentence, or `undefined`. */
-export function readRest(sentence: string): PlanSpan | undefined {
+export function readRest(sentence: string): PlanRest | undefined {
   const verb = REST_VERB_RE.exec(sentence);
   if (!verb) return undefined;
-  const found = timeAfter(sentence, verb.index + verb[0].length);
+  const after = verb.index + verb[0].length;
+  const night = OVERNIGHT_RE.exec(clause(sentence.slice(after)));
+  const found = timeAfter(sentence, after);
+  if (
+    night &&
+    night.index <= 40 &&
+    (!found || night.index < found.time.start)
+  ) {
+    return { overnight: true };
+  }
   if (!found || UP_TO_RE.test(found.lead)) return undefined;
   return spanOf(found.time);
 }
@@ -292,17 +351,22 @@ export function readBake(
   /* Room for "at 350°F (177°C) on the middle rack for" between. */
   const found = timeAfter(sentence, verb.index + verb[0].length, 80);
   if (!found || UP_TO_RE.test(found.lead)) return undefined;
+  if (MORE_AFTER_RE.test(found.tail) || MORE_BEFORE_RE.test(found.lead)) {
+    return undefined;
+  }
   const span = spanOf(found.time);
   return { ...span, ...(ABOUT_RE.test(found.lead) ? { about: true } : {}) };
 }
 
 /** The oven's temperature, from one sentence, or `undefined`. */
 export function readOven(sentence: string): PlanOven | undefined {
-  if (!OVEN_CONTEXT_RE.test(sentence)) return undefined;
+  if (NOT_OVEN_RE.test(sentence)) return undefined;
   const match = OVEN_RE.exec(sentence);
   if (!match) return undefined;
-  const degrees = Number(match[1] ?? match[3]);
-  const unit = (match[2] ?? match[4]).charAt(0).toUpperCase() as "F" | "C";
+  const degrees = Number(match[1] ?? match[4]);
+  const unit = (match[2] ?? match[3] ?? match[5] ?? match[6])
+    .charAt(0)
+    .toUpperCase() as "F" | "C";
   /* A cool or a scorching number is not an oven. */
   const [low, high] = unit === "F" ? [200, 550] : [90, 290];
   if (degrees < low || degrees > high) return undefined;

@@ -31,18 +31,10 @@ function subscribe(listener: () => void): () => void {
   };
   window.addEventListener("storage", onStorage);
   window.addEventListener("popstate", listener);
-  let media: MediaQueryList | undefined;
-  try {
-    media = window.matchMedia(WIDE);
-    media.addEventListener("change", listener);
-  } catch {
-    media = undefined;
-  }
   return () => {
     listeners.delete(listener);
     window.removeEventListener("storage", onStorage);
     window.removeEventListener("popstate", listener);
-    media?.removeEventListener("change", listener);
   };
 }
 
@@ -90,6 +82,13 @@ function urlMode(): PlanMode | undefined {
 }
 
 /**
+ * The viewport's default, decided once — the first time a plan page reads
+ * its mode in this page load — so a window dragged across 1024 px, or a
+ * tablet turned, does not flip the page under the reader (43p1 review).
+ */
+let viewportDefault: PlanMode | undefined;
+
+/**
  * The address's `?mode=` first (a link chose it), then what this browser
  * chose last, then the viewport's job — planning on a wide screen, cooking
  * on a phone.
@@ -99,20 +98,31 @@ function readMode(): PlanMode {
   if (fromUrl) return fromUrl;
   const stored = read(MODE_KEY);
   if (isMode(stored)) return stored;
-  try {
-    return window.matchMedia(WIDE).matches ? "plan" : "cook";
-  } catch {
-    return "plan";
+  if (viewportDefault === undefined) {
+    try {
+      viewportDefault = window.matchMedia(WIDE).matches ? "plan" : "cook";
+    } catch {
+      viewportDefault = "plan";
+    }
   }
+  return viewportDefault;
 }
 
 /**
  * The page's mode. The server renders Plan (Dp1-2): the list in order is the
  * document — the export's static HTML and a reader without scripts get the
- * whole plan — and a phone switches to Cook as it hydrates.
+ * whole plan — and a phone switches to Cook as it hydrates. `serverMode`:
+ * the address's `?mode=` as a dynamic page's server read it, so a
+ * `?mode=cook` link renders Cook first instead of flashing Plan.
  */
-export function usePlanMode(): [PlanMode, (mode: PlanMode) => void] {
-  const mode = useSyncExternalStore(subscribe, readMode, () => "plan" as const);
+export function usePlanMode(
+  serverMode?: PlanMode,
+): [PlanMode, (mode: PlanMode) => void] {
+  const mode = useSyncExternalStore(
+    subscribe,
+    readMode,
+    () => serverMode ?? "plan",
+  );
   const setMode = useCallback((next: PlanMode) => {
     /* A link's `?mode=` would outrank the choice: say the new one there. */
     if (urlMode()) {

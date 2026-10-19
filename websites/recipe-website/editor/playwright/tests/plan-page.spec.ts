@@ -310,6 +310,46 @@ test.describe("Meal plan: plan at home", () => {
     expect((await getContentGitLog())[0]).toBe(`Set items on group: ${PLAN}`);
   });
 
+  test("signed in: a Save over a plan changed meanwhile writes nothing", async ({
+    page,
+    request,
+    createApiToken,
+  }) => {
+    await page.goto(`/group/${PLAN}`);
+    await signIn(page);
+    await expect(page).toHaveURL(new RegExp(`/group/${PLAN}$`));
+    const menu = page.getByRole("button", {
+      name: "Move or remove Spritz Cookies",
+    });
+    await expectHydrated(menu);
+    await menu.click();
+    await page.getByRole("button", { name: "Move down" }).click();
+    const bar = page.getByTestId("plan-save-bar");
+    await expect(bar).toContainText("1 change · not saved");
+
+    /* Another writer adds a row while the draft is open. */
+    const added = await request.post(`/api/group/${PLAN}/items`, {
+      headers: { authorization: `Bearer ${await createApiToken()}` },
+      data: { recipe: "plan-spritz", label: "Again" },
+    });
+    expect(added.status()).toBe(200);
+
+    await bar.getByRole("button", { name: "Save" }).click();
+    await expect(
+      page
+        .getByRole("region", { name: "In this plan, in order" })
+        .getByRole("alert"),
+    ).toHaveText("The plan changed — reload to see it.");
+    await page.reload();
+    await expect(rows(page).getByRole("link")).toHaveText([
+      "Spritz Cookies",
+      "Gingerbread Cookies",
+      "Peanut Butter Blossoms",
+      "Iced Sugar Cookies",
+      "Spritz Cookies",
+    ]);
+  });
+
   test("signed in: Undo drops the draft, and Add appends a row", async ({
     page,
   }) => {

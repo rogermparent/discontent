@@ -46,6 +46,13 @@ describe("readChill", () => {
       { min: 120, atLeast: true, overnight: true },
     ],
     ["Cover and refrigerate overnight.", { overnight: true }],
+    /* The clause ends at the semicolon: the 10 minutes are the bake's. */
+    [
+      "Refrigerate dough overnight; the next day bake 10 minutes.",
+      { overnight: true },
+    ],
+    /* A lone "overnight" before any time is the answer. */
+    ["Chill overnight, or for 3 days.", { overnight: true }],
   ])("reads %j", (sentence, expected) => {
     expect(readChill(sentence)).toEqual(expected);
   });
@@ -59,6 +66,9 @@ describe("readChill", () => {
     "Chill the dough in the freezer for 10 minutes.",
     "Chill until firm.",
     "Store at room temperature, or chill for 2 hours if you like them firm.",
+    "Chill a coupe and shake for 15 seconds.",
+    "Chill the glasses, then bake the cookies for 10 minutes.",
+    "Chill, then shake for 30 seconds.",
   ])("reads nothing in %j", (sentence) => {
     expect(readChill(sentence)).toBeUndefined();
   });
@@ -100,6 +110,10 @@ describe("readRest", () => {
     ],
     ["Let the batter rest for 10 minutes.", { min: 10 }],
     ["Let stand 5-10 minutes.", { min: 5, max: 10 }],
+    [
+      "Let the dough rest overnight, then roll out and cut; bake 8 minutes.",
+      { overnight: true },
+    ],
   ])("reads %j", (sentence, expected) => {
     expect(readRest(sentence)).toEqual(expected);
   });
@@ -109,6 +123,7 @@ describe("readRest", () => {
     "Let the dough rise for 1 hour.",
     "Rest your arms.",
     "Let rest until it is easy to roll.",
+    "Let the dough rest, covered, then bake for 25 minutes.",
   ])("reads nothing in %j", (sentence) => {
     expect(readRest(sentence)).toBeUndefined();
   });
@@ -129,6 +144,13 @@ describe("readBake", () => {
       "Bake for about 15 minutes, until the bottoms are lightly golden.",
       { min: 15, about: true },
     ],
+    ["Let the dough rest, covered, then bake for 25 minutes.", { min: 25 }],
+    /* The thermometer's 200°F is not the oven's; the minutes are the bake's. */
+    [
+      "Bake until the bread reads 200°F on a thermometer, 35 to 40 minutes.",
+      { min: 35, max: 40 },
+    ],
+    ["Bake for 8 minutes, then bake 2 to 3 minutes longer.", { min: 8 }],
   ])("reads %j", (sentence, expected) => {
     expect(readBake(sentence)).toEqual(expected);
   });
@@ -139,6 +161,9 @@ describe("readBake", () => {
     "Baked cookies keep for 5 days.",
     "Line a baking sheet with parchment and let sit 10 minutes.",
     "Bake until golden brown.",
+    "Bake 2 to 3 minutes longer if needed.",
+    "Bake 2 to 3 minutes more, until set.",
+    "Bake for another 5 minutes.",
   ])("reads nothing in %j", (sentence) => {
     expect(readBake(sentence)).toBeUndefined();
   });
@@ -153,6 +178,9 @@ describe("readOven", () => {
     ],
     ["Bake at 180°C for 12 minutes.", { degrees: 180, unit: "C" }],
     ["Preheat the oven to 400 F.", { degrees: 400, unit: "F" }],
+    ["Roast at 450°F for 25 minutes.", { degrees: 450, unit: "F" }],
+    ["Heat the oven to 425°F.", { degrees: 425, unit: "F" }],
+    ["Bake in a 180°C oven for 40 minutes.", { degrees: 180, unit: "C" }],
   ])("reads %j", (sentence, expected) => {
     expect(readOven(sentence)).toEqual(expected);
   });
@@ -162,6 +190,11 @@ describe("readOven", () => {
     "Heat the syrup to 240°F.",
     "Preheat the oven.",
     "Cool to 100°F before slicing in the oven light.",
+    "Heat the oil in a Dutch oven to 350°F and fry the doughnuts 2 minutes per side.",
+    "Roast until the internal temperature reaches 205°F.",
+    "Bake until the bread reads 200°F on a thermometer, 35 to 40 minutes.",
+    "Keep warm in a 200°F oven for up to 30 minutes.",
+    "Bake until a thermometer registers 190°F in the oven.",
   ])("reads nothing in %j", (sentence) => {
     expect(readOven(sentence)).toBeUndefined();
   });
@@ -194,6 +227,7 @@ describe("readExtra", () => {
     "Freezer-friendly: wrap tightly.",
     "Spread the icing over the cookies.",
     "Let the icing set completely.",
+    "Fold in the freeze-dried strawberries, crushed; bake 10 minutes.",
   ])("reads nothing in %j", (sentence) => {
     expect(readExtra(sentence)).toBeUndefined();
   });

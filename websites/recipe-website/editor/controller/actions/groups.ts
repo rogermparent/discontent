@@ -33,6 +33,10 @@ import {
   setItems,
 } from "../curation/groups";
 import { GroupCycleError, toErrorObject } from "../curation/errors";
+import {
+  PLAN_CHANGED,
+  planItemsKey,
+} from "recipe-website-common/util/planPage";
 
 /**
  * The parsed form, as a group record plus the uploads that go with it. The one
@@ -308,9 +312,21 @@ async function planWrite(
 export async function savePlanItems(
   slug: string,
   items: unknown,
+  base: unknown,
 ): Promise<PlanWriteResult> {
+  /*
+   * `base`: the key of the rows the page's draft was made over
+   * (`planItemsKey`). When the stored rows differ — another tab, the API or
+   * an agent wrote since the page rendered — nothing is written and the page
+   * says so, rather than this Save silently undoing that write.
+   */
+  if (typeof base !== "string") return { error: PLAN_CHANGED };
   return planWrite((email) =>
-    setItems(curationContextFor(email), slug, items, { force: true }),
+    setItems(curationContextFor(email), slug, items, {
+      force: true,
+      unchanged: (current) => planItemsKey(current) === base,
+      changedMessage: PLAN_CHANGED,
+    }),
   );
 }
 

@@ -31,8 +31,9 @@ export function PlanPage({
   images,
   editor,
   second,
+  serverMode,
 }: PlanPageProps) {
-  const [mode, setMode] = usePlanMode();
+  const [mode, setMode] = usePlanMode(serverMode);
   const shelf = usePlanShelf(data.slug, second);
   const makeAhead = useMakeAhead(data.rows);
   return (

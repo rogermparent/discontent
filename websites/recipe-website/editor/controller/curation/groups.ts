@@ -612,11 +612,27 @@ export async function setItems(
   ctx: CurationContext,
   slug: string,
   rawItems: unknown,
-  { force = false }: { force?: boolean } = {},
+  {
+    force = false,
+    unchanged,
+    changedMessage = "The group's items changed since they were read.",
+  }: {
+    force?: boolean;
+    /**
+     * The plan page's check (43p1): `false` for the stored items means they
+     * are not the ones the caller's list was made over, and nothing is
+     * written — a `validation` error saying `changedMessage`.
+     */
+    unchanged?: (current: readonly GroupItem[]) => boolean;
+    changedMessage?: string;
+  } = {},
 ): Promise<GroupWriteResult> {
   const parsed = parseInput(z.array(GroupItemInputSchema), rawItems);
   const items = toGroupItems(parsed);
   const current = await requireGroup(ctx, slug);
+  if (unchanged && !unchanged(current.items ?? [])) {
+    throw new ValidationError(changedMessage);
+  }
   const warnings = await checkItems(ctx, slug, items, force);
   return writeItems(
     ctx,

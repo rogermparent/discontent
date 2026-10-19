@@ -22,8 +22,12 @@ export interface PlanShoppingSummary {
  * and for a guest: the page is then read-only — no Save, no Add, no More.
  */
 export interface PlanEditor {
-  /** D5: reorder, scale and remove, as one commit (`setItems`). */
-  saveItems: (items: GroupItem[]) => Promise<PlanWriteResult>;
+  /**
+   * D5: reorder, scale and remove, as one commit (`setItems`). `base` is
+   * `planItemsKey` of the rows the draft was made over; a plan that has
+   * changed since is refused with `PLAN_CHANGED` and nothing is written.
+   */
+  saveItems: (items: GroupItem[], base: string) => Promise<PlanWriteResult>;
   /** "Add a recipe or a plan by name": one commit (`addItem`). */
   addItem: (ref: GroupItemRef) => Promise<PlanWriteResult>;
   /** The delete form's action (`deleteGroup`, bound to the plan). */
@@ -52,4 +56,6 @@ export interface PlanPageProps extends PlanSlots {
   editor?: PlanEditor;
   /** The page's second list for From your shelf, as /make's and /drinks'. */
   second?: SecondList;
+  /** `?mode=` as the server read it (the editor's dynamic page only). */
+  serverMode?: "plan" | "cook";
 }

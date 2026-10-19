@@ -322,6 +322,34 @@ export function draftItems(
   });
 }
 
+/** What a Save answers when the stored rows are not the ones it was made over. */
+export const PLAN_CHANGED = "The plan changed — reload to see it.";
+
+/** A JSON value with its object keys sorted and `undefined` fields dropped. */
+function stable(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stable);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, field]) => field !== undefined)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, field]) => [key, stable(field)]),
+    );
+  }
+  return value;
+}
+
+/**
+ * The rows a draft was made over, as a key (43p1 review): the page sends it
+ * with a Save, and the action refuses the Save when the stored rows' key
+ * differs — another tab, the API or an agent wrote in between — rather than
+ * writing the draft over that change. Key order and absent fields don't
+ * count; the rows' order and every value do.
+ */
+export function planItemsKey(items: readonly GroupItem[]): string {
+  return JSON.stringify(stable(items));
+}
+
 /** How many changes the draft holds: moves, scales and removals, each once. */
 export function draftChanges(
   draft: PlanDraft,
