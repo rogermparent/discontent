@@ -1,0 +1,75 @@
+/*
+ * The recipe page's body in cooking order (epic 42c1). Imported by both apps'
+ * globals.css. Components layer, so a utility at a call site (`print:block`)
+ * still wins.
+ *
+ * One DOM, three layouts, placed by grid areas:
+ *
+ * - below `lg` (64rem): one column — schedule, heads-up, ingredients, steps,
+ *   "Appears in" — each block centred at the old 36rem measure;
+ * - from `lg`: canvas B — the heads-up across the top, the ingredients a
+ *   sticky rail (see `Ingredients`) beside the steps;
+ * - from 100rem (1600px), unless the reader chose two columns in Appearance
+ *   (`data-recipe-columns="two"` on <html>, set before paint by
+ *   `wideRecipePrePaintScript`): canvas C's three columns — ingredients |
+ *   steps | heads-up, cook schedule and "Appears in".
+ *
+ * Gaps are margins on the blocks, not `row-gap`: an absent block (no
+ * heads-up, no schedule) leaves an empty grid row, and a row gap would still
+ * open a band there.
+ */
+@layer components {
+  .recipe-body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  @media (min-width: 64rem) {
+    .recipe-body {
+      display: grid;
+      max-width: 72rem;
+      margin-inline: auto;
+      column-gap: 1.5rem;
+      align-items: start;
+      grid-template-columns: minmax(17rem, 22rem) minmax(0, 1fr);
+      grid-template-areas:
+        "schedule schedule"
+        "headsup headsup"
+        "ingredients steps"
+        "appears appears";
+    }
+    .recipe-area-schedule {
+      grid-area: schedule;
+    }
+    .recipe-area-headsup {
+      grid-area: headsup;
+    }
+    .recipe-area-ingredients {
+      grid-area: ingredients;
+    }
+    .recipe-area-steps {
+      grid-area: steps;
+    }
+    .recipe-area-appears {
+      grid-area: appears;
+      margin-top: 1rem;
+    }
+  }
+
+  @media (min-width: 100rem) {
+    :root:not([data-recipe-columns="two"]) .recipe-body {
+      max-width: 102rem;
+      grid-template-columns:
+        minmax(18rem, 22rem) minmax(0, 1fr)
+        minmax(18rem, 24rem);
+      grid-template-rows: auto auto 1fr;
+      grid-template-areas:
+        "ingredients steps headsup"
+        "ingredients steps schedule"
+        "ingredients steps appears";
+    }
+    :root:not([data-recipe-columns="two"]) .recipe-area-appears {
+      margin-top: 0;
+    }
+  }
+}

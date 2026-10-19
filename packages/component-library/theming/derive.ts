@@ -46,8 +46,9 @@ const NEUTRALS: Record<NeutralKey, NeutralSpec> = {
 
 /*
  * Form-control borders (epic 41f, WCAG 1.4.11 non-text contrast). `--input` is
- * the border of every Input, Textarea, Select trigger, outline button and
- * toggle; at the old L 0.9 it measured 1.27:1 on the light page and 1.54:1 on
+ * the border of every Input, Textarea, Select trigger and `Form` field (outline
+ * buttons and toggles use the faint `--border` since 42a: their text names
+ * them); at the old L 0.9 it measured 1.27:1 on the light page and 1.54:1 on
  * the dark one. Fitted with `contrastRatio` to the smallest change that keeps
  * ≥ 3.1:1 (3:1 plus a margin for renderer rounding) against every surface a
  * field sits on — --background, --card, --popover, and the --muted and

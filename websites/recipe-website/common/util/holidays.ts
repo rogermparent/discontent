@@ -172,6 +172,30 @@ export function formatDayLong(day: CalendarDay): string {
   return `${WEEKDAYS[weekday]} ${day.day} ${MONTHS[day.month - 1]}`;
 }
 
+/** "Sat 31 Oct" — the almanac's and the menu page's date (42e). */
+export function formatDayShort(day: CalendarDay): string {
+  const weekday = new Date(
+    Date.UTC(day.year, day.month - 1, day.day),
+  ).getUTCDay();
+  return `${WEEKDAYS[weekday].slice(0, 3)} ${day.day} ${MONTHS[day.month - 1].slice(0, 3)}`;
+}
+
+/** "Oct", or "Jan 2027" — a month tick on the almanac's ruler (42e). */
+export function formatMonthTick(day: CalendarDay, withYear: boolean): string {
+  const month = MONTHS[day.month - 1].slice(0, 3);
+  return withYear ? `${month} ${day.year}` : month;
+}
+
+/** The calendar day `n` days after `day` (negative goes back). */
+export function addDays(day: CalendarDay, n: number): CalendarDay {
+  const date = new Date(Date.UTC(day.year, day.month - 1, day.day + n));
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+  };
+}
+
 /** "today", "tomorrow", "in 16 days". */
 export function countdownLabel(days: number): string {
   if (days <= 0) return "today";
@@ -180,16 +204,38 @@ export function countdownLabel(days: number): string {
 }
 
 /**
+ * The `HOLIDAY_RULES` key that dates a holiday term (42e): its own slug when
+ * that has a rule, else the first of its aliases' slugs that has one — so an
+ * `xmas` term with the alias "Christmas" is dated like `christmas`. Callers
+ * pass the aliases already slugged (`tagSlug`); this module stays free of the
+ * slug library. `undefined` when none of them has a rule.
+ */
+export function holidayRuleKey(
+  slug: string,
+  aliasSlugs: readonly string[] = [],
+): string | undefined {
+  return [slug, ...aliasSlugs].find((key) => HOLIDAY_RULES[key] !== undefined);
+}
+
+/**
+ * The key an item is dated by: its `rule` (from `holidayRuleKey`, so an
+ * alias can date it) when it carries one, else its slug.
+ */
+function ruleOf(item: { slug: string; rule?: string }): string {
+  return item.rule ?? item.slug;
+}
+
+/**
  * Holidays in the order they come round: dated ones soonest first, then the
  * undated ones in their incoming order. Each gets its `days` to go, or
- * `undefined` when it has no rule.
+ * `undefined` when it has no rule. An item may carry `rule`, the key that
+ * dates it when that is not its slug (42e, `holidayRuleKey`).
  */
-export function orderByNextOccurrence<T extends { slug: string }>(
-  items: T[],
-  today: CalendarDay,
-): Array<T & { days?: number }> {
+export function orderByNextOccurrence<
+  T extends { slug: string; rule?: string },
+>(items: T[], today: CalendarDay): Array<T & { days?: number }> {
   const withDays = items.map((item, index) => {
-    const next = nextOccurrence(item.slug, today);
+    const next = nextOccurrence(ruleOf(item), today);
     return {
       item: { ...item, days: next ? daysBetween(today, next) : undefined },
       index,
@@ -237,14 +283,14 @@ export const COMING_UP_WINDOW_DAYS = 180;
  * fall back to the undated entries `orderByNextOccurrence` would otherwise
  * put after them.
  */
-export function withinComingUpWindow<T extends { slug: string }>(
+export function withinComingUpWindow<T extends { slug: string; rule?: string }>(
   items: T[],
   today: CalendarDay,
   windowDays: number = COMING_UP_WINDOW_DAYS,
 ): Array<T & { days: number }> {
   return orderByNextOccurrence(items, today).filter(
     (item): item is T & { days: number } => {
-      const next = nextOccurrence(item.slug, today);
+      const next = nextOccurrence(ruleOf(item), today);
       return next !== undefined && withinDays(today, next, windowDays);
     },
   );
@@ -261,7 +307,7 @@ export const SEASONAL_WINDOW_DAYS = 60;
  * `items`, if it falls within `windowDays` — else `undefined`, and the row
  * hides. A holiday with no rule is never "next".
  */
-export function nextSeasonal<T extends { slug: string }>(
+export function nextSeasonal<T extends { slug: string; rule?: string }>(
   items: T[],
   today: CalendarDay,
   windowDays: number = SEASONAL_WINDOW_DAYS,
