@@ -583,19 +583,21 @@ list now keeps "1 can black beans" and "1 cup black beans" on two rows
 something named follows it, or it names a part of the recipe); and which
 of the 30 left to merge.
 
-**Gates** (all through the capped heavy slot): `pnpm --filter
-recipe-editor typecheck` and `pnpm --filter recipe-website exec tsc
---noEmit` clean; `pnpm exec vitest run` on the final code 2,840 / 2,842 — the two red were
-30 s timeouts under a load average of ~8 (`cliJson` "keeps the
-inventory…", `instance` "syncs a workstation commit…"), both green re-run
-alone (53/53); an earlier full run, before the `(or …)` split, was 2,839 /
-2,839;
-Playwright in Docker build mode (`DOCKER=1 heavy-pw.sh`), `make.spec`,
-`cook-view.spec`, `recipe-cooking-order.spec`, `shopping.spec`,
-`shopping-modes.spec`, `drinks.spec` × e2e + mobile: **103 passed**. No
-baseline moved or was regenerated: the e2e fixtures changed two names
-(above), neither on a screenshotted surface; no new spec, so no dev-mode
-run.
+**Gates** (all through the capped heavy slot), on the final code (review
+fixes included): `pnpm --filter recipe-editor typecheck` and `pnpm
+--filter recipe-website exec tsc --noEmit` clean; `pnpm exec vitest run`
+**2,872 / 2,873** — the one red a 30 s timeout under load (`cliJson`
+"keeps the inventory…", the same test the first pass saw time out),
+green re-run alone (26 / 26). Playwright in Docker build mode
+(`DOCKER=1 heavy-pw.sh`), e2e + mobile: `make.spec`, `cook-view.spec`,
+`recipe-cooking-order.spec`, `shopping.spec`, `shopping-modes.spec`,
+`drinks.spec` and `accessibility.spec` 169 / 171, the two red being
+bean-swap texts a first try had changed to "for canned chickpea" (the
+page's tapes drop the can, so those edits were reverted); `make.spec` +
+`accessibility.spec` re-run on the final code **115 / 115**. The first
+pass: 2,840 / 2,842 and 103 passed. No baseline moved or was
+regenerated: the page's tapes read as before, and the fixture names that
+moved (above) show on no screenshot; no new spec, so no dev-mode run.
 
 #### Traps (43n)
 
