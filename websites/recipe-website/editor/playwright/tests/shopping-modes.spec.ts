@@ -76,7 +76,7 @@ test.describe("Shopping list: in the store @mobile", () => {
     ]);
     await expect(
       rail.getByRole("link", { name: /^Pantry/ }),
-    ).toHaveAccessibleName("Pantry, 4 left");
+    ).toHaveAccessibleName(/^Pantry ?4 left$/);
     await rail.getByRole("link", { name: /^Spices/ }).click();
     const spices = list(page).getByRole("region", { name: "Spices" });
     await expect(spices).toBeInViewport();
@@ -137,7 +137,7 @@ test.describe("Shopping list: in the store @mobile", () => {
     await expect(
       page
         .getByRole("navigation", { name: "Aisles" })
-        .getByRole("link", { name: "Dairy & eggs, done" }),
+        .getByRole("link", { name: /^Dairy & eggs ?done$/ }),
     ).toBeVisible();
     /* Open it to look, then undo it. */
     await folded.getByRole("button", { name: /Dairy & eggs — done/ }).click();

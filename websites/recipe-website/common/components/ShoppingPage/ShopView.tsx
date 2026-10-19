@@ -100,11 +100,6 @@ function AisleRail({
               key={aisle.id}
               href={`#${aisleAnchor(aisle)}`}
               aria-current={isCurrent ? "location" : undefined}
-              aria-label={
-                isDone
-                  ? `${aisle.label}, done`
-                  : `${aisle.label}, ${aisle.left} left`
-              }
               onClick={(event) => {
                 event.preventDefault();
                 jump(aisle);
@@ -120,9 +115,15 @@ function AisleRail({
             >
               {isDone && <Check aria-hidden className="size-4" />}
               {aisle.label}
-              {!isDone && (
+              {/* Named by its content (axe's label-in-name): "Pantry 4 left",
+                  "Dairy & eggs done" — the words only a screen reader needs
+                  are sr-only, never an aria-label over the visible text. */}
+              {isDone ? (
+                <span className="sr-only">done</span>
+              ) : (
                 <span className="font-mono text-xs tabular-nums opacity-85">
                   {aisle.left}
+                  <span className="sr-only"> left</span>
                 </span>
               )}
             </a>
