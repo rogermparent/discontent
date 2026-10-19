@@ -6,11 +6,14 @@ import {
 import {
   beanFor,
   beanKindOf,
+  beanKinds,
   isBeanLine,
 } from "recipe-website-common/util/beans";
 import {
   analyzeMakeable,
+  parseInventoryItem,
   prepareCorpus,
+  satisfies,
   type MakeableOptions,
   type MakeRecipe,
   type RecipeMatch,
@@ -114,6 +117,87 @@ describe("the bean family (42m)", () => {
         ?.text,
     ).toBe("mixed beans");
     expect(beanFor(line("1 can chickpeas"), [])).toBeUndefined();
+  });
+
+  /** Every kind each alternative of a line's one requirement names. */
+  const kindsOf = (text: string) =>
+    parseIngredientLine(text)[0].alternatives.map((name) => beanKinds(name));
+
+  it("reads 42n's shapes: a name in parentheses, borlotti, adzuki, flageolet", () => {
+    expect(lineKind("1 (15 oz) can cranberry beans (borlotti), drained")).toBe(
+      "pinto",
+    );
+    expect(lineKind("2 cups cooked borlotti beans")).toBe("pinto");
+    expect(lineKind("1 cup fava beans (broad beans)")).toBe("fava");
+    expect(lineKind("1 (15 oz) can kidney beans (rajma), drained")).toBe("red");
+    expect(lineKind("1/2 cup dried adzuki beans")).toBe("red");
+    expect(lineKind("1 (14 oz) can flageolet beans, rinsed")).toBe("white");
+  });
+
+  it("counts an (or …) line as any of its beans, a bare variety too", () => {
+    const multi = "1 (15 oz) can black beans (or pinto or cannellini beans)";
+    expect(isBeanLine(parseIngredientLine(multi)[0])).toBe(true);
+    expect(kindsOf(multi)).toEqual([["black"], ["pinto", "white"]]);
+    for (const [line, kinds] of [
+      ["1 cup black beans (or pinto)", [["black"], ["pinto"]]],
+      ["1 can chickpeas (or navy)", [["chickpea"], ["white"]]],
+      ["1 can black beans (or kidney)", [["black"], ["red"]]],
+      ["1 cup cannellini (or borlotti)", [["white"], ["pinto"]]],
+      ["1/2 cup mung beans (or adzuki)", [["mung"], ["red"]]],
+    ] as const) {
+      expect(isBeanLine(parseIngredientLine(line)[0]), line).toBe(true);
+      expect(kindsOf(line), line).toEqual(kinds);
+    }
+    /* A bare colour, cranberry or butter names something else. */
+    expect(beanKindOf("black")).toBeUndefined();
+    expect(beanKindOf("cranberry")).toBeUndefined();
+    expect(beanKindOf("butter")).toBeUndefined();
+    expect(
+      isBeanLine(parseIngredientLine("1 can black beans (or green beans)")[0]),
+    ).toBe(false);
+    /* The swap prefers a bean the line itself names. */
+    expect(
+      beanFor(parseIngredientLine(multi)[0], [
+        { text: "chickpeas", kind: "chickpea" },
+        { text: "navy beans", kind: "white" },
+      ])?.text,
+    ).toBe("navy beans");
+  });
+});
+
+describe("a bare `beans` names only the family (42m, Dm7)", () => {
+  const meets = (item: string, line: string) =>
+    satisfies(parseInventoryItem(item), parseIngredientLine(line)[0]);
+
+  it("meets family beans and lines that ask for beans", () => {
+    expect(meets("beans", "1 can black beans, drained")).toBe(true);
+    expect(meets("beans", "1 (15 oz) can chickpeas")).toBe(false);
+    expect(meets("beans", "1 can mixed beans")).toBe(true);
+    expect(meets("beans", "1 cup canned beans")).toBe(true);
+    expect(meets("beans", "1 (15 oz) can beans, any kind")).toBe(true);
+    expect(meets("canned beans", "1 can beans")).toBe(true);
+  });
+
+  it("never meets green, wax, string, vanilla, coffee, cocoa or jelly beans", () => {
+    for (const line of [
+      "1 lb green beans, trimmed",
+      "1 cup wax beans",
+      "1 cup string beans",
+      "1 vanilla bean, split",
+      "1/4 cup coffee beans",
+      "2 tbsp cocoa beans",
+      "1 cup jelly beans",
+    ]) {
+      expect(meets("beans", line), line).toBe(false);
+    }
+  });
+
+  it("works the other way: green beans don't meet a line asking for beans", () => {
+    expect(meets("green beans", "1 (15 oz) can beans")).toBe(false);
+    expect(meets("black beans", "1 (15 oz) can beans")).toBe(true);
+    /* Each still meets its own line. */
+    expect(meets("green beans", "1 lb green beans")).toBe(true);
+    expect(meets("vanilla bean", "1 vanilla bean")).toBe(true);
   });
 });
 
@@ -219,6 +303,27 @@ describe("the bean-swap tier (42m)", () => {
   it("never lets a family bean stand in for green beans", () => {
     const analysis = judge(["black beans", "shallot"]);
     expect(slugs(analysis.beanSwap)).not.toContain("green-bean-salad");
+  });
+
+  it("takes an (or …) bean line, preferring a bean it names", () => {
+    const salad = recipe("Pinto Salad", [
+      "1 (15 oz) can black beans (or pinto or cannellini beans), drained",
+      "1 cup corn",
+    ]);
+    const judgeWith = (inventory: string[]) =>
+      analyzeMakeable([salad], prepareCorpus([salad]), inventory, {
+        pantryStaples: false,
+        beanSwaps: true,
+      });
+    /* Navy is a white bean, like the cannellini the line names. */
+    const analysis = judgeWith(["chickpeas", "navy beans", "corn"]);
+    expect(swapsOf(analysis.beanSwap[0])).toEqual([
+      ["black bean or pinto or cannellini bean", "navy beans"],
+    ]);
+    /* Cannellini itself meets the line (the strict tail rule): no swap. */
+    const strict = judgeWith(["cannellini beans", "corn"]);
+    expect(slugs(strict.canMake)).toEqual(["pinto-salad"]);
+    expect(strict.beanSwap).toEqual([]);
   });
 
   it("is off unless asked for", () => {

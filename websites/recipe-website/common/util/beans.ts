@@ -2,8 +2,10 @@
  * The bean family (42m): the canned and dried beans that stand in for one
  * another in a salad, a soup or a chili — black beans for chickpeas, pinto
  * for kidney, cannellini for navy. `/make`'s "With a bean swap" tier and the
- * agents' `inventory make` read it; the strict and close tiers never do, so
- * black beans still never *meet* a chickpea line (`CLOSE_HEAD_EXCLUDED`).
+ * agents' `inventory make` read it. The strict and close tiers never swap
+ * on it, so black beans still never *meet* a chickpea line
+ * (`CLOSE_HEAD_EXCLUDED`); strict matching asks it one thing only — whether
+ * a longer name a bare `beans` meets is a family bean (`isFamilyBeanWords`).
  *
  * Names go through the matcher's own pipeline (`toName`): plurals, "can of",
  * "15-ounce", "drained and rinsed" and "garbanzo" are handled there, and
@@ -27,10 +29,13 @@ import {
 } from "./ingredientNames";
 
 /**
- * Each kind's names as people write them. The kind only orders the choice
- * of what to swap in — a white bean for a white bean first — every member
- * stands in for every other. `any` is a line that asks for beans of no kind
- * in particular ("1 can mixed beans", "beans").
+ * Each kind's names as people write them, and the bare variety where it
+ * names nothing else — `pinto`, `navy`, as an `(or …)` alternative leaves
+ * them ("black beans (or pinto)") — but never `black`, `white`, `red`,
+ * `butter` or `cranberry`. The kind only orders the choice of what to swap
+ * in — a white bean for a white bean first — every member stands in for
+ * every other. `any` is a line that asks for beans of no kind in particular
+ * ("1 can mixed beans", "beans").
  */
 export const BEAN_KINDS: Record<string, string[]> = {
   black: ["black beans", "black turtle beans", "turtle beans"],
@@ -43,6 +48,10 @@ export const BEAN_KINDS: Record<string, string[]> = {
     "small red beans",
     "adzuki beans",
     "azuki beans",
+    "kidney",
+    "red kidney",
+    "adzuki",
+    "azuki",
   ],
   pinto: [
     "pinto beans",
@@ -50,6 +59,9 @@ export const BEAN_KINDS: Record<string, string[]> = {
     "cranberry beans",
     "anasazi beans",
     "pink beans",
+    "pinto",
+    "borlotti",
+    "anasazi",
   ],
   white: [
     "cannellini beans",
@@ -62,12 +74,14 @@ export const BEAN_KINDS: Record<string, string[]> = {
     "flageolet beans",
     "flageolets",
     "marrow beans",
+    "navy",
+    "great northern",
   ],
   chickpea: ["chickpeas", "ceci beans", "ceci"],
-  butter: ["butter beans", "lima beans", "baby lima beans"],
+  butter: ["butter beans", "lima beans", "baby lima beans", "lima"],
   pea: ["black-eyed peas", "black-eyed beans", "cowpeas"],
   mung: ["mung beans"],
-  fava: ["fava beans", "broad beans"],
+  fava: ["fava beans", "broad beans", "fava"],
   any: [
     "beans",
     "mixed beans",
@@ -129,22 +143,64 @@ const KIND_BY_NAME = new Map<string, string>(
   ),
 );
 
+/** One name's kind, after the leading "how it's sold" words. */
+function kindOfWords(words: string[]): string | undefined {
+  let start = 0;
+  while (start < words.length - 1 && SOLD_AS.has(words[start])) start += 1;
+  return KIND_BY_NAME.get(words.slice(start).join(" "));
+}
+
 /**
- * The family kind a name belongs to (`black`, `chickpea`, `any`, …), or
- * `undefined` when it names no family bean. A non-alcoholic name never does.
+ * Every kind a name names, or `undefined` when any part of it is no family
+ * bean. Usually one. A name the parser left with `or` inside — "black beans
+ * (or pinto or cannellini beans)" gives `pinto or cannellini bean` — is each
+ * of its parts, a part without the last part's noun borrowing it (`pinto`
+ * → `pinto bean`). A non-alcoholic name never names a bean.
+ */
+export function beanKinds(name: IngredientName): string[] | undefined {
+  if (name.na || name.words.length === 0) return undefined;
+  const parts: string[][] = [[]];
+  for (const word of name.words) {
+    if (word === "or") parts.push([]);
+    else parts[parts.length - 1].push(word);
+  }
+  if (parts.some((part) => part.length === 0)) return undefined;
+  const last = parts[parts.length - 1];
+  const noun = last[last.length - 1];
+  const kinds: string[] = [];
+  for (const part of parts) {
+    const kind =
+      kindOfWords(part) ??
+      (part[part.length - 1] !== noun
+        ? kindOfWords([...part, noun])
+        : undefined);
+    if (!kind) return undefined;
+    kinds.push(kind);
+  }
+  return kinds;
+}
+
+/**
+ * The family kind a name belongs to (`black`, `chickpea`, `any`, …) — the
+ * first, for a name of several — or `undefined` when it names no family
+ * bean.
  */
 export function beanKind(name: IngredientName): string | undefined {
-  if (name.na || name.words.length === 0) return undefined;
-  let start = 0;
-  while (start < name.words.length - 1 && SOLD_AS.has(name.words[start])) {
-    start += 1;
-  }
-  return KIND_BY_NAME.get(name.words.slice(start).join(" "));
+  return beanKinds(name)?.[0];
 }
 
 /** The kind of a free-text name ("1 can black beans", an inventory item). */
 export function beanKindOf(text: string): string | undefined {
   return beanKind(toName(text));
+}
+
+/**
+ * Do these `toName` words name a family bean? What strict matching asks
+ * before a bare `bean` meets a longer name (42m, Dm7): `beans` on hand meets
+ * "mixed beans" and "black beans", never green, vanilla or coffee beans.
+ */
+export function isFamilyBeanWords(words: string[]): boolean {
+  return beanKinds({ words, na: false }) !== undefined;
 }
 
 /**
@@ -155,7 +211,7 @@ export function isBeanLine(requirement: Requirement): boolean {
   return (
     !requirement.loose &&
     requirement.alternatives.length > 0 &&
-    requirement.alternatives.every((name) => beanKind(name) !== undefined)
+    requirement.alternatives.every((name) => beanKinds(name) !== undefined)
   );
 }
 
@@ -175,7 +231,9 @@ export function beanFor(
   requirement: Requirement,
   beans: BeanOnHand[],
 ): BeanOnHand | undefined {
-  const kinds = new Set(requirement.alternatives.map((name) => beanKind(name)));
+  const kinds = new Set(
+    requirement.alternatives.flatMap((name) => beanKinds(name) ?? []),
+  );
   return (
     beans.find((bean) => bean.kind !== "any" && kinds.has(bean.kind)) ??
     beans.find((bean) => bean.kind !== "any") ??

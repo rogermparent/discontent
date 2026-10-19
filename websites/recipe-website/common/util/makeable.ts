@@ -24,7 +24,13 @@ import {
   type IngredientName,
   type Requirement,
 } from "./ingredientNames";
-import { beanFor, beanKind, isBeanLine, type BeanOnHand } from "./beans";
+import {
+  beanFor,
+  beanKind,
+  isBeanLine,
+  isFamilyBeanWords,
+  type BeanOnHand,
+} from "./beans";
 
 /**
  * What `inventory_makeable`, `recipes inventory make` and `/api/inventory/make`
@@ -176,9 +182,27 @@ function isTail(short: string[], long: string[]): boolean {
  * word (`syrup`, `juice`) never stands for a longer name.
  */
 function namesMatch(item: string[], line: string[]): boolean {
-  if (isTail(line, item)) return true;
+  if (isTail(line, item)) return bareBeanOk(line, item);
   if (!isTail(item, line)) return false;
-  return !(item.length === 1 && line.length > 1 && isGenericHead(item[0]));
+  if (item.length === 1 && line.length > 1 && isGenericHead(item[0])) {
+    return false;
+  }
+  return bareBeanOk(item, line);
+}
+
+/**
+ * A bare `bean` stands for a longer name only when that is a family bean
+ * (42m, Dm7): `beans` on hand meets "black beans" and "1 can mixed beans",
+ * never "green beans", "1 vanilla bean" or "coffee beans" — and green beans
+ * on hand never meet a line that asks for "beans".
+ */
+function bareBeanOk(short: string[], long: string[]): boolean {
+  return (
+    short.length !== 1 ||
+    short[0] !== "bean" ||
+    long.length === 1 ||
+    isFamilyBeanWords(long)
+  );
 }
 
 function contains(haystack: string[], needle: string[]): boolean {

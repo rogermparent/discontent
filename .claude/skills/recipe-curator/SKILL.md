@@ -547,7 +547,8 @@ the ask is about what's really there ("I'm out of eggs and flour").
 `beanSwap` (on unless `"beanSwaps": false`, as the site's "Let beans stand
 in for each other") lists `{slug, name, swaps: [{line, use}]}` — recipes
 short only of beans that another bean on the list could replace (pinto for
-black beans, cannellini for chickpeas); they stay one or two away as well
+black beans, cannellini for chickpeas); they stay in `oneAway`, `twoAway`
+or the `further` count as well (a three-bean salad can be further away)
 and never count as can make, so report them as "with a swap". Change the list **only when the ask says so** ("I bought Gnista",
 "I'm out of vodka").
 
