@@ -1173,11 +1173,16 @@ exec tsc --noEmit` ✓.
   then 29 with `--update-snapshots`.
 - Playwright, Docker, dev mode: `make`, `accessibility`, `visual` — **131
   passed**.
+- **Final, one branch for 42m + 42m2** (42m's 1e6e2293 merged, then
+  origin/main be8ba8ad with 42e and 42h; the one text conflict, the CLI
+  help, kept both lines): typechecks ×2 ✓; vitest **127 files, 2585
+  tests** ✓; Docker build mode `make`, `accessibility`, `visual`,
+  `mobile`, `holidays` — **154 passed**, no baseline moved.
 
 **Baselines** (Docker only, each opened): `visual.spec.ts/make-page-e2e`
 **moved** (one-away photo cards four across, each "Needs" tape under the
 card's link); `mobile.spec.ts/make-mobile-mobile` **moved** (42m's bean
-switch and the 24 px tapes, +72 px); `visual.spec.ts/make-results-wide-e2e`
+switch, +72 px — the same picture 42m regenerated; no result card on it); `visual.spec.ts/make-results-wide-e2e`
 **new** (1920 px: Buy next, the groups at most four across, further away as
 a row; shot at 1920 × 2800 so the page fits, Th5). The results column is
 ~876 px at 1920, as at 1366: the page is `max-w-7xl`.
