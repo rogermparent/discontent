@@ -12,7 +12,10 @@ import {
   updateShoppingListSettings,
 } from "recipe-editor/controller/actions/shopping";
 import { readInventory } from "recipe-editor/controller/curation/inventory";
-import { readShopping } from "recipe-editor/controller/curation/shopping";
+import {
+  readShopping,
+  readShoppingPlanNames,
+} from "recipe-editor/controller/curation/shopping";
 
 export const dynamic = "force-dynamic";
 
@@ -34,11 +37,12 @@ export default async function ShoppingListPage() {
     readShopping(ctx),
     readInventory(ctx),
   ]);
+  const plans = await readShoppingPlanNames(ctx, items);
   return (
     <PageMain>
       <PageSection maxWidth="none" grow className="print:p-0">
         <ShoppingPage
-          initial={{ items, settings, inventory: inventory.items }}
+          initial={{ items, settings, inventory: inventory.items, plans }}
           actions={{
             load: loadShoppingList,
             add: addToShoppingList,

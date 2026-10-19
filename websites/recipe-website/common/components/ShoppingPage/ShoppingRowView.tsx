@@ -194,48 +194,79 @@ function RowMenu({
 }
 
 /**
+ * The row's label with its amount set in the mono face (42g, the canvas):
+ * "10 eggs" reads as data + name. Only when the label starts with the amount
+ * as `buildShoppingView` wrote it, so the text — what a test and a screen
+ * reader read — is exactly `row.label` either way.
+ */
+function RowLabel({ row }: { row: ShoppingRow }) {
+  const amount = row.remaining ?? row.quantity;
+  if (amount && row.label.startsWith(`${amount} `)) {
+    return (
+      <>
+        <span className="font-mono font-semibold tabular-nums">{amount}</span>
+        {row.label.slice(amount.length)}
+      </>
+    );
+  }
+  return <>{row.label}</>;
+}
+
+/**
  * One line: a real checkbox with the line as its label (≥ 44 px tall), what
  * could not be read under it, where it came from, and its menu. A partly
  * ticked merged row shows its checkbox as mixed and its label as what is
- * left to buy.
+ * left to buy. In the store (42g, `variant="shop"`) it is bigger, for a
+ * thumb at arm's length, and a ticked row stays where it is, struck through.
  */
 export function ShoppingRowView({
   row,
   settings,
   handlers,
+  variant = "plan",
 }: {
   row: ShoppingRow;
   settings: ShoppingSettings;
   handlers: RowHandlers;
+  variant?: "plan" | "shop";
 }) {
   const id = useId();
   const box = useRef<HTMLInputElement>(null);
+  const shop = variant === "shop";
   useEffect(() => {
     if (box.current) box.current.indeterminate = row.partial;
   }, [row.partial]);
   return (
     <li
-      className="flex min-h-11 items-start gap-3 py-1.5 break-inside-avoid"
+      className={cn(
+        "flex items-start break-inside-avoid",
+        shop ? "min-h-[3.375rem] gap-3.5 py-1" : "min-h-11 gap-3 py-1.5",
+      )}
       data-testid="shopping-row"
       data-key={row.key}
+      data-checked={row.checked ? "true" : undefined}
     >
       <input
         ref={box}
         id={id}
         type="checkbox"
-        className="mt-2 size-5 shrink-0 accent-primary"
+        className={cn(
+          "shrink-0 accent-primary",
+          shop ? "mt-3 size-6" : "mt-2 size-5",
+        )}
         checked={row.checked}
         onChange={() => handlers.tick(row.ids, !row.checked)}
       />
-      <div className="min-w-0 flex-1 py-1.5">
+      <div className={cn("min-w-0 flex-1", shop ? "py-2.5" : "py-1.5")}>
         <label
           htmlFor={id}
           className={cn(
             "block break-words leading-snug",
+            shop && "text-[1.0625rem]",
             row.checked && "text-muted-foreground line-through",
           )}
         >
-          {row.label}
+          <RowLabel row={row} />
         </label>
         {(row.optional || row.need || row.partial || row.forNote) && (
           <p

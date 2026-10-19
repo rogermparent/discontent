@@ -458,8 +458,9 @@ test.describe("Accessibility of the editor's other pages (axe, 40g)", () => {
   /*
    * `/shopping` with a plan and a recipe whose sub-recipe expanded on it:
    * the settings sheet open, then the list with stores and "Probably on
-   * hand" switched on and the Sub-recipes fold open. Both modes: the store
-   * buttons, the counts and the muted notes carry colour.
+   * hand" switched on and the Sub-recipes fold open; then (42g) the
+   * in-store view. Both modes: the store buttons, the counts and the muted
+   * notes carry colour.
    */
   for (const mode of ["light", "dark"] as const) {
     test(`shopping list with items has no WCAG2AA violations in ${mode} mode`, async ({
@@ -505,6 +506,32 @@ test.describe("Accessibility of the editor's other pages (axe, 40g)", () => {
       const eggs = page.getByTestId("shopping-row").filter({ hasText: "eggs" });
       await eggs.getByText(/^from \d+ recipes?/).click();
       await expect(eggs.getByTestId("shopping-sources")).toBeVisible();
+      await expectNoViolations(page);
+
+      /*
+       * 42g's in-store view: the store select, the progress bar, the aisle
+       * rail, a ticked row struck in place, an aisle folded away as done,
+       * an on-hand line opened, and the add box in the bottom bar.
+       */
+      await page
+        .getByRole("group", { name: "Mode" })
+        .getByRole("button", { name: "Shop" })
+        .click();
+      await expect(
+        page.getByRole("navigation", { name: "Aisles" }),
+      ).toBeVisible();
+      await page.getByLabel("Store", { exact: true }).selectOption("hannaford");
+      await page.getByLabel("10 eggs", { exact: true }).check();
+      await page
+        .getByRole("button", { name: "Aisle done: Dairy & eggs" })
+        .click();
+      await expect(page.getByTestId("shopping-aisle-done")).toBeVisible();
+      await page
+        .getByRole("button", { name: /^Show what is probably on hand/ })
+        .first()
+        .click();
+      await page.getByRole("button", { name: "Add an item" }).click();
+      await expect(page.getByTestId("shopping-add")).toBeVisible();
       await expectNoViolations(page);
     });
   }
