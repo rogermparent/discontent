@@ -147,8 +147,9 @@ async function main() {
   const topAt = args.indexOf("--top");
   const top = topAt >= 0 ? Number(args[topAt + 1]) : 40;
   const contentDirectory =
-    args.find((arg, i) => !arg.startsWith("--") && i !== topAt + 1) ??
-    process.env.CONTENT_DIRECTORY;
+    args.find(
+      (arg, i) => !arg.startsWith("--") && (topAt < 0 || i !== topAt + 1),
+    ) ?? process.env.CONTENT_DIRECTORY;
   if (!contentDirectory) {
     throw new Error("Pass a content directory (or set CONTENT_DIRECTORY)");
   }
