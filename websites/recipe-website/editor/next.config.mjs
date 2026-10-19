@@ -15,6 +15,12 @@ const nextConfig = {
   // lmdb is a native module read at runtime; it is not in Next's default
   // external list, so it would otherwise be bundled into the server graph.
   serverExternalPackages: ["lmdb"],
+  // A production build against the real corpus renders hundreds of term and
+  // tag pages through one LMDB env. On a loaded machine a page can wait on its
+  // read longer than the 60 s default and fail the whole build (42s-T2: three
+  // `/tags/[tag]` pages at load ~30). A page that is slow, not stuck, should
+  // finish; a stuck one still fails, just later.
+  staticPageGenerationTimeout: 180,
   experimental: {
     serverActions: {
       // Uploads come straight from phone cameras on the LAN (the Pi editor
