@@ -23,8 +23,20 @@ export default defineConfig({
     toHaveScreenshot: {
       animations: "disabled",
       caret: "hide",
-      maxDiffPixelRatio: 0.02,
+      /*
+       * 42b: an absolute pixel budget, not a ratio — the recipe editor's
+       * config says why (`maxDiffPixelRatio: 0.02` passed all 11 of these
+       * baselines while their pages had moved on, 41d2 Tp1). Measured in
+       * CI's image against the committed baselines, 3× in build and 3× in
+       * dev mode: every capture here is identical at threshold 0. Never set
+       * a `maxDiffPixelRatio` beside these, here or per call: Playwright then
+       * takes the smaller of the two budgets.
+       */
+      threshold: 0.2,
+      maxDiffPixels: 100,
       scale: "css",
+      /* 42b: hides `next dev`'s badge; see the file. */
+      stylePath: "./playwright/support/screenshot.css",
     },
   },
   snapshotPathTemplate:

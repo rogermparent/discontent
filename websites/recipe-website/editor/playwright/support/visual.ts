@@ -4,7 +4,8 @@ export interface SnapshotOptions {
   fullPage?: boolean;
   mask?: Locator[];
   clip?: { x: number; y: number; width: number; height: number };
-  maxDiffPixelRatio?: number;
+  /** A page-specific allowance over the config's `maxDiffPixels`; say why. */
+  maxDiffPixels?: number;
 }
 
 async function waitForReady(page: Page): Promise<void> {
@@ -45,8 +46,8 @@ export async function snapshotPage(
     mask: [...defaultMasks(page), ...(opts.mask ?? [])],
   };
   if (opts.clip) options.clip = opts.clip;
-  if (opts.maxDiffPixelRatio !== undefined)
-    options.maxDiffPixelRatio = opts.maxDiffPixelRatio;
+  if (opts.maxDiffPixels !== undefined)
+    options.maxDiffPixels = opts.maxDiffPixels;
   await expect(page).toHaveScreenshot(name, options);
 }
 
@@ -59,7 +60,7 @@ export async function snapshotLocator(
   const options: Record<string, unknown> = {
     mask: [...defaultMasks(locator.page()), ...(opts.mask ?? [])],
   };
-  if (opts.maxDiffPixelRatio !== undefined)
-    options.maxDiffPixelRatio = opts.maxDiffPixelRatio;
+  if (opts.maxDiffPixels !== undefined)
+    options.maxDiffPixels = opts.maxDiffPixels;
   await expect(locator).toHaveScreenshot(name, options);
 }

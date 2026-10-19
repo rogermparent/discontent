@@ -79,6 +79,11 @@ import type {
 } from "../../controller/curation/recipes";
 import type { ReindexResult } from "../../controller/curation/reindex";
 import type {
+  HolidayGetResult,
+  HolidayListResult,
+  HolidayOptions,
+} from "../../controller/curation/holidays";
+import type {
   JobCancelResult,
   JobListOptions,
   JobListResult,
@@ -98,6 +103,9 @@ import type {
 
 export type {
   DiffResult,
+  HolidayGetResult,
+  HolidayListResult,
+  HolidayOptions,
   FeaturedListResult,
   FeaturedWriteResult,
   FetchResult,
@@ -369,6 +377,18 @@ export interface CuratorBackend {
   assignTerm(slug: string, raw: unknown): Promise<TermAssignResult>;
 
   reindex(contentType?: string): Promise<ReindexResult>;
+
+  /* --- holidays (42h) --------------------------------------------------- */
+
+  /**
+   * The holiday pages' data, read-only (`curation/holidays.ts`): every child
+   * of the `holidays` term soonest first, and one holiday's menu. `date`
+   * (`YYYY-MM-DD`) counts as of that day; absent, the server's today.
+   * Locally `link` is absolute on `RECIPE_EDITOR_URL` when set, remotely on
+   * the editor that answered (41i's Di5).
+   */
+  holidayList(options?: HolidayOptions): Promise<HolidayListResult>;
+  holidayGet(slug: string, options?: HolidayOptions): Promise<HolidayGetResult>;
 
   /* --- inventory (25d) --------------------------------------------------- */
 

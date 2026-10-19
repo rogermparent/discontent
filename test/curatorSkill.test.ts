@@ -137,7 +137,7 @@ const EXPECTED_ALLOWED = TOOL_NAMES.filter(
 
 /** Anything backticked that is shaped like one of this server's tool names. */
 const TOOL_SHAPED =
-  /^(recipe|group|git|tag|featured|inventory|shopping|page|term|job)_[a-z_]+$|^(feature|unfeature|reindex)$/;
+  /^(recipe|group|git|tag|featured|inventory|shopping|page|term|job|holiday)_[a-z_]+$|^(feature|unfeature|reindex)$/;
 
 /** `## Heading` … up to the next `## `, or the end. */
 function section(markdown: string, heading: string): string {
@@ -253,8 +253,11 @@ describe("the recipe-curator skill's allow-lists", () => {
      * a deliberate edit here — and CLAUDE.md's "pre-approves its N" sentence,
      * which nothing else checks, moves with it.
      */
-    expect(TOOL_NAMES).toHaveLength(57);
-    expect(EXPECTED_ALLOWED).toHaveLength(43);
+    expect(TOOL_NAMES).toHaveLength(59);
+    expect(EXPECTED_ALLOWED).toHaveLength(45);
+    /* 42h: 57 → 59 and 43 → 45 — the holidays' two reads. */
+    expect(EXPECTED_ALLOWED).toContain("holiday_list");
+    expect(EXPECTED_ALLOWED).toContain("holiday_get");
     /* 37c: 55 → 57 and 41 → 43 — the job store's two reads. */
     expect(EXPECTED_ALLOWED).toContain("job_list");
     expect(EXPECTED_ALLOWED).toContain("job_get");
@@ -383,6 +386,21 @@ describe("the recipe-curator skill's allow-lists", () => {
     expect(onHand).toContain("`alwaysHave`");
     expect(section(skill, "Fallback (CLI)")).toContain(
       "inventory make --query",
+    );
+  });
+
+  it("answers 'what's coming up?' and plans for a holiday (42h)", () => {
+    const holidays = section(skill, "7b. Holidays");
+    expect(holidays).toContain("What's coming up?");
+    expect(holidays).toContain("`holiday_list {}`");
+    expect(holidays).toContain('`holiday_get {"slug": "thanksgiving"}`');
+    expect(holidays).toContain("`link`");
+    /* Then the planning tools it already has. */
+    expect(holidays).toContain("`term_assign`");
+    expect(holidays).toContain("`group_create`");
+    expect(skill).toMatch(/^description:.*what holidays are coming up\?/m);
+    expect(section(skill, "Fallback (CLI)")).toContain(
+      "pnpm --silent recipes holidays easter --json",
     );
   });
 

@@ -345,16 +345,20 @@ function holidayRecipes(
  * because the export is static. `null` when there is no `holidays` root.
  * `records` answers each holiday's record (for its pins); the picture
  * precedence is Coming up's: the record's image, else the newest recipe
- * photo under it.
+ * photo under it. `includeEmpty` keeps the holidays nothing is filed under
+ * yet, with counts of 0 — the agents' `holiday_list` (42h) wants them, so a
+ * curator can see Easter is bare; the almanac leaves them out (De3).
  */
 export function holidayEntries({
   tree,
   records,
   recipeRows,
+  includeEmpty = false,
 }: {
   tree: TermTree | null | undefined;
   records: (slug: string) => HolidayRecord | null | undefined;
   recipeRows: RecipeRows;
+  includeEmpty?: boolean;
 }): HolidayEntry[] | null {
   if (!tree?.[HOLIDAYS_ROOT]) return null;
   const view = holidayRecipeOf(tree);
@@ -391,7 +395,7 @@ export function holidayEntries({
           .map(({ slug: recipe, name }) => ({ slug: recipe, name })),
       };
     })
-    .filter((entry) => entry.recipes > 0);
+    .filter((entry) => includeEmpty || entry.recipes > 0);
 }
 
 /**
