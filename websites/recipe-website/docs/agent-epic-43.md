@@ -104,7 +104,76 @@ update`, never commit `editor/content`.
 
 #### Results (43a)
 
-_Pending._
+**Guest controls hidden.** The editor's recipe page (Delete, Edit, Copy,
+Feature, Group: the whole `PageActions` row), group page (Delete, Feature,
+Edit, Add to shopping list) and term pages (Feature, Edit, Add a narrower
+term, and `/tags`'s New term) render them only with a session, read the way
+the recipe and group pages already read it (`Boolean((await auth())?.user?.email)`).
+The pages were already per-request renders (`force-dynamic`, and the root
+layout's `auth()`), so nothing changes in rendering mode. `TagPage/routes.tsx`
+is shared with the export, which must not import editor auth: `editorTagRoute`
+and `editorTagIndexRoute` now take `signedIn`, and the editor's two route files
+(`tags/page.tsx`, `tags/[tag]/page.tsx`) read the session and pass it in. The
+export's `tagRoute` is untouched.
+
+- New `guest-controls.spec.ts` (4 tests): signed out, none of the controls;
+  after signing in on the page, all of them.
+- Seven existing specs reached these controls signed out ("click Edit, then
+  sign in"). They now go to the control's target (`/recipe/<slug>/edit`,
+  `/group/new?recipe=`, `/featured-recipe/new?recipe=`, `/tags/new`,
+  `/tags/new?parent=`), which still lands on the sign-in form with
+  `redirectTo` kept: `recipe.spec`, `groups.spec` (2), `featured-recipes.spec`,
+  `term-edit.spec` (2).
+- Baselines moved (Docker, opened and checked): `recipe-detail-signed-out-e2e`
+  and `recipe-6-multiplied-e2e` lose the Delete/Edit/Copy/Feature/Group row
+  under the ingredients (the page is 49 px shorter). No other PNG changed.
+
+**/shopping.**
+
+- **The duplicate "gel food coloring"** (found in the real shopping store:
+  two items, from `christmas-sugar-cookies-recipe-with-easy-icing` and
+  `my-favorite-spritz-cookies`): "optional: gel food coloring & sprinkles for
+  decorating" and "optional: gel food coloring, sprinkles, chocolate chips,
+  and melted chocolate for decorating". The name reader never splits on `and`
+  / `&` (right for "mac and cheese"), so the first line's name was the whole
+  "gel food coloring sprinkle for decorating", while the comma form keys by
+  its first item, "gel food coloring". Two keys, two rows. Fix, in
+  `shoppingNameOf` only (`ingredientNames`, which Make shares, is untouched):
+  a line that joins items with `&` or `and` and ends in a decorating tail
+  (`for decorating|garnish|topping|dusting|dipping|sprinkling|serving`) is
+  read by its first item, as the comma form is. Any other line is untouched.
+- **"optional"** (`Da1`): the merge already marks a row optional when every
+  source line is (`items.every(optional)`), so the mark was lost only because
+  the two lines never shared a row. A row from some optional and some
+  required lines is **not optional**: you buy it for the recipe that needs it.
+  Recorded and pinned by a test; no "optional for X" text was added (it
+  would change `buildShoppingView`'s output for every mixed row).
+- Vitest: `shoppingView.test.ts` 35 → 38 (name keys, one merged optional
+  row, all-vs-some optional). The 35 earlier tests are the contract and pass
+  unchanged.
+
+**Build timeout (42s-T2).** The editor's `next.config.mjs` sets
+`staticPageGenerationTimeout: 180`. No `experimental.cpus`: not measured to
+help (the default 7 workers built everything below). Main-checkout-shaped
+build (`editor/content` linked to a scratch clone of the real content repo,
+reindexed; `export/public/{image,uploads}` absolute links through it; scratch
+removed afterwards): `next build` **303 static pages in 84 s** at load ~20,
+no "Dynamic filesystem access" and no "leaves the filesystem root" warning.
+That run would also have passed at the 60 s default, so it shows the setting
+is harmless, not that it is needed; the failure it guards (42s-T2) needs a
+loaded machine (~30).
+
+**Gates.** `recipe-editor` typecheck clean; `recipe-website` `tsc --noEmit`
+clean; `vitest run` 134 files, 2731 tests passed. Playwright (Docker, build
+mode): `guest-controls recipe groups tag-pages term-edit shopping
+featured-recipes reference-updates visual edit pages` specs, 243 tests: 241
+passed, 2 failed on exactly the two baselines above; after regenerating them
+`recipe.spec visual.spec` 86/86. Dev mode once (`guest-controls`, `term-edit`):
+12 passed, 1 flaky (`term-edit:25`, the `/tags/bar-cookies/edit` URL wait at
+5 s, a dev first-compile of an untouched click).
+
+**Roger to confirm.** Da1: a merged row with a mix of optional and required
+lines is shown as required (not "optional for X").
 
 ### 43f — The facet model (S–M)
 
@@ -112,7 +181,141 @@ _Pending._
 
 #### Results (43f)
 
-_Pending._
+**Landed.** `common/util/facets.ts` — the one facet model (D2), pure (no
+reads; client- and server-safe: it imports only modules the browser already
+loads), and `test/facets.test.ts` (33 tests). One additive change elsewhere:
+`tagExpansion.ts` exports `buildTermLookup` — the spelling → term map
+`tag:` already resolved by, pulled out into `spellingIndex` and shared by
+`buildTagExpansion`, so a tag counted under a term is exactly the tag
+`tag:<term>` finds. Review fixes (second commit): `matchesFilter` matches
+a term's subtree only (Df9), Collections are of either kind (Df1), and a
+row's click clears an exclusion.
+
+**API summary (for 43s, 43t, 43e2, 43q).**
+
+- **Input** — `FacetTerm {slug, label, parent?, aliases?, record?, image?}`.
+  Adapters: `facetTermsFromOptions(SearchTerm[] | TagOption[])` (the
+  browser's `useSearch().allTerms`, or `readTagOptions()`; carried-only
+  terms included, no images), `facetTermsFromTree(tree)` (records, with
+  images), `facetTermsFromBoard(readTagBoard())`. `carriersFromRows(byTerm
+map)` turns a whole by-term map into `{slug, tags}[]` for the server.
+- **Model** — `buildFacetModel(terms)` → `{terms, resolve(tag), ancestors,
+children, groups, groupsOf}`. `groups` are `FacetGroupShape {id, kind,
+label, root?, rows: slug[]}` in `FACET_GROUPS` order: food `course`,
+  `main-ingredient`, `cuisine`, `effort`; `collections` (kind `"any"`); food
+  `holidays`; drinks `style`, `strength-method`, `spirit`, `families`.
+  `facetGroups({kind})` keeps the `"any"` group for either kind. Root-backed groups take
+  their heading from the root record ("Speed & effort", "Spirit & base").
+  Cycles and dangling parents are broken (`tagOptions`' rule).
+- **Counts** — `countFacets(model, recipes: {tags?}[])` → `{total, kinds:
+{food, drinks}, subtree, drinks, own, ownDrinks, groups, other}`. Any set:
+  the corpus (/tags, the edit form), the current results (search's Narrow),
+  a term's recipes ("Narrow X"). A recipe counts once per term over its
+  subtree and aliases; `groups` is each group's distinct recipes (the
+  heading number, "Course 571"); `other` is the "N other tags" list.
+- **Rows** — `facetGroups(model, counts, {includeEmpty, keep, sort:
+"count"|"label", order: "fixed"|"total", kind})` → `FacetGroup {…shape,
+total, rows: FacetRow[]}`; `FacetRow {slug, label, count, ownCount,
+depth, group, aliases?, image?, rule?, children}` nested (Desserts ›
+  Cookies › Linzer Cookies), ties by label then slug. Holiday rows carry
+  `rule` (the `HOLIDAY_RULES` key via `holidayRuleKey`, so an alias dates
+  it) for `nextOccurrence` / `orderByNextOccurrence`. Helpers:
+  `flattenRows` (depth-first, for dot-leader lists), `limitRows(rows, n,
+keep)` → `{rows, hidden}` ("5 more", a selected row kept past the cut),
+  `narrowRows(model, counts, {exclude, limit, kind})` (a term page's chips:
+  rows some but not all of the set carries, minus the term's own line).
+- **Query (D3)** — over `queryLanguage.ts` (the brief's `hastQuery.ts` is the
+  HTML helper; the parser is `components/SearchForm/queryLanguage.ts`):
+  `activeFacetSlugs(model, q)` (positive `tag:` values resolved, so
+  `tag:Mains` presses Mains), `toggleFacet(model, q, slug)` (removes every
+  positive spelling of the term; else removes an exclusion — `-tag:sour`
+  back to neutral; else appends `tag:<slug>`), `queryKind` /
+  `setQueryKind(model, q, "drinks"|"food"|undefined)` (`tag:drink` /
+  `-tag:drink`), `facetQuery(slugs, kind?)` and `facetSearchHref` (/tags'
+  Combine → `/search?q=tag%3Amain%20tag%3Achicken`).
+
+**Checked on real shapes** (illustrative, not targets — the counts come
+from whatever the content is). A read-only scratch clone of the content
+repo after 43k (`95ce65f5`, `tmp/43/43f/`, deleted after) through
+`facetTermsFromTree` + `countFacets`: 825 recipes = 222 drinks + 603 food;
+Course 597 (Desserts 148 › Cookies 45 › Linzer 3; Salads 77 › Bean Salads 48
+— "bean salads" as carried resolves), Main ingredient 399, Cuisine 384,
+Speed & effort 327, Collections 86 (Fall Favorites 64, House recipes 18,
+Syrups 5 › Lavender Syrup 3…), Holidays 153 (8 rows, each dated); Style 217
+(7), Strength & method 134 (Shaken 79, Zero-proof 30, Low-ABV 29), Spirit &
+base 201 (11), Families 209 (113 top-level rows, e.g. Spritz 10 › Aperol
+Spritz 3 › Zero Proof Aperol Spritz); **0 other tags** (before 43k: 90, the
+canvas's number). "Narrow Christmas" over its 41 recipes: Desserts 29,
+American 27, Cookies 23, Easy 12, Breakfast 9, Chocolate 6 — the canvas's
+chips. **Count/click parity:** for all 225 rows (any depth), the row's
+count equals what `tag:<slug>` finds through `matchesFilter` with the
+tree's resolver (drinks rows over drinks) — 0 mismatches, which Df9 is for.
+
+**Decisions.**
+
+- **Df1 — Collections** are the _recorded_ roots that are no food facet
+  root, `drink`, `spirit` or `holidays` (after 43k: `fall`, `house`,
+  `syrup`). They have **no kind** (`kind: "any"`): House is mostly drinks
+  and Syrups are bar recipes, Fall Favorites dishes, so the group shows for
+  `kind: "drinks"` and `"food"` alike and the counts within the set decide
+  which rows it has. `/tags` draws it on the Food shelf (canvas B). A new
+  facet root added to the vocabulary also lands in Collections until it is
+  listed in `FACET_ROOT_ORDER` (and `FACET_GROUPS`).
+- **Df2 — Style vs Strength & method.** `DRINK_STRENGTH_METHOD_SLUGS =
+zero-proof, low-abv, shaken`; Style is the rest of `DRINK_STYLE_SLUGS`
+  (sour, highball, collins, stirred, built, batch, warm-drinks). `stirred`
+  and `built` stay styles: the vocabulary's records and agent-mixology.md
+  call them styles, and canvas B files them there; `shaken` is the one
+  method tag (27c D1). No `blended` term exists. A slug in neither list
+  that sits under `drink` is a Family.
+- **Df3 — Families** are derived: children of `drink` in neither list (no
+  record field). A family's own children nest under it.
+- **Df4 — drinks groups count drinks only** (a recipe under `drink`), as
+  `/drinks` does (a `tea` cake is no Tea drink); food groups, Collections
+  (either kind, Df1) and Holidays count every recipe in the set (holidays
+  mix dishes and drinks). `kinds.food` is "not under `drink`".
+- **Df5 — Kind** is read from terms resolving to `drink` itself (any
+  spelling, `-` or `NOT`); a query saying both is no kind. `setQueryKind`
+  drops them all and appends one.
+- **Df6 — Other tags** = tags no term spells, plus terms with no record (a
+  string only recipes carry). Every record is placed (it hangs under a
+  group's root or row, or is a Collection), so a record is never "other";
+  since 43k recorded the one-off drink names, the list is empty today.
+- **Df7 — row values are slugs** (`tag:main`), not labels: unique and never
+  quoted; activeness is resolved through the model, so typed labels
+  (`tag:Mains`) still press and un-press the row.
+- **Df8 — a listed slug stays in its list** wherever it sits: a style moved
+  under `holidays` one day would still be a Style row and not a holiday.
+- **Df9 — `tag:<term>` matches the term's subtree only** (D3 count/click
+  parity; `matchesFilter` in `queryLanguage.ts`). Before, a `tag:` value
+  was always also a word-start prefix match, so a facet row's click found
+  more than its count: `tag:side` found the Sidecar, `tag:french` French 75
+  and French Martini, `tag:mexican` the Mexican Mule, `tag:gin` /
+  `tag:vodka` / `tag:wine` the drink-name families starting with them. Now
+  a value the resolver names (`expandTerm`: slug, label, alias) matches
+  only carriers whose folded spelling or slug is in that subtree; a value
+  that names no term (`tag:sid`, still being typed) keeps the prefix match,
+  as does any search without a resolver (the corpus before
+  `/search/terms` lands). The server's `recipe_search` / `list --tag` share
+  `matchesFilter`, so the CLI and MCP narrow the same way. The e2e specs
+  were grepped for prefix reliance: every `tag:` value they type is either
+  an exact fixture tag or names no term (`tag:des`, `tag:swe`), so no
+  expected diff; `search-query-language`, `search-tags` and
+  `search-query-chips` rerun in Docker (below).
+
+**Gates.** `pnpm --filter recipe-editor typecheck` ✓, `pnpm --filter
+recipe-website exec tsc --noEmit` ✓, `pnpm exec vitest run` **135 files /
+2763 tests** ✓ (all through `heavy.sh`; after the review fixes —
+`facets.test.ts` 33, `tagExpansion.test.ts` 20 with Df9's two). Playwright for Df9, Docker production build:
+`search-query-language`, `search-tags`, `search-query-chips` — **36
+passed**. No UI.
+
+**Roger to confirm.** Df2 — `stirred` and `built` as styles (the canvas and
+the records) rather than methods beside `shaken`; moving them is a
+one-line change to `DRINK_STRENGTH_METHOD_SLUGS`. Df9 — a whole term name
+after `tag:` no longer also prefix-matches longer tags (`tag:gin` is the
+Gin drinks, not Gin and Tonic unless it carries `gin`). A half-typed
+value still prefix-matches; going back is the one `if (!subtree)` branch.
 
 ### 43k — Tag cleanup (content, orchestrator-run agent)
 

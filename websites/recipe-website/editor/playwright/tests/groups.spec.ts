@@ -554,11 +554,10 @@ test.describe("Groups", () => {
       baseURL,
     }) => {
       await resetData("three-recipes");
-      await page.goto("/recipe/first-recipe");
-
-      await page.getByRole("link", { name: "Group", exact: true }).click();
-      // Signed out, so the button lands on the sign-in form — with the
+      // Signed out, the recipe page no longer offers its Group link (43a), so
+      // go to that link's target: it lands on the sign-in form — with the
       // preselection preserved in `redirectTo`, which is the whole point.
+      await page.goto("/group/new?recipe=first-recipe");
       await fillSignInForm(page);
 
       await expect(page).toHaveURL(baseURL + "/group/new?recipe=first-recipe");
@@ -594,8 +593,7 @@ test.describe("Groups", () => {
 
     test("adds and removes item rows", async ({ page, resetData, baseURL }) => {
       await resetData("three-recipes");
-      await page.goto("/recipe/first-recipe");
-      await page.getByRole("link", { name: "Group", exact: true }).click();
+      await page.goto("/group/new?recipe=first-recipe");
       await fillSignInForm(page);
       await expect(page.getByText("Selected: First Recipe")).toBeVisible();
       await markdownEditorReady(page, "description");
