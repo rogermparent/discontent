@@ -214,15 +214,44 @@ function useCurrentSection(ids: string[]): string | undefined {
 const PICTURE_INPUT =
   /^(image|imageUrlInput|clearImage|video|video-mode|videoUrl|clearVideo)$|-candidate$/;
 
+/**
+ * What the picture and video inputs hold right now, as one string: only the
+ * set ones count (a checked box, a chosen file, typed text), so an input
+ * that is absent reads the same as one that is empty.
+ */
+function pictureSignature(form: HTMLElement): string {
+  const parts: string[] = [];
+  form.querySelectorAll<HTMLInputElement>("input").forEach((input) => {
+    const name = input.getAttribute("name") ?? "";
+    if (!PICTURE_INPUT.test(name)) return;
+    if (input.type === "checkbox" || input.type === "radio") {
+      if (input.checked) parts.push(`${name}=${input.value}`);
+    } else if (input.type === "file") {
+      const files = [...(input.files ?? [])].map(
+        (file) => `${file.name}:${file.size}`,
+      );
+      if (files.length) parts.push(`${name}=${files.join(",")}`);
+    } else if (input.value) {
+      parts.push(`${name}=${input.value}`);
+    }
+  });
+  return parts.sort().join("|");
+}
+
 function usePictureTouched(formId: string): boolean {
   const [touched, setTouched] = useState(false);
   useEffect(() => {
     const form = document.getElementById(formId);
     if (!form) return;
+    /* Compared with the form as it mounted: typing then deleting, or
+     * ticking then unticking, is no change. */
+    const atMount = pictureSignature(form);
     const onChange = (event: Event) => {
       const target = event.target as HTMLInputElement | null;
       const name = target?.getAttribute?.("name") ?? "";
-      if (PICTURE_INPUT.test(name)) setTouched(true);
+      if (PICTURE_INPUT.test(name)) {
+        setTouched(pictureSignature(form) !== atMount);
+      }
     };
     form.addEventListener("change", onChange);
     form.addEventListener("input", onChange);

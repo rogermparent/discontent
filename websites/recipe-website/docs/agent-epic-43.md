@@ -228,7 +228,9 @@ frame (board `B-start`, `B-desktop`, `B-phone`):
   imported from this link on 14 Oct 2026." with **Open it** / **Edit that
   one instead** / **Keep importing — save as a copy**, which sets the slug
   from `resolveCopySlug` (`recipes.ts`: `nextCopySlug`, the first free
-  `-2`, `-3`…, counting on from a slug that already ends in a number) and
+  `-2`, `-3`…, counting on from a slug that already ends in a small number
+  whose base exists: `cookies-2` → `cookies-3`, `best-of-2024` →
+  `best-of-2024-2`) and
   says so in the rail ("Same link as X — you chose to keep a copy",
   `/recipe/x-2`). Asked again for a reopened `?job=`.
 - **Errors**: the slug conflict's Overwrite path is unchanged; the Slug
@@ -264,7 +266,9 @@ frame (board `B-start`, `B-desktop`, `B-phone`):
 - **De1-6 the picture's change** is seen from the form element's own
   `change`/`input` events on the file, URL and candidate inputs (the form
   instance does not hold them): it counts as one change and turns the rail's
-  Picture to "new"; picking the original candidate back still counts.
+  Picture to "new". It is compared with the inputs as the form mounted
+  (set ones only: a checked box, a chosen file, typed text), so typing then
+  deleting, or ticking then unticking, is back to no change.
 - **De1-7 Import stays primary** (board `B-start`); every other button in
   the form is outline or ghost.
 - **De1-8 the phone's pill row is `contain: inline-size`.** A scroll
@@ -272,6 +276,27 @@ frame (board `B-start`, `B-desktop`, `B-phone`):
   grid track: the pills stretched the page to ~660 px at 393 until
   contained (caught by the new spec's "nothing reaches past the screen"
   check, which lists the offending boxes).
+
+- **De1-9 the duplicate check's match.** It uses the roundup's
+  `sourceUrlKey`: host without `www.`, path without a trailing slash or a
+  comment-page suffix, scheme, query (so `utm_*`) and fragment ignored. It
+  does not know that `youtu.be/x` and `youtube.com/watch?v=x` are one video
+  (the query is dropped, so the latter reads as `youtube.com/watch`); the
+  slug conflict at Create still catches a same-named copy. Roger to confirm.
+- **De1-10 a failed Create's counter.** After a slug conflict or a
+  validation error the form reloads with what was sent; the change count
+  compares against the pre-submit values (the import's recipe at the
+  copy/auto slug), not those. Checked by the e2e specs rather than a unit
+  test (it needs the server action's state).
+
+**Traps.**
+
+- The rail and the phone's jump row render only after hydration
+  (`useWideRail`; the server renders the phone bar): a layout shift on load,
+  and from `lg` there is no Save before hydration. Specs wait with
+  `expectHydrated`.
+- `nextCopySlug` counts on only from a number of at most two digits whose
+  base exists; a year or any other trailing number is part of the name.
 
 **Found, not fixed (43e2's):** an untouched save writes `"name": ""` into
 every untitled step (the step-name input posts an empty string and the

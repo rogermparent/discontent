@@ -382,15 +382,18 @@ export function resolveCreateSlug(input: RecipeInput): string {
 /**
  * The slug a copy is saved at (43e1, "Keep importing — save as a copy"):
  * the first of `<slug>-2`, `<slug>-3`, … that `isTaken` says is free. A
- * slug that already ends in `-<n>` is counted on from, not doubled
- * (`cookies-2` → `cookies-3`, never `cookies-2-2`).
+ * slug that ends in a small `-<n>` (≤ 99) whose `<base>` exists is a
+ * copy already and is counted on from (`cookies-2` → `cookies-3`, never
+ * `cookies-2-2`); any other trailing number is part of the name
+ * (`best-of-2024` → `best-of-2024-2`).
  */
 export async function nextCopySlug(
   slug: string,
   isTaken: (candidate: string) => boolean | Promise<boolean>,
   limit = 100,
 ): Promise<string> {
-  const counted = /^(.*\D)-(\d+)$/.exec(slug);
+  const match = /^(.*\D)-(\d{1,2})$/.exec(slug);
+  const counted = match && (await isTaken(match[1])) ? match : null;
   const base = counted ? counted[1] : slug;
   const from = counted ? Number(counted[2]) + 1 : 2;
   for (let n = from; n < from + limit; n += 1) {

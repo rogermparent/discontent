@@ -59,7 +59,20 @@ const BEES_KNEES: Recipe = {
     { text: "Strain into a coupe." },
   ],
   prepTime: 5,
-  totalTime: 5,
+  cookTime: 2,
+  totalTime: 7,
+  image: "bees-knees.jpg",
+  video: "bees-knees.mp4",
+  timelines: [
+    {
+      name: "Make it",
+      note: "Syrup first.",
+      events: [
+        { name: "Honey syrup", activeTime: true, defaultLength: 3 },
+        { name: "Chill the glass", activeTime: false, defaultLength: 10 },
+      ],
+    },
+  ],
   source: {
     url: "https://www.acouplecooks.com/bees-knees-cocktail/",
     name: "A Couple Cooks",
@@ -127,7 +140,15 @@ describe("edit form B saves an unchanged recipe unchanged (D4)", () => {
     expect(data.name).toBe(BEES_KNEES.name);
     expect(data.slug).toBe("bees-knees-acouplecooks");
     expect(data.prepTime).toBe(5);
-    expect(data.totalTime).toBe(5);
+    expect(data.cookTime).toBe(2);
+    expect(data.totalTime).toBe(7);
+    expect(data.date).toBe(BEES_KNEES.date);
+    expect(JSON.parse(JSON.stringify(data.timelines))).toEqual(
+      BEES_KNEES.timelines,
+    );
+    /* Untouched picture and video: no clear flag rides along. */
+    expect(data.clearImage).toBeFalsy();
+    expect(data.clearVideo).toBeFalsy();
     expect(data.description).toBe(BEES_KNEES.description);
     expect(data.recipeYield).toBe(BEES_KNEES.recipeYield);
   });

@@ -201,7 +201,13 @@ describe("nextCopySlug (43e1)", () => {
   });
 
   it("counts on from a slug that already ends in a number", async () => {
-    expect(await nextCopySlug("cookies-2", () => false)).toBe("cookies-3");
+    const original = (slug: string) => slug === "cookies";
+    expect(await nextCopySlug("cookies-2", original)).toBe("cookies-3");
+    /* A year is part of the name, not a copy number. */
+    const year = (slug: string) => slug === "best-of";
+    expect(await nextCopySlug("best-of-2024", year)).toBe("best-of-2024-2");
+    /* A small number with no original under it is a name too. */
+    expect(await nextCopySlug("top-10", () => false)).toBe("top-10-2");
     /* A number that is the whole name is the name. */
     expect(await nextCopySlug("1905", () => false)).toBe("1905-2");
   });

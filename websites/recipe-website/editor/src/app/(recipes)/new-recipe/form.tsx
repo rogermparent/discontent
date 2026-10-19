@@ -12,7 +12,10 @@ import {
   sectionAnchor,
   withSlugConflict,
 } from "recipe-website-common/components/Form/sections";
-import { useRecipeForm } from "recipe-website-common/components/Form/formContext";
+import {
+  recipeToFormValues,
+  useRecipeForm,
+} from "recipe-website-common/components/Form/formContext";
 import {
   useActionState,
   useCallback,
@@ -504,6 +507,15 @@ export default function NewOrImportRecipeForm({
   const [submissionState, submissionDispatch] = useActionState(
     createRecipe,
     initialSubmissionState,
+  );
+  /* After a failed Create the form reloads with what was sent; "N changes"
+   * still counts against what the form started from, not that. */
+  const baseline = useMemo(
+    () =>
+      submissionState.formData
+        ? recipeToFormValues(recipe ?? undefined, copySlug ?? slug)
+        : undefined,
+    [submissionState.formData, recipe, copySlug, slug],
   );
   const [, overwriteDispatch] = useActionState(overwriteRecipe, null);
 
@@ -1094,6 +1106,7 @@ export default function NewOrImportRecipeForm({
           }
           errors={withSlugConflict(submissionState).errors}
           saveLabel="Create recipe"
+          baseline={baseline}
           cancelHref="/"
           busy={busy}
           message={submissionState.message || undefined}
