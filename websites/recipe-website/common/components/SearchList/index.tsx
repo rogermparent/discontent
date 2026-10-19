@@ -137,8 +137,11 @@ export default function SearchList({
   recipeResults,
   highlightQuery,
   renderItemWrapper,
+  gridClassName,
 }: {
   recipeResults?: MassagedRecipeEntry[];
+  /** `RecipeGrid`'s columns, when not the default six across. */
+  gridClassName?: string;
   /** The query's *free text* — see `highlightText`. */
   highlightQuery: string;
   renderItemWrapper: (
@@ -147,7 +150,7 @@ export default function SearchList({
   ) => ReactNode;
 }) {
   return (
-    <RecipeGrid>
+    <RecipeGrid className={gridClassName}>
       {recipeResults &&
         recipeResults.map((recipe) => {
           return recipe ? (

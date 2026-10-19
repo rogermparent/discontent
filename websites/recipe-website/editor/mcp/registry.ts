@@ -1211,7 +1211,9 @@ export function createRecipeServer(
       description:
         "Add items to the shared list, one commit. Items already there are skipped. " +
         "Write the generic name first (`aperitif (Gnista)` or just `Gnista`), the way " +
-        "recipe lines are written.",
+        "recipe lines are written. `any bean` is a matcher: every canned or dried bean " +
+        "a line names counts as on hand (never green or vanilla beans); `beans` is " +
+        "stored as `any bean`.",
       inputSchema: z.strictObject({
         items: z.array(InventoryItemSchema).min(1).max(500),
       }),

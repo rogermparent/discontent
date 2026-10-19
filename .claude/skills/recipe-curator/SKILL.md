@@ -528,7 +528,11 @@ so there), which may hold a different list from the shared one you judged.
 `{items, path, added, removed, changed}`, one commit each, and `changed:
 false` when the list already said so. Write items the way recipe lines are
 written: **generic name** (`lime`, `simple syrup`, `non-alcoholic gin`), or a
-brand alone when it means one thing (`Gnista`). `inventory_makeable` →
+brand alone when it means one thing (`Gnista`). "I have beans, any kind"
+is the matcher **`any bean`**: it meets every canned or dried bean a line
+names (black, pinto, chickpeas, cannellini…; never green, wax or vanilla
+beans, lentils or refried beans), and counts as had. `beans` and `any beans`
+are stored as `any bean`. `inventory_makeable` →
 `{query, scope, features, link, staples, beanSwaps, alwaysHave, inventory,
 total, canMake, oneAway, twoAway, further, beanSwap?, buyNext}` (`scope` is the query with
 each feature written in; `total` counts the recipes judged, after the

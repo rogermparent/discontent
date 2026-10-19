@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "../support/test";
 import { openPalette, signIn } from "../support/helpers";
 import { expectNoViolations } from "../support/a11y";
@@ -21,6 +21,16 @@ const question = (page: Page) => page.getByTestId("make-question");
 const chips = (page: Page) => page.getByTestId("inventory-chips");
 const shelf = (page: Page) => page.getByTestId("make-shelf");
 const toast = (page: Page) => page.getByTestId("make-toast");
+
+/**
+ * A result card by its recipe's name: the list item holding its link (the
+ * card's notes sit beside the link since 42m2, whose tapes are buttons).
+ */
+const cardOf = (scope: Locator, name: string) =>
+  scope
+    .getByRole("listitem")
+    .filter({ has: scope.page().getByRole("link", { name: new RegExp(name) }) })
+    .last();
 
 /** The page has its corpus, its ingredients and its storage. */
 async function ready(page: Page) {
@@ -1055,7 +1065,7 @@ test.describe("What can I make? — bean swaps", () => {
     await expect(swap.getByRole("heading", { level: 2 })).toHaveText(
       /^With a bean swap\s*1$/,
     );
-    const card = swap.getByRole("link", { name: /Chickpea Cucumber Salad/ });
+    const card = cardOf(swap, "Chickpea Cucumber Salad");
     await expect(card.getByTestId("make-swap")).toHaveText(
       "Use black beans for chickpea",
     );
@@ -1074,7 +1084,7 @@ test.describe("What can I make? — bean swaps", () => {
 
     /* One bean covers two lines. */
     await addItems(page, "red onion, red wine vinegar");
-    const twoBean = swap.getByRole("link", { name: /Two Bean Salad/ });
+    const twoBean = cardOf(swap, "Two Bean Salad");
     await expect(twoBean.getByTestId("make-swap")).toHaveText([
       "Use black beans for kidney bean",
       "Use black beans for chickpea",
@@ -1101,4 +1111,164 @@ test.describe("What can I make? — bean swaps", () => {
       "Two Bean Salad",
     );
   });
+});
+
+/*
+ * 42m2, on `make-beans`: a card's missing tape adds that ingredient to the
+ * list; "bean" adds the `any bean` matcher, which refines to the beans
+ * ticked; further away is a list of wide rows, the other groups at most
+ * four across, so their tapes have room.
+ */
+test.describe("What can I make? — tap to add, and matchers", () => {
+  test.beforeEach(async ({ resetData }) => {
+    await resetData("make-beans");
+  });
+
+  test("a missing tape in further away goes on the list, with Undo", async ({
+    page,
+  }) => {
+    await page.goto("/make");
+    await ready(page);
+    await addItems(page, "cucumber");
+    await expect(ticker(page)).toHaveText(
+      "4 recipes · 0 can make · 0 one away · 1 two away",
+    );
+    const further = section(page, "make-further");
+    await further.locator("summary").click();
+    const row = cardOf(further, "Two Bean Salad");
+    await row
+      .getByRole("button", { name: "Add red onion to what I have" })
+      .click();
+    await expect(
+      chips(page).getByRole("button", { name: "red onion", exact: true }),
+    ).toBeVisible();
+    await expect(toast(page)).toContainText("Added red onion.");
+    /* Its tape goes with the line it met; focus goes to Undo. */
+    await expect(
+      row.getByRole("button", { name: "Add red onion to what I have" }),
+    ).toHaveCount(0);
+    await expect(
+      toast(page).getByRole("button", { name: "Undo" }),
+    ).toBeFocused();
+
+    /* A second tap moves the card up a bucket. */
+    await row
+      .getByRole("button", { name: "Add red wine vinegar to what I have" })
+      .click();
+    await expect(section(page, "make-two-away")).toContainText(
+      "Two Bean Salad",
+    );
+    await expect(ticker(page)).toHaveText(
+      "4 recipes · 0 can make · 0 one away · 2 two away",
+    );
+    await toast(page).getByRole("button", { name: "Undo" }).click();
+    await expect(
+      chips(page).getByRole("button", { name: "red wine vinegar" }),
+    ).toHaveCount(0);
+    await expect(section(page, "make-two-away")).not.toContainText(
+      "Two Bean Salad",
+    );
+    await expect(
+      chips(page).getByRole("button", { name: "red onion", exact: true }),
+    ).toBeVisible();
+  });
+
+  test("“bean” adds a matcher, which counts every bean and refines to chickpeas", async ({
+    page,
+  }) => {
+    await page.goto("/make");
+    await ready(page);
+    await addItems(page, "cucumber, lemon");
+    await expect(ticker(page)).toHaveText(
+      "4 recipes · 0 can make · 1 one away · 0 two away",
+    );
+
+    const input = page.getByTestId("inventory-input");
+    await input.fill("bean");
+    const option = page
+      .getByTestId("add-suggestions")
+      .getByRole("option", { name: /^Any bean — matches 4 kinds/ });
+    await expect(option).toBeVisible();
+    await option.click();
+
+    const matcher = shelf(page).getByTestId("make-matcher");
+    await expect(matcher).toHaveAccessibleName("any bean");
+    await expect(matcher).toHaveText("✱any bean1");
+    await expect(ticker(page)).toHaveText(
+      "4 recipes · 1 can make · 0 one away · 2 two away",
+    );
+    await expect(section(page, "make-can")).toContainText(
+      "Chickpea Cucumber Salad",
+    );
+    /* Green beans are no family bean: the three-bean salad still needs them. */
+    await expect(section(page, "make-two-away")).toContainText(
+      "Needs green bean",
+    );
+
+    await matcher.click();
+    const refine = page.getByRole("dialog", {
+      name: "Which beans do you have?",
+    });
+    await expect(refine.getByRole("checkbox")).toHaveCount(4);
+    await refine.getByRole("checkbox", { name: /^chickpea/ }).check();
+    await refine.getByRole("button", { name: "Keep only these" }).click();
+    await expect(refine).toHaveCount(0);
+    await expect(shelf(page).getByTestId("make-matcher")).toHaveCount(0);
+    await expect(
+      chips(page).getByRole("button", { name: "chickpea", exact: true }),
+    ).toBeVisible();
+    await expect(toast(page)).toContainText("Kept chickpea for any bean.");
+    await expect(section(page, "make-can")).toContainText(
+      "Chickpea Cucumber Salad",
+    );
+
+    await toast(page).getByRole("button", { name: "Undo" }).click();
+    await expect(shelf(page).getByTestId("make-matcher")).toBeVisible();
+    await expect(
+      chips(page).getByRole("button", { name: "chickpea", exact: true }),
+    ).toHaveCount(0);
+    await expectNoViolations(page);
+  });
+
+  for (const width of [1366, 1600, 1920]) {
+    test(`results have room at ${width} px: rows further away, four across at most`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.goto("/make");
+      await ready(page);
+      await addItems(page, "cucumber");
+      const further = section(page, "make-further");
+      await further.locator("summary").click();
+      const rows = further.getByTestId("make-rows");
+      await expect(rows.getByRole("listitem")).toHaveCount(3);
+      /* Every tape inside its card, none cut or spilling. */
+      const fits = await page.evaluate(() =>
+        [...document.querySelectorAll("[data-testid=make-add-missing]")].map(
+          (tape) => {
+            const card = tape.closest("li")!.getBoundingClientRect();
+            const box = tape.getBoundingClientRect();
+            return (
+              box.left >= card.left - 0.5 &&
+              box.right <= card.right + 0.5 &&
+              tape.scrollWidth <= tape.clientWidth + 1
+            );
+          },
+        ),
+      );
+      expect(fits.length).toBeGreaterThan(0);
+      expect(fits.every(Boolean)).toBe(true);
+      const columns = (locator: Locator) =>
+        locator.evaluate(
+          (element) =>
+            getComputedStyle(element).gridTemplateColumns.split(" ").length,
+        );
+      expect(await columns(rows)).toBe(width >= 1280 ? 2 : 1);
+      expect(
+        await columns(
+          section(page, "make-two-away").getByTestId("recipe-list"),
+        ),
+      ).toBeLessThanOrEqual(4);
+    });
+  }
 });

@@ -327,6 +327,29 @@ test.describe("Visual baselines @visual", () => {
     await snapshotPage(page, "make-page.png");
   });
 
+  // 42m2: the results at 1920 px — a matcher on the shelf, photo cards at
+  // most four across with their tapes as buttons, further away as rows.
+  test("make page results, wide", async ({ page, resetData }) => {
+    await resetData("make-beans");
+    await page.setViewportSize({ width: 1920, height: 1600 });
+    await page.goto("/make");
+    await expect(page.getByTestId("make-ticker")).toHaveText(/can make/i, {
+      timeout: 20_000,
+    });
+    const input = page.getByTestId("inventory-input");
+    await input.fill("any bean, cucumber");
+    await input.press("Enter");
+    await page.getByTestId("make-further").locator("summary").click();
+    await expect(page.getByTestId("make-rows")).toContainText("Black Bean");
+    await expect(page.getByTestId("make-toast")).toBeEmpty({
+      timeout: 5_000,
+    });
+    await snapshotLocator(
+      page.getByTestId("make-results"),
+      "make-results-wide.png",
+    );
+  });
+
   // 41h: the spec cards, a featured ingredient in the question and on its
   // labels, and Buy next for the featured scope.
   test("make page, spec cards with a feature", async ({ page, resetData }) => {

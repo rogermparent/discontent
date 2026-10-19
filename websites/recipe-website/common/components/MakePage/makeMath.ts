@@ -3,8 +3,17 @@
  * the add field's suggestions. Pure, so `test/makeFeatured.test.ts` holds
  * them without a page.
  */
-import { dedupeItems } from "../../util/inventoryText";
-import { nameLabel, type Requirement } from "../../util/ingredientNames";
+import { dedupeItems, inventoryKey } from "../../util/inventoryText";
+import {
+  nameKey,
+  nameLabel,
+  type Requirement,
+} from "../../util/ingredientNames";
+import {
+  matcherForTyped,
+  matcherText,
+  type IngredientMatcher,
+} from "../../util/matchers";
 import {
   analyzeMakeable,
   parseInventoryItem,
@@ -183,7 +192,7 @@ export function addCandidates({
   }
   const items = have.map(parseInventoryItem);
   const stapleItems = staples.map(parseInventoryItem);
-  return [...names.values()]
+  const ranked: (AddCandidate & { count: number })[] = [...names.values()]
     .filter(
       ({ requirement }) => !probablyOnHand(requirement, items, stapleItems),
     )
@@ -197,7 +206,33 @@ export function addCandidates({
         helps: gain.helps,
         count: named.count,
       };
-    })
+    });
+  /*
+   * A family named (42m2): "bean" also offers `any bean`, which matches
+   * every kind the scope's recipes use — unless the list holds it already
+   * or the scope uses none. Ranked by its what-if like any other name.
+   */
+  const matcher = matcherForTyped(typed);
+  const matcherKey = matcher && inventoryKey(matcherText(matcher));
+  if (
+    matcher &&
+    !have.some((item) => inventoryKey(item) === matcherKey) &&
+    !stapleItems.some((item) => item.matcher === matcher)
+  ) {
+    const members = matcherMembers(matcher, scoped, prepared);
+    if (members.length > 0) {
+      const name = matcherText(matcher);
+      const gain = whatIf(name, analysis, prepared.aliases);
+      ranked.push({
+        name,
+        unlocks: gain.unlocks.length,
+        helps: gain.helps,
+        count: members.reduce((sum, member) => sum + member.recipes, 0),
+        matcher: { kinds: members.length },
+      });
+    }
+  }
+  return ranked
     .sort(
       (a, b) =>
         b.unlocks - a.unlocks ||
@@ -207,7 +242,74 @@ export function addCandidates({
         a.name.localeCompare(b.name),
     )
     .slice(0, limit)
-    .map(({ name, unlocks, helps }) => ({ name, unlocks, helps }));
+    .map(({ name, unlocks, helps, matcher: family }) => ({
+      name,
+      unlocks,
+      helps,
+      ...(family ? { matcher: family } : {}),
+    }));
+}
+
+/** One family member the scope uses (42m2): a refine popover's row. */
+export interface MatcherMember {
+  /** As a line names it, and as it is added: `chickpea`, `black bean`. */
+  name: string;
+  /** Scoped recipes with a required line naming it. */
+  recipes: number;
+}
+
+/**
+ * The members of `matcher`'s family the scoped recipes ask for (42m2), each
+ * with how many recipes ask — the "Keep only these" list, and the add
+ * field's "matches 9 kinds in these recipes". Specific members only
+ * (`chickpea`, not "mixed beans"); one row per name; required lines only;
+ * most used first.
+ */
+export function matcherMembers(
+  matcher: IngredientMatcher,
+  scoped: MakeRecipe[],
+  prepared: PreparedCorpus,
+): MatcherMember[] {
+  const found = new Map<string, { name: string; slugs: Set<string> }>();
+  for (const recipe of scoped) {
+    const entry = prepared.recipes.get(recipe.slug) ?? prepareRecipe(recipe);
+    for (const requirement of entry.requirements) {
+      if (requirement.optional || requirement.loose) continue;
+      for (const alternative of requirement.alternatives) {
+        if (alternative.na || !matcher.specific(alternative)) continue;
+        const key = nameKey(alternative);
+        let member = found.get(key);
+        if (!member) {
+          member = { name: nameLabel(alternative), slugs: new Set() };
+          found.set(key, member);
+        }
+        member.slugs.add(recipe.slug);
+      }
+    }
+  }
+  return [...found.values()]
+    .map(({ name, slugs }) => ({ name, recipes: slugs.size }))
+    .sort((a, b) => b.recipes - a.recipes || a.name.localeCompare(b.name));
+}
+
+/**
+ * The list after "Keep only these" (42m2): the matcher at `item` replaced
+ * by `chosen`, in its place, without repeating what the list already has.
+ */
+export function refineMatcher(
+  have: string[],
+  item: string,
+  chosen: string[],
+): string[] {
+  const key = inventoryKey(item);
+  const at = have.findIndex((kept) => inventoryKey(kept) === key);
+  const rest = have.filter((kept) => inventoryKey(kept) !== key);
+  const index = at < 0 ? rest.length : at;
+  return dedupeItems([
+    ...rest.slice(0, index),
+    ...chosen,
+    ...rest.slice(index),
+  ]);
 }
 
 /** "Southside, Paloma, Dark 'n' Stormy and 4 more" — a name list, cut short. */

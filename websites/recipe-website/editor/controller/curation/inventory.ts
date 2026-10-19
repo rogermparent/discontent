@@ -38,6 +38,10 @@ import {
   dedupeItems,
   inventoryKey,
 } from "recipe-website-common/util/inventoryText";
+import {
+  canonicalItem,
+  canonicalItems,
+} from "recipe-website-common/util/matchers";
 import { readSettings } from "@discontent/cms/settings";
 import {
   featuredOfQuery,
@@ -134,6 +138,11 @@ function describe(added: string[], removed: string[]): string {
   return text;
 }
 
+/** Two spellings of one item share this key: a matcher's are canonical first. */
+function itemKey(item: string): string {
+  return inventoryKey(canonicalItem(item));
+}
+
 /** Called under the write lock, which `patchInventory` / `setInventory` hold. */
 async function writeInventory(
   ctx: CurationContext,
@@ -181,19 +190,23 @@ async function patchInventoryLocked(
   await assertNoMergeInProgress(ctx.contentDirectory);
   const { items: current, path: file } = await readInventory(ctx);
 
-  const removeKeys = new Set((input.remove ?? []).map(inventoryKey));
-  const removed = current.filter((item) => removeKeys.has(inventoryKey(item)));
-  const kept = current.filter((item) => !removeKeys.has(inventoryKey(item)));
-  const keptKeys = new Set(kept.map(inventoryKey));
-  const added = dedupeItems(input.add ?? []).filter(
-    (item) => !keptKeys.has(inventoryKey(item)),
+  /*
+   * A matcher is one item however it is spelled (42m2): `beans`, `any
+   * beans` and `any bean` are all `any bean` — added in that spelling, and
+   * removing any of them removes a stored "beans" from before.
+   */
+  const removeKeys = new Set((input.remove ?? []).map(itemKey));
+  const removed = current.filter((item) => removeKeys.has(itemKey(item)));
+  const kept = current.filter((item) => !removeKeys.has(itemKey(item)));
+  const keptKeys = new Set(kept.map(itemKey));
+  const added = dedupeItems(canonicalItems(input.add ?? [])).filter(
+    (item) => !keptKeys.has(itemKey(item)),
   );
   /* Removed and re-added in one patch: neither, as far as the list goes. */
-  const readded = new Set(added.map(inventoryKey));
-  const netRemoved = removed.filter((item) => !readded.has(inventoryKey(item)));
+  const readded = new Set(added.map(itemKey));
+  const netRemoved = removed.filter((item) => !readded.has(itemKey(item)));
   const netAdded = added.filter(
-    (item) =>
-      !removed.some((gone) => inventoryKey(gone) === inventoryKey(item)),
+    (item) => !removed.some((gone) => itemKey(gone) === itemKey(item)),
   );
 
   if (netAdded.length === 0 && netRemoved.length === 0) {
@@ -245,7 +258,7 @@ async function setInventoryLocked(
    */
   await assertNoMergeInProgress(ctx.contentDirectory);
   const { items: current, path: file } = await readInventory(ctx);
-  const items = sorted(dedupeItems(input.items));
+  const items = sorted(dedupeItems(canonicalItems(input.items)));
   const nextKeys = new Set(items.map(inventoryKey));
   const currentKeys = new Set(current.map(inventoryKey));
   const added = items.filter((item) => !currentKeys.has(inventoryKey(item)));

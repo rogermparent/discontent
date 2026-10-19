@@ -28,6 +28,7 @@ import { createHttpBackend } from "../websites/recipe-website/editor/cli/backend
 import { absoluteLink } from "../websites/recipe-website/editor/cli/backend/link";
 import { inventoryCommands } from "../websites/recipe-website/editor/cli/commands/inventory";
 import { protectDashedPositionals } from "../websites/recipe-website/editor/cli/index";
+import { analyzeMakeable } from "recipe-website-common/util/makeable";
 
 /* `/api/inventory/make` with its auth stood in for: the route's own
  * parameters are what its test reads (U5 review). */
@@ -374,6 +375,85 @@ describe("makeable", () => {
     ).json()) as Awaited<ReturnType<typeof makeable>>;
     expect(routed.beanSwaps).toBe(false);
     expect(routed).not.toHaveProperty("beanSwap");
+  });
+
+  it("keeps a matcher as `any bean` and judges it as /make does (42m2)", async () => {
+    const salad = {
+      name: "Two Bean Salad",
+      tags: ["salad"],
+      ingredients: [
+        "1 (15 oz) can chickpeas, drained and rinsed",
+        "1 (15 oz) can kidney beans, drained and rinsed",
+        "1 red onion, diced",
+      ],
+    };
+    await createRecipe(ctx, salad);
+    await createRecipe(ctx, {
+      name: "Green Bean Salad",
+      tags: ["salad"],
+      ingredients: ["1 lb green beans, trimmed", "1 red onion, diced"],
+    });
+    /* "beans" is stored as the matcher's canonical text (Dm2-6). */
+    const added = await patchInventory(ctx, { add: ["beans", "red onion"] });
+    expect(added).toMatchObject({
+      items: ["any bean", "red onion"],
+      added: ["any bean", "red onion"],
+    });
+    expect((await patchInventory(ctx, { add: ["Any Beans"] })).changed).toBe(
+      false,
+    );
+
+    const result = await makeable(ctx, { query: "tag:salad", staples: false });
+    expect(result.canMake).toEqual([
+      { slug: "two-bean-salad", name: "Two Bean Salad" },
+    ]);
+    /* Green beans are no family bean; the swap tier has nothing to add. */
+    expect(result.oneAway).toEqual([
+      {
+        slug: "green-bean-salad",
+        name: "Green Bean Salad",
+        missing: ["green bean"],
+      },
+    ]);
+    expect(result.beanSwap).toEqual([]);
+    /* The page's judge over the same lines says the same (41i parity). */
+    const page = analyzeMakeable(
+      [{ slug: "two-bean-salad", ...salad }],
+      [{ slug: "two-bean-salad", ...salad }],
+      ["any bean", "red onion"],
+      { staples: [], beanSwaps: true },
+    );
+    expect(page.canMake.map((match) => match.recipe.slug)).toEqual([
+      "two-bean-salad",
+    ]);
+
+    /* Any spelling removes it. */
+    const removed = await patchInventory(ctx, { remove: ["beans"] });
+    expect(removed).toMatchObject({
+      items: ["red onion"],
+      removed: ["any bean"],
+    });
+  });
+
+  it("reads a list saved before matchers, `beans` and all (42m2)", async () => {
+    await createRecipe(ctx, {
+      name: "Chickpea Salad",
+      tags: ["salad"],
+      ingredients: ["1 can chickpeas", "1 cucumber"],
+    });
+    await patchInventory(ctx, { add: ["cucumber"] });
+    /* Written by hand, as an old list or another tool might have. */
+    await writeFile(
+      join(contentDirectory, INVENTORY_FILE),
+      `${JSON.stringify({ items: ["beans", "cucumber"] }, null, 2)}\n`,
+    );
+    const result = await makeable(ctx, { query: "tag:salad", staples: false });
+    expect(result.canMake).toEqual([
+      { slug: "chickpea-salad", name: "Chickpea Salad" },
+    ]);
+    expect(
+      (await patchInventory(ctx, { remove: ["any bean"] })).removed,
+    ).toEqual(["beans"]);
   });
 
   it("assumes pantry staples by default, and not with staples: false (U5)", async () => {

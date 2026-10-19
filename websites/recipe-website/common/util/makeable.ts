@@ -25,6 +25,7 @@ import {
   type Requirement,
 } from "./ingredientNames";
 import { beanFor, beanKind, isBeanLine, type BeanOnHand } from "./beans";
+import { matcherMeets, matcherOf, type IngredientMatcher } from "./matchers";
 
 /**
  * What `inventory_makeable`, `recipes inventory make` and `/api/inventory/make`
@@ -144,9 +145,20 @@ export interface InventoryItem {
   /** Keys of parentheticals: "aperitif (Gnista)" also says `gnista`. */
   aliasKeys: string[];
   names: IngredientName[];
+  /**
+   * A matcher item (42m2, `matchers.ts`): `any bean` meets every line naming
+   * a family member, and has no names of its own — so it is never close to
+   * anything and never a bean to swap in, since it already meets every bean
+   * line.
+   */
+  matcher?: IngredientMatcher;
 }
 
 export function parseInventoryItem(text: string): InventoryItem {
+  const matcher = matcherOf(text);
+  if (matcher) {
+    return { text, key: aliasKey(text), aliasKeys: [], names: [], matcher };
+  }
   const aliasKeys: string[] = [];
   const outside = text.replace(/\(([^()]*)\)/g, (_, inner: string) => {
     aliasKeys.push(aliasKey(inner));
@@ -199,12 +211,16 @@ function contains(haystack: string[], needle: string[]): boolean {
  * - **generic / specific** — one name is the tail of the other.
  * - **derived form** — `lime` meets `lime juice`, `hibiscus` `hibiscus tea`.
  * - **loose** — an infusion's flavour is met by any item mentioning it.
+ *
+ * A matcher item (42m2) passes instead when any alternative is a member of
+ * its family (`matcherMeets`): `any bean` meets "1 can chickpeas".
  */
 export function satisfies(
   item: InventoryItem,
   requirement: Requirement,
   aliases?: AliasIndex,
 ): boolean {
+  if (item.matcher) return matcherMeets(item.matcher, requirement);
   if (requirement.aliasKeys.length > 0) {
     for (const key of [item.key, ...item.aliasKeys]) {
       if (!key || !requirement.aliasKeys.includes(key)) continue;

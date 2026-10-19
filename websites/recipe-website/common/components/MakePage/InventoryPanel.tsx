@@ -12,6 +12,9 @@ import { ImportExportDialog } from "./ImportExportDialog";
 import { AddField, type AddCandidate } from "./AddField";
 import { SaveConfirm, type InventoryDiff } from "./SavedInventory";
 import { isFeatured } from "./kinds";
+import { matcherOf } from "../../util/matchers";
+import type { MatcherMember } from "./makeMath";
+import { MatcherTape } from "./MatcherTape";
 import { TapeLabel } from "./Tape";
 
 /**
@@ -298,6 +301,11 @@ export interface SaveToEditor {
  *
  * Each label's × is a **sibling** of its body, so each has a name of its own
  * ("Remove vodka") and nothing interactive nests.
+ *
+ * A matcher on this browser's list (42m2, "✱ any bean") is a `MatcherTape`:
+ * its body opens "Which beans do you have?" to refine it (`onRefine`), and
+ * features it from there. On the second list it is an outlined label marked
+ * ✱, featurable as any other.
  */
 export function InventoryPanel({
   inventory,
@@ -313,6 +321,8 @@ export function InventoryPanel({
   onClear,
   onCopySecond,
   onToggleFeature,
+  matcherMembers,
+  onRefine,
   saveToEditor,
   inputRef,
   dialogOpen,
@@ -333,6 +343,14 @@ export function InventoryPanel({
   onClear: () => void;
   onCopySecond: () => void;
   onToggleFeature: (item: string) => void;
+  /**
+   * A matcher's members in the current scope (42m2), for its popover. With
+   * `onRefine`, a matcher on this browser's list opens it; without, it is a
+   * label like any other, marked ✱.
+   */
+  matcherMembers?: (item: string) => MatcherMember[];
+  /** "Keep only these" (42m2): the matcher `item` replaced by `chosen`. */
+  onRefine?: (item: string, chosen: string[]) => void;
   saveToEditor?: SaveToEditor;
   inputRef: RefObject<HTMLInputElement | null>;
   dialogOpen: boolean;
@@ -464,21 +482,42 @@ export function InventoryPanel({
                   : "This browser's list, not counted"
               }
             >
-              {have.map((item, i) => (
-                <TapeLabel
-                  key={inventoryKey(item)}
-                  item={item}
-                  counted={browserCounted}
-                  featured={isFeatured(item, featured)}
-                  pull={browserCounted ? pulls.get(item) : undefined}
-                  landed={landed === inventoryKey(item)}
-                  onFeature={() => onToggleFeature(item)}
-                  onRemove={() => {
-                    focusAfterRemove.current = i;
-                    onRemove(item);
-                  }}
-                />
-              ))}
+              {have.map((item, i) =>
+                matcherOf(item) &&
+                browserCounted &&
+                matcherMembers &&
+                onRefine ? (
+                  <MatcherTape
+                    key={inventoryKey(item)}
+                    item={item}
+                    featured={isFeatured(item, featured)}
+                    pull={pulls.get(item)}
+                    landed={landed === inventoryKey(item)}
+                    members={() => matcherMembers(item)}
+                    onRefine={(chosen) => onRefine(item, chosen)}
+                    onToggleFeature={() => onToggleFeature(item)}
+                    onRemove={() => {
+                      focusAfterRemove.current = i;
+                      onRemove(item);
+                    }}
+                  />
+                ) : (
+                  <TapeLabel
+                    key={inventoryKey(item)}
+                    item={item}
+                    counted={browserCounted}
+                    featured={isFeatured(item, featured)}
+                    pull={browserCounted ? pulls.get(item) : undefined}
+                    landed={landed === inventoryKey(item)}
+                    matcher={!!matcherOf(item)}
+                    onFeature={() => onToggleFeature(item)}
+                    onRemove={() => {
+                      focusAfterRemove.current = i;
+                      onRemove(item);
+                    }}
+                  />
+                ),
+              )}
             </ul>
             {!browserCounted && second && (
               <p
@@ -526,6 +565,7 @@ export function InventoryPanel({
                     key={inventoryKey(item)}
                     item={item}
                     kind="saved"
+                    matcher={!!matcherOf(item)}
                     featured={isFeatured(item, featured)}
                     pull={pulls.get(item)}
                     onFeature={() => onToggleFeature(item)}

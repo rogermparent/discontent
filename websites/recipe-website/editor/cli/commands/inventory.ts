@@ -71,7 +71,7 @@ const listCommand: CommandDef<InventoryResult> = {
 const addCommand: CommandDef<InventoryWriteResult> = {
   name: "inventory add",
   usage:
-    'recipes inventory add <item…>   e.g. inventory add Gnista "simple syrup"',
+    'recipes inventory add <item…>   e.g. inventory add Gnista "simple syrup" "any bean"',
   options: {},
   run: ({ backend, positionals }) =>
     backend.patchInventory({ add: items(positionals, "add") }),

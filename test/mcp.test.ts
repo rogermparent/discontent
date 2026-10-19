@@ -703,6 +703,12 @@ describe("the MCP registry over an in-memory transport", () => {
     });
     /* Nothing caches the list, so there is no stale editor to warn about. */
     expect(added.data.warnings).toBeUndefined();
+    /* 42m2: "beans" is the `any bean` matcher, stored canonical; any
+     * spelling takes it off again. */
+    const matcher = await call("inventory_add", { items: ["beans"] });
+    expect(matcher.data).toMatchObject({ added: ["any bean"] });
+    const unmatched = await call("inventory_remove", { items: ["any beans"] });
+    expect(unmatched.data).toMatchObject({ removed: ["any bean"] });
 
     /* Every recipe by default (32j); `tag:drink` narrows. */
     const before = await call("inventory_makeable", {});

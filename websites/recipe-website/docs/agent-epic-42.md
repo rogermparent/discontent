@@ -121,21 +121,22 @@ host, at most one retry after a 403). Nothing deleted, features untouched.
 
 ## Roadmap
 
-| Phase    | Size | Branch                    | Status | PR  | What                                                                                          |
-| -------- | ---- | ------------------------- | ------ | --- | --------------------------------------------------------------------------------------------- |
-| 42a      | S    | `agent/42a-followups`     | 🟡     | —   | Per-item saved-list editing on `/make`, outline borders, resume-builder font, house-list e2e. |
-| 42b      | S    | `agent/42b-tolerance`     | 🟡     | —   | Screenshot tolerance tightened (41-Tp1), proven 3× in dev and build mode.                     |
-| 42j      | —    | (canvases)                | 🟡     | —   | Design canvases for `/search`, `/tags` + a term page, the meal-plan page, the edit form.      |
-| 42k      | S    | (content repo)            | 🟡     | —   | D7: holiday terms for New Year's, Valentine's, St Patrick's, Easter, July 4th.                |
-| 42m      | M    | `agent/42m-bean-swaps`    | 🟡     | —   | Bean swaps on `/make`: their own tier, a switch, and `inventory make`'s `beanSwap`.           |
-| 42c1     | L    | `agent/42c1-recipe`       | 📝     | —   | Recipe page in cooking order: sticky ingredients, "uses:", heads-up, three wide columns.      |
-| 42g      | L    | `agent/42g-shopping`      | 📝     | —   | `/shopping`: in the store (aisle rail, aisle done) and at home (by plan and recipe).          |
-| 42c2     | M–L  | `agent/42c2-cook`         | 📝     | —   | Cook view one step at a time, timer buttons, the drink scaler counting drinks.                |
-| 42e      | M–L  | `agent/42e-holidays`      | 📝     | —   | `/holidays` (the almanac) and `/holidays/<slug>` (the menu), both apps.                       |
-| 42d      | M    | `agent/42d-drinks`        | 📝     | —   | `/drinks`: pour from your shelf.                                                              |
-| 42f      | M    | `agent/42f-home`          | 📝     | —   | Homepage: now and next.                                                                       |
-| 42h      | S–M  | `agent/42h-holiday-tools` | 📝     | —   | Holidays for the agents: seat, CLI, API, MCP `holiday_list` / `holiday_get`.                  |
-| 42-close | S    | `agent/42-close`          | 📝     | —   | Close-out, CLAUDE.md bullet, backlog, memory, the morning report.                             |
+| Phase    | Size | Branch                     | Status | PR  | What                                                                                          |
+| -------- | ---- | -------------------------- | ------ | --- | --------------------------------------------------------------------------------------------- |
+| 42a      | S    | `agent/42a-followups`      | 🟡     | —   | Per-item saved-list editing on `/make`, outline borders, resume-builder font, house-list e2e. |
+| 42b      | S    | `agent/42b-tolerance`      | 🟡     | —   | Screenshot tolerance tightened (41-Tp1), proven 3× in dev and build mode.                     |
+| 42j      | —    | (canvases)                 | 🟡     | —   | Design canvases for `/search`, `/tags` + a term page, the meal-plan page, the edit form.      |
+| 42k      | S    | (content repo)             | 🟡     | —   | D7: holiday terms for New Year's, Valentine's, St Patrick's, Easter, July 4th.                |
+| 42m      | M    | `agent/42m-bean-swaps`     | 🟡     | —   | Bean swaps on `/make`: their own tier, a switch, and `inventory make`'s `beanSwap`.           |
+| 42m2     | M    | `agent/42m2-make-matchers` | 🟡     | —   | `/make`: tap a missing tape to add it, roomier further away, the `any bean` matcher.          |
+| 42c1     | L    | `agent/42c1-recipe`        | 📝     | —   | Recipe page in cooking order: sticky ingredients, "uses:", heads-up, three wide columns.      |
+| 42g      | L    | `agent/42g-shopping`       | 📝     | —   | `/shopping`: in the store (aisle rail, aisle done) and at home (by plan and recipe).          |
+| 42c2     | M–L  | `agent/42c2-cook`          | 📝     | —   | Cook view one step at a time, timer buttons, the drink scaler counting drinks.                |
+| 42e      | M–L  | `agent/42e-holidays`       | 📝     | —   | `/holidays` (the almanac) and `/holidays/<slug>` (the menu), both apps.                       |
+| 42d      | M    | `agent/42d-drinks`         | 📝     | —   | `/drinks`: pour from your shelf.                                                              |
+| 42f      | M    | `agent/42f-home`           | 📝     | —   | Homepage: now and next.                                                                       |
+| 42h      | S–M  | `agent/42h-holiday-tools`  | 📝     | —   | Holidays for the agents: seat, CLI, API, MCP `holiday_list` / `holiday_get`.                  |
+| 42-close | S    | `agent/42-close`           | 📝     | —   | Close-out, CLAUDE.md bullet, backlog, memory, the morning report.                             |
 
 Ordering, in waves: **1** 42a ∥ 42b (42j and 42k's dry run alongside —
 neither uses the heavy slot); **2** 42c1 ∥ 42g; **3** 42c2 ∥ 42e; **4** 42d ∥
@@ -426,6 +427,110 @@ bean in the US).
 romano beans, lentils as a later family of their own?); a swap recipe shown
 in both the tier and its bucket (Dm2) rather than moved; the switch on by
 default and its wording; featuring not widened by swaps (Dm5).
+
+### 42m2 — Make: tap to add, roomier further away, matcher ingredients (M)
+
+Roger, 2026-10-18 (live): "If I click an ingredient in the 'further away'
+list in what can i make, I want it added to the currently on hand
+ingredients to help get started easy. The list should probably have fewer
+items across at full width because ingredients get smushed. Also, I want to
+be able to add ingredients as a matcher, e.g. add 'bean' which effectively
+matches all beans and I can refine it later."
+
+Built on 42m (branch `agent/42m-bean-swaps`): its bean family is the
+matcher's member list.
+
+#### Results
+
+**What changed.**
+
+- **Tap a missing tape to add it.** Every result card's missing names —
+  "Needs", and the line's bean in "With a bean swap" — are buttons, "Add
+  chickpea to what I have" (`AddTape`), one per name of an A-or-B line. A
+  tap adds the name to this browser's list with an Undo toast; focus goes
+  to Undo, since the tape goes with the line it met. A card that moves up a
+  bucket (further away → two away, two → one, one → can make) gets 41h's
+  accent ring, off under reduced motion. On photo cards the note now sits
+  **beside** the card's link, not inside it, so no button nests in a link.
+- **Roomier groups.** "Can make now" keeps six photo cards across at `lg`
+  (no tapes to squeeze); "With a bean swap", "One ingredient away" and "Two
+  away" show at most four (`grid-cols-2 md:3 lg:4`); "Further away" is a
+  list of wide rows — a small picture (decoration; the name is the link),
+  the name, the tapes wrapping — one column, two from `xl`. The page is
+  `max-w-7xl`, so the results column is ~880 px at 1366, 1600 and 1920
+  alike. `RecipeGrid` / `SearchList` take an optional grid class; every
+  other page keeps six across. Spec cards are unchanged (already ~3 across).
+- **Matchers** (`common/util/matchers.ts`): `any bean` on the list meets
+  every line naming a family bean (42m's `beans.ts`), strictly — so it counts
+  for can make. `parseInventoryItem` reads it as an item with no names and a
+  `matcher`; `satisfies` asks `matcherMeets` (any alternative a member,
+  never a loose line, never non-alcoholic). It is never close to anything
+  and never a bean to swap in.
+  - **The add field** offers "✱ Any bean — matches N kinds in these
+    recipes" when the typed text begins the family's word (`bea`, `bean`,
+    `beans`, `any b…`), ranked by its what-if like any name, unless the list
+    has it or the scope uses no bean.
+  - **The tape** is marked ✱ with a rule under its words (`currentColor`,
+    so every theme and state keeps its contrast) and shows its pull. On this
+    browser's list its body opens **"Which beans do you have?"** — the
+    family's specific members in the current scope, each with its recipe
+    count and a checkbox; **Keep only these** puts the ticked beans in the
+    matcher's place (one change, Undo restores it); **Feature it** features
+    it from there. × removes it as any label. On the saved / house list it
+    is an outlined ✱ label that features as before.
+  - **Agents:** the seat reads the stored text, so `inventory_makeable` /
+    `recipes inventory make` answer as the page does; `inventory add`
+    stores `any bean` for any spelling, and `inventory remove` takes any
+    spelling. The `inventory_add` description, the CLI usage line and the
+    curator skill's §8 say so.
+
+**Decisions.**
+
+- **Dm2-1 — The syntax is text: `any <noun>`.** Canonical `any bean`;
+  `matcherOf` also reads `bean`, `beans`, `any beans`, `all beans`, `any
+kind/type/sort of beans`, `beans (any kind)`, `beans, any`. It
+  round-trips through the browser list, `inventory/on-hand.json`, Import /
+  export and the CLI/MCP with no format change; a list without one reads
+  exactly as before. `black beans`, `mixed beans`, `canned beans` and
+  `beans (Goya)` stay ordinary items.
+- **Dm2-2 — Tapping a missing tape adds; it no longer could feature.**
+  41h's result-card "Needs" tapes were static words (only Buy next's dashed
+  tape features, and still does); 41h's "tapping the body features" (Dh7,
+  Dh8) holds for shelf labels and Buy next. A matcher's body opens its
+  popover instead, and featuring it moved into the popover.
+- **Dm2-3 — The tap adds to this browser's list**, whatever Count from
+  says (42a's saved-list editing is the shelf's, not the cards'). In Count
+  from = Saved list that list isn't counted, and the toast says so ("not
+  counted while Count from is the saved list"); no commit is ever made from
+  a card.
+- **Dm2-4 — Further away is rows; the other tape groups four across.**
+  Rows read the whole missing list at a glance and never squeeze; photo
+  cards stay where they carry one or two tapes.
+- **Dm2-5 — A matcher meets strictly, so the swap tier has nothing to add
+  for beans.** With `any bean` on hand every bean line is met, so no
+  recipe's missing lines are beans and `beanSwap` holds none of them — no
+  double count. After "Keep only these" the swap tier works as 42m built it.
+- **Dm2-6 — A bare `beans` / `bean` is the matcher**, normalised on add
+  (the page's `setHave`, the seat's `patchInventory` / `setInventory`), so
+  the text says what it means; a stored "beans" from before reads as the
+  matcher too. A line asking for plain "beans" adds `any bean` when its
+  tape is tapped. This settles 42m's review finding 2 on this branch: a
+  bare "beans" on the list can't meet green, vanilla or coffee beans.
+- **Dm2-7 — Beans only.** "Any cheese", "any vinegar", "any rum/whiskey"
+  would need an exact member list like `BEAN_KINDS` — the head and
+  class-noun rules don't define one (cream cheese is a cheese and no
+  stand-in for parmesan; malt vinegar for rice vinegar) — so they are
+  follow-ups, not shipped. `MATCHERS` takes one entry each when they are.
+- **Dm2-8 — The refine list is specific members only** (`chickpea`, not
+  "mixed beans" or a "beans" line), required lines only, most used first;
+  a kept bean is added as the line names it (`chickpea`, `black bean`), as
+  Buy next adds its item.
+
+**Roger to confirm.** A card tap adding to this browser's list even in Count
+from = Saved list (Dm2-3); further away as rows and the other groups four
+across (Dm2-4); typing "beans" giving `any bean` rather than a plain item
+(Dm2-6); beans as the only matcher for now, with cheese / vinegar / rum /
+whiskey as follow-ups (Dm2-7); focus moving to Undo after a card tap.
 
 ### 42-close (S)
 

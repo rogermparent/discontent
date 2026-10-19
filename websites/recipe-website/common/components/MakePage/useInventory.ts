@@ -10,6 +10,7 @@ import {
   parseOverlay,
   storedList,
 } from "../../util/inventoryText";
+import { canonicalItems } from "../../util/matchers";
 
 /**
  * What this browser has on hand (25c/D10, U6): its whole list, in both apps,
@@ -152,7 +153,8 @@ export function useInventory(legacy?: { shared: string[] }): Inventory {
 
   const setHave = useCallback(
     (items: string[]) => {
-      const list = dedupeItems(items);
+      /* A matcher is kept as its canonical text (42m2): "beans" → `any bean`. */
+      const list = dedupeItems(canonicalItems(items));
       /*
        * While a migration waits (`"defer"`), keep the pre-U6 shape — `added`
        * the list as shown, `removed` as it was, no version — never `null`:
