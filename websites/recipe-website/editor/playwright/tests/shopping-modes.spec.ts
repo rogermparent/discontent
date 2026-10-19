@@ -146,9 +146,31 @@ test.describe("Shopping list: in the store @mobile", () => {
     await page.reload();
     await expect(page$(page)).toHaveAttribute("data-ready", "true");
     await expect(folded).toContainText("Dairy & eggs — done");
+    /* A done aisle and its ticked chip fit the phone: nothing overflows. */
+    expect(
+      await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>("body *")]
+          .filter(
+            (element) =>
+              element.getBoundingClientRect().right > window.innerWidth + 1 &&
+              /* Chips scrolled inside the rail are its business. */
+              (element.closest("[data-testid='shopping-rail'] > div") ??
+                element) === element,
+          )
+          .slice(0, 5)
+          .map((element) =>
+            `${element.tagName.toLowerCase()}.${element.className}`.slice(
+              0,
+              120,
+            ),
+          ),
+      ),
+    ).toEqual([]);
+    /* By keyboard too: Undo, and focus goes to the aisle it opens. */
     await folded
       .getByRole("button", { name: "Undo: Dairy & eggs done" })
-      .click();
+      .focus();
+    await page.keyboard.press("Enter");
     await expect(folded).toHaveCount(0);
     /* …and back to the aisle when it opens again. */
     await expect(dairy).toBeFocused();
