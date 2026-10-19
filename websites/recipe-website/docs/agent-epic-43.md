@@ -104,7 +104,76 @@ update`, never commit `editor/content`.
 
 #### Results (43a)
 
-_Pending._
+**Guest controls hidden.** The editor's recipe page (Delete, Edit, Copy,
+Feature, Group: the whole `PageActions` row), group page (Delete, Feature,
+Edit, Add to shopping list) and term pages (Feature, Edit, Add a narrower
+term, and `/tags`'s New term) render them only with a session, read the way
+the recipe and group pages already read it (`Boolean((await auth())?.user?.email)`).
+The pages were already per-request renders (`force-dynamic`, and the root
+layout's `auth()`), so nothing changes in rendering mode. `TagPage/routes.tsx`
+is shared with the export, which must not import editor auth: `editorTagRoute`
+and `editorTagIndexRoute` now take `signedIn`, and the editor's two route files
+(`tags/page.tsx`, `tags/[tag]/page.tsx`) read the session and pass it in. The
+export's `tagRoute` is untouched.
+
+- New `guest-controls.spec.ts` (4 tests): signed out, none of the controls;
+  after signing in on the page, all of them.
+- Seven existing specs reached these controls signed out ("click Edit, then
+  sign in"). They now go to the control's target (`/recipe/<slug>/edit`,
+  `/group/new?recipe=`, `/featured-recipe/new?recipe=`, `/tags/new`,
+  `/tags/new?parent=`), which still lands on the sign-in form with
+  `redirectTo` kept: `recipe.spec`, `groups.spec` (2), `featured-recipes.spec`,
+  `term-edit.spec` (2).
+- Baselines moved (Docker, opened and checked): `recipe-detail-signed-out-e2e`
+  and `recipe-6-multiplied-e2e` lose the Delete/Edit/Copy/Feature/Group row
+  under the ingredients (the page is 49 px shorter). No other PNG changed.
+
+**/shopping.**
+
+- **The duplicate "gel food coloring"** (found in the real shopping store:
+  two items, from `christmas-sugar-cookies-recipe-with-easy-icing` and
+  `my-favorite-spritz-cookies`): "optional: gel food coloring & sprinkles for
+  decorating" and "optional: gel food coloring, sprinkles, chocolate chips,
+  and melted chocolate for decorating". The name reader never splits on `and`
+  / `&` (right for "mac and cheese"), so the first line's name was the whole
+  "gel food coloring sprinkle for decorating", while the comma form keys by
+  its first item, "gel food coloring". Two keys, two rows. Fix, in
+  `shoppingNameOf` only (`ingredientNames`, which Make shares, is untouched):
+  a line that joins items with `&` or `and` and ends in a decorating tail
+  (`for decorating|garnish|topping|dusting|dipping|sprinkling|serving`) is
+  read by its first item, as the comma form is. Any other line is untouched.
+- **"optional"** (`Da1`): the merge already marks a row optional when every
+  source line is (`items.every(optional)`), so the mark was lost only because
+  the two lines never shared a row. A row from some optional and some
+  required lines is **not optional**: you buy it for the recipe that needs it.
+  Recorded and pinned by a test; no "optional for X" text was added (it
+  would change `buildShoppingView`'s output for every mixed row).
+- Vitest: `shoppingView.test.ts` 35 → 38 (name keys, one merged optional
+  row, all-vs-some optional). The 35 earlier tests are the contract and pass
+  unchanged.
+
+**Build timeout (42s-T2).** The editor's `next.config.mjs` sets
+`staticPageGenerationTimeout: 180`. No `experimental.cpus`: not measured to
+help (the default 7 workers built everything below). Main-checkout-shaped
+build (`editor/content` linked to a scratch clone of the real content repo,
+reindexed; `export/public/{image,uploads}` absolute links through it; scratch
+removed afterwards): `next build` **303 static pages in 84 s** at load ~20,
+no "Dynamic filesystem access" and no "leaves the filesystem root" warning.
+That run would also have passed at the 60 s default, so it shows the setting
+is harmless, not that it is needed; the failure it guards (42s-T2) needs a
+loaded machine (~30).
+
+**Gates.** `recipe-editor` typecheck clean; `recipe-website` `tsc --noEmit`
+clean; `vitest run` 134 files, 2731 tests passed. Playwright (Docker, build
+mode): `guest-controls recipe groups tag-pages term-edit shopping
+featured-recipes reference-updates visual edit pages` specs, 243 tests: 241
+passed, 2 failed on exactly the two baselines above; after regenerating them
+`recipe.spec visual.spec` 86/86. Dev mode once (`guest-controls`, `term-edit`):
+12 passed, 1 flaky (`term-edit:25`, the `/tags/bar-cookies/edit` URL wait at
+5 s, a dev first-compile of an untouched click).
+
+**Roger to confirm.** Da1: a merged row with a mix of optional and required
+lines is shown as required (not "optional for X").
 
 ### 43f — The facet model (S–M)
 

@@ -13,11 +13,11 @@ import {
  * (43a) — Feature, Edit and Add a narrower term, top right (43t); see
  * `editorTagRoute`.
  */
-export default async function TermPage(props: {
+export default async function TagPage(props: {
   params: Promise<{ tag: string }>;
 }) {
   const signedIn = Boolean((await auth())?.user?.email);
-  return editorTagRoute(props, { signedIn });
+  return editorTagRoute({ params: props.params, signedIn });
 }
 
 export const generateMetadata = generateTagMetadata;

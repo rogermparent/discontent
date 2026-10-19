@@ -118,7 +118,8 @@ test.describe("Single Recipe View", () => {
     });
 
     test("should be able to edit a recipe", async ({ page }) => {
-      await page.getByRole("link", { name: "Edit", exact: true }).click();
+      /* Signed out the page offers no Edit link (43a): go to its target. */
+      await page.goto("/recipe/recipe-6/edit");
       await fillSignInForm(page);
 
       await expect(page.getByText("Editing Recipe: Recipe 6")).toBeVisible({

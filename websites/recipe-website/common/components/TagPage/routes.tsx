@@ -85,11 +85,16 @@ export async function tagIndexRoute() {
 
 /**
  * The editor's `/tags` (31e): the same board, plus a **New term** link to
- * `/tags/new` for a signed-in editor.
+ * `/tags/new`.
+ *
+ * Shown only to a signed-in editor (43a), as the masthead's `ownerOnly` links
+ * are. The session is the *route file's* to read and pass in: this module is
+ * shared with the export, which must not import the editor's auth. The page
+ * is already a per-request render through the root layout's `auth()`. The
+ * destination still asks for a sign-in; this only stops offering a guest a
+ * button that goes nowhere.
  */
-export async function editorTagIndexRoute({
-  signedIn = false,
-}: { signedIn?: boolean } = {}) {
+export async function editorTagIndexRoute({ signedIn }: { signedIn: boolean }) {
   return boardPage(
     signedIn ? (
       <Link
@@ -143,16 +148,16 @@ export async function tagRoute({
  *
  * Its own export rather than a prop on `tagRoute`, because a Next page module
  * exports a function and cannot pass it arguments — the editor's route file
- * wraps this one with the session, and the export's re-exports the plain one.
+ * wraps this one (passing `signedIn`, 43a) and the export's re-exports the
+ * plain one. The buttons render for a signed-in editor only.
  */
-export async function editorTagRoute(
-  {
-    params,
-  }: {
-    params: Promise<{ tag: string }>;
-  },
-  { signedIn = false }: { signedIn?: boolean } = {},
-) {
+export async function editorTagRoute({
+  params,
+  signedIn,
+}: {
+  params: Promise<{ tag: string }>;
+  signedIn: boolean;
+}) {
   const { tag } = await params;
   const [term, tree] = await Promise.all([
     resolveTermPage(tag),

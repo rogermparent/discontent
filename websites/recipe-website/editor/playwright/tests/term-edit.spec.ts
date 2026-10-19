@@ -27,17 +27,9 @@ test.describe("Term edit form", () => {
     page,
     baseURL,
   }) => {
-    /* A guest sees no New term (43a/43t): sign in first. */
-    await page.goto("/tags");
-    await expect(
-      page.getByRole("link", { name: "New term", exact: true }),
-    ).toHaveCount(0);
-    await signIn(page);
-    await expect(
-      page.getByRole("button", { name: "Sign Out", exact: true }),
-    ).toBeVisible();
-    await page.goto("/tags");
-    await page.getByRole("link", { name: "New term", exact: true }).click();
+    /* Signed out, /tags offers no New term link (43a): go to its target. */
+    await page.goto("/tags/new");
+    await fillSignInForm(page);
     await expect(page).toHaveURL(baseURL + "/tags/new");
     await markdownEditorReady(page, "description");
 
@@ -306,6 +298,7 @@ test.describe("Term tools", () => {
       page.getByRole("link", { name: "Add a narrower term", exact: true }),
     ).toHaveCount(0);
 
+    /* Signed in, a record offers it, top right (43t). */
     await page.goto("/tags/cookies");
     await page
       .getByRole("link", { name: "Add a narrower term", exact: true })

@@ -54,7 +54,7 @@ export default async function GroupPage({
   const items = await resolveGroupItems(group);
 
   const deleteGroupWithSlug = deleteGroup.bind(null, group.date, slug);
-  /* The shopping list is the signed-in editor's (35d): no button for a guest. */
+  /* The shopping list and every write control are the signed-in editor's (35d, 43a). */
   const signedIn = Boolean((await auth())?.user?.email);
 
   return (
@@ -63,34 +63,34 @@ export default async function GroupPage({
       slug={slug}
       items={items}
       actions={
-        <>
-          <form
-            id="delete-group-form"
-            action={deleteGroupWithSlug}
-            className="contents"
-          />
-          <ConfirmDeleteButton
-            formId="delete-group-form"
-            itemLabel="group"
-            title="Delete this group?"
-            description="The recipes themselves are not deleted — only the grouping. If it is featured, it comes off the homepage strip too."
-          />
-          {/*
-           * The same affordance a recipe page has had since 22a, in the same
-           * place: a group can be pinned to the homepage strip (22g), and the
-           * form's toggle opens on Group with this one selected because the
-           * slug rides along in the query string.
-           */}
-          <Button asChild size="sm">
-            <Link href={`/featured-recipe/new?group=${slug}`}>Feature</Link>
-          </Button>
-          <Button asChild size="sm">
-            <Link href={`/group/${slug}/edit`}>Edit</Link>
-          </Button>
-          {signedIn && (
+        signedIn ? (
+          <>
+            <form
+              id="delete-group-form"
+              action={deleteGroupWithSlug}
+              className="contents"
+            />
+            <ConfirmDeleteButton
+              formId="delete-group-form"
+              itemLabel="group"
+              title="Delete this group?"
+              description="The recipes themselves are not deleted — only the grouping. If it is featured, it comes off the homepage strip too."
+            />
+            {/*
+             * The same affordance a recipe page has had since 22a, in the same
+             * place: a group can be pinned to the homepage strip (22g), and the
+             * form's toggle opens on Group with this one selected because the
+             * slug rides along in the query string.
+             */}
+            <Button asChild size="sm">
+              <Link href={`/featured-recipe/new?group=${slug}`}>Feature</Link>
+            </Button>
+            <Button asChild size="sm">
+              <Link href={`/group/${slug}/edit`}>Edit</Link>
+            </Button>
             <AddGroupToShopping group={slug} add={addToShoppingList} />
-          )}
-        </>
+          </>
+        ) : undefined
       }
     />
   );
