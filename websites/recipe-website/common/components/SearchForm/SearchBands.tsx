@@ -193,7 +193,16 @@ export function KindBands({
       {bands.map((band) => {
         const id = `search-band-${band.kind}`;
         const total = band.recipes.length;
-        const allLabel = `All ${total} ${band.kind === "drinks" ? "drinks" : "dishes"}`;
+        /* Singular at one, as /drinks says "All 1 Halloween drink". */
+        const noun =
+          band.kind === "drinks"
+            ? total === 1
+              ? "drink"
+              : "drinks"
+            : total === 1
+              ? "dish"
+              : "dishes";
+        const allLabel = `All ${total} ${noun}`;
         const showAll = () => {
           card.focusAfter("results");
           submitSearch(setQueryKind(card.model, query, band.kind));

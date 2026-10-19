@@ -164,6 +164,31 @@ function limitByKey<T extends { key: string }>(
 }
 
 /**
+ * Whether the column would show a row at all — the Kind, a facet group or a
+ * tag — so the page can leave its column (and the phone's Narrow button) out
+ * rather than hold an empty 232 px beside the results.
+ */
+export function hasNarrowRows(
+  model: FacetModel,
+  counts: FacetCounts,
+  query: string,
+): boolean {
+  const kind = queryKind(model, query);
+  if (
+    model.terms.has(DRINK_ROOT) &&
+    (kind !== undefined || (counts.kinds.drinks > 0 && counts.kinds.food > 0))
+  )
+    return true;
+  if (counts.other.length > 0) return true;
+  return (
+    facetGroups(model, counts, {
+      keep: activeFacetSlugs(model, query),
+      order: "total",
+    }).length > 0
+  );
+}
+
+/**
  * Put focus back after a press re-renders the column (43s review): the
  * groups reorder by their totals and the rows by their counts as the query
  * narrows, and a keyed node React moves loses focus. So the pressed control

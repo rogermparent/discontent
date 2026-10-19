@@ -684,7 +684,7 @@ export function CommandPalette({
                 aria-keyshortcuts={
                   modifier === "⌘" ? "Meta+Enter" : "Control+Enter"
                 }
-                className="border-t border-border font-semibold"
+                className="rounded-t-none border-t border-t-border font-semibold"
               >
                 <span className="flex size-9 shrink-0 items-center justify-center">
                   <CornerDownLeft className="size-5 text-primary" />

@@ -303,9 +303,12 @@ test.describe("Command palette — search depth", () => {
     await expect(recipeRow(page, "Tomato Basil Soup")).toBeVisible({
       timeout: SEARCH_TIMEOUT,
     });
-    await expect(
-      page.getByTestId("palette-recipes-group").getByRole("option"),
-    ).toHaveCount(1);
+    // One recipe row, then the hand-over row (43s) that counts it.
+    const options = page
+      .getByTestId("palette-recipes-group")
+      .getByRole("option");
+    await expect(options).toHaveCount(2);
+    await expect(options.last()).toContainText("All 1 result in search");
   });
 
   /*
@@ -825,9 +828,12 @@ test.describe("Command palette — groups", () => {
       text.includes("Week of May 4"),
     );
     expect(groupIndex).toBeGreaterThan(0);
-    // Everything above the group row is a recipe row.
+    // Everything above the group row is a recipe row, or the recipes'
+    // hand-over row (43s), which ends their group.
     expect(
-      texts.slice(0, groupIndex).every((text) => /Recipe/.test(text)),
+      texts
+        .slice(0, groupIndex)
+        .every((text) => /Recipe|results? in search/.test(text)),
     ).toBe(true);
 
     await page.keyboard.press("Enter");

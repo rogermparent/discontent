@@ -10,7 +10,7 @@ import { GroupResults } from "./GroupResults";
 import { RecentSearches } from "./RecentSearches";
 import { QueryChips } from "./QueryChips";
 import { SearchTicker } from "./SearchTicker";
-import { NarrowColumn } from "./NarrowColumn";
+import { NarrowColumn, hasNarrowRows } from "./NarrowColumn";
 import {
   KindBands,
   NoResults,
@@ -175,9 +175,10 @@ export function SearchResultsPage() {
     );
   }
 
-  const narrow = hasResults ? (
-    <NarrowColumn model={model} counts={counts} recipes={sortedRecipes} />
-  ) : null;
+  const narrow =
+    hasResults && hasNarrowRows(model, counts, query) ? (
+      <NarrowColumn model={model} counts={counts} recipes={sortedRecipes} />
+    ) : null;
 
   return (
     <div className={SEARCH_MARKS}>
