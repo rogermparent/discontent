@@ -2729,6 +2729,20 @@ then main merged at `c8573684` (#239, the homepage):
   `exportHouseInventory`, `specVersions`). Playwright, production build,
   `make`, `tag-pages` and `accessibility`, 83/83 on the final head. No baseline moved.
 
+## /shopping: plan at home, shop in the store (42g)
+
+`/shopping` now has two layouts (canvas B):
+
+- **Plan**, at home: the list by store and aisle beside panels for what is
+  on it by plan and recipe, sub-recipes and the switches.
+- **Shop**, in the store: one store, an aisle rail, ticks struck through in
+  place until "Aisle done", on-hand rows as one quiet line per aisle, and a
+  bottom bar with Add and Done shopping.
+
+Decisions, traps and gates are in `agent-epic-42.md` under 42g. The pure
+groupings are in `common/util/shoppingPage.ts`, and `buildShoppingView` is
+unchanged (42-D5).
+
 ## Verification (Playwright-first)
 
 Verify UI changes with Playwright; open a real browser only to diagnose
