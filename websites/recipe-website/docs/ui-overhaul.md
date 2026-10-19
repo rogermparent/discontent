@@ -1030,6 +1030,11 @@ the scaler into the Ingredients header as a ½× · 1× · 2× + custom control.
       Regenerated `recipe-6-multiplied`, `recipe-detail-signed-out`/`-in`,
       `featured-recipe-detail-signed-in` (delete-to-regen), `recipe-mobile`,
       `yield-multiplied-half`. Full e2e+mobile green; editor + export `tsc` clean.
+- **Later — epic 42c1 (2026-10-18):** the recipe page in cooking order —
+  the ingredients a sticky rail beside the steps, each step's "Uses" list,
+  heads-up notes, three columns at 1600px and wider. The scaler and the
+  "Multiply" field stay in the Ingredients header. See `agent-epic-42.md`
+  § 42c1.
 
 ### PR 12 — Site-wide polish + search/tags `ui/12-polish` ✅ done
 
@@ -2070,6 +2075,15 @@ split-screen or short desktop window has it too.
 - [x] **Export app needed no sync.** It shares `theme.css` via its `globals.css`
       and the same `AppLayout`, so its hand-duplicated `@media print` block was
       untouched — the policy lives in one place.
+- [x] **The ingredients rail (epic 42c1).** From `lg` the whole Ingredients
+      column is a side rail beside the steps: plain `sticky` (not
+      `.sticky-chrome`) at `top: calc(var(--sticky-chrome-offset) + 1rem)`, so
+      it stays pinned when the masthead releases and its offset follows the
+      masthead; it scrolls itself when taller than the viewport, and its
+      header (still `.sticky-chrome`) pins to the rail's top. A second
+      per-browser switch, "Wide recipe columns", is modelled on this one
+      (`AppLayout/wideRecipe.ts`, `useWideRecipe.tsx`). See
+      `agent-epic-42.md` § 42c1 for the recipe page in cooking order.
 
 ## Usability pass (2026-10-15)
 
@@ -2742,6 +2756,16 @@ then main merged at `c8573684` (#239, the homepage):
 Decisions, traps and gates are in `agent-epic-42.md` under 42g. The pure
 groupings are in `common/util/shoppingPage.ts`, and `buildShoppingView` is
 unchanged (42-D5).
+
+### Holiday pages (epic 42, 42e)
+
+`/holidays` (the almanac: a to-scale year of the holidays that have
+recipes, countdown cards soonest first) and `/holidays/<slug>` (one
+holiday's menu: dot-leader groups by course and by drink style, the kind
+word from `/make`'s question). Decisions, traps and gates are in
+`agent-epic-42.md` → 42e. The kind menu moved out of `MakeQuestion` into
+`MakePage/KindMenu.tsx`, shared by both pages; the footer's default Browse
+column gains Holidays on a site that has a `holidays` root.
 
 ## Verification (Playwright-first)
 

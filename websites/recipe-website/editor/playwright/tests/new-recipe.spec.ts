@@ -1357,8 +1357,11 @@ Sprinkle`,
         await expect(
           page.getByRole("heading", { name: "Katsudon", exact: true }),
         ).toBeVisible();
+        /* In the ingredient list: step 1's "Uses" (42c1) shows the line too. */
         await expect(
-          page.getByText("1 cup water ((for the dashi packet))"),
+          page
+            .getByRole("list", { name: "Ingredients", exact: true })
+            .getByText("1 cup water ((for the dashi packet))"),
         ).toBeVisible();
       });
 

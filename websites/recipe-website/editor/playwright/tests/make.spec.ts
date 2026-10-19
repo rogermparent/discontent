@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { APIRequestContext, Page } from "@playwright/test";
 import { test, expect } from "../support/test";
 import { openPalette, signIn } from "../support/helpers";
 import { expectNoViolations } from "../support/a11y";
@@ -627,6 +627,7 @@ test.describe("What can I make? — your saved inventory", () => {
       page.getByRole("button", { name: "Save to editor" }),
     ).toHaveCount(0);
     await expect(page.getByText(/saved (list|inventory)/i)).toHaveCount(0);
+    await expect(page.getByLabel("Add to saved list")).toHaveCount(0);
 
     expect((await request.get("/api/inventory")).status()).toBe(401);
     expect((await request.get("/api/inventory/make")).status()).toBe(401);
@@ -774,6 +775,130 @@ test.describe("What can I make? — your saved inventory", () => {
     ).toBeChecked();
   });
 
+  /*
+   * 42a (reversing 41-Dh2): the saved list item by item again — a saved
+   * label's × and "Add to saved list", each one commit, each with Undo
+   * (another commit).
+   */
+  test("a saved label's × removes it in one commit, and Undo puts it back", async ({
+    page,
+    initializeContentGit,
+    getContentGitLog,
+  }) => {
+    await initializeContentGit();
+    const commits = (await getContentGitLog()).length;
+    await signInToMake(page, "tag:drink");
+    await countFrom(page)
+      .getByRole("radio", { name: /^Saved list/ })
+      .check();
+    await expect(ticker(page)).toHaveText(/1 can make/i);
+
+    await secondLabels(page)
+      .getByRole("button", { name: "Remove gin from the saved list" })
+      .click();
+    await expect(toast(page)).toContainText("Removed gin from the saved list.");
+    await expect(secondLabels(page).getByRole("listitem")).toHaveText([
+      /tonic water/,
+    ]);
+    /* Focus goes to the label that took its place. */
+    await expect(
+      secondLabels(page).getByRole("button", {
+        name: "tonic water",
+        exact: true,
+      }),
+    ).toBeFocused();
+    await expect(
+      countFrom(page).getByRole("radio", { name: /^Saved list\s*1 item\b/ }),
+    ).toBeChecked();
+    await expect(ticker(page)).toHaveText(/0 can make/i);
+    expect(await getContentGitLog()).toEqual(
+      expect.arrayContaining(["Update inventory: −gin"]),
+    );
+    expect(await getContentGitLog()).toHaveLength(commits + 1);
+
+    /* Committed: gone after a reload. */
+    await page.reload();
+    await ready(page);
+    await expect(secondLabels(page).getByRole("listitem")).toHaveText([
+      /tonic water/,
+    ]);
+
+    /* The last one: the list is empty, and Undo brings it back. */
+    await secondLabels(page)
+      .getByRole("button", { name: "Remove tonic water from the saved list" })
+      .click();
+    await expect(page.getByTestId("make-second-list")).toContainText(
+      "It is empty.",
+    );
+    await toast(page).getByRole("button", { name: "Undo" }).click();
+    await expect(secondLabels(page).getByRole("listitem")).toHaveText([
+      /tonic water/,
+    ]);
+    await expect.poll(() => getContentGitLog()).toHaveLength(commits + 3);
+    expect((await getContentGitLog()).slice(0, 2)).toEqual([
+      "Update inventory: +tonic water",
+      "Update inventory: −tonic water",
+    ]);
+    await page.reload();
+    await ready(page);
+    await expect(secondLabels(page).getByRole("listitem")).toHaveText([
+      /tonic water/,
+    ]);
+    /* This browser's labels keep their own ×, which commits nothing. */
+    await expect(chips(page)).toHaveCount(0);
+  });
+
+  test("Add to saved list commits once, with Undo", async ({
+    page,
+    initializeContentGit,
+    getContentGitLog,
+  }) => {
+    await initializeContentGit();
+    const commits = (await getContentGitLog()).length;
+    await signInToMake(page);
+    await addItems(page, "vodka");
+    await countFrom(page).getByRole("radio", { name: /^Both/ }).check();
+    const group = page.getByTestId("make-second-list");
+    const field = group.getByLabel("Add to saved list", { exact: true });
+
+    /* Read as a list; what the saved list already has is left out. */
+    await field.fill("Campari, gin");
+    await field.press("Enter");
+    await expect(toast(page)).toContainText("Added Campari to the saved list.");
+    await expect(field).toHaveValue("");
+    await expect(secondLabels(page).getByRole("listitem")).toHaveText([
+      /Campari/,
+      /gin/,
+      /tonic water/,
+    ]);
+    await expect(
+      countFrom(page).getByRole("radio", { name: /^Both\s*4 items/ }),
+    ).toBeChecked();
+    expect(await getContentGitLog()).toHaveLength(commits + 1);
+    expect((await getContentGitLog())[0]).toBe("Update inventory: +Campari");
+    /* This browser's list is its own. */
+    await expect(chips(page).getByRole("listitem")).toHaveText([/vodka/]);
+
+    await field.fill("lime");
+    await group.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(toast(page)).toContainText("Added lime to the saved list.");
+    await toast(page).getByRole("button", { name: "Undo" }).click();
+    await expect(secondLabels(page).getByRole("listitem")).toHaveText([
+      /Campari/,
+      /gin/,
+      /tonic water/,
+    ]);
+    await expect.poll(() => getContentGitLog()).toHaveLength(commits + 3);
+
+    await page.reload();
+    await ready(page);
+    await expect(secondLabels(page).getByRole("listitem")).toHaveText([
+      /Campari/,
+      /gin/,
+      /tonic water/,
+    ]);
+  });
+
   /* A pre-U6 browser stored an overlay on the saved list: hide gin, add lime. */
   const LEGACY = JSON.stringify({ added: ["lime"], removed: ["gin"] });
 
@@ -860,6 +985,98 @@ test.describe("What can I make? — your saved inventory", () => {
     );
     await other.close();
     await guest.close();
+  });
+});
+
+/*
+ * 42a, 41h's coverage gap: the house list end to end. The export's `/make`
+ * and an editor guest's read the house snapshot the same way
+ * (`secondaryInventory()` over `SITE_HOUSE_INVENTORY`), and the export e2e
+ * never builds the static site, so this is the guest's page: the test-only
+ * `/settings/test-house-inventory?bake=1` gives the server the snapshot an
+ * export Build would bake now (`exportBuildEnv` over the saved settings and
+ * `make-drinks`' saved gin + tonic water).
+ */
+test.describe("What can I make? — the house list (export / guest)", () => {
+  test.beforeEach(async ({ resetData }) => {
+    await resetData("make-drinks");
+  });
+  test.afterEach(async ({ request }) => {
+    await request.get("/settings/test-house-inventory");
+  });
+
+  const countFrom = (page: Page) =>
+    page.getByRole("group", { name: "Count from" });
+  const bake = async (request: APIRequestContext) => {
+    const response = await request.get("/settings/test-house-inventory?bake=1");
+    expect(response.ok()).toBe(true);
+    return ((await response.json()) as { items: string[] }).items;
+  };
+
+  test("shared on the export, a guest counts from it: outlined, featurable, never editable", async ({
+    page,
+    request,
+    writeSettings,
+  }) => {
+    /* Off, the default: nothing baked, no Count from. */
+    expect(await bake(request)).toEqual([]);
+    await page.goto("/make?q=tag:drink");
+    await ready(page);
+    await expect(countFrom(page)).toHaveCount(0);
+
+    await writeSettings({ shareInventoryOnExport: true });
+    expect(await bake(request)).toEqual(["gin", "tonic water"]);
+    await page.reload();
+    await ready(page);
+    const radios = countFrom(page).getByRole("radio");
+    await expect(radios).toHaveCount(3);
+    await expect(
+      countFrom(page).getByRole("radio", { name: /^This browser\s*0 items/ }),
+    ).toBeChecked();
+    await expect(
+      countFrom(page).getByRole("radio", { name: /^House list\s*2 items/ }),
+    ).toBeVisible();
+    await expect(page.getByTestId("make-second-list")).toHaveCount(0);
+
+    await countFrom(page)
+      .getByRole("radio", { name: /^House list/ })
+      .check();
+    await expect(ticker(page)).toHaveText(/1 can make/i);
+    await expect(section(page, "make-can")).toContainText("Gin and Tonic");
+    const group = page.getByTestId("make-second-list");
+    await expect(group.getByRole("heading", { level: 3 })).toHaveText(
+      "House list shared with this site · 2",
+    );
+    const labels = group.getByRole("list", { name: "The house list" });
+    await expect(labels.getByRole("listitem")).toHaveText([
+      /gin/,
+      /tonic water/,
+    ]);
+    /* Outlined (`make.css`'s second-list tape), and nothing to edit. */
+    for (const item of await labels.getByRole("listitem").all()) {
+      await expect(item).toHaveAttribute("data-kind", "saved");
+    }
+    await expect(group.getByRole("button", { name: /^Remove/ })).toHaveCount(0);
+    await expect(page.getByLabel("Add to saved list")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Save to editor" }),
+    ).toHaveCount(0);
+
+    /* Featurable like any label. */
+    await labels.getByRole("button", { name: "gin", exact: true }).click();
+    await expect(query(page)).toHaveValue("tag:drink ingredient:gin");
+    await expect(
+      labels.getByRole("button", { name: "gin", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    /* Both: the union, with this browser's own list. */
+    await addItems(page, "vodka");
+    await countFrom(page)
+      .getByRole("radio", { name: /^Both\s*3 items/ })
+      .check();
+    await expect(labels.getByRole("listitem")).toHaveCount(2);
+    await expect(group.getByRole("button", { name: /^Remove/ })).toHaveCount(0);
+    await expect(chips(page).getByRole("listitem")).toHaveText([/vodka/]);
   });
 });
 

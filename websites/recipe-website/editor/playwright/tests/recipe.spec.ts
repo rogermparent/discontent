@@ -40,7 +40,10 @@ test.describe("Single Recipe View", () => {
     });
 
     test("should be able to multiply ingredient amounts", async ({ page }) => {
-      await expect(page.getByText("1 1/2 tsp salt")).toBeVisible();
+      /* The list, not the step's "Uses" (42c1), which shows the line too. */
+      const list = page.getByRole("list", { name: "Ingredients", exact: true });
+      const uses = page.getByRole("list", { name: "Uses", exact: true });
+      await expect(list.getByText("1 1/2 tsp salt")).toBeVisible();
       await expect(
         page.getByText("Sprinkle 1/2 tsp salt in water"),
       ).toBeVisible();
@@ -48,19 +51,21 @@ test.describe("Single Recipe View", () => {
       // The ½× · 1× · 2× presets scale in place, and each writes its value into
       // the custom "Multiply" field (one source of truth).
       await page.getByRole("button", { name: "Double batch" }).click();
-      await expect(page.getByText("3 tsp salt")).toBeVisible();
+      await expect(list.getByText("3 tsp salt")).toBeVisible();
       await expect(
         page.getByText("Sprinkle 1 tsp salt in water"),
       ).toBeVisible();
       await expect(page.getByLabel("Multiply")).toHaveValue("2");
+      /* A step's "Uses" scales with the list: one rendering for both. */
+      await expect(uses.getByText("3 tsp salt")).toBeVisible();
 
       await page.getByRole("button", { name: "Half batch" }).click();
-      await expect(page.getByText("3/4 tsp salt")).toBeVisible();
+      await expect(list.getByText("3/4 tsp salt")).toBeVisible();
       await expect(page.getByLabel("Multiply")).toHaveValue("1/2");
 
       // Typing a custom multiplier still works (and drives the snapshot at 2×).
       await page.getByLabel("Multiply").fill("2");
-      await expect(page.getByText("3 tsp salt")).toBeVisible();
+      await expect(list.getByText("3 tsp salt")).toBeVisible();
       await snapshotPage(page, "recipe-6-multiplied.png");
     });
 
@@ -97,8 +102,13 @@ test.describe("Single Recipe View", () => {
     }) => {
       await page.emulateMedia({ media: "print" });
 
-      // The ingredient list is part of the printout.
-      await expect(page.getByText("1 1/2 tsp salt")).toBeVisible();
+      // The ingredient list is part of the printout; a step's "Uses" is not.
+      await expect(
+        page
+          .getByRole("list", { name: "Ingredients", exact: true })
+          .getByText("1 1/2 tsp salt"),
+      ).toBeVisible();
+      await expect(page.getByTestId("step-uses")).toBeHidden();
 
       // The sticky scale bar and the checklist Reset buttons are screen-only.
       await expect(page.getByLabel("Multiply")).toBeHidden();
