@@ -507,7 +507,32 @@ schema keeps it) — pinned in `editFormRoundTrip.test.tsx` so the change is
 seen when the steps section is reworked. The ingredient, tag and drink-spec
 round-trip (D4) is exact.
 
-**Gates.** _Pending (after review)._
+**Review fixes.** The round-trip test now carries timelines, a video, a
+cook time, an image and the date, and checks no clear flag rides along; a
+failed Create counts "N changes" against the pre-submit values (De1-10);
+`nextCopySlug` counts on only from a number of at most two digits whose base
+exists; the Picture marker compares with the inputs as mounted. Two things
+the Docker run found: on the current rail row the status text took the
+`success` colour (4.25:1 on the accent fill; now the row's own text colour),
+and the `sr-only` ": " spans inside the pill row were absolutely positioned
+against the page, stretching it to 477 px at 393 (the `ol` is `relative`
+now; the phone spec also asserts `scrollWidth`).
+
+**Gates** (head after the 43n merge). `recipe-editor` typecheck and
+`recipe-website` `tsc --noEmit` clean; vitest 138 files / 2,926 tests;
+Docker build-mode Playwright on the branch's touched specs plus `term-edit`
+(before the final merge): 425/425; after merging 43n, the form specs
+(edit-form-frame, new-recipe, edit, accessibility, visual,
+ingredient-preview, recipe): 195/195; `edit-form-frame.spec` once in dev
+mode (Docker, no build): 5/5.
+
+**Baselines moved** (Docker, `--update-snapshots`): `visual.spec`
+`new-recipe-form`, `new-recipe-form-overwrite`, `edit-form-populated`,
+`edit-form-overwrite`, `markdown-source-mode` (the form is the framed
+sections now, wider ingredient column), `ingredient-preview.spec`'s preview
+(524 → 840 px wide, the same reason), and new
+`edit-form-frame.spec` `new-recipe-imported` (1280 px, after an import) and
+`edit-form-mobile` (393 px, jump row and save bar).
 
 **Roger to confirm:** De1-4 (Start over keeps the form); the receipt's
 wording; Cancel on a new recipe goes to `/` without asking.
