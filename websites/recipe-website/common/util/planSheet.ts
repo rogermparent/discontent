@@ -69,19 +69,33 @@ export function yieldNumber(value: PlanYield, scale = 1): string {
 }
 
 /**
- * What a yield counts, as a key — its unit's last word, singular-ish: "84
- * bite-size cookies" and "20 cookies" count the same thing; "Serves 4"
- * counts `serving`; "pastry" and "pastries" are both `pastri`, "cookies"
- * `cooki`. `""` when the
- * yield names no unit ("Makes about 24").
+ * The word a yield counts, as written: the unit's last word before any
+ * aside — "cookies" from "bite-size cookies", "cookies (2 dozen)" or
+ * "cookies, 3 inches"; "loaf" from "loaf (10 slices)". `""` for no unit.
+ */
+export function yieldWord(unit: string): string {
+  const head = unit.split(/[(,]/)[0].trim();
+  return (
+    head
+      .split(/\s+/)
+      .at(-1)
+      ?.replace(/[^\p{L}-]/gu, "") ?? ""
+  );
+}
+
+/**
+ * What a yield counts, as a key — `yieldWord`, lower-cased and singular-ish
+ * (review): "-es" after s, x, ch or sh, "-ves" → "-f", else "-s"; then a
+ * final "ie" or "y" becomes "i", so cookie/cookies, glass/glasses,
+ * loaf/loaves, batch/batches, pastry/pastries each meet, and servings never
+ * meet cookies. `""` when the yield names no unit ("Makes about 24").
  */
 export function yieldNoun(unit: string): string {
-  const last = unit.trim().toLowerCase().split(/\s+/).at(-1) ?? "";
-  const word = last.replace(/[^a-z-]/g, "");
-  /* Singular-ish: drop a plural "s", then a final "ie" or "y" — so
-   * cookie/cookies, brownie/brownies, pastry/pastries each meet. */
-  const single =
-    word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word;
+  const word = yieldWord(unit).toLowerCase();
+  let single = word;
+  if (/ves$/.test(word)) single = `${word.slice(0, -3)}f`;
+  else if (/(?:s|x|ch|sh)es$/.test(word)) single = word.slice(0, -2);
+  else if (/[^s]s$/.test(word)) single = word.slice(0, -1);
   return single.replace(/(?:ie|y)$/, "i");
 }
 
@@ -93,7 +107,10 @@ export interface YieldSum {
   noun: string;
   /** Recipes added in. */
   counted: number;
-  /** Recipe rows left out: no yield read, or one counting something else. */
+  /**
+   * Rows left out: a recipe with no yield read or one counting something
+   * else, and every sub-plan (its yields are its own page's).
+   */
   more: number;
 }
 
@@ -101,11 +118,12 @@ export interface YieldSum {
  * The hero's yield (canvas C, "188–190 cookies + sugar"): each recipe's
  * yield at its row's scale, summed over the commonest thing counted — 84
  * bite-size cookies and 20–22 cookies are both cookies — with the rows left
- * out counted as "more" (no yield read, or servings among cookies). Never
- * adds a serving to a cookie. `undefined` when no recipe's yield reads.
+ * out counted as "more" (no yield read, servings among cookies, a
+ * sub-plan). Never adds a serving to a cookie. `undefined` when no recipe's yield reads.
  */
 export function sumYields(rows: readonly PlanRowView[]): YieldSum | undefined {
   const recipes = rows.filter((row) => row.recipe);
+  const plans = rows.filter((row) => row.group).length;
   type Tally = {
     min: number;
     max: number;
@@ -123,7 +141,7 @@ export function sumYields(rows: readonly PlanRowView[]): YieldSum | undefined {
       min: 0,
       max: 0,
       ranged: false,
-      word: value.unit.trim().split(/\s+/).at(-1) ?? "",
+      word: yieldWord(value.unit),
       n: 0,
     };
     entry.min += value.min * scale;
@@ -145,7 +163,7 @@ export function sumYields(rows: readonly PlanRowView[]): YieldSum | undefined {
     ...(entry.ranged && max > min ? { max } : {}),
     noun: entry.word,
     counted: entry.n,
-    more: recipes.length - entry.n,
+    more: recipes.length - entry.n + plans,
   };
 }
 
@@ -205,8 +223,17 @@ export interface SheetRow {
   chill?: string;
   /** It bakes: its dough is mixed the day before (a "dough"), else "recipe". */
   dough: boolean;
-  /** The day before's small print: "keeps 3 days", "rest 20 min", "icing sets in 24 h". */
+  /**
+   * The day before's small print on a wide screen: "keeps 3 days", "rest
+   * 20 min", "icing sets in 24 h" (`keeps`, then `rest`, then `sets`).
+   */
   ahead: string[];
+  /** "keeps 3 days": a phone says it once, under Day before. */
+  keeps?: string;
+  /** "rest 20 min": a phone's baking-day caption (C-phone). */
+  rest?: string;
+  /** "icing sets in 24 h": a phone's baking-day caption (C-phone). */
+  sets: string[];
   /** Baking day: the bar and its caption, when the steps give a bake. */
   bake?: {
     /** The solid bar: the range's low end (or the only time), % of the scale. */
@@ -230,6 +257,8 @@ export interface PlanSheet {
   summary: MakeAhead;
   /** Recipe rows (not sub-plans, not missing). */
   recipes: number;
+  /** Sub-plan rows: the hero says "+ 1 plan" (review). */
+  plans: number;
   /** The one oven every recipe that says uses, when there is one. */
   oven?: PlanOven;
   scale: { max: number; caption: string };
@@ -269,6 +298,7 @@ export function buildPlanSheet(rows: readonly PlanRowView[]): PlanSheet {
       row,
       dough: false,
       ahead: [],
+      sets: [],
       after: [],
     };
     const recipe = row.recipe;
@@ -276,14 +306,19 @@ export function buildPlanSheet(rows: readonly PlanRowView[]): PlanSheet {
     const { times } = recipe;
     if (!times.chill) noChill.push(recipe.name);
     if (!times.yield) noYield.push(recipe.name);
-    const ahead: string[] = [];
-    if (times.keeps) ahead.push(`keeps ${formatKeeps(times.keeps.value)}`);
-    if (times.rest) ahead.push(formatRest(times.rest.value));
+    const keeps = times.keeps
+      ? `keeps ${formatKeeps(times.keeps.value)}`
+      : undefined;
+    const rest = times.rest ? formatRest(times.rest.value) : undefined;
+    const sets: string[] = [];
     const after: string[] = [];
     for (const { value } of times.extras) {
-      if (value.kind === "set") ahead.push(formatExtra(value));
+      if (value.kind === "set") sets.push(formatExtra(value));
       else after.push(formatExtra(value));
     }
+    const ahead = [keeps, rest, ...sets].filter((each): each is string =>
+      Boolean(each),
+    );
     const bake = times.bake?.value;
     const rowOven = times.oven?.value;
     return {
@@ -291,6 +326,9 @@ export function buildPlanSheet(rows: readonly PlanRowView[]): PlanSheet {
       ...(times.chill ? { chill: formatChillShort(times.chill.value) } : {}),
       dough: Boolean(bake),
       ahead,
+      ...(keeps ? { keeps } : {}),
+      ...(rest ? { rest } : {}),
+      sets,
       after,
       ...(bake
         ? {
@@ -319,6 +357,7 @@ export function buildPlanSheet(rows: readonly PlanRowView[]): PlanSheet {
     rows: sheetRows,
     summary,
     recipes: rows.filter((row) => row.recipe).length,
+    plans: rows.filter((row) => row.group).length,
     ...(oven ? { oven } : {}),
     scale,
     ...(yields ? { yields } : {}),
@@ -355,7 +394,8 @@ export interface PlanDocket {
   /**
    * The big ones: the rows that merge the most lines — what every recipe
    * calls for — with their amounts, as /shopping labels them; at most five,
-   * only rows that merge two lines or more.
+   * only rows that merge two lines or more, and never a ticked row (it is
+   * bought; review, Dp2-4).
    */
   big: string[];
 }
@@ -388,7 +428,9 @@ export function planDocket(view: ShoppingView, limit = 5): PlanDocket {
       label: AISLE_LABELS[aisle],
       rows: count,
     }));
+  /* Still to buy: the store lists and the on-hand fold, not the ticked. */
   const big = rows
+    .filter((row) => !row.checked)
     .map((row, order) => ({ row, order }))
     .filter(({ row }) => row.quantity && row.total >= 2)
     .sort((a, b) => b.row.total - a.row.total || a.order - b.order)

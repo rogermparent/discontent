@@ -10,6 +10,7 @@ import {
   planDocket,
   sumYields,
   yieldNoun,
+  yieldWord,
   yieldNumber,
   yieldSumLabel,
 } from "recipe-website-common/util/planSheet";
@@ -172,6 +173,24 @@ describe("yields", () => {
     expect(yieldNoun("")).toBe("");
   });
 
+  it("reads the word before an aside (review)", () => {
+    expect(yieldWord("cookies (2 dozen)")).toBe("cookies");
+    expect(yieldWord("loaf (10 slices)")).toBe("loaf");
+    expect(yieldWord("bars, 2 inches square")).toBe("bars");
+    expect(yieldNoun("cookies (2 dozen)")).toBe(yieldNoun("cookies"));
+    expect(yieldNoun("loaf (10 slices)")).not.toBe(yieldNoun("slices"));
+  });
+
+  it("meets plurals: glasses, loaves, batches, boxes — never servings and cookies", () => {
+    expect(yieldNoun("glasses")).toBe(yieldNoun("glass"));
+    expect(yieldNoun("loaves")).toBe(yieldNoun("loaf"));
+    expect(yieldNoun("batches")).toBe(yieldNoun("batch"));
+    expect(yieldNoun("boxes")).toBe(yieldNoun("box"));
+    expect(yieldNoun("dishes")).toBe(yieldNoun("dish"));
+    expect(yieldNoun("slices")).toBe(yieldNoun("slice"));
+    expect(yieldNoun("servings")).not.toBe(yieldNoun("cookies"));
+  });
+
   it("prints a yield's number at a scale", () => {
     expect(yieldNumber(parseYield("20-22 cookies")!)).toBe("20–22");
     expect(yieldNumber(parseYield("24 cookies")!, 2)).toBe("48");
@@ -207,6 +226,32 @@ describe("yields", () => {
       counted: 2,
       more: 1,
     });
+    expect(yieldSumLabel(sum)).toBe("cookies + 1 more");
+  });
+
+  it("prints the word before the aside, and adds a loaf to a loaf", () => {
+    const sum = sumYields([
+      recipeRow("a", "A", [], "24 cookies (2 dozen)"),
+      recipeRow("b", "B", [], "36 cookies"),
+    ])!;
+    expect(sum.noun).toBe("cookies");
+    expect(yieldSumLabel(sum)).toBe("cookies");
+    const loaves = sumYields([
+      recipeRow("c", "C", [], "1 loaf (10 slices)"),
+      recipeRow("d", "D", [], "2 loaves"),
+    ])!;
+    expect(loaves).toMatchObject({ min: 3, noun: "loaf", counted: 2 });
+  });
+
+  it("counts a sub-plan as one more (review)", () => {
+    const sum = sumYields([
+      SPRITZ,
+      {
+        item: { group: "tray" } as GroupItem,
+        group: { slug: "tray", name: "Tray", recipes: [], thumbs: [] },
+      },
+    ])!;
+    expect(sum).toMatchObject({ min: 84, counted: 1, more: 1 });
     expect(yieldSumLabel(sum)).toBe("cookies + 1 more");
   });
 
@@ -269,8 +314,14 @@ describe("buildPlanSheet", () => {
     expect(gingerbread.chill).toBe("≥ 3 h");
     expect(gingerbread.ahead).toEqual(["keeps 3 days"]);
     expect(crinkles.ahead).toEqual(["keeps 3 days", "rest 20 min"]);
+    /* A phone says the keeps once, and the rest with the bake (C-phone). */
+    expect(crinkles.keeps).toBe("keeps 3 days");
+    expect(crinkles.rest).toBe("rest 20 min");
+    expect(gingerbread.rest).toBeUndefined();
     expect(sugar.chill).toBe("1–2 h");
     expect(sugar.ahead).toEqual(["icing sets in 24 h"]);
+    expect(sugar.sets).toEqual(["icing sets in 24 h"]);
+    expect(sugar.keeps).toBeUndefined();
     expect(sugar.makes).toBeUndefined();
     expect(spritz.makes).toEqual({ number: "84", unit: "bite-size cookies" });
     expect(sheet.noChill).toEqual(["My Favorite Spritz Cookies"]);
@@ -327,6 +378,7 @@ describe("buildPlanSheet", () => {
       },
     ]);
     expect(other.recipes).toBe(1);
+    expect(other.plans).toBe(1);
     expect(other.rows[0].bake).toBeUndefined();
     expect(other.rows[0].dough).toBe(false);
     expect(other.rows.map((row) => row.tick)).toEqual([
@@ -408,6 +460,20 @@ describe("planDocket", () => {
     const view = buildShoppingView(ticked, settings({ aisles: true }));
     expect(view.checked.length).toBe(1);
     const docket = planDocket(view);
+    expect(docket.aisles.reduce((sum, { rows }) => sum + rows, 0)).toBe(
+      view.counts.rows,
+    );
+  });
+
+  it("never names a ticked row among the big ones (review)", () => {
+    const ticked = LINES.map((each) =>
+      each.text.includes("flour") ? { ...each, checked: true } : each,
+    );
+    const view = buildShoppingView(ticked, settings({ aisles: true }));
+    const docket = planDocket(view);
+    expect(docket.big.join(" ")).not.toMatch(/flour/);
+    expect(docket.big.join(" ")).toMatch(/butter/);
+    /* The aisles still count it: it is on the list, bought. */
     expect(docket.aisles.reduce((sum, { rows }) => sum + rows, 0)).toBe(
       view.counts.rows,
     );

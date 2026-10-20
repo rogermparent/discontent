@@ -709,6 +709,30 @@ test.describe("Meal plan: the run sheet", () => {
     await expect(page.getByTestId("plan-made-count")).toHaveText("1 of 4 made");
   });
 
+  test("a sub-plan row is a plan of its own, counted in the hero", async ({
+    page,
+    request,
+    createApiToken,
+  }) => {
+    await writeWeek(request, await createApiToken());
+    await page.goto("/group/holiday-week?mode=sheet");
+    const stats = page.getByTestId("sheet-stats");
+    await expect(stats.getByRole("term").first()).toHaveText(
+      "recipes + 1 plan",
+    );
+    await expect(stats.getByRole("definition").first()).toHaveText("3");
+    /* Each row is named by its recipe (the row header). */
+    await expect(sheetRows(page).getByRole("rowheader")).toContainText([
+      "Gingerbread Cookies",
+      "Iced Sugar Cookies",
+      "Spritz Cookies",
+      "Cookie Tray",
+    ]);
+    await expect(
+      sheetRows(page).nth(3).getByRole("link", { name: "Its own run sheet" }),
+    ).toHaveAttribute("href", `/group/${PLAN}?mode=sheet`);
+  });
+
   test("a plan with nothing to bake or chill has no run sheet", async ({
     page,
     request,

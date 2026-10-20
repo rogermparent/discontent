@@ -174,7 +174,11 @@ function Stats({ sheet }: { sheet: PlanSheet }) {
     >
       <Stat
         value={sheet.recipes}
-        label={sheet.recipes === 1 ? "recipe" : "recipes"}
+        label={`${sheet.recipes === 1 ? "recipe" : "recipes"}${
+          sheet.plans > 0
+            ? ` + ${sheet.plans} ${sheet.plans === 1 ? "plan" : "plans"}`
+            : ""
+        }`}
       />
       <Stat value={chill} label={chillLabel} />
       {sheet.oven ? (
@@ -299,13 +303,17 @@ function BakingCell({ row }: { row: SheetRow }) {
   if (row.row.group) {
     return (
       <Link
-        href={`/group/${row.row.group.slug}?mode=sheet`}
+        href={
+          row.row.group.sheet
+            ? `/group/${row.row.group.slug}?mode=sheet`
+            : `/group/${row.row.group.slug}`
+        }
         className={cn(
           "inline-flex min-h-6 items-center gap-1 text-sm text-primary underline-offset-4 hover:underline",
           FOCUS,
         )}
       >
-        Its own run sheet
+        {row.row.group.sheet ? "Its own run sheet" : "Open the plan"}
         <ArrowRight aria-hidden className="size-4" />
       </Link>
     );
@@ -415,9 +423,12 @@ function SheetTable({
               <td className="h-[84px] py-2 align-middle font-mono text-[1.75rem] leading-none text-muted-foreground tabular-nums">
                 {row.number}
               </td>
-              <td className="py-2 pr-5 align-middle">
+              <th
+                scope="row"
+                className="py-2 pr-5 text-left align-middle font-normal"
+              >
                 <RecipeCell row={row.row} images={images} done={done} />
-              </td>
+              </th>
               <td className="py-2 pr-5 align-middle" data-testid="sheet-ahead">
                 <DayBeforeCell
                   row={row}
@@ -582,7 +593,11 @@ function BakingDay({ sheet }: { sheet: PlanSheet }) {
                   <>
                     <OvenBar bake={row.bake} />
                     <span className={captionClass}>
-                      {[bakeCaption(row), ...row.ahead].join(" · ")}
+                      {/* C-phone: the rest and what sets ride with the bake;
+                       * the keeps are said once, under Day before. */}
+                      {[bakeCaption(row), row.rest, ...row.sets]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </span>
                   </>
                 ) : null}

@@ -703,11 +703,19 @@ docket there, as it has no shopping list).
   set" and "Chill not set: Spritz Cookies."; a missing bake is "bake not
   set", a missing yield "— not set".
 - **Dp2-3 — the hero's yield label is "cookies + N more"**, not the board's
-  hand-worked "cookies + sugar": N counts the recipe rows not added in (no
-  yield read, or one counting something else).
+  hand-worked "cookies + sugar": N counts the rows not added in (a recipe
+  with no yield read or one counting something else, and every sub-plan —
+  its yields are its own page's), and the recipes stat says "recipes + 1
+  plan" when there are sub-plans (review). What a yield counts is its
+  unit's last word before any aside ("24 cookies (2 dozen)" counts cookies,
+  "1 loaf (10 slices)" a loaf), singular-ish (-es after s/x/ch/sh, -ves →
+  -f, else -s; then a final ie/y → i), so glasses/glass, loaves/loaf,
+  batches/batch and pastry/pastries meet and servings never meet cookies.
 - **Dp2-4 — "the big ones" are the rows merging the most lines** (two or
   more), at most five — what nearly every recipe calls for — with their
-  merged amounts; across units there is no honest "largest".
+  merged amounts; across units there is no honest "largest". Ticked rows are
+  never among them (bought already; review), though the aisle counts keep
+  them, as the "N rows" beside them does.
 - **Dp2-5 — mixed ticks sit in the table's Day before cell on a wide
   screen** (C's desktop board has none; its phone board has the list), and
   the phone's Baking day list has no made tick (as the board) — Start the
@@ -715,8 +723,16 @@ docket there, as it has no shopping list).
 - **Dp2-6 — the head stays 43p1's** (eyebrow, tags, the mode switch, More)
   with the title in C's display size; Start the bake / Edit the sheet and the
   stats are the sheet's first row. More is not repeated.
-- **Dp2-7 — a sub-plan row** says "a plan of its own" and links to its own
-  run sheet (`?mode=sheet`); a dangling row keeps its slot with no ticks.
+- **Dp2-7 — a sub-plan row** says "a plan of its own" and links to "Its own
+  run sheet" (`?mode=sheet`) when one of the recipes it cooks bakes or
+  chills (`PlanSubPlanView.sheet`, read in `readPlanPage`), else "Open the
+  plan" (review); a dangling row keeps its slot with no ticks. The table's
+  recipe cell is the row header (`<th scope="row">`).
+- **Dp2-8 — a phone's Baking day caption carries the rest and what sets**
+  ("11–12 min · rest 20 min", "11–12 min · icing sets in 24 h"), as
+  C-phone draws them; the keeps are said once, under Day before ("Doughs
+  keep 3 days."). A wide screen keeps all three in the Day before cell, as
+  C-desktop.
 
 **Gates.** _Pending._
 
