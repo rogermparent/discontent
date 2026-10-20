@@ -557,13 +557,15 @@ function BakingDay({ sheet }: { sheet: PlanSheet }) {
           Baking day
         </SheetTape>
       </ListHead>
+      {/* The yield column is a fixed width, so every row's bar track is
+       * the same length and the bars stay to one scale. */}
       <ol>
         {sheet.rows.map((row) => {
           const href = rowHref(row.row);
           return (
             <li
               key={`${row.position}-${row.tick}`}
-              className="grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 border-b border-border py-3"
+              className="grid grid-cols-[44px_minmax(0,1fr)_6.5rem] items-center gap-x-2 gap-y-1 border-b border-border py-3"
             >
               <span className="row-span-2 font-mono text-[1.625rem] leading-none text-muted-foreground tabular-nums">
                 {row.number}
