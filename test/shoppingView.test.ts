@@ -819,3 +819,27 @@ describe("43a: optional lines and decorating lists", () => {
     expect(rows(someOptional)[0].optional).toBe(false);
   });
 });
+
+describe("43n2: mixed numbers written with and", () => {
+  it("keys `2 and 1/4 cups all-purpose flour` as the flour", () => {
+    /* Was `cup all purpose flour`: its own row, beside the flour. */
+    expect(shoppingNameOf("2 and 1/4 cups all-purpose flour").key).toBe(
+      "all purpose flour",
+    );
+    expect(shoppingNameOf("2 & 1/2 cups flour").key).toBe("flour");
+  });
+
+  it("merges it with the other flour lines and adds the mixed number", () => {
+    const view = buildShoppingView(
+      [
+        item("2 and 1/4 cups all-purpose flour", { ...cookies, scale: "2" }),
+        item("3/4 cup all-purpose flour", cake),
+      ],
+      settings({ aisles: false }),
+    );
+    expect(rows(view)).toHaveLength(1);
+    const flour = row(view, "all purpose flour");
+    expect(flour.total).toBe(2);
+    expect(flour.quantity).toBe("5¼ cups");
+  });
+});

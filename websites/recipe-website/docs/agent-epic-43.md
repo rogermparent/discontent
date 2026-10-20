@@ -1922,6 +1922,97 @@ moved (above) show on no screenshot; no new spec, so no dev-mode run.
   `instant dry yeast` row never sees it (3 lines). A row that must catch
   lent tails belongs after `inheritTails`, not in `toName`.
 
+#### Results (43n2)
+
+Branch `agent/43n2-and-fractions`. **Reindex: not needed** (as 43n: names
+and amounts are read at request time from stored lines; no index,
+aggregate or `specVersions`-pinned module computes them). **Deploy: yes**
+(the shopping list, Make and step matching read the new names).
+
+**The bug.** "2 and 1/4 cups all-purpose flour" read `cup all purpose
+flour`: `stripAmount`'s quantity read stopped at `2`, so the unit after
+`and 1/4` stayed in the name, and the line never merged with the other
+flour on a list, met flour on hand in Make, or matched "the flour" in a
+step. `parseAmount` already read it as 2¼ cups (35a's local clean-up), so
+the amount was right and only the name was wrong — except for `&` (`2 &
+1/2 cups` was `null`) and `1 and one-half` (a count of 1).
+
+**The fix.** One shared rewrite, `joinMixedNumbers` in
+`ingredientGrammar.ts`, run first by `tidyLine` (names) and in
+`parseAmount`'s clean-up in place of its two local `and` rules, so the
+name and the amount read the same number. It turns a whole number, then
+`and` or `&`, then a fraction into the grammar's `2 1/4`:
+
+- `2 and 1/4`, `2 & 1/4`, `2 and ½` / `2 & ½` (`½` is `1/2` after
+  `readableLine`), the stored `<Multiplyable 2 /> and <Multiplyable 1/4 />`;
+  `2 and 1/4-cups` (the dash was already `tidyLine`'s);
+- spelled-out parts: `and a half`, `and one-half`, `and a third`, `and a
+quarter`, `and three-quarters` / `three fourths`; the whole may be a
+  digit or a word (`one` … `ten`, `twelve`, `a`/`an` as 35a had).
+
+Left alone (each a vitest negative): `salt and pepper`, `2 tablespoons salt
+and pepper`, `1 cup salt and 2 eggs` (the 27c chain rule — still `salt and
+egg`, as before), `oil and vinegar`, `1 cup oil and vinegar`, `2 eggs and 1
+yolk`, `half and half` (and `2 and a half cups half and half` → `half and
+half`), `a half and half mix`, and two amounts side by side — `1/2 and 1/4
+cup sugar`, `1 and 2 cups flour` (the lookbehind and the fraction after
+`and` keep them out; their amount stays `null`, never a guess).
+
+**Decisions**
+
+- **Dn2-1 — `&` joins like `and`.** 35a's "is never a confident count when
+  `and` follows the number" pinned `1 & 1/2 cups flour` and `2 & a half`
+  as `null` because the clean-up didn't know `&`; nothing said they should
+  stay unread. They now read 1½ cups and 2½, and the test keeps its point
+  with the shapes still left (`1 & 2 cups flour`, `1 and 2 cups flour`,
+  `1/2 and 1/4 cup sugar`).
+- **Dn2-2 — a line that is only an amount names nothing.** "2 and a half"
+  (the brief's question mark) was the name `half`; it now reads as `2 1/2`
+  does: no requirement, amount 2½ (count). "2 and a half cups milk" →
+  `milk`, 2½ cups.
+- **The multiplier needed nothing.** The recipe page and the cook view
+  scale each `<Multiplyable>` on its own, and multiplying is linear, so "2
+  and 1/4" at ×2 shows "4 and 1/2" — the same amount, written as the
+  recipe wrote it. The shopping list's amount (`parseAmount` →
+  `scaleAmount` → the row's mono `quantity`) is one number: 2¼ cups at ×2
+  is 4½ cups (vitest).
+
+**Survey** (read-only, a scratch `git clone --depth 1` of the content repo
+at `tmp/43/43n2/corpus`, never `editor/content`; 825 recipes, 8,604
+ingredient lines): exactly **one** line has the shape — "1 1/4 cup beef
+broth, divided into 1 and 1/4 cup", whose `and` is in a remark after the
+name. No corpus line uses `&`, `one-half` or `and a half` in an amount.
+A dump of every line's name and amount before (`origin/main` `15ce93ec`)
+and after is **byte-identical**: no stored line moves, so no step match,
+Make bucket or shopping row in today's corpus changes. The shape comes in
+with new Sally's imports (43p2's plan finding; its fixture is untouched).
+No e2e fixture or spec has the shape (grepped), so no Playwright run.
+
+**Tests.** `ingredientNames.test.ts` "mixed numbers written with and
+(43n2)": 24 positives (each with its old reading in a comment) and the
+negatives above; `ingredientAmount.test.ts`: the same shapes' amounts,
+`&` and the spelled-out parts, scaling ×2 and ×½, and `and` between
+ingredients; `shoppingView.test.ts`: the key, and a cookies ×2 + cake list
+merging "2 and 1/4 cups" with "3/4 cup" all-purpose flour into one 5¼-cup
+row; `makeable.test.ts`: flour and milk on hand meet the lines, salt
+doesn't meet "1 cup salt and 2 eggs". **Contract diffs:** one —
+`ingredientAmount.test.ts`'s `&` safety net (Dn2-1). The shopping-view,
+shopping-lines, makeable, makeable-beans, step-ingredients, synonyms and
+aisles suites are otherwise unchanged and green.
+
+**Gates** (capped heavy slot, on `df5e1364`): `pnpm --filter recipe-editor
+typecheck` and `pnpm --filter recipe-website exec tsc --noEmit` clean;
+`pnpm exec vitest run` **3,126 / 3,127** (141 files) — the one red the
+30 s timeout 43n also saw (`cliJson` "keeps the inventory…", at load
+~20 from other sessions; the file alone took 307 s and timed out again),
+green re-run alone with `-t` at load 8 (1 / 1, 25.5 s — close to its
+cap, a flake to watch). The nine ingredient, shopping, Make and step
+suites together: 566 / 566. No Playwright: no spec or fixture has the
+shape.
+
+**Roger to confirm:** `&` reads as `and` in a mixed number (Dn2-1); a
+line that is only "2 and a half" names nothing (Dn2-2).
+
 ### 43m — What can I make: start from nothing, pattern items (M–L)
 
 Files: `common/util/makeable.ts`, `matchers.ts`, `beans.ts`, `MakePage/` (`index.tsx`, `MakeResults.tsx`, `InventoryPanel.tsx`, `AddField.tsx`, `MatcherTape.tsx`, `useInventory.ts`), the inventory seat + CLI/MCP.
