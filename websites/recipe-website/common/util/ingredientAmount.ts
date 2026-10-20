@@ -32,6 +32,7 @@
 import type Fraction from "fraction.js";
 import { detectHeading } from "./detectHeading";
 import {
+  joinMixedNumbers,
   NUMBER,
   QUANTITY_RE,
   UNIT_ALT_RE,
@@ -587,16 +588,11 @@ export function parseAmount(line: string): Amount | null {
   if (lead) text = text.slice(lead[0].length);
   /*
    * The rest of the clean-up is local to amounts: the shared grammar stays
-   * as `stripAmount` uses it, and these rewrite what it can't read.
+   * as `stripAmount` uses it, and these rewrite what it can't read — but
+   * `one and a half`, `1 and a half`, `2 & 1/4` are one number the shared
+   * way, as the name reads them (43n2, `joinMixedNumbers`).
    */
-  text = text
-    .replace(LEAD_SOFTENER_RE, "")
-    /* `one and a half`, `1 and a half`, `1 and 1/2`: one number. */
-    .replace(
-      /\b(\d+|one|an?)\s+and\s+a\s+half\b/gi,
-      (_match, whole: string) => `${/^\d/.test(whole) ? whole : "1"} 1/2`,
-    )
-    .replace(/\b(\d+)\s+and\s+(\d+\/\d+)/g, "$1 $2")
+  text = joinMixedNumbers(text.replace(LEAD_SOFTENER_RE, ""))
     /* `a half cup`: not one of something. Never `half and half`. */
     .replace(/\b(?:a|one)\s+half\b(?![\s-]*(?:and|&)[\s-]*half)/gi, "1/2")
     /* `2 x 400g tins`: a count, then each one's size. */

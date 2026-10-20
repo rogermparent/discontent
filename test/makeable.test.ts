@@ -955,3 +955,15 @@ describe("38d: an OR: line is no requirement of its own", () => {
     ).toHaveLength(1);
   });
 });
+
+describe("43n2: mixed numbers written with and", () => {
+  it("meets `2 and 1/4 cups all-purpose flour` with the flour on hand", () => {
+    /* Was `cup all purpose flour`, which no flour on hand met. */
+    expect(meets("all-purpose flour", "2 and 1/4 cups all-purpose flour")).toBe(
+      true,
+    );
+    expect(meets("flour", "2 & 1/2 cups flour")).toBe(true);
+    expect(meets("milk", "1 and a half cups milk")).toBe(true);
+    expect(meets("salt", "1 cup salt and 2 eggs")).toBe(false);
+  });
+});

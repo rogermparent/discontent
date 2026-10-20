@@ -736,3 +736,83 @@ describe("toName — synonyms and descriptors (43n)", () => {
     }
   });
 });
+
+describe("parseIngredientLine — mixed numbers written with and (43n2)", () => {
+  /*
+   * Sally's recipes write `2 and 1/4 cups`. The quantity read stopped at
+   * `2`, so the unit stayed: each line read `cup …` (in the comment) and
+   * never met the same flour on a list, in Make or in a step.
+   */
+  const m = (n: string) => `<Multiplyable baseNumber="${n}" />`;
+  it.each([
+    /* `cup all purpose flour` */
+    ["2 and 1/4 cups all-purpose flour", "all purpose flour"],
+    [`${m("2")} and ${m("1/4")} cups all-purpose flour`, "all purpose flour"],
+    [
+      `${m("2")} and ${m("1/4")} cups (${m("281")}g) all-purpose flour (spooned & leveled)`,
+      "all purpose flour",
+    ],
+    /* `cup powdered sugar` */
+    ["1 and 1/2 cups (180g) sifted confectioners' sugar", "powdered sugar"],
+    /* `teaspoon instant yeast`, `stick butter`, `pound chicken thigh` */
+    ["2 and 1/4 teaspoons instant yeast", "instant yeast"],
+    ["1 and 1/2 sticks butter", "butter"],
+    ["2 and 1/2 pounds chicken thighs", "chicken thigh"],
+    ["3 and 1/4 cups all purpose flour, divided", "all purpose flour"],
+    /* `cup flour`, each */
+    ["2 and ½ cups flour", "flour"],
+    ["2 & 1/2 cups flour", "flour"],
+    ["2 & ½ cups flour", "flour"],
+    ["2 and 1/4-cups flour", "flour"],
+    /* `one half cup milk`, then `half cup milk` */
+    ["1 and one-half cups milk", "milk"],
+    ["1 and a half cups milk", "milk"],
+    ["2 and a half cups milk", "milk"],
+    ["one and a half cups milk", "milk"],
+    /* `half pound beef`, `quarter cup sugar`, `three quarter cup milk` */
+    ["two and a half pounds beef", "beef"],
+    ["1 and a quarter cups sugar", "sugar"],
+    ["1 and three-quarters cups milk", "milk"],
+    /* `cup plus tablespoon sugar`, `plus and tablespoon sugar` */
+    ["1 and 1/2 cups plus 2 tablespoons sugar", "sugar"],
+    ["1/2 cup plus 1 and 1/2 tablespoons sugar", "sugar"],
+    /* `cup flour or cup bread flour` */
+    [
+      "2 and 1/4 cups flour or 1 and 1/2 cups bread flour",
+      "flour or bread flour",
+    ],
+    /* A count was already right; pinned. */
+    ["2 and 1/2 lemons", "lemon"],
+    ["1 and 1/2 large eggs", "egg"],
+  ])("%s → %s", (text, expected) => {
+    expect(label(text)).toBe(expected);
+  });
+
+  it("joins only a whole number, `and`, then a fraction", () => {
+    expect(
+      parseIngredientLine("salt and pepper").map(requirementLabel),
+    ).toEqual(["salt", "pepper"]);
+    expect(
+      parseIngredientLine("2 tablespoons salt and pepper").map(
+        requirementLabel,
+      ),
+    ).toEqual(["salt", "pepper"]);
+    /* The 27c chain rule: a quantity and a unit continue the amount, a
+     * count does not — the second ingredient stays in the name. */
+    expect(label("1 cup salt and 2 eggs")).toBe("salt and egg");
+    expect(label("oil and vinegar")).toBe("oil and vinegar");
+    expect(label("1 cup oil and vinegar")).toBe("oil and vinegar");
+    expect(label("2 eggs and 1 yolk")).toBe("egg and yolk");
+    expect(label("1 cup half and half")).toBe("half and half");
+    expect(label("2 and a half cups half and half")).toBe("half and half");
+    expect(label("a half and half mix")).toBe("half and half mix");
+    /* Two amounts, not one: left alone, as before. */
+    expect(label("1/2 and 1/4 cup sugar")).toBe("cup sugar");
+    expect(label("1 and 2 cups flour")).toBe("cup flour");
+    /* An amount with no name names nothing, as `2 1/2` does (was `half`). */
+    expect(parseIngredientLine("2 and a half")).toEqual([]);
+    expect(label("1 1/4 cup beef broth, divided into 1 and 1/4 cup")).toBe(
+      "beef broth",
+    );
+  });
+});
