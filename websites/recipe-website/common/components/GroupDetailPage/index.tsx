@@ -108,7 +108,11 @@ export default async function GroupDetailPage({
           images={images}
           editor={editor}
           second={second}
-          serverMode={mode === "cook" || mode === "plan" ? mode : undefined}
+          serverMode={
+            mode === "cook" || mode === "plan" || mode === "sheet"
+              ? mode
+              : undefined
+          }
           description={
             group.description ? (
               <Markdown>{group.description}</Markdown>

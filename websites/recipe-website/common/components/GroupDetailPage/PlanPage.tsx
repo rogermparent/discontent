@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo } from "react";
+import { hasRunSheet } from "../../util/planSheet";
 import { CookList } from "./CookList";
 import { PlanHead } from "./PlanHead";
 import { PlanList } from "./PlanList";
@@ -11,6 +13,7 @@ import {
   usePlanShelf,
 } from "./PlanRail";
 import { usePlanMode } from "./planState";
+import { RunSheet } from "./RunSheet";
 import type { PlanPageProps } from "./types";
 
 /**
@@ -20,8 +23,11 @@ import type { PlanPageProps } from "./types";
  * walks through it one recipe at a time. A wide screen opens on Plan, a
  * phone on Cook; the choice is kept per browser.
  *
- * The run sheet (43p2) slots in as a third section beside these, on the
- * same rows and the same `planTimes` facts.
+ * The **Run sheet** (43p2, canvas C) is a third mode between them, offered
+ * when the plan has one — a recipe whose steps give a bake or a chill
+ * (`hasRunSheet`, Dp2-1): the same rows and `planTimes` facts as a baking
+ * day's production schedule. It is never the default; a link's
+ * `?mode=sheet` or this browser's last choice opens it.
  */
 export function PlanPage({
   data,
@@ -33,7 +39,8 @@ export function PlanPage({
   second,
   serverMode,
 }: PlanPageProps) {
-  const [mode, setMode] = usePlanMode(serverMode);
+  const sheet = useMemo(() => hasRunSheet(data.rows), [data.rows]);
+  const [mode, setMode] = usePlanMode(serverMode, sheet);
   const shelf = usePlanShelf(data.slug, second);
   const makeAhead = useMakeAhead(data.rows);
   return (
@@ -47,6 +54,7 @@ export function PlanPage({
         media={media}
         mode={mode}
         onMode={setMode}
+        sheet={sheet}
         editor={editor}
       />
       {mode === "plan" ? (
@@ -66,6 +74,14 @@ export function PlanPage({
             <MakeAheadPanel summary={makeAhead} />
           </aside>
         </div>
+      ) : mode === "sheet" ? (
+        <RunSheet
+          data={data}
+          images={images}
+          editor={editor}
+          shelf={shelf}
+          onMode={setMode}
+        />
       ) : (
         <div className="w-full max-w-xl">
           <CookList

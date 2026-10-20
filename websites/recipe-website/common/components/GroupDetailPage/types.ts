@@ -3,6 +3,8 @@ import type { GroupItem, GroupItemRef } from "../../controller/types";
 import type { ShoppingPageActions } from "../ShoppingPage/useShoppingList";
 import type { SecondList } from "../MakePage/InventoryPanel";
 import type { PlanPageData } from "../../util/planPage";
+import type { PlanDocket } from "../../util/planSheet";
+import type { PlanMode } from "./planState";
 
 /** A write's answer, as the page's server actions give it. */
 export type PlanWriteResult = { ok: true } | { error: string };
@@ -15,6 +17,8 @@ export interface PlanShoppingSummary {
   rows: number;
   /** Lines ticked. */
   ticked: number;
+  /** The run sheet's docket (43p2): rows by aisle and the big ones. */
+  docket?: PlanDocket;
 }
 
 /**
@@ -57,5 +61,5 @@ export interface PlanPageProps extends PlanSlots {
   /** The page's second list for From your shelf, as /make's and /drinks'. */
   second?: SecondList;
   /** `?mode=` as the server read it (the editor's dynamic page only). */
-  serverMode?: "plan" | "cook";
+  serverMode?: PlanMode;
 }
