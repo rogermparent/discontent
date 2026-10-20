@@ -1278,10 +1278,52 @@ add one anyway, Method sets `shaken`, clearing takes it back), `timeline`
 ("add a timeline" first). `recipe-tags-aggregate` unchanged ("Add tag X" on
 the record-less corpus).
 
+- **De2-9 an edited ingredient row marks every number, as an import
+  does.** `createIngredient` (the paste and import marker) marks each
+  number outside a per-serving line — "1 (9-inch) pie crust" stores
+  `(<Multiplyable 9/>-inch)` — and `importRecipeData` and the paste path
+  go through it too, so an edited row is marked the same way rather than
+  by a second, amount-only rule. A **heading** row is never marked: its
+  text is stored as typed (trimmed). Roger to confirm.
+- **De2-10 Backspace in an empty "Add a tag" does nothing.** A chip is
+  removed only by its own "Remove tag X" button; a stray key never takes
+  one away (and there is nothing to announce).
+
+**Review fixes** (after the review of a2d76e71):
+
+1. **The row menu no longer closes the field it opened.** The non-modal
+   Popover's `onCloseAutoFocus` handed focus back to ⋯ after `RowField`
+   mounted, so the field blurred and `onDone` ended the edit. Edit and
+   Insert a line above now prevent that and focus the field. New e2e
+   (`ingredient-preview`): keyboard ⋯ → Edit → type → Save; ⋯ → Insert a
+   line above → type.
+2. **A leading emphasis pair survives an edit.** `normalizeIngredientText`
+   strips a leading `*` as a bullet (`"*Optional:* 3 sprigs mint"` became
+   `"Optional:* …"`). `markLine` (`ingredientRows.ts`) holds a leading
+   `*…*` / `**…**` aside, marks the rest and puts it back, in a row and
+   through Edit as text. The import and paste paths still read it as a
+   bullet (`normalizeIngredientText` has six callers; not changed here —
+   backlog).
+3. **Headings are never re-marked** (De2-9); every-number marking of an
+   ingredient row kept, as the importer does it.
+4. **No stray tags.** "Add a tag" commits on Enter / comma; on blur only
+   when the text exactly names a term or alias; Escape clears the text.
+5. Edit as text matches against the list as it is and as it was when the
+   text opened (a line cut and pasted back keeps its markup; a heading
+   toggled since is kept), and a stored line's surrounding whitespace
+   survives an untouched round trip; `ChosenTags` is `role="group"`;
+   Backspace on an empty tag input does nothing (De2-10); the segmented
+   controls (Ingredients' view switch, the drink Method) use the theme's
+   `shadow-sm` instead of a raw shadow. Component tests: zero
+   ingredients, a heading-only list, Rows → Edit as text → Rows (with a
+   cut and paste back), an edited heading row, the tag input, shake →
+   stir → blend.
+
 **Gates.** _Pending._
 
 **Roger to confirm:** De2-1 (a child reaches its parent, not stored);
-De2-3 (blend sets no tag); Collections only through Anything else; the
+De2-3 (blend sets no tag); De2-9 (an edited row marks every number, as
+imports do; headings never); Collections only through Anything else; the
 waits rule (a waiting word before the time, or half an hour or more).
 
 ### 43n — Ingredient names: ranges, synonyms, near-duplicates (M)
