@@ -27,6 +27,7 @@ import {
   parseIngredientLine,
   stripMarkup,
   toName,
+  withoutCanned,
 } from "./ingredientNames";
 
 /** Entry → step → the indices (into `ingredients`) of the lines it uses. */
@@ -142,6 +143,22 @@ const QUALIFIED_HEADS: Record<string, string[]> = {
   pepper: ["black", "white", "ground", "cracked"],
 };
 
+/**
+ * Heads that name a kind, so the word before names the line as well (43n):
+ * "mozzarella cheese" goes by `cheese` and by `mozzarella`. Named cheeses
+ * gained their `cheese` in `toName`, and a step that says "the mozzarella"
+ * must still find the line it found when the name was `mozzarella`.
+ */
+const CLASS_HEADS = new Set(["cheese"]);
+
+/** A name's heads: `headOf`, and the word before a `CLASS_HEADS` head. */
+function headsOf(words: string[]): string[] {
+  const head = headOf(words);
+  return CLASS_HEADS.has(head) && words.length > 1
+    ? [head, words[words.length - 2]]
+    : [head];
+}
+
 function qualifiedHead(words: string[]): boolean {
   const needs = QUALIFIED_HEADS[headOf(words)];
   return !needs || words.some((word) => needs.includes(word));
@@ -181,6 +198,8 @@ export function lineNames(ingredients: readonly Ingredient[]): LineNames[] {
       if (requirement.loose) continue;
       for (const alternative of requirement.alternatives) {
         add(alternative.words);
+        /* A step says "the tomato sauce", not "the canned tomato sauce" (43n). */
+        add(withoutCanned(alternative).words);
       }
     }
     for (const text of linkTexts(ingredient)) add(toName(text).words);
@@ -189,7 +208,7 @@ export function lineNames(ingredients: readonly Ingredient[]): LineNames[] {
         names
           .filter((words) => words.length > 1)
           .filter((words) => qualifiedHead(words))
-          .map(headOf)
+          .flatMap(headsOf)
           .filter(usableHead),
       ),
     ];
