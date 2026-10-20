@@ -91,3 +91,30 @@ export function isCurrentPath(pathname: string | null, href: string): boolean {
   if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
+
+/**
+ * The pages a destination is the *section* of, though not the page (43p1,
+ * 42j's finding): a plan of its own is in Plans.
+ */
+const SECTIONS: Record<string, readonly string[]> = {
+  "/groups": ["/group/"],
+};
+
+/**
+ * `aria-current` for a destination: `"page"` on its page (`isCurrentPath`),
+ * `"true"` on a page in its section (`/group/x` in Plans), else nothing —
+ * so the masthead marks where the reader is without claiming the page.
+ */
+export function navCurrent(
+  pathname: string | null,
+  href: string,
+): "page" | "true" | undefined {
+  if (isCurrentPath(pathname, href)) return "page";
+  if (
+    pathname &&
+    SECTIONS[href]?.some((prefix) => pathname.startsWith(prefix))
+  ) {
+    return "true";
+  }
+  return undefined;
+}

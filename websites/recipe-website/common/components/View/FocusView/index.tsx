@@ -6,6 +6,7 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import StyledMarkdown from "@discontent/component-library/components/Markdown";
@@ -21,6 +22,7 @@ import type {
 import type { StepLines } from "../../../util/stepIngredients";
 import { markOunces } from "../../../util/barUnits";
 import { stepPlainText } from "../../../util/stepPlainText";
+import { COOK_VIEW_PARAM } from "../../../util/cookViewParam";
 import { DrinkSpecBar } from "../DrinkSpec";
 import { MultiplierInput } from "../Multiplier";
 import { Multiplyable } from "../Multiplier/Multiplyable";
@@ -638,17 +640,49 @@ function FocusOverlay({
   );
 }
 
+const noSubscription = () => () => {};
+
+function askedForCookView(): boolean {
+  try {
+    return (
+      new URLSearchParams(window.location.search).get(COOK_VIEW_PARAM) === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * "Bar view" on a drink, "Cook view" on everything else. A drink is a recipe
  * with a `drink` spec or the `drink` tag — a few imported drinks carry the tag
  * before anyone has filled in their spec.
+ *
+ * A page opened at `?cook=1` (43p1) opens the view as it hydrates — never on
+ * the server, so the HTML matches — and closing it drops the parameter, so a
+ * reload stays on the page.
  */
 export function FocusViewButton({
   isDrink,
   ...props
 }: FocusViewProps & { isDrink?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const close = useCallback(() => setOpen(false), []);
+  const [opened, setOpen] = useState<boolean | null>(null);
+  const asked = useSyncExternalStore(
+    noSubscription,
+    askedForCookView,
+    () => false,
+  );
+  const open = opened ?? asked;
+  const close = useCallback(() => {
+    setOpen(false);
+    if (!askedForCookView()) return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete(COOK_VIEW_PARAM);
+      window.history.replaceState(window.history.state, "", url);
+    } catch {
+      /* Closed all the same; the address keeps its parameter. */
+    }
+  }, []);
   const bar = Boolean(isDrink || props.drink);
   const label = bar ? "Bar view" : "Cook view";
   return (

@@ -257,9 +257,10 @@ test.describe("Command palette — search depth", () => {
     // Before PR 21a it lived in sessionStorage and silently emptied the palette
     // on every other route; now it lives in the query, so leaving the query
     // behind leaves the filter behind with it.
-    await page.getByRole("button", { name: "Filter by tag soup" }).click();
-    await page.getByRole("button", { name: "Filter by tag bread" }).click();
-    await expect(ticker(page)).toHaveText(/0 RESULTS · .* · 2 FILTERS/i);
+    await searchFor(page, "tag:soup tag:bread");
+    await expect(ticker(page)).toHaveText(/0 RESULTS · .* · 2 FILTERS/i, {
+      timeout: SEARCH_TIMEOUT,
+    });
 
     await page.goto("/");
     await openPalette(page);
@@ -302,9 +303,12 @@ test.describe("Command palette — search depth", () => {
     await expect(recipeRow(page, "Tomato Basil Soup")).toBeVisible({
       timeout: SEARCH_TIMEOUT,
     });
-    await expect(
-      page.getByTestId("palette-recipes-group").getByRole("option"),
-    ).toHaveCount(1);
+    // One recipe row, then the hand-over row (43s) that counts it.
+    const options = page
+      .getByTestId("palette-recipes-group")
+      .getByRole("option");
+    await expect(options).toHaveCount(2);
+    await expect(options.last()).toContainText("All 1 result in search");
   });
 
   /*
@@ -329,7 +333,8 @@ test.describe("Command palette — search depth", () => {
     await paletteInput(page).fill("ginger");
 
     const searching = page.getByTestId("palette-searching");
-    await expect(searching).toHaveText("Searching recipes…", {
+    // 43s: it says how many it is searching, once the corpus is in.
+    await expect(searching).toHaveText(/^Searching (67 )?recipes…$/, {
       timeout: SEARCH_TIMEOUT,
     });
     await expect(searching).toHaveAttribute("role", "status");
@@ -381,7 +386,7 @@ test.describe("Command palette — search depth", () => {
     await expect(slaw.locator("mark", { hasText: "ginger" })).toBeVisible();
   });
 
-  test("'See all results' carries the query across and records it", async ({
+  test("'All N results in search' carries the query across and records it", async ({
     page,
   }) => {
     // A filter left on /search stays with /search's query — the palette starts
@@ -390,15 +395,19 @@ test.describe("Command palette — search depth", () => {
     await expect(ticker(page)).toHaveText(/ALL 67 RECIPES/i, {
       timeout: SEARCH_TIMEOUT,
     });
-    await page.getByRole("button", { name: "Filter by tag soup" }).click();
-    await expect(ticker(page)).toHaveText(/1 FILTER/i);
+    await searchFor(page, "tag:soup");
+    await expect(ticker(page)).toHaveText(/1 FILTER/i, {
+      timeout: SEARCH_TIMEOUT,
+    });
 
     await page.goto("/");
     await openPalette(page);
     // 60 "Pantry Staple" recipes — well past the 5-row cap, so the overflow row
     // is present.
     await paletteSearch(page, "pantry");
-    const seeAll = page.getByRole("option", { name: /See all results/ });
+    const seeAll = page.getByRole("option", {
+      name: /All 60 results in search/,
+    });
     await expect(seeAll).toBeVisible({ timeout: SEARCH_TIMEOUT });
 
     await seeAll.click();
@@ -819,9 +828,12 @@ test.describe("Command palette — groups", () => {
       text.includes("Week of May 4"),
     );
     expect(groupIndex).toBeGreaterThan(0);
-    // Everything above the group row is a recipe row.
+    // Everything above the group row is a recipe row, or the recipes'
+    // hand-over row (43s), which ends their group.
     expect(
-      texts.slice(0, groupIndex).every((text) => /Recipe/.test(text)),
+      texts
+        .slice(0, groupIndex)
+        .every((text) => /Recipe|results? in search/.test(text)),
     ).toBe(true);
 
     await page.keyboard.press("Enter");

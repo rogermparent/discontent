@@ -6,6 +6,7 @@
  *
  *   idle    →  ALL 300 RECIPES
  *   active  →  42 RESULTS · "creme tag:dessert" · 2 FILTERS
+ *   both    →  108 RESULTS · "lime" · 73 DRINKS · 35 FOOD (43s)
  *   pending →  SEARCHING…
  *
  * It reports the **total** match count, never the number of cards currently
@@ -18,6 +19,7 @@ export function SearchTicker({
   query,
   filterCount,
   isSearching,
+  kinds,
 }: {
   /** Total matches, or `undefined` while the corpus is still loading. */
   count: number | undefined;
@@ -25,6 +27,11 @@ export function SearchTicker({
   /** Typed terms in the query's filter — `tag:`, `time:<30`, and the rest. */
   filterCount: number;
   isSearching: boolean;
+  /**
+   * The results' split by kind (43s, canvas B), when they hold drinks — said
+   * only when they hold both, after everything else so the count still leads.
+   */
+  kinds?: { drinks: number; food: number };
 }) {
   const parts: string[] = [];
 
@@ -41,6 +48,12 @@ export function SearchTicker({
   if (query) parts.push(`“${query}”`);
   if (filterCount > 0) {
     parts.push(`${filterCount} ${filterCount === 1 ? "filter" : "filters"}`);
+  }
+  if (!isSearching && kinds && kinds.drinks > 0 && kinds.food > 0) {
+    parts.push(
+      `${kinds.drinks} ${kinds.drinks === 1 ? "drink" : "drinks"}`,
+      `${kinds.food} food`,
+    );
   }
 
   return (

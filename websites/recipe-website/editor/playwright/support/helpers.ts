@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { expectHydrated } from "./hydration";
 
 export interface SignInOptions {
   email?: string;
@@ -108,6 +109,18 @@ export async function searchFor(
   await field.press("Enter");
 }
 
+/**
+ * A row of `/search`'s Narrow column (43s) by its label — "dessert" finds
+ * the row reading "dessert 2", whatever the count inside these results. On
+ * a phone the column is the Narrow sheet's body; open the sheet first.
+ */
+export function narrowRow(page: Page, label: string): Locator {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return page
+    .getByTestId("narrow")
+    .getByRole("button", { name: new RegExp(`^${escaped} \\d+$`) });
+}
+
 // --- ⌘K command palette ---
 // Shared for the same reason `searchFor` is: the palette is driven from several
 // specs, and its opening ritual + readiness gate should live in one place.
@@ -180,6 +193,20 @@ export async function checkNamesInOrder(
  * with that exact name would make every one of them ambiguous. It is
  * "Delete recipe", "Delete menu", and so on — hence `itemLabel`.
  */
+/**
+ * Open a plan page's More menu (43p1): Edit, Feature and Delete live there,
+ * for a signed-in editor only. Waits for the trigger to hydrate first — a
+ * Radix trigger clicked before that does nothing (40f).
+ */
+export async function openPlanMenu(page: Page): Promise<void> {
+  const more = page.getByRole("button", { name: "More", exact: true });
+  await expectHydrated(more);
+  await more.click();
+  await expect(
+    page.getByRole("list", { name: "More for this plan" }),
+  ).toBeVisible();
+}
+
 export async function deleteWithConfirm(
   page: Page,
   itemLabel: string,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, type SyntheticEvent } from "react";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { cn } from "@discontent/component-library/lib/utils";
 import { SEARCH_DEBOUNCE_MS, useSearch } from "./SearchContext";
 import {
@@ -24,6 +24,11 @@ export interface SearchInputProps {
    * one keyboard contract: `/search` passes this, nothing else does.
    */
   autocomplete?: boolean;
+  /**
+   * `/search`'s own field (43s, canvas B): taller, larger type, and a clear
+   * button while it holds a query. The picker modal keeps the field it had.
+   */
+  page?: boolean;
 }
 
 /**
@@ -39,6 +44,7 @@ export function SearchInput({
   placeholder = "Search recipes by name, ingredient, or tag…",
   className,
   autocomplete = false,
+  page = false,
 }: SearchInputProps = {}) {
   const { inputValue, setInputValue, submitSearch, recordSearch } = useSearch();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -124,7 +130,8 @@ export function SearchInput({
   const field = (
     <div
       className={cn(
-        "flex flex-row items-center gap-3 rounded-lg border border-input bg-card px-4",
+        "flex flex-row items-center gap-3 border border-input bg-card px-4",
+        page ? "rounded-xl shadow-xs" : "rounded-lg",
         "transition-[color,box-shadow] focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]",
       )}
     >
@@ -145,13 +152,28 @@ export function SearchInput({
         }}
         placeholder={placeholder}
         className={cn(
-          "h-12 w-full min-w-0 bg-transparent text-base text-foreground outline-none",
+          "w-full min-w-0 bg-transparent text-foreground outline-none",
+          page ? "h-14 text-lg" : "h-12 text-base",
           "placeholder:font-mono placeholder:text-sm placeholder:text-muted-foreground",
           // Safari's native search decorations fight the flanking icon.
           "[&::-webkit-search-cancel-button]:appearance-none",
         )}
         {...comboboxProps}
       />
+      {page && inputValue ? (
+        <button
+          type="button"
+          aria-label="Clear search"
+          onClick={() => {
+            clearPendingSearch();
+            submitSearch("");
+            inputRef.current?.focus();
+          }}
+          className="-mr-2 inline-flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        >
+          <X aria-hidden className="size-4" />
+        </button>
+      ) : null}
     </div>
   );
 

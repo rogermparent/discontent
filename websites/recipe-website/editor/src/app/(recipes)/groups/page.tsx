@@ -1,4 +1,4 @@
-import { groupIndexRoutes } from "recipe-website-common/components/GroupIndexPage/routes";
+import { editorGroupIndexRoutes as groupIndexRoutes } from "./routes";
 
 /**
  * The landing page: the head page folded together with the one below it, so it
