@@ -14,7 +14,9 @@ import { expectNoViolations } from "../support/a11y";
  * each test starts from a fresh context with none.
  */
 
-const ticker = (page: Page) => page.getByTestId("make-ticker");
+/* In `main`: before hydration a streamed copy can sit outside it (43m gate). */
+const ticker = (page: Page) =>
+  page.getByRole("main").getByTestId("make-ticker");
 const section = (page: Page, id: string) => page.getByTestId(id);
 const query = (page: Page) => page.getByTestId("make-query");
 const question = (page: Page) => page.getByTestId("make-question");

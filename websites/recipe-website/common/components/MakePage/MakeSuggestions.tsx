@@ -22,8 +22,13 @@ export type SuggestionTab = "buy" | "used";
 /** Rows "Most used here" shows before "Show all N". */
 export const MOST_USED_SHOWN = 12;
 
+/*
+ * No colour transition (`transition-none` over the trigger's own): the fill
+ * flips at once, so a fading text colour reads at under 4.5:1 for a moment
+ * when the card switches tab — and axe caught it mid-fade (43m gate).
+ */
 const TRIGGER = cn(
-  "h-auto min-h-8 flex-none rounded-[0.3rem] px-3 py-1 font-mono text-[0.72rem] tracking-[0.06em] uppercase",
+  "transition-none h-auto min-h-8 flex-none rounded-[0.3rem] px-3 py-1 font-mono text-[0.72rem] tracking-[0.06em] uppercase",
   "text-foreground data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-none",
   "dark:text-foreground dark:data-[state=active]:bg-foreground dark:data-[state=active]:text-background",
 );
