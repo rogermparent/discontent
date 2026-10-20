@@ -217,11 +217,15 @@ export function AddField({
           </li>
         ))}
       </ul>
+      {/*
+       * --destructive is 4.49:1 on the page background (it clears 4.5:1 on a
+       * card): a little of --foreground in it clears AA in either mode.
+       */}
       <p
         id={errorId}
         aria-live="polite"
         data-testid="inventory-input-error"
-        className="mt-1.5 text-xs text-destructive empty:hidden"
+        className="mt-1.5 text-xs text-[color-mix(in_oklch,var(--color-destructive)_85%,var(--color-foreground))] empty:hidden"
       >
         {error}
       </p>
