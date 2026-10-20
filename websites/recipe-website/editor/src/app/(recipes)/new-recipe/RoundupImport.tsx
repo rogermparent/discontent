@@ -59,10 +59,16 @@ const STATUS_LABEL: Record<RoundupOutcome["status"], string> = {
 export default function RoundupImport({
   terms = [],
   onRunningChange,
+  hidden = false,
 }: {
   /** The vocabulary, offered for the term: the slug is the value. */
   terms?: { slug: string; label: string }[];
   onRunningChange?: (running: boolean) => void;
+  /**
+   * 43e1: one of Start from's ways in, so it stays mounted (a run going on)
+   * while another way is chosen — hidden, not unmounted.
+   */
+  hidden?: boolean;
 }) {
   const [url, setUrl] = useState("");
   const [list, setList] = useState<InspectListResult | null>(null);
@@ -245,11 +251,8 @@ export default function RoundupImport({
   const started = total > 0;
 
   return (
-    <details className="m-2 rounded-md border p-3" data-testid="roundup-import">
-      <summary className="cursor-pointer font-semibold">
-        Import from a roundup
-      </summary>
-      <p className="my-2 text-sm text-muted-foreground">
+    <div hidden={hidden} data-testid="roundup-import">
+      <p className="mb-2 text-sm text-muted-foreground">
         Paste a list page (“25 Christmas Cookies”), tick the recipes you want,
         and import them, each as its own commit. Requests to one site are 15 s
         apart, so a long list takes a while. Stay on this page while it runs:
@@ -476,6 +479,6 @@ export default function RoundupImport({
           />
         </div>
       )}
-    </details>
+    </div>
   );
 }

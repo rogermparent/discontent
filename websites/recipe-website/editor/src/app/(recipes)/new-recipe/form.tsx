@@ -2,18 +2,36 @@
 
 import CreateRecipeFields from "recipe-website-common/components/Form/Create";
 import Image from "next/image";
+import Link from "next/link";
 import { RecipeFormShell } from "recipe-website-common/components/Form/RecipeFormShell";
+import {
+  RecipeFormRail,
+  useWideRail,
+} from "recipe-website-common/components/Form/RecipeFormFrame";
+import {
+  sectionAnchor,
+  withSlugConflict,
+} from "recipe-website-common/components/Form/sections";
+import {
+  recipeToFormValues,
+  useRecipeForm,
+} from "recipe-website-common/components/Form/formContext";
 import {
   useActionState,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { FormCheckbox } from "@discontent/component-library/components/Form/inputs/Checkbox";
+import { Input } from "@discontent/component-library/components/ui/input";
+import { cn } from "@discontent/component-library/lib/utils";
+import { Camera, ClipboardList, Link2, List, PenLine } from "lucide-react";
 import { RecipeFormState } from "recipe-website-common/controller/formState";
 import {
   createRecipe,
@@ -24,6 +42,11 @@ import {
   importResultAction,
   type ImportStartState,
 } from "./actions";
+import {
+  copySlugAction,
+  sameSourceAction,
+  type SameSource,
+} from "./duplicateActions";
 import { TextInput } from "@discontent/component-library/components/Form/inputs/Text";
 import { TextAreaInput } from "@discontent/component-library/components/Form/inputs/TextArea";
 import {
@@ -33,6 +56,7 @@ import {
 import type { RecipeActionState } from "./common";
 import BatchPicker, { plannedSlug } from "./BatchPicker";
 import ImportProgress, { type UnfollowedImport } from "./ImportProgress";
+import RoundupImport from "./RoundupImport";
 import { UNSTORED_KEEP_MS } from "recipe-editor/controller/jobs/unstored";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
 import {
@@ -42,8 +66,11 @@ import {
 import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
 import { MAX_PHOTOS, PHOTO_ACCEPT } from "recipe-editor/controller/photoLimits";
 
-/** The import's three ways in: a link, pasted text (36c), photos (38e). */
-type ImportMode = "url" | "text" | "photo";
+/**
+ * Start from's five ways in (43e1): a link, pasted text (36c), photos
+ * (38e), a roundup page (35r), or nothing — a blank form.
+ */
+type StartMode = "url" | "text" | "photo" | "roundup" | "blank";
 
 /**
  * What a video import will do (36d): yt-dlp fetches the video's text, and the
@@ -92,13 +119,79 @@ function pendingNote({
     : `Importing… a page with no recipe data is read by ${llmModel}, which can take a minute`;
 }
 
+/**
+ * The copy's slug, set in the form once it is known (43e1, "Keep importing
+ * — save as a copy"). The form instance is the shell's, so this sits inside
+ * it; an edit of the slug field after that is Roger's and stays.
+ */
+function CopySlug({ slug }: { slug?: string }) {
+  const form = useRecipeForm();
+  useEffect(() => {
+    if (slug) form.setFieldValue("slug", slug);
+  }, [form, slug]);
+  return null;
+}
+
+/** One of Start from's ways in: a card that is a radio. */
+function Way({
+  mode,
+  value,
+  label,
+  note,
+  icon,
+  disabled,
+  onSelect,
+}: {
+  mode: StartMode;
+  value: StartMode;
+  label: string;
+  note: string;
+  icon: ReactNode;
+  disabled?: boolean;
+  onSelect(mode: StartMode): void;
+}) {
+  const id = `start-from-${value}`;
+  return (
+    <label
+      className={cn(
+        "relative flex min-h-19 cursor-pointer flex-col items-start gap-1 rounded-lg border border-border bg-background p-3 text-left",
+        "has-[:checked]:border-primary has-[:checked]:bg-card has-[:checked]:shadow-[0_0_0_1px_var(--primary)]",
+        "has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50",
+        disabled && "cursor-not-allowed opacity-60",
+      )}
+    >
+      <input
+        type="radio"
+        name="start-from"
+        value={value}
+        checked={mode === value}
+        disabled={disabled}
+        onChange={() => onSelect(value)}
+        aria-labelledby={`${id}-label`}
+        aria-describedby={`${id}-note`}
+        className="absolute inset-0 m-0 size-full cursor-pointer appearance-none rounded-lg opacity-0 disabled:cursor-not-allowed"
+      />
+      <span
+        id={`${id}-label`}
+        className="flex items-center gap-2 font-display text-[0.9375rem] leading-5 font-semibold tracking-[-0.01em]"
+      >
+        {icon}
+        {label}
+      </span>
+      <span id={`${id}-note`} className="text-xs text-muted-foreground">
+        {note}
+      </span>
+    </label>
+  );
+}
+
 export default function NewOrImportRecipeForm({
   slug,
   initialState: initialImportState,
   initialJob,
   initialImportUrl,
   allTags = [],
-  busy = false,
+  terms = [],
   llmModel,
   visionModel,
 }: {
@@ -115,8 +208,8 @@ export default function NewOrImportRecipeForm({
    */
   initialImportUrl?: string;
   allTags?: string[];
-  /** A roundup import is running (35r): Import and Submit wait for it. */
-  busy?: boolean;
+  /** The vocabulary, for the roundup's collection term. */
+  terms?: { slug: string; label: string }[];
   /** The local model's name, or nothing when none is configured (36b). */
   llmModel?: string;
   /**
@@ -125,6 +218,8 @@ export default function NewOrImportRecipeForm({
    */
   visionModel?: string;
 }) {
+  /* A roundup import is running (35r): Import and Create wait for it. */
+  const [busy, setBusy] = useState(false);
   /*
    * The import is a job (37c, D7): the action answers its id at once, the
    * progress panel follows it, and its result lands here when it ends.
@@ -155,6 +250,24 @@ export default function NewOrImportRecipeForm({
   };
   /* The photos the last photo import read: the image the form may start with. */
   const [photosRead, setPhotosRead] = useState<File[]>([]);
+  /*
+   * Start from collapses to a receipt once an import has filled the form;
+   * "Start over" opens the ways in again (the form keeps what it has until
+   * the next import fills it).
+   */
+  const [reopened, setReopened] = useState(false);
+  /*
+   * The duplicate check (43e1): the recipe this link was already imported
+   * as, asked at Import time (and for a reopened `?job=`), and whether
+   * Roger chose to keep importing it as a copy.
+   */
+  const [checkUrl, setCheckUrl] = useState<string | undefined>(
+    initialImportState?.url,
+  );
+  const [sameSource, setSameSource] = useState<SameSource | null>(null);
+  const [copyChosen, setCopyChosen] = useState(false);
+  const [copySlug, setCopySlug] = useState<string>();
+
   const [, importDispatch] = useActionState(
     async (previous: ImportStartState | null, formData: FormData) => {
       /* 38e: the photos are the state's, not a file input's — React resets
@@ -167,6 +280,17 @@ export default function NewOrImportRecipeForm({
         }
         setPhotosRead(photosRef.current);
       }
+      const asked = formData.get("import");
+      const linkMode = !formData.get("importMode");
+      setReopened(false);
+      setCopyChosen(false);
+      setCopySlug(undefined);
+      setSameSource(null);
+      setCheckUrl(
+        linkMode && typeof asked === "string" && asked.trim()
+          ? asked.trim()
+          : undefined,
+      );
       const started = await importRecipeAction(previous, formData);
       if (started.job && started.stored === false) {
         /* No record to follow or reopen (38-Tb5): no `?job=` either. */
@@ -190,6 +314,20 @@ export default function NewOrImportRecipeForm({
     },
     null,
   );
+
+  /* Ask once per link; an answer for an older link is dropped. */
+  useEffect(() => {
+    if (!checkUrl) return;
+    let current = true;
+    void sameSourceAction(checkUrl).then((found) => {
+      if (current)
+        setSameSource(found && found.url === checkUrl ? found : null);
+    });
+    return () => {
+      current = false;
+    };
+  }, [checkUrl]);
+
   /*
    * The unfollowed job's outcome (39a review): a bounded long-poll —
    * `importResultAction` waits at most `UNSTORED_WAIT_MS` and answers
@@ -275,7 +413,7 @@ export default function NewOrImportRecipeForm({
   const [forceLlm, setForceLlm] = useState(false);
   /* Pasting the text (36c; a fallback since 36d): controlled, so a failed
    * import keeps it. */
-  const [mode, setMode] = useState<ImportMode>("url");
+  const [mode, setMode] = useState<StartMode>("url");
   const textMode = mode === "text";
   const photoMode = mode === "photo";
   const [pastedText, setPastedText] = useState("");
@@ -305,26 +443,10 @@ export default function NewOrImportRecipeForm({
   const [importUrl, setImportUrl] = useState(initialImportUrl ?? "");
   /* Switching mode dismisses the last import's message (36c review). */
   const [dismissed, setDismissed] = useState<RecipeActionState | null>(null);
-  /* After a switch, focus lands on the field that appeared (36d). */
-  const switched = useRef(false);
-  const switchMode = (to: ImportMode) => {
+  const switchMode = (to: StartMode) => {
     setMode(to);
     setDismissed(importState);
-    switched.current = true;
   };
-  useEffect(() => {
-    if (!switched.current) return;
-    switched.current = false;
-    document
-      .getElementById(
-        mode === "text"
-          ? "import-text"
-          : mode === "photo"
-            ? "import-photos"
-            : "import",
-      )
-      ?.focus();
-  }, [mode]);
   /* What the typed URL is (36d): a video gets its own hint and no force box. */
   const videoHost = mode === "url" ? videoHostName(importUrl) : undefined;
 
@@ -368,30 +490,496 @@ export default function NewOrImportRecipeForm({
       ? photosRead[0]
       : undefined;
 
+  /* The copy's slug, once Roger keeps importing and the name is known. */
+  const copyName = copyChosen ? recipe?.name : undefined;
+  useEffect(() => {
+    if (!copyName) return;
+    let current = true;
+    void copySlugAction(copyName).then((found) => {
+      if (current && found) setCopySlug(found);
+    });
+    return () => {
+      current = false;
+    };
+  }, [copyName]);
+
   const initialSubmissionState = { message: "", errors: {} } as RecipeFormState;
   const [submissionState, submissionDispatch] = useActionState(
     createRecipe,
     initialSubmissionState,
   );
+  /* After a failed Create the form reloads with what was sent; "N changes"
+   * still counts against what the form started from, not that. */
+  const baseline = useMemo(
+    () =>
+      submissionState.formData
+        ? recipeToFormValues(recipe ?? undefined, copySlug ?? slug)
+        : undefined,
+    [submissionState.formData, recipe, copySlug, slug],
+  );
   const [, overwriteDispatch] = useActionState(overwriteRecipe, null);
 
+  /* The import is done and filled the form (or the picker): a receipt. */
+  const settled = !!activeJob && settledJob === activeJob;
+  const filled = settled && (!!importedRecipe || !!batch);
+  const collapsed = filled && !reopened;
+  const fromLabel = filled
+    ? importState?.fromPhotos
+      ? "from the photo"
+      : importState?.pastedText
+        ? "from the text"
+        : "from the page"
+    : undefined;
+  const how = llmLines
+    ? `read by ${llmModel ?? "the local model"}`
+    : importedRecipe?.partial
+      ? "no recipe data — its title, description and image"
+      : importState?.fromPhotos || importState?.pastedText
+        ? undefined
+        : "recipe data on the page — no model needed";
+  const receiptNote = filled && how ? how : undefined;
+
+  const startStatus = importPending
+    ? { text: "running", tone: "active" as const }
+    : filled
+      ? { text: "imported", tone: "ok" as const }
+      : settled && importState?.message
+        ? { text: "failed", tone: "error" as const }
+        : busy
+          ? { text: "roundup running", tone: "active" as const }
+          : mode === "blank"
+            ? { text: "blank" }
+            : {};
+
+  const wide = useWideRail();
+  const copyNotice =
+    copyChosen && sameSource ? (
+      <p className="text-xs text-muted-foreground" data-testid="copy-notice">
+        Same link as{" "}
+        <Link href={`/recipe/${sameSource.slug}`} className="underline">
+          {sameSource.name}
+        </Link>
+        {sameSource.date ? (
+          <>
+            {" "}
+            (<time>{sameSource.date}</time>)
+          </>
+        ) : null}{" "}
+        — you chose to keep a copy.
+        {copySlug ? (
+          <span className="mt-1 block font-mono text-foreground">
+            /recipe/{copySlug}
+          </span>
+        ) : null}
+      </p>
+    ) : undefined;
+
+  const headingId = useId();
+  const textModel = llmModel;
+  const photoModel = visionModel && llmModel ? visionModel : undefined;
+
   return (
-    <div>
-      {activeJob ? (
-        <ImportProgress
-          key={activeJob}
-          job={activeJob}
-          onSettled={settledJob === activeJob ? undefined : onSettled}
-          unfollowed={
-            unfollowed?.job === activeJob
-              ? { ...(unfollowed.status ? { status: unfollowed.status } : {}) }
-              : undefined
-          }
+    <>
+      <section
+        id={sectionAnchor("start")}
+        aria-labelledby={headingId}
+        className={cn(
+          "flex scroll-mt-[calc(var(--sticky-chrome-offset,0px)+1rem)] flex-col gap-4",
+          /* Folded to the receipt, the import panel is the card. */
+          !collapsed && "rounded-lg border border-border bg-card p-4 sm:px-5",
+        )}
+        data-testid="start-from"
+        data-collapsed={collapsed ? "true" : undefined}
+      >
+        <h2
+          id={headingId}
+          className={cn(
+            "font-display text-xl leading-7 font-semibold tracking-[-0.025em]",
+            collapsed && "sr-only",
+          )}
+        >
+          Start from
+        </h2>
+        {collapsed ? null : (
+          <div
+            role="radiogroup"
+            aria-labelledby={headingId}
+            className="grid grid-cols-2 gap-2 sm:grid-cols-5"
+          >
+            <Way
+              mode={mode}
+              onSelect={switchMode}
+              value="url"
+              label="A link"
+              note="a recipe page or a video"
+              icon={<Link2 aria-hidden className="size-4" />}
+            />
+            <Way
+              mode={mode}
+              onSelect={switchMode}
+              value="text"
+              label="Text"
+              note={
+                textModel
+                  ? `an email, a note — ${textModel} reads it`
+                  : "No local model configured"
+              }
+              icon={<ClipboardList aria-hidden className="size-4" />}
+              disabled={!textModel}
+            />
+            <Way
+              mode={mode}
+              onSelect={switchMode}
+              value="photo"
+              label="Photo"
+              note={
+                photoModel
+                  ? `a recipe card — ${photoModel}`
+                  : "No vision model configured"
+              }
+              icon={<Camera aria-hidden className="size-4" />}
+              disabled={!photoModel}
+            />
+            <Way
+              mode={mode}
+              onSelect={switchMode}
+              value="roundup"
+              label="Roundup"
+              note="a list page, many recipes"
+              icon={<List aria-hidden className="size-4" />}
+            />
+            <Way
+              mode={mode}
+              onSelect={switchMode}
+              value="blank"
+              label="Blank"
+              note="type it in yourself"
+              icon={<PenLine aria-hidden className="size-4" />}
+            />
+          </div>
+        )}
+
+        {/* 35r: the roundup picker, kept mounted while a run goes on. */}
+        <RoundupImport
+          terms={terms}
+          onRunningChange={setBusy}
+          hidden={collapsed || mode !== "roundup"}
         />
-      ) : null}
-      <form id="import-form" action={importDispatch}>
+
+        {!collapsed && mode === "blank" ? (
+          <p className="text-sm text-muted-foreground">
+            Fill in the form below, starting with{" "}
+            <a href={`#${sectionAnchor("recipe")}`} className="underline">
+              the name
+            </a>
+            .
+          </p>
+        ) : null}
+
+        {!collapsed && (mode === "url" || textMode || photoMode) ? (
+          <form
+            id="import-form"
+            action={importDispatch}
+            className="flex flex-col gap-1"
+          >
+            {photoMode ? (
+              <>
+                {/* 38e: a recipe card, a cookbook page — the pages in order. */}
+                <input type="hidden" name="importMode" value="photo" />
+                <label
+                  htmlFor="import-photos"
+                  className="block text-sm font-semibold"
+                >
+                  Add photos of the recipe
+                </label>
+                <input
+                  id="import-photos"
+                  type="file"
+                  accept={PHOTO_ACCEPT}
+                  multiple
+                  aria-describedby="import-photos-help"
+                  disabled={photos.length >= MAX_PHOTOS}
+                  className="my-1 block text-sm"
+                  onChange={(event) => {
+                    addPhotos(event.target.files);
+                    /* The list below holds them: the input only adds. */
+                    event.target.value = "";
+                  }}
+                />
+                <p
+                  id="import-photos-help"
+                  className="mb-1 text-sm text-muted-foreground"
+                >
+                  Up to {MAX_PHOTOS}, in page order — a card&apos;s front and
+                  back, a cookbook spread. {visionModel} transcribes them, then{" "}
+                  {llmModel} reads the recipe.
+                </p>
+                {photoNote ? (
+                  <p role="status" className="mb-1 text-sm">
+                    {photoNote}
+                  </p>
+                ) : null}
+                {photos.length > 0 ? (
+                  <ol
+                    className="my-1 flex flex-wrap gap-2"
+                    data-testid="import-photo-list"
+                    aria-label="Photos to read, in page order"
+                  >
+                    {photos.map((photo, index) => (
+                      <li
+                        key={`${index}-${photo.name}-${photo.size}`}
+                        className="flex w-32 flex-col gap-1 text-xs"
+                      >
+                        <Image
+                          src={previews[index]}
+                          alt={`Page ${index + 1}: ${photo.name}`}
+                          width={128}
+                          height={96}
+                          unoptimized={true}
+                          className="aspect-[4/3] w-full rounded border object-cover"
+                        >
+                          {null}
+                        </Image>
+                        <span className="truncate">
+                          {index + 1}. {photo.name}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          aria-label={`Remove page ${index + 1}, ${photo.name}`}
+                          onClick={() => {
+                            setPhotoNote(undefined);
+                            setPhotos(photos.filter((_, at) => at !== index));
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      </li>
+                    ))}
+                  </ol>
+                ) : null}
+              </>
+            ) : textMode ? (
+              <>
+                {/* 36c (D8): a recipe with no link to give. */}
+                <input type="hidden" name="importMode" value="text" />
+                <TextAreaInput
+                  name="importText"
+                  id="import-text"
+                  label="Recipe text"
+                  value={pastedText}
+                  onChange={(event) => setPastedText(event.target.value)}
+                />
+                <TextInput
+                  name="importSource"
+                  id="import-source"
+                  label="Pasted from (URL, optional)"
+                  value={pastedSource}
+                  onChange={(event) => setPastedSource(event.target.value)}
+                />
+                <p className="mb-1 text-sm text-muted-foreground">
+                  {llmModel} reads the recipe out of the text — an email, a
+                  note, a cookbook page typed up.
+                </p>
+              </>
+            ) : (
+              <>
+                {/* 36d: give it the URL, and the server handles everything. */}
+                <label htmlFor="import" className="sr-only">
+                  Import from URL
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    name="import"
+                    id="import"
+                    className="h-11 min-w-0 flex-1 text-base"
+                    placeholder="https://"
+                    value={importUrl}
+                    onChange={(event) => setImportUrl(event.target.value)}
+                    aria-describedby={
+                      videoHost
+                        ? "import-help import-video-hint"
+                        : "import-help"
+                    }
+                  />
+                  <SubmitButton
+                    className="h-11 px-4.5"
+                    disabled={busy || importPending}
+                    /* Prefilled from `?import=` (D3): one key or click away. */
+                    autoFocus={!!initialImportUrl}
+                  >
+                    Import
+                  </SubmitButton>
+                </div>
+                <p id="import-help" className="text-sm text-muted-foreground">
+                  {llmModel
+                    ? `A recipe page or a video link. The server fetches it — yt-dlp for videos — and ${llmModel} reads the recipe out of it when there's no recipe data.`
+                    : "A recipe page or a video link. Pages import from their recipe data; videos come in with their title, description and thumbnail."}
+                </p>
+                {/* Always rendered — a live region that is `display: none`
+                    until it has text is often not announced (36d review);
+                    empty, it takes no height. */}
+                <p
+                  id="import-video-hint"
+                  data-testid="import-video-hint"
+                  aria-live="polite"
+                  className="text-sm text-muted-foreground"
+                >
+                  {videoHost ? videoHint(videoHost, importUrl, llmModel) : null}
+                </p>
+                {videoHost ? null : (
+                  /* A video is always read by the model (when there is one):
+                   * nothing to force (36d). */
+                  <label
+                    className="my-1 flex items-center gap-2 text-sm"
+                    title={llmModel ? undefined : "No local model configured"}
+                  >
+                    <FormCheckbox
+                      name="llm"
+                      value="force"
+                      disabled={!llmModel}
+                      checked={forceLlm && !!llmModel}
+                      onCheckedChange={setForceLlm}
+                    />
+                    Re-read with AI even if the page has recipe data
+                    <span className="text-muted-foreground">
+                      {llmModel
+                        ? `— ${llmModel}`
+                        : "— No local model configured"}
+                    </span>
+                  </label>
+                )}
+              </>
+            )}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              {mode === "url" ? null : (
+                <SubmitButton
+                  className="h-11 px-4.5"
+                  disabled={
+                    busy || importPending || (photoMode && photos.length === 0)
+                  }
+                >
+                  Import
+                </SubmitButton>
+              )}
+              {busy ? (
+                <span className="text-sm text-muted-foreground">
+                  Waiting for the roundup import to finish…
+                </span>
+              ) : importPending && (llmModel || videoHost) ? (
+                <span role="status" className="text-sm text-muted-foreground">
+                  {pendingNote({
+                    textMode,
+                    photoMode,
+                    forceLlm,
+                    videoHost: !!videoHost,
+                    llmModel,
+                    visionModel,
+                  })}
+                </span>
+              ) : !activeJob &&
+                mode === "url" &&
+                initialImportUrl &&
+                importUrl === initialImportUrl ? (
+                <span
+                  className="text-sm text-muted-foreground"
+                  data-testid="import-prefilled"
+                >
+                  Press Import to fetch this link.
+                </span>
+              ) : null}
+            </div>
+          </form>
+        ) : null}
+
+        {activeJob ? (
+          <ImportProgress
+            key={activeJob}
+            job={activeJob}
+            onSettled={settledJob === activeJob ? undefined : onSettled}
+            unfollowed={
+              unfollowed?.job === activeJob
+                ? {
+                    ...(unfollowed.status ? { status: unfollowed.status } : {}),
+                  }
+                : undefined
+            }
+            doneNote={receiptNote}
+            doneActions={
+              collapsed ? (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="h-auto min-h-6 px-0 text-muted-foreground"
+                  onClick={() => setReopened(true)}
+                >
+                  Start over
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : null}
+
+        {(photoMode && !collapsed) || importState?.fromPhotos ? (
+          /* 38e: before the import and after it — the image field follows
+           * the box both ways (38e review). */
+          <label className="flex items-center gap-2 text-sm">
+            <FormCheckbox
+              checked={photoAsImage}
+              onCheckedChange={setPhotoAsImage}
+            />
+            Use the first photo as the recipe&apos;s image
+          </label>
+        ) : null}
+        {sameSource && !copyChosen ? (
+          /* 43e1: the link is in the collection already — said at once. */
+          <div
+            role="status"
+            className="flex flex-col gap-2 rounded-r-md border-l-2 border-warning bg-muted px-3 py-2.5"
+            data-testid="duplicate-flag"
+          >
+            <p className="text-sm">
+              <b className="font-semibold">Already in your recipes.</b>{" "}
+              {sameSource.name} was imported from this link
+              {sameSource.date ? (
+                <>
+                  {" "}
+                  on <time className="font-mono">{sameSource.date}</time>
+                </>
+              ) : null}
+              .
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={`/recipe/${sameSource.slug}`}
+                className="inline-flex h-8 items-center rounded-md border border-input bg-background px-2.5 text-sm font-medium shadow-xs hover:bg-accent"
+              >
+                Open it
+              </Link>
+              <Link
+                href={`/recipe/${sameSource.slug}/edit`}
+                className="inline-flex h-8 items-center rounded-md border border-input bg-background px-2.5 text-sm font-medium shadow-xs hover:bg-accent"
+              >
+                Edit that one instead
+              </Link>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setCopyChosen(true)}
+              >
+                Keep importing — save as a copy
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {!wide ? copyNotice : null}
+
         {message ? (
-          <div className="my-1 rounded bg-muted px-2 py-1 text-sm text-muted-foreground">
+          <div className="rounded bg-muted px-2 py-1 text-sm text-muted-foreground">
             {message}
           </div>
         ) : null}
@@ -400,7 +988,7 @@ export default function NewOrImportRecipeForm({
            * only — the ingredients and steps are the user's to fill in. */
           <div
             role="status"
-            className="my-1 rounded bg-muted px-2 py-1 text-sm text-muted-foreground"
+            className="rounded bg-muted px-2 py-1 text-sm text-muted-foreground"
           >
             No recipe data on this page — filled from its title, description and
             image.
@@ -412,7 +1000,7 @@ export default function NewOrImportRecipeForm({
           <div
             role="status"
             data-testid="llm-notice"
-            className="my-1 rounded bg-muted px-2 py-1 text-sm text-muted-foreground"
+            className="rounded bg-muted px-2 py-1 text-sm text-muted-foreground"
           >
             {warnings.map((warning) => (
               <p key={warning}>{warning}</p>
@@ -466,7 +1054,7 @@ export default function NewOrImportRecipeForm({
         {importState?.transcription ? (
           /* 38e: what the vision model read — the source the recipe's lines
            * were checked against. */
-          <details className="my-1 text-sm" data-testid="import-transcription">
+          <details className="text-sm" data-testid="import-transcription">
             <summary className="cursor-pointer text-muted-foreground">
               What {visionModel ?? "the vision model"} read in the photo
             </summary>
@@ -475,253 +1063,14 @@ export default function NewOrImportRecipeForm({
             </pre>
           </details>
         ) : null}
-        {photoMode ? (
-          <>
-            {/* 38e: a recipe card, a cookbook page — the pages in order. */}
-            <input type="hidden" name="importMode" value="photo" />
-            <label
-              htmlFor="import-photos"
-              className="mt-1 block text-sm font-medium"
-            >
-              Add photos of the recipe
-            </label>
-            <input
-              id="import-photos"
-              type="file"
-              accept={PHOTO_ACCEPT}
-              multiple
-              aria-describedby="import-photos-help"
-              disabled={photos.length >= MAX_PHOTOS}
-              className="my-1 block text-sm"
-              onChange={(event) => {
-                addPhotos(event.target.files);
-                /* The list below holds them: the input only adds. */
-                event.target.value = "";
-              }}
-            />
-            <p
-              id="import-photos-help"
-              className="mb-1 text-sm text-muted-foreground"
-            >
-              Up to {MAX_PHOTOS}, in page order — a card&apos;s front and back,
-              a cookbook spread. {visionModel} transcribes them, then {llmModel}{" "}
-              reads the recipe.
-            </p>
-            {photoNote ? (
-              <p role="status" className="mb-1 text-sm">
-                {photoNote}
-              </p>
-            ) : null}
-            {photos.length > 0 ? (
-              <ol
-                className="my-1 flex flex-wrap gap-2"
-                data-testid="import-photo-list"
-                aria-label="Photos to read, in page order"
-              >
-                {photos.map((photo, index) => (
-                  <li
-                    key={`${index}-${photo.name}-${photo.size}`}
-                    className="flex w-32 flex-col gap-1 text-xs"
-                  >
-                    <Image
-                      src={previews[index]}
-                      alt={`Page ${index + 1}: ${photo.name}`}
-                      width={128}
-                      height={96}
-                      unoptimized={true}
-                      className="aspect-[4/3] w-full rounded border object-cover"
-                    >
-                      {null}
-                    </Image>
-                    <span className="truncate">
-                      {index + 1}. {photo.name}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      aria-label={`Remove page ${index + 1}, ${photo.name}`}
-                      onClick={() => {
-                        setPhotoNote(undefined);
-                        setPhotos(photos.filter((_, at) => at !== index));
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  </li>
-                ))}
-              </ol>
-            ) : null}
-            <label className="my-1 flex items-center gap-2 text-sm">
-              <FormCheckbox
-                checked={photoAsImage}
-                onCheckedChange={setPhotoAsImage}
-              />
-              Use the first photo as the recipe&apos;s image
-            </label>
-          </>
-        ) : textMode ? (
-          <>
-            {/* 36c (D8), demoted in 36d: a recipe with no link to give. */}
-            <input type="hidden" name="importMode" value="text" />
-            <TextAreaInput
-              name="importText"
-              id="import-text"
-              label="Recipe text"
-              value={pastedText}
-              onChange={(event) => setPastedText(event.target.value)}
-            />
-            <TextInput
-              name="importSource"
-              id="import-source"
-              label="Pasted from (URL, optional)"
-              value={pastedSource}
-              onChange={(event) => setPastedSource(event.target.value)}
-            />
-            <p className="mb-1 text-sm text-muted-foreground">
-              {llmModel} reads the recipe out of the text — an email, a note, a
-              cookbook page typed up.
-            </p>
-          </>
-        ) : (
-          <>
-            {/* 36d: give it the URL, and the server handles everything. */}
-            <TextInput
-              name="import"
-              label="Import from URL"
-              value={importUrl}
-              onChange={(event) => setImportUrl(event.target.value)}
-              describedBy={
-                videoHost ? "import-help import-video-hint" : "import-help"
-              }
-            />
-            <p id="import-help" className="mb-1 text-sm text-muted-foreground">
-              {llmModel
-                ? `A recipe page or a video link. The server fetches it — yt-dlp for videos — and ${llmModel} reads the recipe out of it when there's no recipe data.`
-                : "A recipe page or a video link. Pages import from their recipe data; videos come in with their title, description and thumbnail."}
-            </p>
-            {/* Always rendered — a live region that is `display: none`
-                until it has text is often not announced (36d review);
-                empty, it takes no height. */}
-            <p
-              id="import-video-hint"
-              data-testid="import-video-hint"
-              aria-live="polite"
-              className="mb-1 text-sm text-muted-foreground empty:mb-0"
-            >
-              {videoHost ? videoHint(videoHost, importUrl, llmModel) : null}
-            </p>
-            {videoHost ? null : (
-              /* A video is always read by the model (when there is one):
-               * nothing to force (36d). */
-              <label
-                className="my-1 flex items-center gap-2 text-sm"
-                title={llmModel ? undefined : "No local model configured"}
-              >
-                <FormCheckbox
-                  name="llm"
-                  value="force"
-                  disabled={!llmModel}
-                  checked={forceLlm && !!llmModel}
-                  onCheckedChange={setForceLlm}
-                />
-                Re-read with AI even if the page has recipe data
-                <span className="text-muted-foreground">
-                  {llmModel ? `— ${llmModel}` : "— No local model configured"}
-                </span>
-              </label>
-            )}
-          </>
-        )}
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <SubmitButton
-            disabled={
-              busy || importPending || (photoMode && photos.length === 0)
-            }
-            /* Prefilled from `?import=` (D3): one key or click away. */
-            autoFocus={!!initialImportUrl}
-          >
-            Import
-          </SubmitButton>
-          {busy ? (
-            <span className="text-sm text-muted-foreground">
-              Waiting for the roundup import to finish…
-            </span>
-          ) : importPending && (llmModel || videoHost) ? (
-            <span role="status" className="text-sm text-muted-foreground">
-              {pendingNote({
-                textMode,
-                photoMode,
-                forceLlm,
-                videoHost: !!videoHost,
-                llmModel,
-                visionModel,
-              })}
-            </span>
-          ) : !activeJob &&
-            mode === "url" &&
-            initialImportUrl &&
-            importUrl === initialImportUrl ? (
-            <span
-              className="text-sm text-muted-foreground"
-              data-testid="import-prefilled"
-            >
-              Press Import to fetch this link.
-            </span>
-          ) : null}
-        </div>
-        {/* 36d: the paste box is the fallback, not a second way in. */}
-        <div className="my-1 flex flex-wrap items-center gap-x-1 text-sm">
-          {mode !== "url" ? (
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              className="h-auto px-0"
-              onClick={() => switchMode("url")}
-            >
-              ← Import from a link instead
-            </Button>
-          ) : (
-            <>
-              <Button
-                type="button"
-                variant="link"
-                size="sm"
-                className="h-auto px-0"
-                disabled={!llmModel}
-                aria-describedby="paste-text-note"
-                onClick={() => switchMode("text")}
-              >
-                No link? Paste the recipe text instead
-              </Button>
-              <span id="paste-text-note" className="text-muted-foreground">
-                {llmModel
-                  ? `— ${llmModel} reads an email, a note or a cookbook page`
-                  : "— No local model configured"}
-              </span>
-            </>
-          )}
-        </div>
-        {/* 38e: only where a vision model is configured (not the Pi). */}
-        {mode === "url" && visionModel && llmModel ? (
-          <div className="my-1 flex flex-wrap items-center gap-x-1 text-sm">
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              className="h-auto px-0"
-              aria-describedby="photo-note"
-              onClick={() => switchMode("photo")}
-            >
-              Or read a photo of a recipe card
-            </Button>
-            <span id="photo-note" className="text-muted-foreground">
-              — {visionModel} transcribes it
-            </span>
-          </div>
-        ) : null}
-      </form>
+      </section>
+      {importPending ? (
+        <p className="-mt-4 text-sm text-muted-foreground">
+          Leaving the page loses nothing: the import is a job, and coming back
+          to <span className="font-mono text-xs">/new-recipe?job=…</span> picks
+          it up.
+        </p>
+      ) : null}
       <RecipeFormShell
         key={
           submissionState.formData
@@ -729,40 +1078,44 @@ export default function NewOrImportRecipeForm({
             : (edited?.key ?? key ?? url)
         }
         action={submissionDispatch}
-        slug={slug}
+        slug={copySlug ?? slug}
         recipe={submissionState.formData || recipe || undefined}
-        className="m-2 w-full"
+        className="flex w-full flex-col gap-7"
       >
-        <h2 className="font-bold text-2xl mb-2">New Recipe</h2>
-        <div className="flex flex-col flex-nowrap">
-          <CreateRecipeFields
-            state={submissionState}
-            slug={slug}
-            recipe={submissionState.formData || recipe || undefined}
-            allTags={allTags}
-            imageFile={submissionState.formData ? undefined : imageFile}
-          />
-          <div id="missing-fields-error" aria-live="polite" aria-atomic="true">
-            {submissionState.message && (
-              <p className="mt-2 border-l-2 border-destructive pl-2 text-sm">
-                {submissionState.message}
-              </p>
-            )}
-          </div>
-          <div className="my-1 flex gap-2">
-            <SubmitButton disabled={busy}>Submit</SubmitButton>
-            {submissionState.slugConflict && (
-              <Button
-                type="submit"
-                variant="destructive"
-                formAction={overwriteDispatch}
-              >
-                Overwrite
-              </Button>
-            )}
-          </div>
-        </div>
+        <CopySlug slug={copySlug} />
+        <CreateRecipeFields
+          state={withSlugConflict(submissionState)}
+          slug={slug}
+          recipe={submissionState.formData || recipe || undefined}
+          allTags={allTags}
+          imageFile={submissionState.formData ? undefined : imageFile}
+          fromLabel={submissionState.formData ? undefined : fromLabel}
+        />
+        {/* Last: on a phone its save bar ends the form, above the tab bar. */}
+        <RecipeFormRail
+          mode="create"
+          eyebrow={filled ? "New recipe · review" : "New recipe"}
+          start={startStatus}
+          fromLabel={submissionState.formData ? undefined : fromLabel}
+          picture={
+            imageFile
+              ? "new"
+              : recipe?.imageImportUrl && !submissionState.formData
+                ? "page"
+                : "none"
+          }
+          errors={withSlugConflict(submissionState).errors}
+          saveLabel="Create recipe"
+          baseline={baseline}
+          cancelHref="/"
+          busy={busy}
+          message={submissionState.message || undefined}
+          overwrite={
+            submissionState.slugConflict ? overwriteDispatch : undefined
+          }
+          notice={wide ? copyNotice : undefined}
+        />
       </RecipeFormShell>
-    </div>
+    </>
   );
 }

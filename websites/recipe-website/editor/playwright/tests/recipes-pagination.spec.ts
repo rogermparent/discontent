@@ -154,7 +154,9 @@ test.describe("Recipe Index Pagination", () => {
       await page.getByLabel("Slug").clear();
       await page.getByLabel("Slug").fill("recipe-41");
       await page.getByLabel("Date (UTC)").fill("2024-02-10T12:00");
-      await page.getByText("Submit").click();
+      await page
+        .getByRole("button", { name: "Create recipe", exact: true })
+        .click();
       await expect(
         page.getByRole("heading", { level: 1, name: "Recipe 41" }),
       ).toBeVisible({ timeout: 20_000 });

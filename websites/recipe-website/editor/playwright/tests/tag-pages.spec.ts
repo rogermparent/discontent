@@ -571,7 +571,9 @@ test.describe("Tag pages", () => {
     await expect(
       page.getByRole("button", { name: "Remove tag freshtag" }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Create recipe", exact: true })
+      .click();
     await expect(
       page.getByRole("heading", { name: "Tag Page Probe", exact: true }),
     ).toBeVisible();

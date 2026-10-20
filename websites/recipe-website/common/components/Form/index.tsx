@@ -29,6 +29,8 @@ import {
 } from "recipe-website-common/controller/types";
 
 import { yieldToolbarItems } from "./RecipeMarkdown/lexicalToolbar";
+import { FormSection } from "./RecipeFormFrame";
+import { stepCount } from "./sections";
 
 /** The free-text half of the drink spec, with the common values offered. */
 const DRINK_TEXT_FIELDS = [
@@ -45,6 +47,30 @@ const DRINK_TEXT_FIELDS = [
   { key: "garnish", label: "Garnish", suggestions: undefined },
 ] as const;
 
+/** A list section's count beside its heading, read live from the form. */
+function SectionCount({ of }: { of: "ingredients" | "instructions" }) {
+  const form = useRecipeForm();
+  const count = useStore(form.store, (state) =>
+    of === "ingredients"
+      ? state.values.ingredients.filter(
+          (line) => line.type !== "heading" && line.ingredient?.trim(),
+        ).length
+      : stepCount(state.values.instructions),
+  );
+  return count ? (
+    <span className="font-mono text-sm text-muted-foreground tabular-nums">
+      {count}
+    </span>
+  ) : null;
+}
+
+/**
+ * The recipe's fields, in edit form B's sections (43e1): Recipe, Tags,
+ * Picture and video, Ingredients, Steps, Times, Source and address. The
+ * fields inside are the ones the form always had — same names, same submit
+ * shape (D4) — under section headings instead of one long column; 43e2
+ * reworks the Tags, Ingredients, Steps, drink and Times insides.
+ */
 export default function RecipeFields({
   recipe,
   slug,
@@ -52,6 +78,7 @@ export default function RecipeFields({
   defaultImage,
   allTags = [],
   imageFile,
+  fromLabel,
 }: {
   recipe?: Partial<ImportedRecipe>;
   slug?: string;
@@ -60,6 +87,11 @@ export default function RecipeFields({
   allTags?: string[];
   /** A file the image field starts with (38e: the photo a recipe was read from). */
   imageFile?: File;
+  /**
+   * After an import (43e1): "from the page", "from the text", "from the
+   * photo" — said on the sections the import filled.
+   */
+  fromLabel?: string;
 }) {
   const form = useRecipeForm();
   // Read the live name reactively (drives the slug placeholder) without nesting
@@ -75,197 +107,231 @@ export default function RecipeFields({
   const { imageImportUrl, videoImportUrl, video, images } = recipe || {};
 
   const currentTimezone = useCurrentTimezone();
+  const imported = (has: unknown) => (fromLabel && has ? fromLabel : undefined);
 
   return (
     <VideoPlayerProvider>
-      <form.Field
-        name="name"
-        validators={{
-          onBlur: ({ value }) =>
-            !value?.trim() ? "Name is required" : undefined,
-        }}
+      <FormSection
+        id="recipe"
+        title="Recipe"
+        from={imported(recipe?.name || recipe?.description)}
       >
-        {(field) => (
-          <TextInput
-            label="Name"
-            name="name"
-            id="recipe-form-name"
-            value={field.state.value}
-            onChange={(e) => field.handleChange(e.target.value)}
-            onBlur={field.handleBlur}
-            errors={mergeFieldErrors(
-              state?.errors?.name,
-              field.state.meta.errors,
-            )}
-          />
-        )}
-      </form.Field>
-      <form.Field name="description">
-        {(field) => (
-          <LexicalMarkdownInput
-            dialect={RECIPE_MARKDOWN}
-            label="Description"
-            name="description"
-            id="recipe-form-description"
-            value={field.state.value}
-            onChange={field.handleChange}
-            errors={mergeFieldErrors(
-              state?.errors?.description,
-              field.state.meta.errors,
-            )}
-          />
-        )}
-      </form.Field>
-      <TagsInput allTags={allTags} />
-      {/*
-        Image and video are file uploads: browsers don't allow setting a file
-        input's value programmatically, so these stay uncontrolled and submit
-        via FormData (with their own clear/import flags) rather than through
-        TanStack Form state.
-      */}
-      <ImageInput
-        /* 38e review: the photo arriving or going (the "use the first
-         * photo" box ticked or unticked after an import) starts the field
-         * over — holding it, with its preview, or empty — since a file
-         * input cannot be told to drop just the file a script gave it. */
-        key={fileKey(imageFile)}
-        defaultImage={defaultImage}
-        errors={state?.errors?.image}
-        imageToImport={imageImportUrl}
-        candidates={images}
-        allowUrl
-        initialFile={imageFile}
-      />
-      <VideoInput
-        label="Video"
-        name="video"
-        defaultVideo={resolveRecipeVideoSrc(slug, video)}
-        videoToImport={videoImportUrl}
-      />
-      <form.Field name="recipeYield">
-        {(field) => (
-          <LexicalMarkdownInput
-            dialect={RECIPE_MARKDOWN}
-            label="Yield"
-            name="recipeYield"
-            id="recipe-form-yield"
-            value={field.state.value}
-            onChange={field.handleChange}
-            errors={mergeFieldErrors(
-              state?.errors?.recipeYield,
-              field.state.meta.errors,
-            )}
-            toolbarItems={yieldToolbarItems}
-            compact
-          />
-        )}
-      </form.Field>
-      <IngredientsListInput label="Ingredients" id="recipe-form-ingredients" />
-      <InstructionsListInput
-        label="Instructions"
-        id="recipe-form-instructions"
-      />
-      <TimelinesInput label="Timelines" id="recipe-form-timelines" />
-      <div className="flex flex-row flex-wrap gap-2 justify-around items-center">
-        <form.Field name="prepTime">
+        <form.Field
+          name="name"
+          validators={{
+            onBlur: ({ value }) =>
+              !value?.trim() ? "Name is required" : undefined,
+          }}
+        >
           {(field) => (
-            <DurationInput
-              label="Prep Time"
-              name="prepTime"
-              id="recipe-form-prep-time"
-              valueMinutes={field.state.value ?? 0}
-              onValueChange={field.handleChange}
-              errors={state?.errors?.prepTime}
+            <TextInput
+              label="Name"
+              name="name"
+              id="recipe-form-name"
+              value={field.state.value}
+              onChange={(e) => field.handleChange(e.target.value)}
+              onBlur={field.handleBlur}
+              errors={mergeFieldErrors(
+                state?.errors?.name,
+                field.state.meta.errors,
+              )}
             />
           )}
         </form.Field>
-        <form.Field name="cookTime">
+        <form.Field name="description">
           {(field) => (
-            <DurationInput
-              label="Cook Time"
-              name="cookTime"
-              id="recipe-form-cook-time"
-              valueMinutes={field.state.value ?? 0}
-              onValueChange={field.handleChange}
-              errors={state?.errors?.cookTime}
+            <LexicalMarkdownInput
+              dialect={RECIPE_MARKDOWN}
+              label="Description"
+              name="description"
+              id="recipe-form-description"
+              value={field.state.value}
+              onChange={field.handleChange}
+              errors={mergeFieldErrors(
+                state?.errors?.description,
+                field.state.meta.errors,
+              )}
             />
           )}
         </form.Field>
-        <form.Field name="totalTime">
+        <form.Field name="recipeYield">
           {(field) => (
-            <DurationInput
-              label="Total Time"
-              name="totalTime"
-              id="recipe-form-total-time"
-              valueMinutes={field.state.value ?? 0}
-              onValueChange={field.handleChange}
-              errors={state?.errors?.totalTime}
-              placeholder={totalTimePreview}
+            <LexicalMarkdownInput
+              dialect={RECIPE_MARKDOWN}
+              label="Yield"
+              name="recipeYield"
+              id="recipe-form-yield"
+              value={field.state.value}
+              onChange={field.handleChange}
+              errors={mergeFieldErrors(
+                state?.errors?.recipeYield,
+                field.state.meta.errors,
+              )}
+              toolbarItems={yieldToolbarItems}
+              compact
             />
           )}
         </form.Field>
-      </div>
-      {/*
-        The drink spec (25a). Collapsed unless the recipe already is a drink, so
-        a food recipe's form looks as it always has. Same submit shape as
-        `source` below: `drink.method` etc., nested by lodash `set`, and an
-        all-blank block parses back to no `drink` at all.
-      */}
-      <details className="py-1 my-1" open={Boolean(recipe?.drink)}>
-        <summary className="text-sm font-semibold">Drink</summary>
-        <div className="flex flex-col flex-nowrap">
-          <form.Field name="drink.method">
+      </FormSection>
+      <FormSection id="tags" title="Tags">
+        <TagsInput allTags={allTags} label="" />
+      </FormSection>
+      <FormSection
+        id="picture"
+        title="Picture and video"
+        from={imported(imageImportUrl)}
+      >
+        {/*
+          Image and video are file uploads: browsers don't allow setting a file
+          input's value programmatically, so these stay uncontrolled and submit
+          via FormData (with their own clear/import flags) rather than through
+          TanStack Form state.
+        */}
+        <ImageInput
+          /* 38e review: the photo arriving or going (the "use the first
+           * photo" box ticked or unticked after an import) starts the field
+           * over — holding it, with its preview, or empty — since a file
+           * input cannot be told to drop just the file a script gave it. */
+          key={fileKey(imageFile)}
+          defaultImage={defaultImage}
+          errors={state?.errors?.image}
+          imageToImport={imageImportUrl}
+          candidates={images}
+          allowUrl
+          initialFile={imageFile}
+        />
+        <VideoInput
+          label="Video"
+          name="video"
+          defaultVideo={resolveRecipeVideoSrc(slug, video)}
+          videoToImport={videoImportUrl}
+        />
+      </FormSection>
+      <FormSection
+        id="ingredients"
+        title="Ingredients"
+        from={imported(recipe?.ingredients?.length)}
+        aside={<SectionCount of="ingredients" />}
+      >
+        <IngredientsListInput label="" id="recipe-form-ingredients" />
+      </FormSection>
+      <FormSection
+        id="steps"
+        title="Steps"
+        from={imported(recipe?.instructions?.length)}
+        aside={<SectionCount of="instructions" />}
+      >
+        <InstructionsListInput label="" id="recipe-form-instructions" />
+        <TimelinesInput label="Timelines" id="recipe-form-timelines" />
+      </FormSection>
+      <FormSection
+        id="times"
+        title="Times"
+        from={imported(
+          recipe?.prepTime || recipe?.cookTime || recipe?.totalTime,
+        )}
+      >
+        <div className="flex flex-row flex-wrap gap-2 justify-around items-center">
+          <form.Field name="prepTime">
             {(field) => (
-              <SelectInput
-                label="Method"
-                name="drink.method"
-                id="recipe-form-drink-method"
-                value={field.state.value}
-                onValueChange={(value) => field.handleChange(value)}
-                errors={state?.errors?.drink}
-                options={[
-                  { value: "", label: "—" },
-                  ...DRINK_METHODS.map((method) => ({
-                    value: method,
-                    label: DRINK_METHOD_LABELS[method],
-                  })),
-                ]}
+              <DurationInput
+                label="Prep Time"
+                name="prepTime"
+                id="recipe-form-prep-time"
+                valueMinutes={field.state.value ?? 0}
+                onValueChange={field.handleChange}
+                errors={state?.errors?.prepTime}
               />
             )}
           </form.Field>
-          {DRINK_TEXT_FIELDS.map(({ key, label, suggestions }) => (
-            <form.Field key={key} name={`drink.${key}`}>
-              {(field) => (
-                <>
-                  <TextInput
-                    label={label}
-                    name={`drink.${key}`}
-                    id={`recipe-form-drink-${key}`}
-                    value={field.state.value}
-                    onChange={(e) => field.handleChange(e.target.value)}
-                    onBlur={field.handleBlur}
-                    list={
-                      suggestions
-                        ? `recipe-form-drink-${key}-options`
-                        : undefined
-                    }
-                  />
-                  {suggestions && (
-                    <datalist id={`recipe-form-drink-${key}-options`}>
-                      {suggestions.map((value) => (
-                        <option key={value} value={value} />
-                      ))}
-                    </datalist>
-                  )}
-                </>
-              )}
-            </form.Field>
-          ))}
+          <form.Field name="cookTime">
+            {(field) => (
+              <DurationInput
+                label="Cook Time"
+                name="cookTime"
+                id="recipe-form-cook-time"
+                valueMinutes={field.state.value ?? 0}
+                onValueChange={field.handleChange}
+                errors={state?.errors?.cookTime}
+              />
+            )}
+          </form.Field>
+          <form.Field name="totalTime">
+            {(field) => (
+              <DurationInput
+                label="Total Time"
+                name="totalTime"
+                id="recipe-form-total-time"
+                valueMinutes={field.state.value ?? 0}
+                onValueChange={field.handleChange}
+                errors={state?.errors?.totalTime}
+                placeholder={totalTimePreview}
+              />
+            )}
+          </form.Field>
         </div>
-      </details>
-      <details className="py-1 my-1" open>
-        <summary className="text-sm font-semibold">Advanced</summary>
-        <div className="flex flex-col flex-nowrap">
+      </FormSection>
+      <FormSection
+        id="source"
+        title="Source and address"
+        from={imported(recipe?.source?.url)}
+      >
+        {/*
+          Provenance (D6/22a). An import fills these in; typing a URL here by
+          hand is the manual path to the same citation. The three inputs are
+          always mounted and submit as `source.url` / `source.name` /
+          `source.author` — `parseFormData`'s lodash `set` nests them, and
+          the schema collapses an all-blank block back to no `source`.
+        */}
+        <div className="grid gap-x-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
+          <form.Field name="source.url">
+            {(field) => (
+              <TextInput
+                label="Source link"
+                name="source.url"
+                id="recipe-form-source-url"
+                value={field.state.value}
+                onChange={(e) => field.handleChange(e.target.value)}
+                onBlur={field.handleBlur}
+                placeholder="https://example.com/the-original-recipe"
+                errors={mergeFieldErrors(
+                  state?.errors?.source,
+                  field.state.meta.errors,
+                )}
+              />
+            )}
+          </form.Field>
+          <form.Field name="source.name">
+            {(field) => (
+              // "Site" rather than "Name": `getByLabel` matches substrings, so
+              // a "Source Name" label made every `getByLabel("Name")` in the
+              // suite ambiguous with the recipe's own name field.
+              <TextInput
+                label="Site"
+                name="source.name"
+                id="recipe-form-source-name"
+                value={field.state.value}
+                onChange={(e) => field.handleChange(e.target.value)}
+                onBlur={field.handleBlur}
+                errors={mergeFieldErrors(undefined, field.state.meta.errors)}
+              />
+            )}
+          </form.Field>
+          <form.Field name="source.author">
+            {(field) => (
+              <TextInput
+                label="Author"
+                name="source.author"
+                id="recipe-form-source-author"
+                value={field.state.value}
+                onChange={(e) => field.handleChange(e.target.value)}
+                onBlur={field.handleBlur}
+                errors={mergeFieldErrors(undefined, field.state.meta.errors)}
+              />
+            )}
+          </form.Field>
+        </div>
+        <div className="grid gap-x-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <form.Field name="slug">
             {(field) => (
               <TextInput
@@ -297,61 +363,66 @@ export default function RecipeFields({
               />
             )}
           </form.Field>
-          {/*
-            Provenance (D6/22a). An import fills these in; typing a URL here by
-            hand is the manual path to the same citation. The three inputs are
-            always mounted and submit as `source.url` / `source.name` /
-            `source.author` — `parseFormData`'s lodash `set` nests them, and
-            the schema collapses an all-blank block back to no `source`.
-          */}
-          <form.Field name="source.url">
-            {(field) => (
-              <TextInput
-                label="Source URL"
-                name="source.url"
-                id="recipe-form-source-url"
-                value={field.state.value}
-                onChange={(e) => field.handleChange(e.target.value)}
-                onBlur={field.handleBlur}
-                placeholder="https://example.com/the-original-recipe"
-                errors={mergeFieldErrors(
-                  state?.errors?.source,
-                  field.state.meta.errors,
-                )}
-              />
-            )}
-          </form.Field>
-          <form.Field name="source.name">
-            {(field) => (
-              // "Site" rather than "Name": `getByLabel` matches substrings, so
-              // a "Source Name" label made every `getByLabel("Name")` in the
-              // suite ambiguous with the recipe's own name field.
-              <TextInput
-                label="Source Site"
-                name="source.name"
-                id="recipe-form-source-name"
-                value={field.state.value}
-                onChange={(e) => field.handleChange(e.target.value)}
-                onBlur={field.handleBlur}
-                errors={mergeFieldErrors(undefined, field.state.meta.errors)}
-              />
-            )}
-          </form.Field>
-          <form.Field name="source.author">
-            {(field) => (
-              <TextInput
-                label="Source Author"
-                name="source.author"
-                id="recipe-form-source-author"
-                value={field.state.value}
-                onChange={(e) => field.handleChange(e.target.value)}
-                onBlur={field.handleBlur}
-                errors={mergeFieldErrors(undefined, field.state.meta.errors)}
-              />
-            )}
-          </form.Field>
         </div>
-      </details>
+        {/*
+          The drink spec (25a). Collapsed unless the recipe already is a drink, so
+          a food recipe's form looks as it always has. Same submit shape as
+          `source` above: `drink.method` etc., nested by lodash `set`, and an
+          all-blank block parses back to no `drink` at all.
+        */}
+        <details className="py-1 my-1" open={Boolean(recipe?.drink)}>
+          <summary className="text-sm font-semibold">Drink</summary>
+          <div className="flex flex-col flex-nowrap">
+            <form.Field name="drink.method">
+              {(field) => (
+                <SelectInput
+                  label="Method"
+                  name="drink.method"
+                  id="recipe-form-drink-method"
+                  value={field.state.value}
+                  onValueChange={(value) => field.handleChange(value)}
+                  errors={state?.errors?.drink}
+                  options={[
+                    { value: "", label: "—" },
+                    ...DRINK_METHODS.map((method) => ({
+                      value: method,
+                      label: DRINK_METHOD_LABELS[method],
+                    })),
+                  ]}
+                />
+              )}
+            </form.Field>
+            {DRINK_TEXT_FIELDS.map(({ key, label, suggestions }) => (
+              <form.Field key={key} name={`drink.${key}`}>
+                {(field) => (
+                  <>
+                    <TextInput
+                      label={label}
+                      name={`drink.${key}`}
+                      id={`recipe-form-drink-${key}`}
+                      value={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
+                      list={
+                        suggestions
+                          ? `recipe-form-drink-${key}-options`
+                          : undefined
+                      }
+                    />
+                    {suggestions && (
+                      <datalist id={`recipe-form-drink-${key}-options`}>
+                        {suggestions.map((value) => (
+                          <option key={value} value={value} />
+                        ))}
+                      </datalist>
+                    )}
+                  </>
+                )}
+              </form.Field>
+            ))}
+          </div>
+        </details>
+      </FormSection>
     </VideoPlayerProvider>
   );
 }

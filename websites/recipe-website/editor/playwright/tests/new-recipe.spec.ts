@@ -66,7 +66,9 @@ test.describe("New Recipe View", () => {
           "Pooja Makhijani",
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
         // The submit downloads the page's image from kingarthurbaking.com.
         await expect(page.getByLabel("Multiply")).toBeVisible({
           timeout: 10_000,
@@ -123,7 +125,9 @@ test.describe("New Recipe View", () => {
           "45",
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
         // The submit downloads the page's image from kingarthurbaking.com.
         await expect(page.getByLabel("Multiply")).toBeVisible({
           timeout: 10_000,
@@ -164,7 +168,9 @@ test.describe("New Recipe View", () => {
         await expect(form.getByTitle("Total Time Hours")).toHaveValue("");
         await expect(form.getByTitle("Total Time Minutes")).toHaveValue("");
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
         // The submit downloads the page's image from kingarthurbaking.com.
         await expect(page.getByLabel("Multiply")).toBeVisible({
           timeout: 10_000,
@@ -190,7 +196,9 @@ test.describe("New Recipe View", () => {
         await expect(form.getByTitle("Total Time Hours")).toHaveValue("2");
         await expect(form.getByTitle("Total Time Minutes")).toHaveValue("0");
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
         // The submit downloads the page's image from kingarthurbaking.com.
         await expect(page.getByLabel("Multiply")).toBeVisible({
           timeout: 10_000,
@@ -221,7 +229,9 @@ test.describe("New Recipe View", () => {
 
         await expect(page.getByLabel("Name").first()).not.toHaveValue("");
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(page.getByLabel("Multiply")).toBeVisible({
           timeout: 10_000,
@@ -334,7 +344,9 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
           .locator('[name="ingredients[0].ingredient"]')
           .fill("1 cup of water");
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -363,7 +375,9 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
           .locator('[name="ingredients[0].ingredient"]')
           .fill("My Ingredient Heading");
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -391,7 +405,9 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
           page.locator('[name="ingredients[0].ingredient"]'),
         ).toBeAttached();
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(page.getByText("Error parsing recipe")).toBeVisible();
         await expect(
@@ -422,7 +438,9 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
           "This is the first instruction",
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -473,7 +491,9 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
           "This is the first instruction",
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -512,7 +532,9 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
           page.locator('[name="instructions[0].text"]'),
         ).toBeAttached();
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(page.getByText("Error parsing recipe")).toBeVisible();
         await expect(
@@ -557,7 +579,9 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
           "This is the first instruction",
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(page.getByText("Error parsing recipe")).toBeVisible();
         await expect(
@@ -592,7 +616,9 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
 
         await page.getByText("Import Instructions", { exact: true }).click();
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -624,7 +650,9 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
           "30",
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -674,7 +702,9 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
         await page.getByTitle("Total Time Minutes").fill("30");
         await page.getByTitle("Total Time Hours").fill("3");
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -716,7 +746,9 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
         await page.getByLabel("Name").first().clear();
         await page.getByLabel("Name").first().fill(newRecipeTitle);
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -766,7 +798,9 @@ Have no number on three
           `Have whitespace at the beginning and end`,
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -815,7 +849,9 @@ Cool`,
           page.locator('[name="instructions[1].instructions[0].text"]'),
         ).toHaveValue("Cool");
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -918,7 +954,9 @@ Sprinkle`,
           page.locator('[name="ingredients[1].ingredient"]'),
         ).toHaveValue(`<Multiplyable baseNumber="1" /> cup water`);
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -972,7 +1010,9 @@ Sprinkle`,
           page.locator('[name="ingredients[5].ingredient"]'),
         ).toHaveValue(`<Multiplyable baseNumber="1" /> tsp pepper`);
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -1030,7 +1070,9 @@ Sprinkle`,
           page.locator('[name="ingredients[5].ingredient"]'),
         ).toHaveValue(`<Multiplyable baseNumber="1" /> tsp pepper`);
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -1076,7 +1118,9 @@ Sprinkle`,
           `<Multiplyable baseNumber="400" />g or <Multiplyable baseNumber="1 1/2" /> cups chicken broth`,
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -1116,7 +1160,9 @@ Sprinkle`,
           page.locator('[name="ingredients[1].ingredient"]'),
         ).toHaveValue(`<Multiplyable baseNumber="1 1/2" /> cups chicken broth`);
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -1170,7 +1216,9 @@ Sprinkle`,
           page.locator('[name="ingredients[5].ingredient"]'),
         ).toHaveValue(`<Multiplyable baseNumber="1" /> tsp pepper`);
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -1220,7 +1268,9 @@ Sprinkle`,
           `<Multiplyable baseNumber="400" />g bread flour (11.7% - 13.5 % protein)`,
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
@@ -1348,7 +1398,9 @@ Sprinkle`,
           `${baseURL}/uploads/katsudon.html`,
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(page.getByLabel("Multiply")).toBeVisible({
           timeout: 10_000,
@@ -1391,7 +1443,9 @@ Sprinkle`,
           ).href,
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(page.getByLabel("Multiply")).toBeVisible({
           timeout: 10_000,
@@ -1443,7 +1497,9 @@ Sprinkle`,
           new URL("/uploads/recipe-imported-image-566x566.png", baseURL!).href,
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(page.getByLabel("Multiply")).toBeVisible({
           timeout: 10_000,
@@ -1509,7 +1565,9 @@ Sprinkle`,
           new URL("/uploads/pork-carnitas.webp", baseURL!).href,
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
         await expect(page.getByLabel("Multiply")).toBeVisible({
           timeout: 10_000,
         });
@@ -1580,16 +1638,18 @@ Sprinkle`,
         ).toBeVisible();
       });
 
-      /* 36c, demoted in 36d: pasting needs the model too; the URL stays. */
+      /* 36c, demoted in 36d: pasting needs the model too; the URL stays.
+       * 43e1: Text is one of Start from's ways in. */
       test("should disable pasting text when no local model is configured", async ({
         page,
       }) => {
-        const pasteText = page.getByRole("button", {
-          name: "No link? Paste the recipe text instead",
+        const pasteText = page.getByRole("radio", {
+          name: "Text",
+          exact: true,
         });
         await expect(pasteText).toBeDisabled();
         await expect(pasteText).toHaveAccessibleDescription(
-          "— No local model configured",
+          "No local model configured",
         );
         /* Still the URL field, and no text box to paste into. */
         await expect(page.getByLabel("Import from URL")).toBeVisible();
@@ -1646,7 +1706,9 @@ Sprinkle`,
           new URL("/uploads/pork-carnitas.webp", baseURL!).href,
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         await expect(page.getByLabel("Multiply")).toBeVisible();
 
@@ -1755,7 +1817,9 @@ Sprinkle`,
           "Divide the dough into eight equal pieces (about 65g each). Shape each into a ball, cover, and let rest for 20 minutes.",
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page
+          .getByRole("button", { name: "Create recipe", exact: true })
+          .click();
 
         // The submit downloads the page's image from kingarthurbaking.com.
         await expect(page.getByLabel("Multiply")).toBeVisible({
