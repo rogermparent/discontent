@@ -1096,16 +1096,56 @@ docket there, as it has no shopping list).
   ("11–12 min · rest 20 min", "11–12 min · icing sets in 24 h"), as
   C-phone draws them; the keeps are said once, under Day before ("Doughs
   keep 3 days."). A wide screen keeps all three in the Day before cell, as
-  C-desktop.
+  C-desktop. The phone's yield column is a fixed width, so every row's bar
+  track is one length and the bars share the scale.
 
-**Gates.** _Pending._
+**Review fixes** (read-only review, all low but the first): yield words
+before an aside and plurals that meet (Dp2-3), sub-plans counted in the
+hero (Dp2-3), a sub-plan's link says "Its own run sheet" only when it has
+one (Dp2-7), the recipe cell as the row header, the big ones skip ticked
+rows (Dp2-4), the phone's captions per C-phone (Dp2-8). A test each.
+
+**Merges.** origin/main merged three times: 43p1 (#298, clean), 43s (#299,
+clean) before the gates, and 43e1 (#300, clean; doc and backlog
+auto-merged) after them — both typechecks re-run on that tree.
+
+**Gates** (tree eaeea570 + d7b7880f unless said):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean, before and after the #300 merge.
+- `pnpm exec vitest run`: 140 files, 3,095 tests — 3,094 passed, 1 failed:
+  `inventory.test.ts`'s export guard (no `common/` file names "on-hand")
+  caught a comment in `planSheet.ts`; reworded (ca1c0b27), then
+  `inventory` + `planSheet` 59/59. `planSheet.test.ts`: 27 tests.
+- Playwright, Docker build mode: `plan-page.spec` 26/26 (twice, both runs
+  regenerating baselines); `groups`, `accessibility`, `guest-controls`,
+  `featured-recipes` 156/156.
+- Dev mode (Docker, `next dev`): `plan-page.spec` 26/26.
+- Axe WCAG 2.2 green on the run sheet in light and dark (desktop) and on a
+  phone; no sideways scroll at 393 px; ticks 44 px, links ≥ 24 px.
+
+**Baselines** (Docker only, `--update-snapshots=all`, after the 43s merge):
+new `plan-sheet-e2e` (matches `C-desktop`: hero stats, the table with
+chill tapes and a ticked mixed dough, bars to 13 min, big yields, "— not
+set", no docket for a guest) and `plan-sheet-mobile` (matches `C-phone`:
+2×2 stats, Start the bake, Day before, Baking day, the shelf);
+`plan-page-e2e` and `plan-cook-mobile` moved by the switch's new Run sheet
+button (still `B-desktop` / `B-phone`); `plans-list-e2e` moved with the
+43s merge (still `B-groups`).
+
+**Finding (not fixed here, 43n2):** the shopping view reads "2 and 1/4
+cups all-purpose flour" as the name "cup all purpose flour", so it doesn't
+merge with the other flour lines — the real plan's docket undercounts the
+big ones until 43n2 lands.
 
 **Roger to confirm.**
 
 - Dp2-1: the run sheet as a third mode, offered for plans that bake or
   chill, never the default.
 - Dp2-3: "cookies + 1 more" for the board's "cookies + sugar".
-- Dp2-4: "the big ones" as the most-merged rows.
+- Dp2-4: "the big ones" as the most-merged rows, ticked ones left out.
+- Dp2-8: on a phone the keeps are said once under Day before, the rest and
+  what sets ride with the bake.
 
 ### 43e1 — Edit form B: review, then save (L)
 
