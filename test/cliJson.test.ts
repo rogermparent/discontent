@@ -401,30 +401,6 @@ describe("the CLI as a process", () => {
         staples: true,
       });
       expect(JSON.parse(make.stdout)).not.toHaveProperty("beanSwap");
-      /* 43m: `--no-bean-swaps` is still accepted, and changes nothing. */
-      const noSwaps = await run([
-        "inventory",
-        "make",
-        "-tag:drink",
-        "--no-bean-swaps",
-        "--json",
-      ]);
-      expect(noSwaps.exitCode).toBe(0);
-      expect(JSON.parse(noSwaps.stdout)).toEqual(JSON.parse(make.stdout));
-      /* 43m: a pattern item goes in whole; a broken one is a validation error. */
-      const pattern = await run([
-        "inventory",
-        "add",
-        "/may(o|onnaise)/",
-        "--json",
-      ]);
-      expect(JSON.parse(pattern.stdout)).toMatchObject({
-        added: ["/may(o|onnaise)/"],
-      });
-      const broken = await run(["inventory", "add", "/may(/", "--json"]);
-      expect(broken.exitCode).not.toBe(0);
-      expect(JSON.parse(broken.stdout).error.code).toBe("validation");
-      await run(["inventory", "remove", "/may(o|onnaise)/", "--json"]);
       /* U5: `--no-staples` turns the pantry staples off. */
       const strict = await run([
         "inventory",
@@ -493,6 +469,40 @@ describe("the CLI as a process", () => {
       const usage = await run(["inventory", "add", "--json"]);
       expect(usage.exitCode).not.toBe(0);
       expect(JSON.parse(usage.stdout).error.code).toBe("usage");
+    },
+    TIMEOUT,
+  );
+
+  /* 43m, in a case of its own (each `run` is a process: one case's 30 s). */
+  it(
+    "ignores --no-bean-swaps, and takes a pattern item or refuses a broken one",
+    async () => {
+      const make = await run(["inventory", "make", "-tag:drink", "--json"]);
+      expect(make.exitCode).toBe(0);
+      /* 43m: `--no-bean-swaps` is still accepted, and changes nothing. */
+      const noSwaps = await run([
+        "inventory",
+        "make",
+        "-tag:drink",
+        "--no-bean-swaps",
+        "--json",
+      ]);
+      expect(noSwaps.exitCode).toBe(0);
+      expect(JSON.parse(noSwaps.stdout)).toEqual(JSON.parse(make.stdout));
+      /* 43m: a pattern item goes in whole; a broken one is a validation error. */
+      const pattern = await run([
+        "inventory",
+        "add",
+        "/may(o|onnaise)/",
+        "--json",
+      ]);
+      expect(JSON.parse(pattern.stdout)).toMatchObject({
+        added: ["/may(o|onnaise)/"],
+      });
+      const broken = await run(["inventory", "add", "/may(/", "--json"]);
+      expect(broken.exitCode).not.toBe(0);
+      expect(JSON.parse(broken.stdout).error.code).toBe("validation");
+      await run(["inventory", "remove", "/may(o|onnaise)/", "--json"]);
     },
     TIMEOUT,
   );

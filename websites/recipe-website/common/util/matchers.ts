@@ -14,12 +14,14 @@
  *   before.
  * - **A word prefix** (43m): `bean*` meets any line whose name has a word
  *   starting "bean" — black, green and vanilla beans alike, never chickpeas.
- *   `mayo*` meets "mayonnaise", `parsley*` "italian parsley", `black b*`
- *   "black bean". What the add field's "Match every line with 'X'" adds.
+ *   `mayo*` meets "mayonnaise", `parsley*` "italian parsley". One word of
+ *   three letters or more, then the star; "1/2*" or "sugar snap*" stay
+ *   plain items. What the add field's "Match every line with 'X'" adds.
  * - **A regular expression** (43m): `/may(o|onnaise)/`, tested
  *   case-insensitively against each line's normalized name (`nameLabel`'s
- *   words, 43n). Length-capped, compiled once in a try/catch, and refused
- *   when it could backtrack for ever (`unsafeRepeat`). An invalid one is
+ *   words, 43n). Length-capped, read by a whitelist parser of a safe subset
+ *   (`unsafePattern`) so it can't backtrack for ever, compiled once in a
+ *   try/catch. An invalid one is
  *   still an item — it meets nothing, and says why (`error`).
  *
  * Plain items stay exact (Roger, 2026-10-19): a pattern is opt-in, by its
@@ -32,6 +34,7 @@ import { beanKind, beanKindOf, beanNames } from "./beans";
 import {
   nameLabel,
   toName,
+  withoutCanned,
   type IngredientName,
   type Requirement,
 } from "./ingredientNames";
@@ -123,102 +126,258 @@ function familyOf(text: string): IngredientMatcher | undefined {
 /** Longest regular expression accepted, between its slashes. */
 export const PATTERN_MAX_LENGTH = 64;
 
-/**
- * Most unbounded repeats (`*`, `+`, `{n,}`) a regular expression may have:
- * `.*.*.*.*.*x` backtracks as the fifth power of a name's length, three as
- * the cube — well under a millisecond for any name the corpus has.
- */
-export const PATTERN_MAX_REPEATS = 3;
+/** Fewest letters a word prefix (`bea*`) has. */
+export const PREFIX_MIN_LETTERS = 3;
 
-/** Fewest letters a word prefix (`be*`) may have. */
-export const PREFIX_MIN_LETTERS = 2;
+/**
+ * A word prefix: one run of `PREFIX_MIN_LETTERS` letters or more, then a
+ * star — `bean*`, `Mayo *`. Anything else ending in `*` ("1/2*", "sugar
+ * snap*", `be*`) is a plain item (Dm1).
+ */
+const PREFIX_SHAPE = /^(\p{L}{3,})\s*\*+$/u;
 
 /** `/…/`, with an `i` flag tolerated (matching is case-insensitive anyway). */
 const REGEX_SHAPE = /^\/(.*)\/i?$/s;
 
-/** Does `text` read as a pattern — `/…`, or a word ending in `*`? */
+/** Does `text` read as a pattern — `/…`, or one word ending in `*`? */
 export function looksLikePattern(text: string): boolean {
   const trimmed = text.trim();
-  return trimmed.startsWith("/") || /\*\s*$/.test(trimmed);
+  return trimmed.startsWith("/") || PREFIX_SHAPE.test(trimmed.normalize("NFC"));
 }
 
 /** What a regular expression is tested against: accents off, as names are. */
 function stripAccents(text: string): string {
-  return text.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+/** Largest bound a `{n}` or `{n,m}` may give. */
+export const PATTERN_MAX_BOUND = 20;
+
+/** Deepest groups may nest: `((red|green) bell|jalapeño)` is two. */
+export const PATTERN_MAX_DEPTH = 2;
+
+/**
+ * Most ways a pattern may try to match from one place in a name: each `?`
+ * doubles them, `{n,m}` multiplies by its range, a `*` or `+` by
+ * `PATTERN_REPEAT_WAYS`, a group adds its branches. `.*.*` (400) and nine
+ * optional groups (512) pass; `.*.*.*` (8,000) and ten (1,024) don't — what
+ * keeps the worst case linear-ish over the corpus's names (Dm2).
+ */
+export const PATTERN_MAX_WAYS = 1000;
+
+/** What one `*` or `+` counts as, for `PATTERN_MAX_WAYS`. */
+const PATTERN_REPEAT_WAYS = 20;
+
+/** The longest name a regular expression is tested against (the rest is cut). */
+export const PATTERN_NAME_MAX_LENGTH = 120;
+
+/** The escapes a pattern may use, besides an escaped punctuation mark. */
+const CLASS_ESCAPES = "wWdDsS";
+const ANCHOR_ESCAPES = "bB";
+
+class PatternProblem extends Error {}
+
+const TOO_MANY_WAYS =
+  "That pattern can match in too many ways to stay quick: use fewer *, +, ? or | (two * or + at most).";
+
+/** One parsed piece: how many ways it can match, and whether it repeats. */
+interface Ways {
+  ways: number;
+  quantified: boolean;
 }
 
 /**
- * Why `body` could backtrack for ever, or `undefined` when it can't (43m):
- * a group that repeats without bound (`*`, `+`, `{n,}`, `{n,m}`) while
- * something inside it repeats or alternates — `(a+)+`, `(\w*)*`, `(a|a)*`,
- * `((ab)+){2,}` — more than `PATTERN_MAX_REPEATS` unbounded repeats in all,
- * and backreferences. A scan, not a parser: escapes and character classes
- * are skipped, and whether it compiles is left to the engine.
+ * Why `body` isn't a pattern this page runs, or `undefined` when it is
+ * (43m, Dm2): a whitelist parser of a safe subset of JavaScript's regular
+ * expressions, so nothing it accepts can backtrack for ever.
+ *
+ * - Atoms: a literal character, `.`, an escape (`\w \d \s` and their
+ *   capitals, `\b \B`, or an escaped punctuation mark), a character class
+ *   read as JavaScript reads one (an empty `[]` or `[^]` refused).
+ * - A repeat (`? * + {n} {n,m}`, bounds ≤ `PATTERN_MAX_BOUND`) goes right
+ *   after one atom, and only one.
+ * - Groups `( … )` and `(?: … )` are for alternation: one may be followed by
+ *   `?` only, and only when nothing inside it repeats; at most
+ *   `PATTERN_MAX_DEPTH` deep. No lookarounds, backreferences or named groups.
+ * - `^` and `$` anywhere; at most `PATTERN_MAX_WAYS` ways to match from one
+ *   place.
+ *
+ * Whether it compiles is checked too (`regexMatcher`), but nothing this
+ * accepts should fail to.
  */
-export function unsafeRepeat(body: string): string | undefined {
-  /** Per open group: something inside repeats or alternates. */
-  const stack: boolean[] = [false];
-  /** The group just closed was risky, while the next character may repeat it. */
-  let closedRisky = false;
-  let repeats = 0;
-  for (let i = 0; i < body.length; i++) {
-    const char = body[i];
-    const afterRiskyGroup = closedRisky;
-    closedRisky = false;
-    if (char === "\\") {
-      const next = body[i + 1];
-      if (next && /[1-9k]/.test(next)) {
-        return "Backreferences (\\1, \\k<…>) aren't allowed in a pattern.";
-      }
-      i += 1;
-      continue;
-    }
-    if (char === "[") {
-      i += 1;
-      if (body[i] === "^") i += 1;
-      if (body[i] === "]") i += 1;
-      while (i < body.length && body[i] !== "]") {
-        if (body[i] === "\\") i += 1;
-        i += 1;
-      }
-      continue;
-    }
-    if (char === "(") {
-      stack.push(false);
-      /* `(?:`, `(?=`, `(?!`, `(?<=`, `(?<!`, `(?<name>`: not a repeat. */
-      const kind = /^\?(?::|=|!|<=|<!|<[A-Za-z_$][\w$]*>)/.exec(
-        body.slice(i + 1),
-      );
-      if (kind) i += kind[0].length;
-      continue;
-    }
-    if (char === ")") {
-      if (stack.length > 1) {
-        const risky = stack.pop()!;
-        if (risky) stack[stack.length - 1] = true;
-        closedRisky = risky;
-      }
-      continue;
-    }
-    if (char === "|") {
-      stack[stack.length - 1] = true;
-      continue;
-    }
-    const unbounded =
-      char === "*" ||
-      char === "+" ||
-      (char === "{" && /^\{\d*,\d*\}|^\{\d{2,}\}/.test(body.slice(i)));
-    if (unbounded || char === "?" || char === "{") {
-      if (unbounded && afterRiskyGroup) {
-        return "That pattern repeats a repeat — like (a+)+ — which can take for ever to run. Take out the outer * or +.";
-      }
-      if (unbounded && ++repeats > PATTERN_MAX_REPEATS) {
-        return `Use at most ${PATTERN_MAX_REPEATS} * or + in a pattern, so it stays quick.`;
-      }
-      stack[stack.length - 1] = true;
-    }
+export function unsafePattern(body: string): string | undefined {
+  let i = 0;
+  function fail(message: string): never {
+    throw new PatternProblem(message);
   }
-  return undefined;
+  const isRepeat = (char: string | undefined) =>
+    char === "?" || char === "*" || char === "+" || char === "{";
+
+  const escape = (inClass: boolean): "anchor" | "atom" => {
+    const next = body[i + 1];
+    if (next === undefined) fail("A pattern can't end with a backslash.");
+    if (/[1-9]/.test(next) || next === "k") {
+      fail("Backreferences (\\1, \\k<…>) aren't allowed in a pattern.");
+    }
+    i += 2;
+    if (CLASS_ESCAPES.includes(next)) return "atom";
+    if (!inClass && ANCHOR_ESCAPES.includes(next)) return "anchor";
+    if (/[A-Za-z0-9]/.test(next)) {
+      fail(
+        `\\${next} isn't one this page reads: use \\w, \\d, \\s, \\b, or a backslash before a punctuation mark.`,
+      );
+    }
+    return "atom";
+  };
+
+  const characterClass = () => {
+    i += 1;
+    if (body[i] === "^") i += 1;
+    if (body[i] === "]") {
+      fail(
+        "Put something between the brackets: [] matches nothing and [^] everything.",
+      );
+    }
+    while (body[i] !== "]") {
+      if (i >= body.length) fail("Close the [ with a ].");
+      if (body[i] === "\\") escape(true);
+      else i += 1;
+    }
+    i += 1;
+  };
+
+  /** A repeat right after an atom: how many ways it multiplies by. */
+  const repeat = (): number | undefined => {
+    const char = body[i];
+    let ways: number;
+    if (char === "?") {
+      i += 1;
+      ways = 2;
+    } else if (char === "*" || char === "+") {
+      i += 1;
+      ways = PATTERN_REPEAT_WAYS;
+    } else if (char === "{") {
+      const bound = /^\{(\d+)(?:(,)(\d*))?\}/.exec(body.slice(i));
+      if (!bound) fail("Write a count as {2} or {1,3}, or put \\ before a {.");
+      const [whole, low, comma, high] = bound!;
+      if (comma && !high) {
+        fail(
+          `Give {${low},} an upper bound, e.g. {${low},${Number(low) + 2}}.`,
+        );
+      }
+      const min = Number(low);
+      const max = comma ? Number(high) : min;
+      if (max > PATTERN_MAX_BOUND) {
+        fail(`A count can be at most ${PATTERN_MAX_BOUND}.`);
+      }
+      if (min > max)
+        fail(`{${low},${high}} counts down: put the smaller first.`);
+      i += whole.length;
+      ways = max - min + 1;
+    } else {
+      return undefined;
+    }
+    if (isRepeat(body[i])) {
+      fail("One repeat at a time: a ?, *, + or {…} can't follow another.");
+    }
+    return ways;
+  };
+
+  const term = (depth: number): Ways => {
+    const char = body[i];
+    if (char === "(") {
+      i += 1;
+      if (body.startsWith("?:", i)) i += 2;
+      else if (body[i] === "?") {
+        fail(
+          "Only plain groups — ( … ) or (?: … ) — can be used: no lookarounds or named groups.",
+        );
+      }
+      if (depth >= PATTERN_MAX_DEPTH) {
+        fail(`Groups can nest at most ${PATTERN_MAX_DEPTH} deep.`);
+      }
+      const inner = alternation(depth + 1);
+      if (body[i] !== ")") fail("Close the ( with a ).");
+      i += 1;
+      if (body[i] === "?") {
+        if (inner.quantified) {
+          fail(
+            "A group can be made optional with ? only when nothing inside it repeats.",
+          );
+        }
+        i += 1;
+        if (isRepeat(body[i])) {
+          fail("One repeat at a time: a ?, *, + or {…} can't follow another.");
+        }
+        return { ways: inner.ways + 1, quantified: true };
+      }
+      if (isRepeat(body[i])) {
+        fail(
+          "A group can't repeat — like (a+)+ that can take for ever to run. Repeat a single character, or make the group optional with ?.",
+        );
+      }
+      return inner;
+    }
+    if (char === ")") fail("There's a ) without its (.");
+    if (isRepeat(char)) {
+      fail(
+        i === 0
+          ? "A pattern can't start with a ?, *, + or {…}: it repeats the thing before it."
+          : "One repeat at a time: a ?, *, + or {…} can't follow another.",
+      );
+    }
+    if (char === "]" || char === "}") {
+      fail(`Put \\ before a ${char} to match it.`);
+    }
+    let kind: "anchor" | "atom" = "atom";
+    if (char === "^" || char === "$") {
+      i += 1;
+      kind = "anchor";
+    } else if (char === "\\") kind = escape(false);
+    else if (char === "[") characterClass();
+    else i += 1;
+    if (kind === "anchor") {
+      if (isRepeat(body[i])) fail("Nothing can repeat ^, $ or \\b.");
+      return { ways: 1, quantified: false };
+    }
+    const ways = repeat();
+    return ways === undefined
+      ? { ways: 1, quantified: false }
+      : { ways, quantified: true };
+  };
+
+  const sequence = (depth: number): Ways => {
+    let ways = 1;
+    let quantified = false;
+    while (i < body.length && body[i] !== "|" && body[i] !== ")") {
+      const next = term(depth);
+      ways *= next.ways;
+      quantified ||= next.quantified;
+      if (ways > PATTERN_MAX_WAYS) fail(TOO_MANY_WAYS);
+    }
+    return { ways, quantified };
+  };
+
+  const alternation = (depth: number): Ways => {
+    let { ways, quantified } = sequence(depth);
+    while (body[i] === "|") {
+      i += 1;
+      const next = sequence(depth);
+      ways += next.ways;
+      quantified ||= next.quantified;
+      if (ways > PATTERN_MAX_WAYS) fail(TOO_MANY_WAYS);
+    }
+    return { ways, quantified };
+  };
+
+  try {
+    alternation(0);
+    if (i < body.length) fail("There's a ) without its (.");
+    return undefined;
+  } catch (error) {
+    if (error instanceof PatternProblem) return error.message;
+    throw error;
+  }
 }
 
 type MatcherBase = Omit<IngredientMatcher, "member" | "specificNames">;
@@ -238,24 +397,37 @@ function refused(
   };
 }
 
-/** `test` over a name's words, each spelling tested once (names repeat). */
+/**
+ * `test` over a name's words, each spelling tested once (names repeat), and
+ * at most `PATTERN_NAME_MAX_LENGTH` characters of it. A leading "canned" is
+ * read past as Make reads it (43n's `withoutCanned`): `/^chick/` and
+ * `chick*` meet "canned chickpea", and its refine row is `chickpea`. The
+ * whole name is tried too, so `/^canned/` still meets it.
+ */
 function memberBy(
   test: (words: string) => boolean,
 ): Pick<IngredientMatcher, "member" | "specificNames"> {
   const seen = new Map<string, boolean>();
-  const member = (name: IngredientName) => {
-    if (name.words.length === 0) return false;
-    const words = name.words.join(" ");
+  const tested = (words: string) => {
     let known = seen.get(words);
     if (known === undefined) {
-      known = test(words);
+      known = test(words.slice(0, PATTERN_NAME_MAX_LENGTH));
       seen.set(words, known);
     }
     return known;
   };
+  const member = (name: IngredientName) => {
+    if (name.words.length === 0) return false;
+    const plain = withoutCanned(name);
+    return (
+      tested(plain.words.join(" ")) ||
+      (plain !== name && tested(name.words.join(" ")))
+    );
+  };
   return {
     member,
-    specificNames: (name) => (member(name) ? [nameLabel(name)] : []),
+    specificNames: (name) =>
+      member(name) ? [nameLabel(withoutCanned(name))] : [],
   };
 }
 
@@ -293,7 +465,7 @@ function regexMatcher(text: string): IngredientMatcher {
       `A pattern can be at most ${PATTERN_MAX_LENGTH} characters long.`,
     );
   }
-  const unsafe = unsafeRepeat(body);
+  const unsafe = unsafePattern(body);
   if (unsafe) return refused(base, text, unsafe);
   let regex: RegExp;
   try {
@@ -321,7 +493,8 @@ function prefixWords(text: string): string {
     .trim();
 }
 
-function prefixMatcher(text: string, raw: string): IngredientMatcher {
+/** A word prefix's matcher, for a word of three letters or more. */
+function prefixMatcher(raw: string): IngredientMatcher {
   const prefix = prefixWords(raw);
   const base: MatcherBase = {
     id: `prefix:${prefix}`,
@@ -332,13 +505,6 @@ function prefixMatcher(text: string, raw: string): IngredientMatcher {
     question: "Which of these do you have?",
     summary: `Every line with a word starting “${prefix}” counts as on hand now. Tick the ones you have to keep only those.`,
   };
-  if ((prefix.match(/[\p{L}\p{N}]/gu) ?? []).length < PREFIX_MIN_LETTERS) {
-    return refused(
-      base,
-      text,
-      `Give at least ${PREFIX_MIN_LETTERS} letters before the *, e.g. bean*.`,
-    );
-  }
   /*
    * As typed, and as the name pipeline reads it — so `beans*` finds the
    * singular `bean` the names keep, and `mayo*` (43n's synonym) both
@@ -355,14 +521,14 @@ function prefixMatcher(text: string, raw: string): IngredientMatcher {
 }
 
 /**
- * The pattern `text` spells (43m): `/regex/` or a word prefix `bean*`, valid
- * or not (an invalid one carries `error`), or `undefined` for anything else.
+ * The pattern `text` spells (43m): `/regex/`, valid or not (an invalid one
+ * carries `error`), or a word prefix `bean*`; `undefined` for anything else.
  */
 export function patternOf(text: string): IngredientMatcher | undefined {
   const trimmed = text.trim();
   if (trimmed.startsWith("/")) return regexMatcher(trimmed);
-  const prefix = /^([^*]+?)\s*\*+$/.exec(trimmed);
-  return prefix ? prefixMatcher(trimmed, prefix[1]) : undefined;
+  const prefix = PREFIX_SHAPE.exec(trimmed.normalize("NFC"));
+  return prefix ? prefixMatcher(prefix[1]) : undefined;
 }
 
 /**
@@ -436,16 +602,12 @@ export function matcherForTyped(typed: string): IngredientMatcher | undefined {
 
 /**
  * The word prefix "Match every line with 'X'" adds for what's typed (43m):
- * `bean*` for "bean". `undefined` for a pattern already, an `any …`, or
- * fewer than three letters typed (two would offer a pattern on nearly every
- * keystroke; a typed `be*` still works).
+ * `bean*` for "bean". Only for one word of three letters or more — the
+ * shape a word prefix has (Dm1): `undefined` for "red onion", "1/2", "be"
+ * or a pattern already.
  */
 export function prefixForTyped(typed: string): IngredientMatcher | undefined {
-  const text = typed.trim();
-  if (!text || looksLikePattern(text) || /^(?:any|all)\s/i.test(text)) {
-    return undefined;
-  }
-  if ((text.match(/[\p{L}\p{N}]/gu) ?? []).length < 3) return undefined;
-  const matcher = prefixMatcher(`${text}*`, text);
-  return matcher.error ? undefined : matcher;
+  const text = typed.trim().normalize("NFC");
+  if (!PREFIX_SHAPE.test(`${text}*`)) return undefined;
+  return prefixMatcher(text);
 }

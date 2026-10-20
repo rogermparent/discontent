@@ -1422,16 +1422,14 @@ test.describe("What can I make? — start from nothing, and patterns", () => {
 
     const error = page.getByTestId("inventory-input-error");
     await input(page).fill("/may(/");
-    await expect(error).toContainText(
-      "That isn't a pattern this page can read",
-    );
+    await expect(error).toContainText("Close the ( with a ).");
     await expect(input(page)).toHaveAttribute("aria-invalid", "true");
     await input(page).press("Enter");
     await expect(input(page)).toHaveValue("/may(/");
     await expect(shelf(page).getByTestId("make-matcher")).toHaveCount(0);
 
     await input(page).fill("/(a+)+/");
-    await expect(error).toContainText("repeats a repeat");
+    await expect(error).toContainText("A group can't repeat");
 
     await input(page).fill("/may(o|onnaise)/");
     await expect(error).toBeEmpty();

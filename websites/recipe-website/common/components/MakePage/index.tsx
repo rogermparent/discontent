@@ -476,7 +476,9 @@ export function MakePage({
    * The suggestions card's tab (43m): Most used while the counted list is
    * empty, Buy next otherwise — until the visitor picks one, or taps a
    * Most used row (building a stockpile stays on that tab). Clear forgets
-   * the pick, so it lands on Most used.
+   * the pick, so it lands on Most used — when the list it emptied is the
+   * one counted; with Count from the saved list, what's counted hasn't
+   * changed and Buy next stays (Dm6).
    */
   const [pickedTab, setPickedTab] = useState<SuggestionTab | null>(null);
   const tab: SuggestionTab =

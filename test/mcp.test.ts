@@ -741,7 +741,7 @@ describe("the MCP registry over an in-memory transport", () => {
     });
     expect(broken.isError).toBe(true);
     expect((broken.content as { text: string }[])[0].text).toContain(
-      "repeats a repeat",
+      "A group can't repeat",
     );
     const withPattern = await call("inventory_makeable", {
       query: "tag:drink",

@@ -9,8 +9,10 @@ import {
   patternOf,
   prefixForTyped,
   PATTERN_MAX_LENGTH,
-  unsafeRepeat,
+  PATTERN_NAME_MAX_LENGTH,
+  unsafePattern,
 } from "recipe-website-common/util/matchers";
+import type { IngredientName } from "recipe-website-common/util/ingredientNames";
 import {
   analyzeMakeable,
   parseInventoryItem,
@@ -97,8 +99,20 @@ describe("pattern syntax (43m)", () => {
       text: "bean*",
     });
     expect(canonicalItem("Bean*")).toBe("bean*");
-    expect(canonicalItem("  Black  B*  ")).toBe("black b*");
     expect(patternOf("bean *")?.text).toBe("bean*");
+    expect(patternOf("jalapeño*")?.text).toBe("jalapeno*");
+  });
+
+  it("reads a star after anything but one word of three letters as plain text", () => {
+    /* A pasted footnote, a fraction, two words, two letters: plain items. */
+    for (const text of ["1/2*", "sugar snap*", "be*", "b*", "salt & pepper*"]) {
+      expect(patternOf(text), text).toBeUndefined();
+      expect(looksLikePattern(text), text).toBe(false);
+      expect(canonicalItem(text), text).toBe(text);
+    }
+    expect(prefixForTyped("sugar snap")).toBeUndefined();
+    expect(prefixForTyped("1/2")).toBeUndefined();
+    expect(prefixForTyped("Bean")?.text).toBe("bean*");
   });
 
   it("reads /…/ as a regular expression, keeping its text", () => {
@@ -119,13 +133,15 @@ describe("pattern syntax (43m)", () => {
   });
 
   it("says what is wrong with a pattern it can't use", () => {
-    expect(patternError("/may(/")).toMatch(/^That isn't a pattern/);
+    expect(patternError("/may(/")).toMatch(/^Close the \( with a \)/);
+    /* What the parser lets by and the engine still refuses. */
+    expect(patternError("/[z-a]/")).toMatch(/^That isn't a pattern/);
     expect(patternError("/may")).toMatch(/Close the pattern with a slash/);
     expect(patternError("//")).toMatch(/Put something between/);
     expect(patternError(`/${"a".repeat(PATTERN_MAX_LENGTH + 1)}/`)).toMatch(
       /at most 64 characters/,
     );
-    expect(patternError("b*")).toMatch(/at least 2 letters/);
+    expect(patternError("/(a+)+/")).toMatch(/A group can't repeat/);
     expect(patternError("bean*")).toBeUndefined();
     expect(patternError("lime")).toBeUndefined();
     /* A broken pattern keeps its spelling, so it can be read and fixed. */
@@ -144,69 +160,192 @@ describe("pattern syntax (43m)", () => {
     expect(inventoryKey("/^gin/")).not.toBe(inventoryKey("/gin/"));
     expect(dedupeItems(["/^gin/", "/gin/"])).toEqual(["/^gin/", "/gin/"]);
     expect(inventoryKey("bean*")).not.toBe(inventoryKey("bean"));
-    expect(parseInventoryText("/ch(ee|i){1,2}se/").items).toEqual([
-      "/ch(ee|i){1,2}se/",
-    ]);
+    /* Case aside, as it matches — but an escape keeps its case. */
+    expect(inventoryKey("/Mayo/")).toBe(inventoryKey("/mayo/"));
+    expect(inventoryKey("/mayo/i")).toBe(inventoryKey("/mayo/"));
+    expect(dedupeItems(["/Mayo/", "/mayo/"])).toEqual(["/Mayo/"]);
+    expect(inventoryKey("/a\\W/")).not.toBe(inventoryKey("/a\\w/"));
+    expect(parseInventoryText("/che{1,2}se/").items).toEqual(["/che{1,2}se/"]);
     expect(parseInventoryText("lime, bean*").items).toEqual(["lime", "bean*"]);
   });
 });
 
-describe("regex safety (43m)", () => {
-  it("refuses a repeat of a repeat, and backreferences", () => {
+/** A small seeded random source, so a failure can be replayed. */
+function seeded(seed: number): () => number {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const WORDS = (
+  "black bean green kidney red onion olive oil extra virgin lime juice " +
+  "fresh italian parsley feta cheese crumbled canned chickpea mayonnaise " +
+  "dijon mustard light brown sugar unsalted butter all purpose flour " +
+  "smoked paprika garlic clove kosher salt cucumber cherry tomato aaaa"
+).split(" ");
+
+/** 2,000 distinct names shaped like the corpus's: one to six words, a few long. */
+function corpusNames(random: () => number): IngredientName[] {
+  const names = new Set<string>();
+  while (names.size < 2000) {
+    const count =
+      random() < 0.03
+        ? 12 + Math.floor(random() * 8)
+        : 1 + Math.floor(random() * 6);
+    const words = Array.from(
+      { length: count },
+      () => WORDS[Math.floor(random() * WORDS.length)],
+    );
+    names.add(words.join(" "));
+  }
+  return [...names].map((name) => ({ words: name.split(" "), na: false }));
+}
+
+/** A random pattern from the grammar `unsafePattern` allows (and some it doesn't). */
+function randomPattern(random: () => number): string {
+  const pick = <T>(items: T[]) => items[Math.floor(random() * items.length)];
+  const atom = () =>
+    pick([
+      "a",
+      "e",
+      "n",
+      " ",
+      ".",
+      "\\w",
+      "\\s",
+      "\\W",
+      "[aeiou]",
+      "[^ ]",
+      "[a-z]",
+    ]) + pick(["", "", "", "?", "*", "+", "{1,3}", "{0,20}", "{2}"]);
+  const sequence = (depth: number): string =>
+    Array.from({ length: 1 + Math.floor(random() * 4) }, () => {
+      const roll = random();
+      if (roll < 0.1) return pick(["^", "$", "\\b"]);
+      if (roll < 0.35 && depth < 2) {
+        const branches = Array.from(
+          { length: 1 + Math.floor(random() * 3) },
+          () => sequence(depth + 1),
+        );
+        return `(${pick(["", "?:"])}${branches.join("|")})${pick(["", "", "?"])}`;
+      }
+      return atom();
+    }).join("");
+  return sequence(0) + pick(["", "!", "q", "x$"]);
+}
+
+describe("regex safety (43m, Dm2)", () => {
+  it("refuses what could backtrack for ever, whatever its shape", () => {
     for (const body of [
+      /* The review's three: single-digit counts, counted alternation, `[]`. */
+      "(\\w?){9}(\\w?){9}(\\w?){9}!",
+      "(?:a|a){9}(?:a|a){9}b",
+      "[]|([a ]+)+!]",
       "(a+)+",
-      "(a+)+$",
+      "(a|aa)+",
       "(\\w*)*x",
-      "(a|a)*",
-      "((ab)+){2,}",
-      "(?:a+)+",
-      "(x+x+)+y",
+      "((ab)+){2}",
+      "^(a|a?)+$",
+      "(.)*b",
+      "(a+)?",
+      ".*.*.*q",
+      "[\\s\\S]*[\\s\\S]*[\\s\\S]*b",
+      "a?a?a?a?a?a?a?a?a?a?b",
+      "(.|.)(.|.)(.|.)(.|.)(.|.)(.|.)(.|.)(.|.)(.|.)(.|.)!",
+      "a{1,1000}b",
+      "a{2,}",
+      "a*?",
+      "(((a)))",
     ]) {
-      expect(unsafeRepeat(body), body).toMatch(/repeats a repeat/);
+      expect(unsafePattern(body), body).toBeDefined();
+      expect(patternError(`/${body}/`), body).toBeDefined();
     }
-    expect(unsafeRepeat("(a)\\1")).toMatch(/Backreferences/);
-    expect(unsafeRepeat("(?<x>a)\\k<x>")).toMatch(/Backreferences/);
   });
 
-  it("refuses more than three unbounded repeats", () => {
-    expect(unsafeRepeat(".*.*.*")).toBeUndefined();
-    expect(unsafeRepeat(".*.*.*.*x")).toMatch(/at most 3/);
+  it("refuses what it doesn't read: backreferences, lookarounds, odd escapes, empty classes", () => {
+    expect(unsafePattern("(a)\\1")).toMatch(/Backreferences/);
+    expect(unsafePattern("(?<x>a)\\k<x>")).toMatch(/plain groups/);
+    expect(unsafePattern("(?=a)b")).toMatch(/no lookarounds/);
+    expect(unsafePattern("\\p{L}+")).toMatch(/\\p isn't one/);
+    expect(unsafePattern("[^]")).toMatch(/between the brackets/);
+    expect(unsafePattern("a]")).toMatch(/Put \\ before a \]/);
+    expect(unsafePattern("*a")).toMatch(/can't start with/);
   });
 
   it("lets ordinary patterns through", () => {
     for (const body of [
       "may(o|onnaise)",
+      "^chick",
+      "bean$",
+      "(red|green) pepper",
+      "chil[ei]",
       "^(red|green) bell",
       "chil(e|i|ies)",
       "feta|ricotta",
-      "(ab)*",
-      "(a+)?",
+      "(red )?onion",
+      "((red|green) bell|jalapeno) pepper",
       "\\bgin\\b",
       "[a-z]+ syrup",
       "(?:dark|light) rum",
+      "^\\w+ \\w+ beans?$",
+      "che{1,2}se",
       "x{2}",
+      "a\\.b",
     ]) {
-      expect(unsafeRepeat(body), body).toBeUndefined();
+      expect(unsafePattern(body), body).toBeUndefined();
       expect(patternError(`/${body}/`), body).toBeUndefined();
     }
   });
 
-  it("stays fast at its worst over a corpus of long names", () => {
-    /* Three unbounded repeats and no match: the cubic worst case it allows. */
-    const pattern = parseInventoryItem("/.*.*.*q/");
-    expect(pattern.matcher?.error).toBeUndefined();
-    const corpus: MakeRecipe[] = Array.from({ length: 2000 }, (_, i) => ({
-      slug: `r${i}`,
-      name: `R${i}`,
-      ingredients: [`1 cup ${"abcdefgh ".repeat(11)}${i}`],
-    }));
-    const started = performance.now();
-    const analysis = analyzeMakeable(corpus, prepareCorpus(corpus), [
-      "/.*.*.*q/",
-    ]);
-    const elapsed = performance.now() - started;
-    expect(analysis.canMake).toEqual([]);
-    expect(elapsed).toBeLessThan(5000);
+  it("runs anything it allows over 2,000 corpus-like names in under 200 ms", () => {
+    const random = seeded(43);
+    const names = corpusNames(random);
+    /* The heaviest shapes the grammar allows, then random ones. */
+    const patterns = [
+      ".*.*q",
+      "\\w+\\s\\w+!",
+      ".{0,20}.{0,20}q",
+      "(.|.)(.|.)(.|.)(.|.)(.|.)(.|.)(.|.)(.|.)(.|.)!",
+      ".?.?.?.?.?.?.?.?.?q",
+      "(a|e|n|.|\\w)(a|e|n|.|\\w)(a|e|n|.|\\w)(a|e|n|.)!",
+    ];
+    let tries = 0;
+    while (patterns.length < 300 && tries++ < 20000) {
+      const body = randomPattern(random);
+      if (
+        body.trim() &&
+        body.length <= PATTERN_MAX_LENGTH &&
+        !unsafePattern(body)
+      ) {
+        patterns.push(body);
+      }
+    }
+    expect(patterns.length).toBe(300);
+    for (const body of patterns) {
+      expect(patternOf(`/${body}/`)!.error, body).toBeUndefined();
+      /* Best of three, each with a fresh matcher (names are memoized), so a
+       * busy machine's one slow pass doesn't fail it. */
+      let best = Infinity;
+      for (let pass = 0; pass < 3 && best >= 200; pass++) {
+        const matcher = patternOf(`/${body}/`)!;
+        const started = performance.now();
+        for (const name of names) matcher.member(name);
+        best = Math.min(best, performance.now() - started);
+      }
+      expect(best, body).toBeLessThan(200);
+    }
+  });
+
+  it("tests at most 120 characters of a name", () => {
+    const long: IngredientName = {
+      words: ["a".repeat(PATTERN_NAME_MAX_LENGTH), "beyond"],
+      na: false,
+    };
+    expect(patternOf("/beyond/")!.member(long)).toBe(false);
+    expect(patternOf("/^a/")!.member(long)).toBe(true);
   });
 });
 
@@ -237,6 +376,16 @@ describe("pattern items meet lines (43m)", () => {
     expect(meets("/may(o|onnaise)/", "1 tsp dijon")).toBe(false);
     /* Over the normalized name: accents off, as names are. */
     expect(meets("/crème/", "1 cup crème fraîche")).toBe(true);
+  });
+
+  it("reads past a leading “canned”, as Make does (43n)", () => {
+    const canned: IngredientName = { words: ["canned", "chickpea"], na: false };
+    expect(patternOf("/^chick/")!.member(canned)).toBe(true);
+    expect(patternOf("chick*")!.member(canned)).toBe(true);
+    expect(patternOf("/^chick/")!.specificNames(canned)).toEqual(["chickpea"]);
+    /* The whole name is tried too. */
+    expect(patternOf("/^canned/")!.member(canned)).toBe(true);
+    expect(meets("/^chick/", "1 (15 oz) can chickpeas, drained")).toBe(true);
   });
 
   it("a plain item stays exact: `bean` and `mayo` mean what they say", () => {
@@ -355,6 +504,7 @@ describe("the add field offers patterns, never over a name (43m)", () => {
     );
     expect(prefixForTyped("any bean")).toBeUndefined();
     expect(prefixForTyped("b")).toBeUndefined();
+    expect(prefixForTyped("red onion")).toBeUndefined();
     expect(matcherForTyped("bean*")).toBeUndefined();
   });
 });
@@ -375,6 +525,22 @@ describe("Most used here (43m, start from nothing)", () => {
     /* "mayo" and "mayonnaise" too. */
     expect(rows).toContainEqual({ name: "mayonnaise", recipes: 2 });
     expect(rows).toContainEqual({ name: "black bean", recipes: 2 });
+    /* A can's "canned" is read past, as Make reads it (43n). */
+    expect(rows).toContainEqual({ name: "chickpea", recipes: 1 });
+    expect(rows.map((row) => row.name)).not.toContain("canned chickpea");
+    /* Canned and plain lines are one row. */
+    const mixed: MakeRecipe[] = [
+      { slug: "a", name: "A", ingredients: ["1 (15 oz) can black beans"] },
+      { slug: "b", name: "B", ingredients: ["2 cups black beans, rinsed"] },
+    ];
+    expect(
+      mostUsed({
+        scoped: mixed,
+        prepared: prepareCorpus(mixed),
+        have: [],
+        staples: [],
+      }),
+    ).toEqual([{ name: "black bean", recipes: 2 }]);
   });
 
   it("skips optional lines, staples and what's on hand", () => {

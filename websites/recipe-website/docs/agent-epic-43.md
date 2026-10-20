@@ -830,7 +830,8 @@ Files: `common/util/makeable.ts`, `matchers.ts`, `beans.ts`, `MakePage/` (`index
 
 #### Results (43m)
 
-Branch `agent/43m-make` (origin/main 51465477 + `agent/43n-ingredient-names`).
+Branch `agent/43m-make` (origin/main 51465477 + `agent/43n-ingredient-names`;
+origin/main 03974887 — 43a and 43n's final #297 — merged in after review).
 **Reindex needed: no** (nothing an index, aggregate or `specVersions` pins
 changed; the inventory file's format is the same text). **Deploy: yes** (the
 editor's and the export's `/make`, the homepage tile and `/drinks` read the
@@ -862,14 +863,19 @@ settings; the CLI, the stdio MCP and `/api/inventory/make` answer without
   - `/may(o|onnaise)/` — a **regular expression**, case-insensitive, tested
     against each line's normalized name (the words `nameLabel` shows, accents
     off). Kept as written (an `i` flag is tolerated and dropped).
-    `inventoryKey` keys it as written (`fold` drops `^`), and Import never
+    `inventoryKey` keys it as written but for case (Dm10), and Import never
     splits it on a comma.
+  - **"canned"** (43n's #297 reads every can shape as `canned X`): a pattern
+    tests the name without it (`withoutCanned`) and then the whole name, so
+    `/^chick/` and `chick*` meet "1 can chickpeas" and refine to `chickpea`,
+    and `/^canned/` still meets it (Dm11).
   - **The add field**: a typed pattern is offered as itself ("✱
     /may(o|onnaise)/ — matches 1 name in these recipes") and Enter adds it
     whole; an invalid one says why under the field (`aria-invalid`,
-    `aria-describedby`) and Enter leaves it there to fix. Plain text ends the
-    list with **"✱ Match every line with “bean”"** (adds `bean*`), last and
-    never ranked over a name, only when it matches two names in scope (Dm4). "Any
+    `aria-describedby`) and Enter leaves it there to fix. One typed word of
+    three letters or more ends the list with **"✱ Match every line with
+    “bean”"** (adds `bean*`), last and never ranked over a name, only when it
+    matches two names in scope (Dm4). "Any
     bean" is still offered for "bean". A hint under the field says what a
     star and slashes do.
   - **The tape** is 42m2's `MatcherTape`: ✱, its pull, and a popover
@@ -909,17 +915,39 @@ settings; the CLI, the stdio MCP and `/api/inventory/make` answer without
   exactly as before (Roger: "plain items stay exact; patterns opt in").
   `bean*` is the prefix, not the family — checked before the family's
   spellings, which used to strip a `*`. No leading `*` (`*bean`) or infix
-  forms; a prefix needs two letters.
-- **Dm2 — Regex safety is a static refusal, plus a time-bound test.** Body
-  at most 64 characters; at most three unbounded repeats (`*`, `+`, `{n,}`);
-  no group that repeats without bound while something inside it repeats or
-  alternates (`(a+)+`, `(\w*)*`, `(a|a)*`, `((ab)+){2,}`); no
-  backreferences; compiled once in a try/catch; each distinct name tested
-  once (memoized). `unsafeRepeat` is a scan, not a parser (escapes and
-  classes skipped; `(?:…)` and lookarounds aren't repeats). The vitest
-  runs the worst it allows (`/.*.*.*q/`) over 2,000 names of ~100
-  characters against a 5 s bound. Refusing every quantified alternation
-  is conservative: `(red|green)*` is refused though harmless.
+  forms. A prefix is **one run of three letters or more** before the star
+  (review): "1/2*", "sugar snap*", `be*` and a pasted "salt & pepper*" stay
+  plain items, and the add field's "Match every line with" row shows only
+  for one typed word.
+- **Dm2 — Regex safety is a whitelist parser, plus a time-bound fuzz test**
+  (rewritten after review: the first version, a scan for nested repeats,
+  was beaten three ways — `(\w?){9}(\w?){9}(\w?){9}!` (single-digit counts
+  unchecked), `(?:a|a){9}(?:a|a){9}b` (counted alternation) and
+  `[]|([a ]+)+!]` (`[]` is a closed empty class in JavaScript) each ran
+  15–30 s on real names). `unsafePattern` parses a safe subset and refuses
+  anything else with a sentence saying what to change:
+  - atoms: a literal, `.`, `\w \d \s` (and capitals), `\b \B`, an escaped
+    punctuation mark, a character class read as JavaScript reads one (an
+    empty `[]` / `[^]` refused); a bare `]` or `}` must be escaped;
+  - a repeat `? * + {n} {n,m}` only right after one atom, one at a time (no
+    lazy `*?`), bounds ≤ 20, no `{n,}`;
+  - groups `( … )` / `(?: … )` for alternation only, at most 2 deep; a group
+    may be followed by `?` only, and only when nothing inside it repeats; no
+    lookarounds, backreferences or named groups;
+  - `^`, `$` anywhere (never repeated); body ≤ 64 characters;
+  - **a ways budget** (beyond the brief's list, which alone still admits
+    `\w*\w*\w*\w*!`, polynomial in a name's length): each `?` doubles the
+    ways to match from one place, `{n,m}` multiplies by its range, `*`/`+`
+    by 20, a group adds its branches; more than 1,000 is refused — `.*.*`
+    (400) and nine optional groups (512) pass, `.*.*.*` and ten don't.
+    Every name is tested on its first 120 characters, each distinct name once
+    (memoized), and the regex is compiled once in a try/catch. The vitest
+    refuses the three attacks and more, accepts the useful shapes
+    (`/may(o|onnaise)/`, `/^chick/`, `/bean$/`, `/(red|green) pepper/`,
+    `/chil[ei]/`, …), and runs 300 patterns — the heaviest the grammar
+    allows plus random ones generated from it (seeded) — each over 2,000
+    corpus-like names (some long) in under 200 ms. Conservative:
+    `(red|green)*`, `(ab)+` and `ch(ee|i){1,2}se` are refused though harmless.
 - **Dm3 — A pattern meets strictly, like the family**: it counts for can
   make, pull and the what-if; never a close match, never a non-alcoholic
   name or an infusion's flavour (`matcherMeets`). An invalid one stored
@@ -936,9 +964,13 @@ settings; the CLI, the stdio MCP and `/api/inventory/make` answer without
 - **Dm6 — Most used is a tab beside Buy next, one card** (the brief's
   "record"). Empty list → Most used; otherwise Buy next, unless the visitor
   picked a tab or tapped a Most used row; Clear forgets the pick, so it lands
-  on Most used. `canned black bean` and `black bean` stay two rows (43n's
-  Dn2; each meets the other's lines, so either tap does). Pantry staples
-  are left out because they count as on hand.
+  on Most used when the list it emptied is the one counted — with Count from
+  the saved list, Clear empties this browser's list, what's counted hasn't
+  changed, and the card stays on Buy next. A row is keyed and labelled by
+  its name without a leading "canned" (`withoutCanned`, after #297), so "1
+  can black beans" and "2 cups black beans" are one `black bean` row and a
+  tap adds `black bean`. Pantry staples are left out because they count as
+  on hand.
 - **Dm7 — Focus after a Most used tap goes to the next row, not Undo**
   (42m2's card tap moves to Undo). The point is adding one after another;
   Undo stays in the toast and on Ctrl+Z (41h's Dh9).
@@ -947,11 +979,23 @@ settings; the CLI, the stdio MCP and `/api/inventory/make` answer without
 - **Dm9 — The seats tolerate the old inputs.** Strict schemas would have
   refused an agent that learned `beanSwaps` from 42m's description; it
   stays in the schema, described as ignored.
+- **Dm10 — A regular expression's key folds its case, not its escapes.**
+  Matching is case-insensitive, so `/Mayo/` and `/mayo/` are one item (the
+  first spelling kept); `\W` stays `\W` (it isn't `\w`). `fold` still isn't
+  used: it drops `^`.
+- **Dm11 — A pattern reads past a leading "canned"** as Make's names do
+  (43n's `withoutCanned`), and tries the whole name too: `/^chick/` meets
+  "canned chickpea", `/^canned/` still does. Refine rows and "Keep only
+  these" write the uncanned name (`chickpea`). The seats' `missing` keeps
+  the line's label as written (`canned chickpea`), as #297 left it.
 
 **Roger to confirm:** Most used as a tab rather than always beside Buy next
 (Dm6), and pantry staples left out of it; `bean*` meeting green and vanilla
-beans (it's a word match — `any bean` is still the family); regexes refused
-for nested repeats and quantified alternation (Dm2); regexes not
+beans (it's a word match — `any bean` is still the family); a pasted
+footnote `sugar*` reading as a pattern (any one word of three letters and a
+star does, Dm1); regexes refused outside the whitelist — no repeated
+groups, a ways budget (Dm2); Clear with Count from the saved list staying
+on Buy next (Dm6); regexes not
 featurable (Dm5); focus moving to the next Most used row (Dm7); anyone who
 relied on "With a bean swap" now puts `any bean` or `bean*` on the list.
 

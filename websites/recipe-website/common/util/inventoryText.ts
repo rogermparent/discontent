@@ -16,13 +16,20 @@ export const MAX_ITEMS = 500;
 
 /**
  * Two entries are the same item when their keys match: case, accents and
- * spacing aside. A regular expression (43m, `/…/`) is keyed as written:
- * `fold` drops `^` and `` ` `` (Unicode calls them diacritics), and case
- * changes `\w` into `\W`.
+ * spacing aside. A regular expression (43m, `/…/`) is keyed as written but
+ * for case, since it matches case-insensitively (`/Mayo/` is `/mayo/`):
+ * `fold` would drop `^` and `` ` `` (Unicode calls them diacritics), and an
+ * escape keeps its case, as `\w` and `\W` differ.
  */
 export function inventoryKey(item: string): string {
   const trimmed = item.trim();
-  if (/^\/.+\/i?$/s.test(trimmed)) return trimmed.replace(/\/i$/, "/");
+  if (/^\/.+\/i?$/s.test(trimmed)) {
+    return trimmed
+      .replace(/\/i$/, "/")
+      .replace(/(\\.)|[^\\]+/gs, (run, escape) =>
+        escape ? run : run.toLowerCase(),
+      );
+  }
   return fold(item).replace(/\s+/g, " ").trim();
 }
 

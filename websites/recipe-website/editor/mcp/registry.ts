@@ -1218,12 +1218,15 @@ export function createRecipeServer(
         "Write the generic name first (`aperitif (Gnista)` or just `Gnista`), the way " +
         "recipe lines are written. A plain item matches exactly; a matcher stands " +
         "for many: `any bean` — every canned or dried bean a line names (never " +
-        "green or vanilla beans; `beans` is stored as `any bean`); a word with a " +
-        'star, `bean*` — every line naming a word that starts "bean" (green and ' +
-        "vanilla beans too, not chickpeas); a regular expression between slashes, " +
-        "`/may(o|onnaise)/` — tested case-insensitively against each line's " +
-        "normalized name, at most 64 characters, no nested repeats like (a+)+ " +
-        "(refused as a validation error).",
+        "green or vanilla beans; `beans` is stored as `any bean`); one word of " +
+        "three letters or more with a star, `bean*` — every line naming a word " +
+        'that starts "bean" (green and vanilla beans too, not chickpeas); a ' +
+        "regular expression between slashes, `/may(o|onnaise)/` — tested " +
+        "case-insensitively against each line's normalized name, at most 64 " +
+        "characters, in a simple subset: a ?, *, + or {n,m} (at most 20) after " +
+        "one character or class, groups only for alternatives like (o|onnaise), " +
+        "no repeated groups like (a+)+, lookarounds or backreferences (anything " +
+        "else is refused as a validation error, saying why).",
       inputSchema: z.strictObject({
         items: z.array(InventoryAddItemSchema).min(1).max(500),
       }),

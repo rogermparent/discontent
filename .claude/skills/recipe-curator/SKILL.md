@@ -551,11 +551,13 @@ names (black, pinto, chickpeas, cannellini…; never green, wax or vanilla
 beans, lentils or refried beans), and counts as had. `beans` and `any beans`
 are stored as `any bean`. A plain item matches exactly; a **pattern** is
 opt-in, for when Roger says so ("I have all sorts of beans" → `any bean`;
-"anything called mayo" → `mayo*`): `bean*` meets every line naming a word
-that starts "bean" (green and vanilla beans too), and `/may(o|onnaise)/` — a
-regular expression between slashes — every line whose normalized name it
-matches (case-insensitive, at most 64 characters; a nested repeat like
-`(a+)+` is refused). `inventory_makeable` →
+"anything called mayo" → `mayo*`): `bean*` — one word of three letters or
+more, then a star — meets every line naming a word that starts "bean" (green
+and vanilla beans too), and `/may(o|onnaise)/` — a regular expression
+between slashes — every line whose normalized name it matches
+(case-insensitive, at most 64 characters, a simple subset: a repeat only
+after one character or class, groups only for alternatives — `(a+)+`, a
+lookaround or a backreference is refused, with the reason). `inventory_makeable` →
 `{query, scope, features, link, staples, alwaysHave, inventory,
 total, canMake, oneAway, twoAway, further, buyNext}` (`scope` is the query with
 each feature written in; `total` counts the recipes judged, after the
