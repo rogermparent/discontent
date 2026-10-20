@@ -428,7 +428,7 @@ export function planDocket(view: ShoppingView, limit = 5): PlanDocket {
       label: AISLE_LABELS[aisle],
       rows: count,
     }));
-  /* Still to buy: the store lists and the on-hand fold, not the ticked. */
+  /* Still to buy: the store lists and the "probably have" fold, never the ticked. */
   const big = rows
     .filter((row) => !row.checked)
     .map((row, order) => ({ row, order }))
