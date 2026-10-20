@@ -25,6 +25,7 @@
 import { fold } from "../components/SearchForm/queryLanguage";
 import { detectHeading } from "./detectHeading";
 import {
+  joinMixedNumbers,
   NUMBER,
   QUANTITY_RE,
   UNIT_ALT_RE,
@@ -1033,7 +1034,9 @@ function requirement(
 function tidyLine(text: string): string {
   /* Each rewrite runs only when its character is there: this is every
    * line's first step (43n review, the parse's speed). */
-  let out = text;
+  /* `2 and 1/4 cups` (43n2): the amount's own number, so the unit after it
+   * goes too — the name was `cup all purpose flour`. */
+  let out = joinMixedNumbers(text);
   if (/[x×]/i.test(out)) out = out.replace(/(?<=\d)\s*[x×]\s*(?=\d)/g, " ");
   if (/ish\b/i.test(out)) out = out.replace(/(?<=\d)ish\b/gi, "");
   if (out.includes("+")) out = out.replace(/(?<=\S)\+(?=\S)/g, " + ");
