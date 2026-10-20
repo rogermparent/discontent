@@ -8,6 +8,7 @@ import type { MassagedRecipeEntry } from "../../controller/data/read";
 import {
   nameLabel,
   requirementLabel,
+  withoutCanned,
   type Requirement,
 } from "../../util/ingredientNames";
 import type {
@@ -137,7 +138,8 @@ function MissingTapes({
 }) {
   if (!onAdd) return <StaticTape>{requirementLabel(requirement)}</StaticTape>;
   return requirement.alternatives.map((name, i) => {
-    const item = nameLabel(name);
+    /* What goes on the list: "black bean", not "canned black bean" (Dn2). */
+    const item = nameLabel(withoutCanned(name));
     return (
       <Fragment key={`${i}-${item}`}>
         {i > 0 && <span> or </span>}

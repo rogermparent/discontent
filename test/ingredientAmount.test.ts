@@ -682,3 +682,32 @@ describe("formatAmount", () => {
     expect(shown("1/2 cup (100g) sugar")).toBe("½ cup");
   });
 });
+
+describe("parseAmount — the 43n shapes", () => {
+  const m = (n: string) => `<Multiplyable baseNumber="${n}" />`;
+
+  it("reads balela-salad's ranges and dashes as the names do", () => {
+    expect(
+      shown(`${m("1/2")} cup to ${m("1")} cup Italian parsley – chopped`),
+    ).toBe("1 cup");
+    expect(
+      shown(`${m("1/4")}- ${m("1/2")} teaspoon cayenne or aleppo chili flakes`),
+    ).toBe("½ tsp");
+    expect(
+      shown(
+        `${m("3")} cups cooked garbanzo beans- ( ${m("2")} cans, drained and rinsed)`,
+      ),
+    ).toBe("3 cups");
+    expect(shown(`${m("1")} red bell pepper-diced`)).toBe("1");
+  });
+
+  it("reads a packed cup and a size as part of the amount", () => {
+    /* Was `1`: "packed" stopped the unit (43n's `MODIFIER`). */
+    expect(shown("1 packed cup cilantro (plus more for garnish)")).toBe(
+      "1 cup",
+    );
+    expect(shown("150g or 3 med carrot, diced")).toBe("150 g");
+    expect(shown("1lb/.5kg Frozen tater tots")).toBe("1 lb");
+    expect(shown("3-4lbs/1.5-2kg Chuck roast")).toBe("4 lb");
+  });
+});
