@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import {
   CalendarDays,
+  ClipboardList,
   CookingPot,
   Ellipsis,
   Pencil,
@@ -91,16 +92,33 @@ function createdOn(date: number): { key: string; text: string } {
   return { key, text: `${dayMonth(key)} ${d.getUTCFullYear()}` };
 }
 
-/** Plan / Cook: the page's two jobs (canvas B; /shopping's switch). */
+const MODE_ICONS = {
+  plan: CalendarDays,
+  sheet: ClipboardList,
+  cook: CookingPot,
+} as const;
+
+const MODE_NAMES = { plan: "Plan", sheet: "Run sheet", cook: "Cook" } as const;
+
+/**
+ * Plan / Cook: the page's two jobs (canvas B; /shopping's switch) — and,
+ * between them, the Run sheet (43p2, canvas C) when the plan has one.
+ */
 export function PlanModeSwitch({
   mode,
   onChange,
+  sheet = false,
   className,
 }: {
   mode: PlanMode;
   onChange: (mode: PlanMode) => void;
+  /** Offer the run sheet (`hasRunSheet`). */
+  sheet?: boolean;
   className?: string;
 }) {
+  const modes: PlanMode[] = sheet
+    ? ["plan", "sheet", "cook"]
+    : ["plan", "cook"];
   return (
     <div
       role="group"
@@ -111,8 +129,8 @@ export function PlanModeSwitch({
         className,
       )}
     >
-      {(["plan", "cook"] as const).map((each) => {
-        const Icon = each === "plan" ? CalendarDays : CookingPot;
+      {modes.map((each) => {
+        const Icon = MODE_ICONS[each];
         return (
           <button
             key={each}
@@ -128,7 +146,7 @@ export function PlanModeSwitch({
             )}
           >
             <Icon aria-hidden className="size-4" />
-            {each === "plan" ? "Plan" : "Cook"}
+            {MODE_NAMES[each]}
           </button>
         );
       })}
@@ -234,6 +252,7 @@ export function PlanHead({
   media,
   mode,
   onMode,
+  sheet,
   editor,
 }: {
   data: PlanPageData;
@@ -241,6 +260,8 @@ export function PlanHead({
   media?: ReactNode;
   mode: PlanMode;
   onMode: (mode: PlanMode) => void;
+  /** The plan has a run sheet: the switch offers it. */
+  sheet?: boolean;
   editor?: PlanEditor;
 }) {
   const recipes = data.rows.filter(
@@ -262,7 +283,15 @@ export function PlanHead({
           <span data-testid="group-kind">{groupKindLabel(data.kind)}</span>
           {data.holiday && <PlanHolidayWhen holiday={data.holiday} />}
         </p>
-        <h1 className="text-[1.625rem] leading-8 font-bold tracking-[-0.01em] sm:text-3xl sm:leading-9">
+        <h1
+          className={cn(
+            "font-bold",
+            mode === "sheet"
+              ? /* The run sheet's title is the sheet's header (canvas C). */
+                "font-display text-[2.75rem] leading-[0.98] tracking-[-0.04em] lg:text-[4.5rem] lg:leading-[0.95]"
+              : "text-[1.625rem] leading-8 tracking-[-0.01em] sm:text-3xl sm:leading-9",
+          )}
+        >
           {data.name}
         </h1>
         {description && <div className="max-w-[680px]">{description}</div>}
@@ -300,7 +329,7 @@ export function PlanHead({
         </div>
       </div>
       <div className="flex items-center gap-2 print:hidden">
-        <PlanModeSwitch mode={mode} onChange={onMode} />
+        <PlanModeSwitch mode={mode} onChange={onMode} sheet={sheet} />
         {editor && <MoreMenu slug={data.slug} editor={editor} />}
       </div>
     </div>

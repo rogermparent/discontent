@@ -1,0 +1,51 @@
+/*
+ * The run sheet's shopping docket (epic 43, 43p2 — canvas C): a till
+ * receipt torn off at the foot, a `clip-path` zigzag 8 px deep. Imported by
+ * both apps' globals.css, in the components layer like `make.css`. The
+ * docket's padding keeps its last link (and that link's focus outline) clear
+ * of the teeth; colours stay the card's tokens, so both themes and every
+ * accent keep their contrast.
+ */
+@layer components {
+  .plan-docket {
+    clip-path: polygon(
+      0 0,
+      100% 0,
+      100% calc(100% - 8px),
+      97% 100%,
+      94% calc(100% - 8px),
+      91% 100%,
+      88% calc(100% - 8px),
+      85% 100%,
+      82% calc(100% - 8px),
+      79% 100%,
+      76% calc(100% - 8px),
+      73% 100%,
+      70% calc(100% - 8px),
+      67% 100%,
+      64% calc(100% - 8px),
+      61% 100%,
+      58% calc(100% - 8px),
+      55% 100%,
+      52% calc(100% - 8px),
+      49% 100%,
+      46% calc(100% - 8px),
+      43% 100%,
+      40% calc(100% - 8px),
+      37% 100%,
+      34% calc(100% - 8px),
+      31% 100%,
+      28% calc(100% - 8px),
+      25% 100%,
+      22% calc(100% - 8px),
+      19% 100%,
+      16% calc(100% - 8px),
+      13% 100%,
+      10% calc(100% - 8px),
+      7% 100%,
+      4% calc(100% - 8px),
+      1% 100%,
+      0 calc(100% - 8px)
+    );
+  }
+}
