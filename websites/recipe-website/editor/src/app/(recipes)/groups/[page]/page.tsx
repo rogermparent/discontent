@@ -1,4 +1,4 @@
-import { groupIndexRoutes } from "recipe-website-common/components/GroupIndexPage/routes";
+import { editorGroupIndexRoutes as groupIndexRoutes } from "../routes";
 
 /**
  * A numbered page. `/groups/1` is the *oldest* page, not an alias for the

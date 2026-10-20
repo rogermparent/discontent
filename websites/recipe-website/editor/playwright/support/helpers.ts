@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { expectHydrated } from "./hydration";
 
 export interface SignInOptions {
   email?: string;
@@ -192,6 +193,20 @@ export async function checkNamesInOrder(
  * with that exact name would make every one of them ambiguous. It is
  * "Delete recipe", "Delete menu", and so on — hence `itemLabel`.
  */
+/**
+ * Open a plan page's More menu (43p1): Edit, Feature and Delete live there,
+ * for a signed-in editor only. Waits for the trigger to hydrate first — a
+ * Radix trigger clicked before that does nothing (40f).
+ */
+export async function openPlanMenu(page: Page): Promise<void> {
+  const more = page.getByRole("button", { name: "More", exact: true });
+  await expectHydrated(more);
+  await more.click();
+  await expect(
+    page.getByRole("list", { name: "More for this plan" }),
+  ).toBeVisible();
+}
+
 export async function deleteWithConfirm(
   page: Page,
   itemLabel: string,
