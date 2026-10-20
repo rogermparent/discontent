@@ -46,6 +46,11 @@ export interface PlanSubPlanView {
   thumbs: Array<{ slug: string; image: string }>;
   /** The walk stopped at its cap. */
   truncated?: true;
+  /**
+   * Its own page has a run sheet (43p2 review): one of its recipes' steps
+   * gives a bake or a chill — the row's link says "Its own run sheet".
+   */
+  sheet?: true;
 }
 
 /** One row of the plan, in the plan's order. */

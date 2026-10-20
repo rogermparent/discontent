@@ -6,6 +6,8 @@
 @import "../../node_modules/recipe-website-common/components/MakePage/make.css";
 /* The recipe page's columns (42c1); the export imports the same file. */
 @import "../../node_modules/recipe-website-common/components/View/recipe.css";
+/* The run sheet's torn docket (43p2); the export imports the same file. */
+@import "../../node_modules/recipe-website-common/components/GroupDetailPage/plan.css";
 @source "../../node_modules/recipe-website-common/components";
 @source "../../node_modules/@discontent/component-library/components";
 
