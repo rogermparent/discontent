@@ -34,6 +34,7 @@ import {
   lineSegments,
   linesAsText,
   linesFromText,
+  markLine,
   plainLine,
   remarkLine,
   splitLine,
@@ -280,6 +281,43 @@ describe("ingredient rows (ingredientRows)", () => {
     expect(remarkLine("1 cup", "")).toBe("");
   });
 
+  it("keeps a leading emphasis pair when it marks a line", () => {
+    expect(remarkLine("", "*Optional:* 3 sprigs mint")).toBe(
+      '*Optional:* <Multiplyable baseNumber="3" /> sprigs mint',
+    );
+    expect(remarkLine("", "**Garnish:** 1 lime wheel")).toBe(
+      '**Garnish:** <Multiplyable baseNumber="1" /> lime wheel',
+    );
+    /* A bullet is still a bullet. */
+    expect(remarkLine("", "* 2 cups flour")).toBe(
+      '<Multiplyable baseNumber="2" /> cups flour',
+    );
+    /* Through Edit as text too, and a whole-line emphasis heading. */
+    expect(
+      linesFromText("*Optional:* 3 sprigs mint\n*For the glaze:*", []),
+    ).toEqual([
+      { ingredient: '*Optional:* <Multiplyable baseNumber="3" /> sprigs mint' },
+      { ingredient: "*For the glaze:*", type: "heading" },
+    ]);
+    expect(markLine("")).toBeUndefined();
+  });
+
+  it("marks every number in an edited line, as an import does (De2-9); a heading row never", () => {
+    /* createIngredient — the paste and import marker — marks each number
+     * outside a per-serving line; an edited row is marked the same way. */
+    expect(remarkLine("", "1 (9-inch) pie crust")).toBe(
+      '<Multiplyable baseNumber="1" /> (<Multiplyable baseNumber="9" />-inch) pie crust',
+    );
+    /* A heading row stores what was typed. */
+    expect(remarkLine("For the crust", "For the 9-inch crust", true)).toBe(
+      "For the 9-inch crust",
+    );
+    expect(remarkLine("", "  Bake at 350°F:  ", true)).toBe("Bake at 350°F:");
+    /* Untouched, a marked heading keeps its markup. */
+    const marked = 'For <Multiplyable baseNumber="2" /> pies';
+    expect(remarkLine(marked, "For 2 pies", true)).toBe(marked);
+  });
+
   it("splits the amount column from the line", () => {
     expect(
       splitLine("2 cups (250g) all-purpose flour (spooned & leveled)"),
@@ -356,6 +394,20 @@ describe("ingredient rows (ingredientRows)", () => {
       { ingredient: '<Multiplyable baseNumber="3" /> oz gin' },
       { ingredient: '<Multiplyable baseNumber="1" /> egg white' },
     ]);
+  });
+
+  it("Edit as text keeps a stored line's whitespace and a line cut and pasted back", () => {
+    const lines = [
+      { ingredient: ' <Multiplyable baseNumber="2" /> cups flour ' },
+      { ingredient: 'Juice of <Multiplyable baseNumber="2" /> limes' },
+    ];
+    const text = linesAsText(lines);
+    expect(linesFromText(text, lines)).toEqual(lines);
+    /* Cut: the list loses the line; pasted back, the pool (the list as it
+     * was when the text opened) still has it, hand mark and all. */
+    const cut = linesFromText(text.split("\n")[0], lines);
+    expect(cut).toEqual([lines[0]]);
+    expect(linesFromText(text, [...cut, ...lines])).toEqual(lines);
   });
 
   it("counts flagged lines for the rail: 12 · 1 check", () => {

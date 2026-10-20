@@ -17,6 +17,7 @@ import {
   UNIT_RE,
 } from "../../../util/ingredientGrammar";
 import { createIngredient } from "../../../util/parseIngredients";
+import { detectHeading } from "../../../util/detectHeading";
 import type { Ingredient } from "../../../controller/types";
 
 const MULTIPLYABLE_RE = /<Multiplyable\s+baseNumber="([^"]*)"\s*\/>/g;
@@ -26,17 +27,47 @@ export function plainLine(stored: string): string {
   return (stored ?? "").replace(MULTIPLYABLE_RE, "$1");
 }
 
+/** `*Optional:*`, `**Garnish:**` — an emphasis pair the line starts with. */
+const LEADING_EMPHASIS_RE = /^(\*\*?)(?!\s)[^*\n]+?(?<!\s)\1(?!\*)/;
+
+/**
+ * A typed plain line marked up as a paste is (`createIngredient`: bullets
+ * off, fractions decomposed, every number outside a per-serving line marked
+ * — De2-9), except that a leading emphasis pair is kept: the paste cleanup
+ * reads its `*` as a bullet and would leave "Optional:* 3 sprigs mint".
+ * The pair is held aside, the rest marked, and the pair put back; whether
+ * it is a heading is read from the line without the stars.
+ */
+export function markLine(typed: string): Ingredient | undefined {
+  const plain = plainLine(typed).trim();
+  const lead = LEADING_EMPHASIS_RE.exec(plain);
+  if (!lead) return createIngredient(plain);
+  const restText = plain.slice(lead[0].length);
+  const rest = restText.trim() ? createIngredient(restText) : undefined;
+  const space = /^\s/.test(restText) ? " " : "";
+  const ingredient = rest ? `${lead[0]}${space}${rest.ingredient}` : lead[0];
+  const heading = detectHeading(plain.replaceAll("*", "").trim());
+  return { ingredient, ...(heading && { type: "heading" as const }) };
+}
+
 /**
  * The line to store for what was typed in a row: the stored string itself
  * when the text reads the same as it (nothing to re-mark — a hand-placed
- * mark survives), else the typed text marked up by `createIngredient`
- * (markup typed by hand is read as its numbers first, so it is never marked
- * twice). Blank stays blank: the schema reports an empty line.
+ * mark survives), else the typed text marked up by `markLine` (markup typed
+ * by hand is read as its numbers first, so it is never marked twice).
+ * Blank stays blank: the schema reports an empty line.
+ *
+ * A heading row is never marked: its text is stored as typed (trimmed), so
+ * "For the 9-inch pan" keeps its 9 as words, not a scaling number.
  */
-export function remarkLine(stored: string, typed: string): string {
+export function remarkLine(
+  stored: string,
+  typed: string,
+  heading = false,
+): string {
   if (plainLine(stored) === typed) return stored;
-  const plain = plainLine(typed);
-  return createIngredient(plain)?.ingredient ?? "";
+  if (heading) return plainLine(typed).trim();
+  return markLine(typed)?.ingredient ?? "";
 }
 
 /** A line split for the row: the amount column, and the rest. */
@@ -213,9 +244,12 @@ export function inlineRuns(text: string): InlineRun[] {
 
 /**
  * The text view's lines back into the list, keeping what did not change:
- * a line whose text reads the same as one already in the list keeps that
- * line — its markup and whether it is a heading — and a new one is marked
- * up as a paste is (`createIngredient`, heading detection included).
+ * a line whose text reads the same as one in `previous` keeps that line —
+ * its markup, its surrounding whitespace and whether it is a heading — and
+ * a new one is marked up as a paste is (`markLine`, heading detection
+ * included). `previous` is the pool to match against: the text view passes
+ * the list as it is now and then the list as it was when the view opened,
+ * so a line cut and pasted back keeps its markup.
  */
 export function linesFromText(
   text: string,
@@ -228,13 +262,14 @@ export function linesFromText(
     .filter(Boolean)
     .map((raw) => {
       const match = unused.find(
-        (entry) => !entry.used && plainLine(entry.line.ingredient) === raw,
+        (entry) =>
+          !entry.used && plainLine(entry.line.ingredient).trim() === raw,
       );
       if (match) {
         match.used = true;
         return match.line;
       }
-      return createIngredient(plainLine(raw)) ?? { ingredient: raw };
+      return markLine(raw) ?? { ingredient: raw };
     })
     .filter((line) => line.ingredient);
 }

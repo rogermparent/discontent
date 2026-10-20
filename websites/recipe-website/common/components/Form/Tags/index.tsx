@@ -98,6 +98,7 @@ export function ChosenTags() {
   const tags = useFormTags();
   return (
     <div
+      role="group"
       className="flex flex-wrap items-center gap-1.5"
       aria-label="Selected tags"
       data-testid="recipe-form-chosen-tags"
@@ -232,6 +233,11 @@ function FacetLine({
  * closes. With nothing highlighted, Enter (or a comma) adds the text as
  * typed: a new tag. An exact spelling of a term is highlighted as you type,
  * so Enter takes the term rather than a near-duplicate string.
+ *
+ * Leaving the field adds nothing half-typed: only text that exactly names a
+ * term or one of its aliases is taken on blur. Escape closes the list and
+ * clears the text; Backspace in an empty field does nothing (a chip is
+ * removed with its own button, never by a stray key — De2-10).
  */
 function AnythingElse({
   inputRef,
@@ -280,11 +286,11 @@ function AnythingElse({
       } else if (text.trim()) {
         commit(text);
       }
-    } else if (event.key === "Escape" && expanded) {
+    } else if (event.key === "Escape" && (expanded || text)) {
       event.preventDefault();
       setOpen(false);
-    } else if (event.key === "Backspace" && !text && tags.length > 0) {
-      form.setFieldValue("tags", tags.slice(0, -1));
+      setText("");
+      setActive(-1);
     }
   };
 
@@ -318,8 +324,10 @@ function AnythingElse({
         onFocus={() => setOpen(true)}
         onBlur={() => {
           setOpen(false);
-          /* A tag typed and abandoned is kept, as the chips input kept it. */
-          if (text.trim()) commit(text);
+          /* Only an exact name of a term is taken; half-typed text is not
+           * a tag. */
+          const exact = exactOption(options, text);
+          if (exact >= 0) pick(options[exact].slug);
         }}
       />
       <ul

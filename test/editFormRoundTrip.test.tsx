@@ -186,7 +186,7 @@ const MOLASSES: Partial<ImportedRecipe> = {
   description: "Crisp edges, packed with spice.",
   recipeYield: 'about <Multiplyable baseNumber="30" /> cookies',
   /* Spelled as carried: an alias and a label, not slugs. */
-  tags: ["Cookies", "usa"],
+  tags: ["cookies", "usa"],
   suggestedTags: ["Christmas", "Dessert", "cookie recipes"],
   ingredients: [
     { ingredient: "Dough", type: "heading" },
@@ -304,5 +304,136 @@ describe("edit form B's fields keep a food recipe as it was (43e2, D4)", () => {
       container.querySelector('[data-facet-row="cookies"]') as HTMLElement,
     );
     expect(post(container).tags).toEqual(["usa", "christmas"]);
+  });
+});
+
+describe("edit form B's fields, edge cases and controls (43e2 review)", () => {
+  it("saves a recipe with no ingredients, and one with only a heading", async () => {
+    const none = renderForm({ ...MOLASSES, ingredients: [] }, "no-ingredients");
+    await settle();
+    expect(none.container.textContent).toContain("No ingredients yet.");
+    expect(post(none.container).ingredients ?? []).toEqual([]);
+    none.unmount();
+
+    const headingOnly = [{ ingredient: "For the dough", type: "heading" }];
+    const { container } = renderForm(
+      { ...MOLASSES, ingredients: headingOnly as Recipe["ingredients"] },
+      "heading-only",
+    );
+    await settle();
+    expect(post(container).ingredients).toEqual(headingOnly);
+  });
+
+  it("Rows → Edit as text → Rows posts the list unchanged", async () => {
+    const { container } = renderForm(MOLASSES, "crisp-molasses-cookies");
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Edit as text" }));
+    const area = screen.getByTitle("Ingredients Paste Area");
+    expect((area as HTMLTextAreaElement).value).toBe(
+      "Dough\n2 cups (250g) all-purpose flour\n1 tsp baking soda\ngranulated or coarse sugar* — for rolling",
+    );
+    expect(post(container).ingredients).toEqual(MOLASSES.ingredients);
+    /* Cut a line and paste it back: its markup comes back with it. */
+    const text = (area as HTMLTextAreaElement).value;
+    fireEvent.change(area, {
+      target: { value: text.replace("1 tsp baking soda\n", "") },
+    });
+    expect(post(container).ingredients).toHaveLength(3);
+    fireEvent.change(area, { target: { value: text } });
+    expect(post(container).ingredients).toEqual(MOLASSES.ingredients);
+    fireEvent.click(screen.getByRole("button", { name: "Rows" }));
+    expect(post(container).ingredients).toEqual(MOLASSES.ingredients);
+  });
+
+  it("an edited heading row is stored as typed, never marked", async () => {
+    const { container } = renderForm(MOLASSES, "crisp-molasses-cookies");
+    await settle();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Ingredient 1, a heading: Dough/ }),
+    );
+    const field = screen.getByLabelText("Ingredient 1", { exact: true });
+    fireEvent.change(field, { target: { value: "Dough for 2 pans" } });
+    fireEvent.blur(field);
+    expect(post(container).ingredients![0]).toEqual({
+      ingredient: "Dough for 2 pans",
+      type: "heading",
+    });
+  });
+
+  it("a half-typed tag is not a tag; an exact name is taken on blur; Escape clears", async () => {
+    const { container } = renderForm(MOLASSES, "crisp-molasses-cookies");
+    await settle();
+    const input = screen.getByRole("combobox", {
+      name: "Add a tag",
+    }) as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "Chris" } });
+    fireEvent.blur(input);
+    expect(post(container).tags).toEqual(["cookies", "usa"]);
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "christmas" } });
+    fireEvent.blur(input);
+    expect(post(container).tags).toEqual(["cookies", "usa", "christmas"]);
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "newtag" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(input.value).toBe("");
+    /* Backspace in the empty field takes no chip away. */
+    fireEvent.keyDown(input, { key: "Backspace" });
+    expect(post(container).tags).toEqual(["cookies", "usa", "christmas"]);
+    /* Enter still adds the typed text as a new tag. */
+    fireEvent.change(input, { target: { value: "newtag" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(post(container).tags).toEqual([
+      "cookies",
+      "usa",
+      "christmas",
+      "newtag",
+    ]);
+  });
+
+  it("shake → stir → blend swaps the style tag the method owns", async () => {
+    const { container } = render(
+      <RecipeFormShell
+        action={() => {}}
+        recipe={BEES_KNEES}
+        slug="bees-knees-acouplecooks"
+      >
+        <RecipeFields recipe={BEES_KNEES} slug="bees-knees-acouplecooks" />
+      </RecipeFormShell>,
+    );
+    await settle();
+    /* The segmented control (its cell is a "Method" group too). */
+    const method = screen
+      .getAllByRole("group", { name: "Method" })
+      .find((group) => group.textContent?.includes("Stirred"))!;
+    const press = (label: string) =>
+      fireEvent.click(
+        [...method.querySelectorAll("button")].find(
+          (button) => button.textContent === label,
+        )!,
+      );
+    press("Stirred");
+    let data = post(container);
+    expect(data.drink?.method).toBe("stir");
+    expect(data.tags).toEqual([
+      "drink",
+      "gin",
+      "sour",
+      "bees-knees",
+      "stirred",
+    ]);
+    press("Blended");
+    data = post(container);
+    expect(data.drink?.method).toBe("blend");
+    expect(data.tags).toEqual(["drink", "gin", "sour", "bees-knees"]);
+    press("Shaken");
+    expect(post(container).tags).toEqual([
+      "drink",
+      "gin",
+      "sour",
+      "bees-knees",
+      "shaken",
+    ]);
   });
 });

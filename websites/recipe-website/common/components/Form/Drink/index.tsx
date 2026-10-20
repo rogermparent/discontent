@@ -176,8 +176,7 @@ export function DrinkSpecSection({
                 onClick={() => choose(value)}
                 className={cn(
                   SEGMENT,
-                  method === value &&
-                    "bg-background text-foreground shadow-[0_1px_3px_#0000001a]",
+                  method === value && "bg-background text-foreground shadow-sm",
                 )}
               >
                 {DRINK_METHOD_LABELS[value]}

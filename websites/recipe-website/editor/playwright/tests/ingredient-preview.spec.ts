@@ -168,6 +168,61 @@ test.describe("Ingredient rows", () => {
         '<Multiplyable baseNumber="1" /> cup water',
       );
     });
+
+    /*
+     * The menu's Edit and Insert open a field: the closing popover must not
+     * hand focus back to ⋯, or the field blurs and closes as it opens.
+     */
+    test("from the keyboard, ⋯ → Edit opens the field, and the typed line saves", async ({
+      page,
+    }) => {
+      const trigger = rows(page)
+        .first()
+        .getByRole("button", { name: "Ingredient 1 actions" });
+      await trigger.focus();
+      await trigger.press("Enter");
+      const edit = page.getByRole("button", { name: "Edit", exact: true });
+      await expect(edit).toBeFocused();
+      await edit.press("Enter");
+      const field = page.getByLabel("Ingredient 1", { exact: true });
+      await expect(field).toBeFocused();
+      await page.keyboard.press("ControlOrMeta+a");
+      await page.keyboard.type("3 tsp pepper");
+      await expect(field).toHaveValue("3 tsp pepper");
+      await field.press("Enter");
+      await expect(stored(page, 0)).toHaveValue(
+        '<Multiplyable baseNumber="3" /> tsp pepper',
+      );
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Recipe 6" }),
+      ).toBeVisible();
+      await expect(page.getByText("3 tsp pepper")).toBeVisible();
+    });
+
+    test("⋯ → Insert a line above opens the new line for typing", async ({
+      page,
+    }) => {
+      await rows(page)
+        .nth(1)
+        .getByRole("button", { name: "Ingredient 2 actions" })
+        .click();
+      await page
+        .getByRole("button", { name: "Insert a line above", exact: true })
+        .click();
+      const field = page.getByLabel("Ingredient 2", { exact: true });
+      await expect(field).toBeFocused();
+      await page.keyboard.type("2 eggs");
+      await expect(field).toHaveValue("2 eggs");
+      await field.press("Enter");
+      await expect(rows(page)).toHaveCount(3);
+      await expect(stored(page, 1)).toHaveValue(
+        '<Multiplyable baseNumber="2" /> eggs',
+      );
+      await expect(stored(page, 2)).toHaveValue(
+        '<Multiplyable baseNumber="1" /> cup water',
+      );
+    });
   });
 
   test.describe("Edit as text", () => {

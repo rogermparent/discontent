@@ -97,12 +97,15 @@ function RowField({
   number,
   index,
   stored,
+  heading,
   onChange,
   onDone,
 }: {
   number: number;
   index: number;
   stored: string;
+  /** A heading row stores its text as typed, never marked (De2-9). */
+  heading: boolean;
   onChange: (stored: string) => void;
   onDone: () => void;
 }) {
@@ -117,7 +120,7 @@ function RowField({
       value={draft}
       onChange={(event) => {
         setDraft(event.target.value);
-        onChange(remarkLine(before, event.target.value));
+        onChange(remarkLine(before, event.target.value, heading));
       }}
       onBlur={onDone}
       onKeyDown={(event) => {
@@ -164,6 +167,10 @@ function IngredientRow({
   const stored = line.ingredient ?? "";
   const plain = plainLine(stored);
   const [menuOpen, setMenuOpen] = useState(false);
+  /* The menu's choice opens this row's field (Edit, Insert a line above):
+   * the closing popover must not hand focus back to its trigger, or the
+   * field it just opened blurs and closes. */
+  const opensField = useRef(false);
   const startEditing = onEdit;
   const { amount, rest } = heading
     ? { amount: "", rest: plain }
@@ -180,6 +187,7 @@ function IngredientRow({
       number={number}
       index={index}
       stored={stored}
+      heading={heading}
       onChange={onChange}
       onDone={onEdited}
     />
@@ -196,15 +204,26 @@ function IngredientRow({
           <MoreHorizontal className="size-4" aria-hidden />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-52 p-1">
+      <PopoverContent
+        align="end"
+        className="w-52 p-1"
+        onCloseAutoFocus={(event) => {
+          if (!opensField.current) return;
+          opensField.current = false;
+          event.preventDefault();
+          document
+            .getElementById(`recipe-form-ingredients[${index}].ingredient`)
+            ?.focus();
+        }}
+      >
         <div role="group" aria-label={`Ingredient ${number} actions`}>
           {[
-            { label: "Edit", act: startEditing },
+            { label: "Edit", act: startEditing, opens: true },
             {
               label: heading ? "Make it an ingredient" : "Make it a heading",
               act: () => onType(!heading),
             },
-            { label: "Insert a line above", act: onInsert },
+            { label: "Insert a line above", act: onInsert, opens: true },
             {
               label: "Move up",
               act: () => onMove(index - 1),
@@ -223,6 +242,7 @@ function IngredientRow({
               className={MENU_ITEM}
               disabled={item.disabled}
               onClick={() => {
+                opensField.current = Boolean(item.opens);
                 setMenuOpen(false);
                 item.act();
               }}
@@ -343,11 +363,15 @@ function IngredientsText({
   onLines: (lines: Ingredient[]) => void;
 }) {
   const [text, setText] = useState(() => linesAsText(lines));
+  /* The list as it was when the text opened: a line cut and pasted back
+   * matches it and keeps its markup (the current list comes first, so a
+   * heading toggled since is kept). */
+  const [opened] = useState(lines);
   const find = useRef<HTMLInputElement>(null);
   const replace = useRef<HTMLInputElement>(null);
   const update = (next: string) => {
     setText(next);
-    onLines(linesFromText(next, lines));
+    onLines(linesFromText(next, [...lines, ...opened]));
   };
   return (
     <div className="flex flex-col gap-2" data-testid="ingredients-text">
@@ -471,8 +495,7 @@ function ModeSwitch({
           onClick={() => onMode(value)}
           className={cn(
             "inline-flex min-h-7 items-center rounded-md px-3 text-sm font-medium text-muted-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 max-sm:min-h-9",
-            mode === value &&
-              "bg-background text-foreground shadow-[0_1px_3px_#0000001a]",
+            mode === value && "bg-background text-foreground shadow-sm",
           )}
         >
           {label}
