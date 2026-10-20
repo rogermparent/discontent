@@ -42,8 +42,8 @@ test.describe("Missing media", () => {
       .filter({ has: page.getByRole("heading", { name: "Recipe 6" }) })
       .first();
     await expect(card).toBeVisible();
-    await expect(
-      card.getByRole("img", { name: "Recipe thumbnail" }),
-    ).toHaveCount(0);
+    // 43s: the search card's picture is decorative (alt=""), so it is
+    // looked for as an element rather than by name.
+    await expect(card.locator("img")).toHaveCount(0);
   });
 });

@@ -36,10 +36,10 @@ import {
  * same change ("42 RESULTS · 2 FILTERS"), and two regions describing one edit
  * announce it twice.
  *
- * No clear-all button either. `TagFilterRail` renders "Clear tags" a few pixels
- * below whenever there is a tag term, and two near-identical clear controls
- * stacked reads worse than one — the per-chip `×` is the finer-grained path and
- * the rail's button is the coarse one.
+ * No clear-all button either. The Narrow column (43s) heads itself with
+ * "Clear tags" whenever there is a tag term, and two near-identical clear
+ * controls read worse than one — the per-chip `×` is the finer-grained path and
+ * the column's button is the coarse one.
  */
 export function QueryChips() {
   const { query, parsedQuery, submitSearch } = useSearch();
