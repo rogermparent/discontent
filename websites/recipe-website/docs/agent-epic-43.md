@@ -1459,7 +1459,50 @@ the record-less corpus).
    cut and paste back), an edited heading row, the tag input, shake →
    stir → blend.
 
-**Gates.** _Pending._
+6. **Found by the gates:** the phone edit form's axe sweep reported
+   `label-content-name-mismatch` (WCAG 2.5.3) on every ingredient row —
+   the row's name read the stored line ("2 cups (250g) flour") while the
+   row shows the amount column ("2 cups · 250g") run into the text. The
+   name is now the amount as shown plus the rest as read, and the amount
+   span ends with a space.
+
+**Gates** (on 5d65f25f, then after merging `origin/main` with 43m and
+43p2 at 0b9e01be):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: clean, before and after the merge.
+- `pnpm exec vitest run`: 142 files / 3,134 tests before the merge; after
+  it 144 / 3,182 with one timeout in `cliJson.test.ts` (a CLI subprocess
+  under load, not this phase's code) — that file alone 27/27.
+- Playwright, Docker build mode: `ingredient-preview`, `paste-replace`,
+  `paste-review`, `recipe`, `recipe-tags-aggregate`, `search-tags`,
+  `new-recipe`, `edit` 105/105; `timeline`, `yield`, `edit-form-frame`,
+  `accessibility`, `visual`, `tag-pages`, `ytdlp-import`, `theme-editor`
+  153/153 (after the 2.5.3 fix and the two baselines below; the first
+  run had 3 failures: `markdown-source-mode` and the phone edit form's
+  axe sweep, light and dark). After the main merge: `ingredient-preview`,
+  `edit-form-frame`, `paste-replace`, `visual` 50 passed, 1 flaky
+  (43m's "make page results, wide", `toHaveText`, passed on retry).
+- Dev mode (Docker): `ingredient-preview` (with the two new menu specs)
+  and `edit-form-frame` 14 passed, 2 flaky — 43e1's "the rail … counts
+  real changes" (Cancel's navigation over 5 s on a cold `next dev`
+  compile) and "an import of a link already in the collection" (the
+  imported name late), both passed on retry.
+
+**Baselines moved** (Docker, build mode, `--update-snapshots=all`; each
+opened and compared with canvas B's `B-desktop` / `B-phone` boards):
+`edit-form-frame` `new-recipe-imported-e2e` (the Tags section is only
+Anything else on the import fixture; ingredient rows with the mono amount
+column and ⋯; steps with "a wait in it" and "uses"; the Times hint; the
+"add a drink spec · add a timeline" line) and `edit-form-mobile-mobile`
+(drink spec first with the Method segments and Glass chips; facet rows
+Spirit & base / Style / Strength & method / Families; rows with the amount
+in the primary colour); `paste-replace-imported-ingredients-e2e` (now a
+row: "1 tablespoon | flour"); `ingredient-preview`
+`ingredient-row-2-cups-sugar-e2e` (new, replaces
+`ingredient-1-preview-2-cups-sugar`); `visual` `new-recipe-form`,
+`new-recipe-form-overwrite`, `edit-form-populated`, `edit-form-overwrite`
+and `markdown-source-mode` (the same form, its sections' new insides).
 
 **Roger to confirm:** De2-1 (a child reaches its parent, not stored);
 De2-3 (blend sets no tag); De2-9 (an edited row marks every number, as
