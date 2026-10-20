@@ -1018,7 +1018,37 @@ replaced by "start from nothing, and patterns" — four tests on
 list, a broken pattern's error, a pattern's popover), `visual.spec` (new
 `make-page-start`).
 
-**Gates:** _pending_ (filled in after review).
+**Review fixes (finisher).** The review's blockers: the ReDoS scan beaten
+three ways → the whitelist parser (Dm2); canned names after #297 → patterns,
+refine rows and Most used read past "canned" (Dm6, Dm11). Its minors: a word
+prefix is one word of three letters or more (Dm1); a regex's key folds case
+(Dm10); Clear with Count from the saved list stays on Buy next (Dm6, Roger to
+confirm). The gates found three more: the add field's pattern error was
+4.49:1 on the page background (`text-destructive` at 12 px; now mixed with a
+little `--foreground`), the suggestion tabs' colour transition let axe sample
+a trigger mid-fade (now `transition-none`), and a pre-hydration streamed copy
+of the ticker made make.spec's `ticker` ambiguous (now read inside `main`).
+`cliJson`'s 43m checks moved to a case of their own: thirteen CLI processes
+overran one case's 30 s on a loaded machine.
+
+**Gates** (after merging origin/main 03974887):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean (at 32f22b56; later commits change class
+  strings and one spec locator).
+- `pnpm exec vitest run`: 137 files, 2,932 tests passed.
+- Playwright, Docker build mode: `make.spec accessibility.spec visual.spec
+drinks.spec homepage-browse.spec homepage.spec mobile.spec
+api-write.spec` — 212 passed, 1 failed (the add field's error contrast,
+  fixed); then `make.spec accessibility.spec` 116 passed + 2 flaky (the tab
+  fade, the ticker; fixed), then 118 passed.
+- Dev mode (Docker, `next dev`): `make.spec accessibility.spec` — 117
+  passed, 1 flaky (the jobs page's timeline in dev's first compile, not 43m's).
+- Baselines, Docker only, `--update-snapshots=all` on the make tests after
+  the merge: `make-page`, `make-page-specs`, `make-results-wide` (the Buy
+  next | Most used here card), `make-mobile` (same, stacked), and new
+  `make-page-start` (Most used rows by uncanned name: chickpea, kidney
+  bean, mayonnaise …). Each opened and checked.
 
 ### 43q — Ask: AI search that fills in a page (L)
 
