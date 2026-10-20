@@ -520,7 +520,11 @@ homepage-browse, tag-pages, drinks — **237 passed**. Dev mode (Docker):
 search-facets and command-palette — 52 passed, 1 flaky (command-palette's
 "live search surfaces a recipe and Enter navigates to it", unchanged by
 43s: `next dev` compiling `/recipe/[slug]` on first visit outlasted the
-5 s URL wait; passed on retry). axe (WCAG 2.2 tags) is
+5 s URL wait; passed on retry). After merging 43n (#297, ingredient
+names): both typechecks ✓; vitest 137 files, 2954 tests, one timeout in
+`cliJson`'s inventory process test under load (26/26 alone ✓); Docker
+build mode search-autocomplete, search-tags, command-palette,
+search-facets — **74 passed**, no baseline moved. axe (WCAG 2.2 tags) is
 clean on `/search` desktop (bands, a term with date bands, no result) and
 on the phone with the Narrow sheet open (`search-facets`); the phone run
 asserts no sideways scroll at 390 px. Narrow rows are 30 px tall, the
