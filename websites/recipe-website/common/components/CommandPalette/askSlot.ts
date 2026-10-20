@@ -19,8 +19,16 @@ export interface PaletteAskAnswer {
 }
 
 export interface PaletteAskHandler {
-  /** Whether the input reads as a question, so the row offers itself. */
+  /**
+   * Whether the row shows for this input — without the highlight, so Enter
+   * still opens the top recipe and Tab moves onto Ask.
+   */
   offers(text: string): boolean;
+  /**
+   * Whether the row leads and takes the highlight, so Enter asks: a closing
+   * "?" or a question word in front (Dq12). Implies `offers`.
+   */
+  leads(text: string): boolean;
   /** Ask the server; rejects when `signal` aborts. */
   ask(question: string, signal: AbortSignal): Promise<PaletteAskAnswer>;
   /** Go there (the palette has closed itself). */

@@ -47,7 +47,9 @@ function AskableField({ input }: { input: ReactNode }) {
   const [sawRouting, setSawRouting] = useState(false);
   const abort = useRef<AbortController | undefined>(undefined);
   const askRef = useRef<HTMLInputElement>(null);
+  const fieldRef = useRef<HTMLDivElement>(null);
   const statusId = useId();
+  const hintId = useId();
   const open = useOpenAsk();
 
   useEffect(() => () => abort.current?.abort(), []);
@@ -62,11 +64,21 @@ function AskableField({ input }: { input: ReactNode }) {
     }
   }
 
+  /* Back to the search field, as it was; an Ask in flight stops. */
+  const switchOff = (focusField: boolean) => {
+    abort.current?.abort();
+    setState({ phase: "idle" });
+    setOn(false);
+    if (focusField) {
+      requestAnimationFrame(() =>
+        fieldRef.current?.querySelector<HTMLInputElement>("input")?.focus(),
+      );
+    }
+  };
+
   const toggle = () => {
     if (on) {
-      abort.current?.abort();
-      setState({ phase: "idle" });
-      setOn(false);
+      switchOff(false);
       return;
     }
     /* The words typed so far, when they are words and not a query. */
@@ -108,7 +120,7 @@ function AskableField({ input }: { input: ReactNode }) {
   return (
     <div>
       <div className="flex items-stretch gap-2">
-        <div className="min-w-0 flex-1">
+        <div ref={fieldRef} className="min-w-0 flex-1">
           {on ? (
             <form onSubmit={submit} aria-label="Ask a question">
               <div
@@ -126,11 +138,17 @@ function AskableField({ input }: { input: ReactNode }) {
                   type="text"
                   name="question"
                   aria-label="Your question"
-                  aria-describedby={statusId}
+                  aria-describedby={`${hintId} ${statusId}`}
                   autoComplete="off"
                   maxLength={300}
                   value={question}
                   onChange={(event) => setQuestion(event.target.value)}
+                  onKeyDown={(event) => {
+                    /* Escape is the search field again (Dq15). */
+                    if (event.key !== "Escape") return;
+                    event.preventDefault();
+                    switchOff(true);
+                  }}
                   placeholder="What drinks can I make with lime?"
                   readOnly={state.phase !== "idle"}
                   aria-busy={state.phase !== "idle" || undefined}
@@ -162,17 +180,26 @@ function AskableField({ input }: { input: ReactNode }) {
           Ask
         </Button>
       </div>
-      {/* Mounted with the toggle, so a screen reader hears it change. */}
+      {/* What Ask does: a description, never announced on its own. */}
+      <p
+        id={hintId}
+        className={
+          on && !line ? "mt-2 text-sm text-muted-foreground" : "sr-only"
+        }
+      >
+        {on
+          ? "Ask in your own words: it fills in What can I make, a search, a holiday, a tag or a plan."
+          : ""}
+      </p>
+      {/* Always mounted and empty until there is progress to report, so a
+          screen reader hears "Asking…" and "Opening…" and nothing else. */}
       <p
         id={statusId}
         role="status"
         data-testid="search-ask-status"
-        className={on ? "mt-2 text-sm text-muted-foreground" : "sr-only"}
+        className={line ? "mt-2 text-sm text-muted-foreground" : "sr-only"}
       >
-        {on
-          ? line ||
-            "Ask in your own words: it fills in What can I make, a search, a holiday, a tag or a plan."
-          : ""}
+        {line}
       </p>
     </div>
   );

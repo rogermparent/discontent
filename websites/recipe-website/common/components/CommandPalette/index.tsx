@@ -397,14 +397,18 @@ export function CommandPalette({
   const q = trimmed.toLowerCase();
 
   /*
-   * The Ask row (43q, the editor's only): first, and highlighted, when the
-   * input reads as a question ("what drinks can I make with lime") — or
-   * when Tab called it up for one that doesn't. An Ask in flight keeps it.
+   * The Ask row (43q, the editor's only). It **leads** — first, and
+   * highlighted, so Enter asks — for a question ("what drinks can I make
+   * with lime", "…?"), when Tab called it up, or while an Ask is in flight.
+   * A request that may as well be a search ("any bean salad", "use up
+   * buttermilk", a long recipe name) gets the row **after** the results,
+   * unhighlighted, so Enter still opens the top recipe (Dq12).
    */
-  const showAsk =
+  const askLeads =
     !!askHandler &&
     !!trimmed &&
-    (!!askState || askForced || askHandler.offers(trimmed));
+    (!!askState || askForced || askHandler.leads(trimmed));
+  const showAsk = askLeads || (!!askHandler && askHandler.offers(trimmed));
   const runAsk = (question: string) => {
     if (!askHandler || askState) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -682,10 +686,10 @@ export function CommandPalette({
   // either does nothing or fires the wrong row ("Home", under a visible recent).
   const topSlug = hasRecipeHits ? topRecipes[0]?.slug : undefined;
   /*
-   * The Ask row leads while it shows (43q): it takes the highlight once per
-   * input, and results landing later don't take it back.
+   * A leading Ask row (43q) takes the highlight once per input, and results
+   * landing later don't take it back. A trailing one never takes it.
    */
-  const askKey = showAsk ? trimmed : undefined;
+  const askKey = askLeads ? trimmed : undefined;
   if (askKey !== snappedAsk) {
     setSnappedAsk(askKey);
     if (askKey) setSelectedValue(ASK_VALUE);
@@ -695,13 +699,17 @@ export function CommandPalette({
   }
   if (topSlug && topSlug !== snappedSlug) {
     setSnappedSlug(topSlug);
-    setSelectedValue(showAsk ? ASK_VALUE : `recipe:${topSlug}`);
+    setSelectedValue(askLeads ? ASK_VALUE : `recipe:${topSlug}`);
   } else if (!topSlug && snappedSlug !== undefined) {
     // Left recipe-search mode — hand the selection to the recents that reappear
     // beneath, else drop it so cmdk highlights the first launcher item.
     setSnappedSlug(undefined);
     setSelectedValue(
-      showAsk ? ASK_VALUE : firstRecent ? `${RECENT_PREFIX}${firstRecent}` : "",
+      askLeads
+        ? ASK_VALUE
+        : firstRecent
+          ? `${RECENT_PREFIX}${firstRecent}`
+          : "",
     );
   }
 
@@ -714,6 +722,32 @@ export function CommandPalette({
     setSnappedRecent(undefined);
     if (selectedValue.startsWith(RECENT_PREFIX)) setSelectedValue("");
   }
+
+  /* Its second line is the Ask's progress, said again by the status line. */
+  const askGroup = showAsk ? (
+    <CommandGroup heading="Ask" data-testid="palette-ask-group">
+      <CommandItem
+        value={ASK_VALUE}
+        onSelect={() => runAsk(trimmed)}
+        aria-busy={askState ? true : undefined}
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center">
+          <Sparkles aria-hidden className="size-5 text-primary" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">
+            Ask: “{askState?.question ?? trimmed}”
+          </span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {askLine ?? "Fills in a page from your question"}
+          </span>
+        </span>
+        {askLeads && !askState && (
+          <CommandShortcut aria-hidden>↵</CommandShortcut>
+        )}
+      </CommandItem>
+    </CommandGroup>
+  ) : null;
 
   return (
     <CommandPaletteContext.Provider value={contextValue}>
@@ -772,32 +806,10 @@ export function CommandPalette({
           {!recipesPending && <CommandEmpty>No results found.</CommandEmpty>}
 
           {/*
-            Ask (43q) leads when it shows: the input reads as a question, so
-            the question is what Enter should send. Its second line is the
-            Ask's progress, said again by the status line above the list.
+            Ask (43q) leads when the input reads as a question: the question
+            is what Enter should send.
           */}
-          {showAsk && (
-            <CommandGroup heading="Ask" data-testid="palette-ask-group">
-              <CommandItem
-                value={ASK_VALUE}
-                onSelect={() => runAsk(trimmed)}
-                aria-busy={askState ? true : undefined}
-              >
-                <span className="flex size-9 shrink-0 items-center justify-center">
-                  <Sparkles aria-hidden className="size-5 text-primary" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">
-                    Ask: “{askState?.question ?? trimmed}”
-                  </span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {askLine ?? "Fills in a page from your question"}
-                  </span>
-                </span>
-                {!askState && <CommandShortcut aria-hidden>↵</CommandShortcut>}
-              </CommandItem>
-            </CommandGroup>
-          )}
+          {askLeads && askGroup}
 
           {hasRecipeHits && (
             <CommandGroup heading="Recipes" data-testid="palette-recipes-group">
@@ -1081,9 +1093,14 @@ export function CommandPalette({
               {showAuthAction && authAction}
             </CommandGroup>
           )}
+          {/*
+            A request that may as well be a search (43q): Ask after
+            everything else, unhighlighted — Tab, or the arrows, reach it.
+          */}
+          {!askLeads && askGroup}
         </CommandList>
         {/* How to ask what doesn't read as a question (43q). */}
-        {askHandler && trimmed && !showAsk && (
+        {askHandler && trimmed && !askLeads && (
           <p
             data-testid="palette-ask-hint"
             className="border-t px-4 py-2 text-xs text-muted-foreground"

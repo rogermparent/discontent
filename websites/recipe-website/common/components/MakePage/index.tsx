@@ -63,6 +63,7 @@ import { useSavedStaples, type SavedStaples } from "./useSavedStaples";
 import {
   featuredOfQuery,
   kindOfQuery,
+  MAKE_ASK_PARAM,
   MAKE_KINDS,
   MAKE_SCOPE_PARAM,
   toggleFeature,
@@ -162,6 +163,14 @@ const KIND_TAGS = new Set(
  * routes. `savedStaples` (38a, signed-in editor only) keeps "Assume I always
  * have" in the editor's settings.
  */
+/** An Ask's pattern items that are patterns (43q); the rest are dropped. */
+function validScope(items: readonly string[] | undefined): string[] {
+  return (items ?? []).filter((item) => {
+    const matcher = matcherOf(item);
+    return !!matcher && !matcher.error;
+  });
+}
+
 export function MakePage({
   tags,
   secondary,
@@ -184,10 +193,7 @@ export function MakePage({
 }) {
   const searchParams = useSearchParams();
   const [scopeItems, setScopeItems] = useState<string[]>(() =>
-    (askScope ?? []).filter((item) => {
-      const matcher = matcherOf(item);
-      return !!matcher && !matcher.error;
-    }),
+    validScope(askScope),
   );
   /* The temporary scope and its `?with=`, together: a reload keeps it. */
   const setScope = useCallback((next: string[]) => {
@@ -201,6 +207,22 @@ export function MakePage({
   const urlQuery = searchParams.get("q");
   const [lastQuery, rememberQuery] = useLastMakeQuery();
   const [typed, setTyped] = useState<string | null>(null);
+  /*
+   * A new Ask on this page (43q, Dq13): a new `?ask=` resets what was typed
+   * and the temporary scope to the URL's — the derived-state pattern, read
+   * from the URL here rather than as a server-side `key`, so nothing
+   * remounts the page. Dismiss drops `?ask=` and a later server render (a
+   * staples save revalidates `/make`) sees none: neither resets anything.
+   */
+  const askParam = searchParams.get(MAKE_ASK_PARAM);
+  const [seenAsk, setSeenAsk] = useState(askParam);
+  if (askParam !== seenAsk) {
+    setSeenAsk(askParam);
+    if (askParam !== null) {
+      setTyped(null);
+      setScopeItems(validScope(askScope));
+    }
+  }
   const query =
     typed ?? urlQuery ?? (lastQuery == null ? FIRST_VISIT_QUERY : lastQuery);
 

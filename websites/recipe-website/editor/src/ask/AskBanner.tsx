@@ -9,7 +9,12 @@ import {
   ASK_FALLBACK_LABEL,
   ASK_PARAM,
 } from "recipe-editor/controller/ask/urls";
-import { ASK_RECORD_KEY, forgetAskRecord, parseAskRecord } from "./askClient";
+import {
+  ASK_RECORD_KEY,
+  forgetAskRecord,
+  onThisSite,
+  parseAskRecord,
+} from "./askClient";
 
 /** This tab's Ask record, as text: `null` on the server and at hydration. */
 function useAskRecordText(): string | null {
@@ -35,7 +40,7 @@ function subscribeNever(): () => void {
 /**
  * "Filled in from: <question>" (43q): over any page Ask opened (its URL
  * carries `?ask=`), with **Undo** — back to the page and query it was asked
- * from — and a dismiss that keeps the page as filled in. The editor's root
+ * from, or the empty search when this tab has no record of it — and a dismiss that keeps the page as filled in. The editor's root
  * layout mounts it; the export has no Ask, so no such line.
  */
 export function AskBanner() {
@@ -48,18 +53,21 @@ export function AskBanner() {
   const record = parseAskRecord(recordText);
   const ours = record?.question === question ? record : undefined;
 
+  /*
+   * Back to the page and query the Ask came from. With no record for this
+   * question (another tab's link, storage blocked) there is nowhere known to
+   * go back to — history may lead off the site — so Undo opens the empty
+   * search instead (Dq14).
+   */
   const undo = () => {
     forgetAskRecord();
-    if (!ours) {
-      router.back();
-      return;
-    }
-    const origin = new URL(ours.origin, window.location.origin);
+    const back = onThisSite(ours?.origin) ?? "/search";
+    const origin = new URL(back, window.location.origin);
     /* `/search` reads `?q=` once; the search state is shared, so set it. */
     if (origin.pathname === "/search") {
       submitSearch(origin.searchParams.get("q") ?? "");
     }
-    router.push(ours.origin);
+    router.push(back);
   };
 
   const dismiss = () => {

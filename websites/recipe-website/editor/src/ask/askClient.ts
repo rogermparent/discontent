@@ -9,6 +9,7 @@ import {
   askWords,
   fallbackUrl,
   isSiteUrl,
+  sameOriginPath,
 } from "recipe-editor/controller/ask/urls";
 
 /**
@@ -28,6 +29,11 @@ export interface AskRecord {
 }
 
 export const ASK_RECORD_KEY = "discontent-ask-v1";
+
+/** `url` when it stays on this site, checked against this page's origin. */
+export function onThisSite(url: unknown): string | undefined {
+  return sameOriginPath(url, window.location.origin);
+}
 
 /** A stored record, checked; `undefined` for anything else. */
 export function parseAskRecord(raw: string | null): AskRecord | undefined {
@@ -103,23 +109,24 @@ export function useOpenAsk(): (
   const { submitSearch } = useSearch();
   return useCallback(
     (answer: PaletteAskAnswer, question: string) => {
-      if (!isSiteUrl(answer.url)) return;
+      const url = onThisSite(answer.url);
+      if (!url) return;
       const record: AskRecord = {
         question: askWords(question),
         origin: `${window.location.pathname}${window.location.search}`,
-        url: answer.url,
+        url,
         ...(answer.fallback ? { fallback: true } : {}),
       };
       try {
         sessionStorage.setItem(ASK_RECORD_KEY, JSON.stringify(record));
       } catch {
-        /* Storage blocked: Undo goes back in history instead. */
+        /* Storage blocked: Undo opens the empty search instead. */
       }
-      const target = new URL(answer.url, window.location.origin);
+      const target = new URL(url, window.location.origin);
       if (target.pathname === "/search") {
         submitSearch(target.searchParams.get("q") ?? "");
       }
-      router.push(answer.url);
+      router.push(url);
     },
     [router, submitSearch],
   );

@@ -180,23 +180,51 @@ test.describe("Ask", () => {
     await expect(page).toHaveURL(/\/holidays\/christmas\?kind=drinks$/);
   });
 
+  /* Dq12: a request that may as well be a search keeps Enter on the search. */
+  test("Enter on a search-shaped request opens the recipe, not Ask", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("make-beans");
+    await signInAndHome(page);
+    await openPalette(page);
+    await paletteIndexReady(page);
+    await paletteInput(page).fill("any bean salad");
+
+    const recipes = page
+      .getByTestId("palette-recipes-group")
+      .getByRole("option");
+    await expect(recipes.first()).toHaveAttribute("aria-selected", "true");
+    /* Ask is offered after the results, without the highlight. */
+    await expect(askRow(page)).toHaveAttribute("aria-selected", "false");
+    await expect(page.getByTestId("palette-ask-hint")).toBeVisible();
+    await axeClean(page);
+    await paletteInput(page).press("Enter");
+
+    await expect(page).toHaveURL(/\/recipe\/[^/?]+$|\/search\?/);
+    await expect(page).not.toHaveURL(/[?&]ask=/);
+    await expect(banner(page)).toHaveCount(0);
+    expect(asked).toEqual([]);
+  });
+
   test("an invented tag falls back to searching the words", async ({
     page,
   }) => {
     await signInAndHome(page);
     await openPalette(page);
     await paletteIndexReady(page);
-    await paletteInput(page).fill("show me some tiki drinks");
+    await paletteInput(page).fill("what tiki drinks are there");
+    await expect(askRow(page)).toHaveAttribute("aria-selected", "true");
     await paletteInput(page).press("Enter");
 
     await expect(page).toHaveURL(
-      /\/search\?q=show\+me\+some\+tiki\+drinks&ask=show\+me\+some\+tiki\+drinks$/,
+      /\/search\?q=what\+tiki\+drinks\+are\+there&ask=what\+tiki\+drinks\+are\+there$/,
     );
     await expect(page.getByLabel("Search recipes")).toHaveValue(
-      "show me some tiki drinks",
+      "what tiki drinks are there",
     );
     await expect(banner(page)).toContainText(
-      "Couldn't work that out — searching for the words instead: “show me some tiki drinks”",
+      "Couldn't work that out — searching for the words instead: “what tiki drinks are there”",
     );
   });
 
@@ -212,7 +240,15 @@ test.describe("Ask", () => {
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     const field = page.getByLabel("Your question");
     await expect(field).toBeFocused();
+    /* Nothing to announce yet: the explainer describes, it isn't news. */
+    await expect(page.getByTestId("search-ask-status")).toHaveText("");
     await axeClean(page);
+    /* Escape is the search field again; the toggle brings Ask back. */
+    await field.press("Escape");
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByLabel("Search recipes")).toBeFocused();
+    await toggle.click();
+    await expect(field).toBeFocused();
     await field.fill("anything with any kind of vodka");
     await field.press("Enter");
 
@@ -241,6 +277,47 @@ test.describe("Ask", () => {
     expect(await ticker.textContent()).not.toBe(scoped);
   });
 
+  /* Dq13: Dismiss, then a save that re-renders `/make`, never remounts it. */
+  test("Dismiss on Make, then a staples save, keeps the page as it is", async ({
+    page,
+  }) => {
+    await signInAndHome(page);
+    await page.goto("/search");
+    const toggle = page.getByTestId("search-ask-toggle");
+    await expectHydrated(toggle);
+    await toggle.click();
+    const field = page.getByLabel("Your question");
+    await field.fill("anything with any kind of vodka");
+    await field.press("Enter");
+    await expect(page).toHaveURL(/\/make\?.*with=vodka\*/);
+    const scope = page.getByTestId("make-ask-scope");
+    await expect(scope).toBeVisible();
+
+    await banner(page).getByRole("button", { name: "Dismiss" }).click();
+    await expect(banner(page)).toBeHidden();
+    await expect(page).not.toHaveURL(/[?&]ask=/);
+
+    /* An open <details> closes on a remount: this one must stay open. */
+    const staples = page.getByTestId("staples");
+    await staples.locator("summary").click();
+    await expect(staples).toHaveAttribute("open", "");
+    const saved = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname === "/make",
+    );
+    await staples
+      .getByLabel("Add to what I always have", { exact: true })
+      .fill("soy sauce");
+    await staples.getByRole("button", { name: "Add", exact: true }).click();
+    await saved;
+    await expect(staples.getByTestId("staples-chips")).toContainText(
+      "soy sauce",
+    );
+    await expect(staples).toHaveAttribute("open", "");
+    await expect(scope.getByRole("listitem")).toHaveText(["✱vodka*"]);
+  });
+
   test("a question on /search that answers with a search stays on /search", async ({
     page,
   }) => {
@@ -259,6 +336,23 @@ test.describe("Ask", () => {
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(page.getByLabel("Search recipes")).toHaveValue("tag:sour");
     await expect(banner(page)).toContainText("something sour please");
+  });
+
+  /* Dq14: a link with `?ask=` but no record in this tab — Undo can't know
+   * where it came from, so it opens the empty search, never history back. */
+  test("Undo with no record of the Ask opens the empty search", async ({
+    page,
+  }) => {
+    await signInAndHome(page);
+    await page.goto("/make?q=tag%3Adrink&ask=what+drinks+can+I+make");
+    await expect(banner(page)).toContainText(
+      "Filled in from: “what drinks can I make”",
+    );
+    const undo = banner(page).getByRole("button", { name: "Undo" });
+    await expectHydrated(undo);
+    await undo.click();
+    await expect(page).toHaveURL(/\/search$/);
+    await expect(page.getByLabel("Search recipes")).toHaveValue("");
   });
 
   test("fits a phone: no sideways scroll, targets at least 24 px", async ({

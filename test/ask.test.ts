@@ -17,7 +17,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 
 import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
-import { UnauthenticatedError } from "../websites/recipe-website/editor/controller/curation/errors";
 import { createGroup } from "../websites/recipe-website/editor/controller/curation/groups";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
 import { createTerm } from "../websites/recipe-website/editor/controller/curation/terms";
@@ -36,24 +35,36 @@ import {
   askPrompt,
   ASK_SYSTEM_PROMPT,
 } from "../websites/recipe-website/editor/controller/ask/prompt";
-import { readsLikeQuestion } from "../websites/recipe-website/editor/controller/ask/question";
+import {
+  askOffers,
+  readsLikeQuestion,
+} from "../websites/recipe-website/editor/controller/ask/question";
 import {
   fallbackUrl,
   isSiteUrl,
+  sameOriginPath,
 } from "../websites/recipe-website/editor/controller/ask/urls";
 import type { LlmConfig } from "../websites/recipe-website/editor/controller/llm/client";
+import {
+  addTokenToUser,
+  writeUser,
+} from "../websites/recipe-website/editor/src/users";
+import { auth } from "./stub_auth.js";
 
 let contentDirectory: string;
 let ctx: CurationContext;
-let signedIn = true;
+let previousContentDirectory: string | undefined;
 
-/* The route with its auth stood in for: signed in, or the 401 a guest gets. */
-vi.mock("recipe-editor/controller/apiContext", () => ({
-  requireCurationContext: async () => {
-    if (!signedIn) throw new UnauthenticatedError("Authentication required");
-    return { contentDirectory };
-  },
-}));
+/*
+ * The route's own auth, for real (27b): `requireCurationContext` reads the
+ * content directory from `CONTENT_DIRECTORY` and the session from the
+ * `@/auth` stub `vitest.config.js` aliases in; tokens are minted per test.
+ */
+const EDITOR = "admin@nextmail.com";
+function signIn(on: boolean) {
+  auth.mockReset();
+  auth.mockResolvedValue(on ? { user: { email: EDITOR } } : null);
+}
 const { POST: askRoute } =
   await import("../websites/recipe-website/editor/src/app/api/ask/route");
 
@@ -135,12 +146,19 @@ let vocabulary: AskVocabulary;
 beforeEach(async () => {
   contentDirectory = await mkdtemp(join(tmpdir(), "ask-"));
   ctx = { contentDirectory };
-  signedIn = true;
+  previousContentDirectory = process.env.CONTENT_DIRECTORY;
+  process.env.CONTENT_DIRECTORY = contentDirectory;
+  signIn(true);
   await seed();
   vocabulary = await readAskVocabulary(ctx);
 });
 
 afterEach(async () => {
+  if (previousContentDirectory === undefined) {
+    delete process.env.CONTENT_DIRECTORY;
+  } else {
+    process.env.CONTENT_DIRECTORY = previousContentDirectory;
+  }
   vi.unstubAllGlobals();
   vi.useRealTimers();
   await closeCachedEnvironments();
@@ -184,13 +202,30 @@ describe("readsLikeQuestion", () => {
     "what drinks can I make with lime",
     "What can I make with any kind of beans?",
     "which cookies for christmas",
+    "how do I use up buttermilk",
+    "should I make a punch for friday",
+    "lime and gin drinks?",
+    "any bean salad?",
+  ])("reads %j as a question: Ask leads", (text) => {
+    expect(readsLikeQuestion(text)).toBe(true);
+    expect(askOffers(text)).toBe(true);
+  });
+
+  /* Dq12: a request that may as well be a search keeps Enter on the top
+   * recipe; the Ask row comes after the results, unhighlighted. */
+  it.each([
+    "any bean salad",
+    "make ahead breakfast",
+    "use up buttermilk",
+    "plan for thanksgiving",
     "show me something with gin",
     "I have gin and lime",
     "something sour with rum",
     "gin drinks for a party on friday night",
-    "lime and gin drinks?",
-  ])("reads %j as a question", (text) => {
-    expect(readsLikeQuestion(text)).toBe(true);
+    "Grandma's Slow Cooker Pulled Pork with Apple Cider Barbecue Sauce",
+  ])("leaves %j a search, with Ask offered after it", (text) => {
+    expect(readsLikeQuestion(text)).toBe(false);
+    expect(askOffers(text)).toBe(true);
   });
 
   it.each([
@@ -203,8 +238,9 @@ describe("readsLikeQuestion", () => {
     "what can I make -tag:drink",
     "(gin OR rum) sour",
     "what?",
-  ])("leaves %j a search", (text) => {
+  ])("leaves %j a search, with no Ask offered", (text) => {
     expect(readsLikeQuestion(text)).toBe(false);
+    expect(askOffers(text)).toBe(false);
   });
 });
 
@@ -558,6 +594,55 @@ describe("ask", () => {
       fallback: { code: "timeout", detail: "no answer within 0 s" },
     });
     expect(ASK_TIMEOUT_MS).toBe(30_000);
+
+    /* The `gpu` line was let go: the next Ask gets it and its answer. */
+    stubModel({ page: "make", kind: "drinks", features: ["lime"] });
+    const next = await ask(ctx, "what drinks can I make with lime", {
+      config: OLLAMA,
+      vocabulary,
+      timeoutMs: 5_000,
+    });
+    expect(next.fallback).toBeUndefined();
+    expect(next.label).toBe("What can I make: drinks with lime");
+  });
+
+  it("stops when the caller goes away, and lets the line go", async () => {
+    const seen: AbortSignal[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            if (init.signal) seen.push(init.signal);
+            init.signal?.addEventListener("abort", () =>
+              reject(init.signal?.reason),
+            );
+          }),
+      ),
+    );
+    const caller = new AbortController();
+    const asking = ask(ctx, "what can I make", {
+      config: OLLAMA,
+      vocabulary,
+      signal: caller.signal,
+    });
+    await vi.waitFor(() => expect(seen).not.toHaveLength(0));
+    const started = Date.now();
+    caller.abort();
+    const result = await asking;
+    /* Not the 30 s budget: the call ended with the caller. */
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(seen.every((signal) => signal.aborted)).toBe(true);
+    expect(result.fallback?.code).toBe("model");
+    expect(result.url).toBe(fallbackUrl("what can I make"));
+
+    stubModel({ page: "make", kind: "drinks", features: ["lime"] });
+    const next = await ask(ctx, "what drinks can I make with lime", {
+      config: OLLAMA,
+      vocabulary,
+      timeoutMs: 5_000,
+    });
+    expect(next.fallback).toBeUndefined();
   });
 
   it("falls back without a call when no model is set up", async () => {
@@ -587,23 +672,101 @@ describe("ask", () => {
 });
 
 describe("POST /api/ask", () => {
-  function post(body: unknown) {
+  function post(
+    body: unknown,
+    { token, signal }: { token?: string; signal?: AbortSignal } = {},
+  ) {
     return askRoute(
       new Request("http://editor/api/ask", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
         body: typeof body === "string" ? body : JSON.stringify(body),
+        signal,
       }),
     );
   }
 
+  /** The editor's model, for the route (it reads `llmConfig()`). */
+  async function withModel<T>(run: () => Promise<T>): Promise<T> {
+    const previous = process.env.RECIPE_LLM_URL;
+    process.env.RECIPE_LLM_URL = "http://127.0.0.1:11434";
+    try {
+      return await run();
+    } finally {
+      if (previous === undefined) delete process.env.RECIPE_LLM_URL;
+      else process.env.RECIPE_LLM_URL = previous;
+    }
+  }
+
+  async function mint(scope: "read" | "write"): Promise<string> {
+    await writeUser(contentDirectory, { email: EDITOR, password: "hashed" });
+    return addTokenToUser(contentDirectory, EDITOR, `ask-${scope}`, { scope });
+  }
+
   it("answers a guest 401, and a bad body 400", async () => {
-    signedIn = false;
+    signIn(false);
     expect((await post({ question: "gin?" })).status).toBe(401);
-    signedIn = true;
+    expect(
+      (await post({ question: "gin?" }, { token: "rcp_deadbeef_nope" })).status,
+    ).toBe(401);
+    signIn(true);
     expect((await post({})).status).toBe(400);
     expect((await post({ question: "x".repeat(301) })).status).toBe(400);
     expect((await post({ question: "gin", extra: 1 })).status).toBe(400);
+  });
+
+  /* 27b: Ask is a read, as the git reads and `/api/jobs` are — a read token
+   * may ask, and a write token, which can do everything a read token can,
+   * may too (only a write route answers a read token 403). */
+  it.each(["read", "write"] as const)(
+    "takes a %s-scope token with no session",
+    async (scope) => {
+      const token = await mint(scope);
+      signIn(false);
+      stubModel({ page: "search", q: "tag:sour" });
+      const response = await withModel(() =>
+        post({ question: "something sour" }, { token }),
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        page: "search",
+        url: "/search?q=tag%3Asour&ask=something+sour",
+      });
+    },
+  );
+
+  it("stops the model when the request is dropped", async () => {
+    const seen: AbortSignal[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            if (init.signal) seen.push(init.signal);
+            init.signal?.addEventListener("abort", () =>
+              reject(init.signal?.reason),
+            );
+          }),
+      ),
+    );
+    const request = new AbortController();
+    const answering = withModel(async () => {
+      const response = post(
+        { question: "what can I make" },
+        { signal: request.signal },
+      );
+      await vi.waitFor(() => expect(seen).not.toHaveLength(0));
+      request.abort();
+      return response;
+    });
+    const response = await answering;
+    expect(seen.every((signal) => signal.aborted)).toBe(true);
+    /* Nobody reads it; still the fallback, never a 500. */
+    expect(response.status).toBe(200);
+    expect((await response.json()).fallback).toMatchObject({ code: "model" });
   });
 
   it("reads the site, asks the model, writes nothing", async () => {
@@ -630,12 +793,29 @@ describe("POST /api/ask", () => {
   });
 });
 
+describe("sameOriginPath", () => {
+  it("keeps a path on this site, and refuses one that would leave", () => {
+    const origin = "http://editor.example:3000";
+    expect(sameOriginPath("/make?q=tag%3Adrink#top", origin)).toBe(
+      "/make?q=tag%3Adrink#top",
+    );
+    /* What the parser makes of a tab: another host, refused either way. */
+    expect(new URL("/\t/evil.example", origin).host).toBe("evil.example");
+    for (const url of ["/\t/evil.example", "//evil.example", "https://x.y/"]) {
+      expect(sameOriginPath(url, origin)).toBeUndefined();
+    }
+  });
+});
+
 describe("isSiteUrl", () => {
   it("takes a site path and nothing else", () => {
     expect(isSiteUrl("/make?q=")).toBe(true);
     for (const url of [
       "//evil.example",
       "/\\evil",
+      "/\t/evil.example",
+      "/\n/evil.example",
+      "/\r\n/evil.example",
       "https://x.y/",
       "make",
       3,
