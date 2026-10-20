@@ -18,7 +18,7 @@ import { ArrowRightIcon } from "lucide-react";
  *
  * The count is the `/make` page's judgement over **this browser's list
  * only**, in both apps (U6, Roger 2026-10-15): what this visitor entered here,
- * plus their Make settings (staples, close matches), over the corpus
+ * plus their Make settings (the staples; close matches always count), over the corpus
  * `SearchProvider` already fetched for every page. It never reads the
  * editor's shared inventory, not even for a signed-in owner — that list is
  * the agents' and `/make`'s secondary group, and the export never sees it.
@@ -32,7 +32,7 @@ import { ArrowRightIcon } from "lucide-react";
  */
 export function MakeTile() {
   const inventory = useInventory();
-  const { countClose, staples } = useMakeSettings();
+  const { staples } = useMakeSettings();
   const have = inventory.have;
   const wanted = inventory.ready && have.length > 0;
 
@@ -62,12 +62,9 @@ export function MakeTile() {
       deferredCorpus,
       prepareCorpus(deferredCorpus),
       have,
-      {
-        countClose,
-        staples,
-      },
+      { staples },
     ).canMake.length;
-  }, [deferredCorpus, have, countClose, staples]);
+  }, [deferredCorpus, have, staples]);
 
   /*
    * A failed ingredients fetch, or a corpus with no recipes at all, never

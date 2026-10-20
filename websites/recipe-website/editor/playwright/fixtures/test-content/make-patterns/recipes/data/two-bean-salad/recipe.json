@@ -1,0 +1,32 @@
+{
+  "name": "Two Bean Salad",
+  "description": "Kidney beans and chickpeas in a sharp dressing.",
+  "tags": [
+    "salad",
+    "vegetarian"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "1 (15 oz) can kidney beans, drained and rinsed"
+    },
+    {
+      "ingredient": "1 (15 oz) can chickpeas, drained and rinsed"
+    },
+    {
+      "ingredient": "1/2 red onion, finely diced"
+    },
+    {
+      "ingredient": "3 tablespoons red wine vinegar"
+    },
+    {
+      "ingredient": "2 tablespoons olive oil"
+    }
+  ],
+  "date": 1792000120000,
+  "recipeYield": "4 servings",
+  "instructions": [
+    {
+      "text": "Toss it all together."
+    }
+  ]
+}

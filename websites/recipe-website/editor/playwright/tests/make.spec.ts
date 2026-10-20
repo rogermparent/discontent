@@ -14,13 +14,21 @@ import { expectNoViolations } from "../support/a11y";
  * each test starts from a fresh context with none.
  */
 
-const ticker = (page: Page) => page.getByTestId("make-ticker");
+/* In `main`: before hydration a streamed copy can sit outside it (43m gate). */
+const ticker = (page: Page) =>
+  page.getByRole("main").getByTestId("make-ticker");
 const section = (page: Page, id: string) => page.getByTestId(id);
 const query = (page: Page) => page.getByTestId("make-query");
 const question = (page: Page) => page.getByTestId("make-question");
 const chips = (page: Page) => page.getByTestId("inventory-chips");
 const shelf = (page: Page) => page.getByTestId("make-shelf");
 const toast = (page: Page) => page.getByTestId("make-toast");
+/** "Most used here" (43m): the suggestions card's second tab, and its panel. */
+const mostUsedTab = (page: Page) =>
+  page
+    .getByTestId("make-suggestions")
+    .getByRole("tab", { name: "Most used here" });
+const mostUsed = (page: Page) => page.getByTestId("most-used");
 
 /**
  * A result card by its recipe's name: the list item holding its link (the
@@ -76,7 +84,11 @@ test.describe("What can I make?", () => {
         name: "What recipes can I make?",
       }),
     ).toBeVisible();
-    await expect(page.getByText("Tell it what you have")).toBeVisible();
+    /* 43m: an empty list starts from what the recipes use most. */
+    await expect(mostUsedTab(page)).toHaveAttribute("aria-selected", "true");
+    await expect(mostUsed(page).getByRole("heading")).toHaveText(
+      "Most used in these 7 recipes",
+    );
     /* `drink` is a root like any other now (28g), labelled by its record. */
     await expect(
       page
@@ -299,7 +311,9 @@ test.describe("What can I make?", () => {
       .getByRole("button", { name: "Clear", exact: true })
       .click();
     await expect(chips(page)).toHaveCount(0);
-    await expect(page.getByText("Tell it what you have")).toBeVisible();
+    /* 43m: Clear lands on Most used here. */
+    await expect(mostUsedTab(page)).toHaveAttribute("aria-selected", "true");
+    await expect(mostUsed(page)).toBeVisible();
     await expect(toast(page)).toContainText("Cleared 3 items.");
     /* Clear's button goes away, so focus goes to Undo — and the toast
      * waits while it is there (WCAG 2.2.1). */
@@ -630,7 +644,7 @@ test.describe("What can I make? — your saved inventory", () => {
     await page.goto("/make");
     await ready(page);
     await expect(chips(page)).toHaveCount(0);
-    await expect(page.getByText("Tell it what you have")).toBeVisible();
+    await expect(mostUsed(page)).toBeVisible();
     await expect(countFrom(page)).toHaveCount(0);
     await expect(page.getByTestId("make-second-list")).toHaveCount(0);
     await expect(
@@ -649,7 +663,7 @@ test.describe("What can I make? — your saved inventory", () => {
     await signInToMake(page, "tag:drink");
     /* Never a fallback: nothing on this browser is nothing on this browser. */
     await expect(chips(page)).toHaveCount(0);
-    await expect(page.getByText("Tell it what you have")).toBeVisible();
+    await expect(mostUsed(page)).toBeVisible();
     await expect(ticker(page)).toHaveText(/0 can make/i);
     await expect(
       countFrom(page).getByRole("radio", { name: /^This browser/ }),
@@ -1171,7 +1185,7 @@ test.describe("What can I make? — dinner as well as drinks", () => {
     await expect(refine).toHaveCount(0);
   });
 
-  test("a close match counts, says so, and can be turned off", async ({
+  test("a close match counts and says so, with no switch to turn it off (43m)", async ({
     page,
   }) => {
     await page.goto("/make");
@@ -1183,15 +1197,7 @@ test.describe("What can I make? — dinner as well as drinks", () => {
     await expect(can.getByTestId("make-close")).toContainText(
       "onion for shallot",
     );
-
-    await page.getByLabel(/Count close matches/).uncheck();
-    await expect(can.getByText("Shallot Rice Pilaf")).toHaveCount(0);
-    await expect(section(page, "make-one-away")).toContainText(
-      "Needs shallot (close: onion)",
-    );
-
-    await page.getByLabel(/Count close matches/).check();
-    await expect(section(page, "make-can")).toContainText("Shallot Rice Pilaf");
+    await expect(page.getByLabel(/Count close matches/)).toHaveCount(0);
     await expectNoViolations(page);
   });
 
@@ -1257,77 +1263,232 @@ test.describe("What can I make? — dinner as well as drinks", () => {
 });
 
 /*
- * 42m: `make-beans` — four salads: Chickpea Cucumber Salad, Black Bean and
- * Corn Salad, Two Bean Salad (kidney beans and chickpeas) and Classic Three
- * Bean Salad, whose green beans no family bean stands in for.
+ * 43m, on `make-patterns`: make-beans' four salads (Chickpea Cucumber,
+ * Black Bean and Corn, Two Bean, Classic Three Bean) plus Egg Salad ("1/3
+ * cup mayo") and Potato Salad ("1/2 cup mayonnaise"). An empty list starts
+ * from what they use most; pattern items — `bean*`, `/may(o|onnaise)/` —
+ * meet every line they match and refine like `any bean`. 42m's bean-swap
+ * group and its switch are gone.
  */
-test.describe("What can I make? — bean swaps", () => {
+test.describe("What can I make? — start from nothing, and patterns", () => {
   test.beforeEach(async ({ resetData }) => {
-    await resetData("make-beans");
+    await resetData("make-patterns");
   });
 
-  const beanSwitch = (page: Page) =>
-    page.getByRole("checkbox", { name: /^Let beans stand in for each other/ });
+  const input = (page: Page) => page.getByTestId("inventory-input");
+  const addUsed = (page: Page, name: string) =>
+    mostUsed(page).getByRole("button", { name: `Add ${name} to what I have` });
 
-  test("a bean on hand stands in for another as its own group, and the switch hides it", async ({
+  test("an empty list opens on Most used here; a tap adds, focus moves on, Undo takes it off", async ({
     page,
   }) => {
     await page.goto("/make");
     await ready(page);
-    await addItems(page, "black beans, cucumber, lemon");
-
-    const swap = section(page, "make-bean-swap");
-    await expect(swap.getByRole("heading", { level: 2 })).toHaveText(
-      /^With a bean swap\s*1$/,
-    );
-    const card = cardOf(swap, "Chickpea Cucumber Salad");
-    await expect(card.getByTestId("make-swap")).toHaveText(
-      "Use black beans for chickpea",
-    );
-    /* Never "can make"; still one away, where it says what would swap. */
-    await expect(section(page, "make-can")).toContainText(
-      "Nothing to make yet.",
-    );
-    await expect(section(page, "make-one-away")).toContainText(
-      "Needs chickpea (swap: black beans)",
-    );
-    /* Green beans are no family bean: the three-bean salad stays out. */
-    await expect(swap).not.toContainText("Classic Three Bean Salad");
     await expect(ticker(page)).toHaveText(
-      "4 recipes · 0 can make · 1 one away · 0 two away · 1 with a bean swap",
+      "6 recipes · 0 can make · 0 one away · 0 two away",
     );
+    await expect(mostUsedTab(page)).toHaveAttribute("aria-selected", "true");
+    await expect(mostUsed(page).getByRole("heading")).toHaveText(
+      "Most used in these 6 recipes",
+    );
+    /* Normalized names (43n): "mayo" and "mayonnaise" are one, in 2 of 6. */
+    const rows = mostUsed(page).getByRole("listitem");
+    await expect(rows).toHaveCount(12);
+    await expect(rows.first()).toHaveText(/^chickpea\s*in 2 of 6/);
+    await expect(rows.filter({ hasText: "mayonnaise" })).toHaveText(
+      /in 2 of 6/,
+    );
+    /* Staples and pantry staples are left out: they count as on hand. */
+    await expect(addUsed(page, "olive oil")).toHaveCount(0);
+    await expect(addUsed(page, "kosher salt")).toHaveCount(0);
 
-    /* One bean covers two lines. */
-    await addItems(page, "red onion, red wine vinegar");
-    const twoBean = cardOf(swap, "Two Bean Salad");
-    await expect(twoBean.getByTestId("make-swap")).toHaveText([
-      "Use black beans for kidney bean",
-      "Use black beans for chickpea",
-    ]);
-    await expect(ticker(page)).toHaveText(/· 2 with a bean swap$/);
+    await addUsed(page, "mayonnaise").click();
+    await expect(
+      chips(page).getByRole("button", { name: "mayonnaise", exact: true }),
+    ).toBeVisible();
+    await expect(toast(page)).toContainText("Added mayonnaise.");
+    /* Still on Most used, the row gone, focus on the one that took its place. */
+    await expect(mostUsedTab(page)).toHaveAttribute("aria-selected", "true");
+    await expect(addUsed(page, "mayonnaise")).toHaveCount(0);
+    await expect(addUsed(page, "red onion")).toBeFocused();
+    /* A keyboard adds the next one, and the next. */
+    await page.keyboard.press("Enter");
+    await expect(
+      chips(page).getByRole("button", { name: "red onion", exact: true }),
+    ).toBeVisible();
+    await expect(toast(page)).toContainText("Added red onion.");
+    await toast(page).getByRole("button", { name: "Undo" }).click();
+    await expect(
+      chips(page).getByRole("button", { name: "red onion", exact: true }),
+    ).toHaveCount(0);
+    await expect(addUsed(page, "red onion")).toBeVisible();
+
+    /* "Show all" opens the rest. */
+    await mostUsed(page)
+      .getByRole("button", { name: /^Show all \d+$/ })
+      .click();
+    await expect(addUsed(page, "yukon gold potato")).toBeVisible();
+
+    /* Buy next is the other tab. */
+    await page
+      .getByTestId("make-suggestions")
+      .getByRole("tab", { name: "Buy next" })
+      .click();
+    await expect(page.getByTestId("buy-next")).toBeVisible();
+    await expect(mostUsed(page)).toHaveCount(0);
+
+    /* No switch for bean swaps or close matches any more. */
+    await expect(
+      page.getByRole("checkbox", { name: /Let beans stand in/ }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("checkbox", { name: /Count close matches/ }),
+    ).toHaveCount(0);
     await expectNoViolations(page);
 
-    await expect(beanSwitch(page)).toBeChecked();
-    await beanSwitch(page).uncheck();
-    await expect(section(page, "make-bean-swap")).toHaveCount(0);
-    await expect(ticker(page)).not.toHaveText(/bean swap/);
-    await expect(section(page, "make-one-away")).toContainText(
+    /* Clear lands on Most used again. */
+    await shelf(page)
+      .getByRole("button", { name: "Clear", exact: true })
+      .click();
+    await expect(mostUsedTab(page)).toHaveAttribute("aria-selected", "true");
+    await expect(addUsed(page, "mayonnaise")).toBeVisible();
+  });
+
+  test("“Match every line with 'bean'” adds bean*, which counts every bean line and refines", async ({
+    page,
+  }) => {
+    await page.goto("/make");
+    await ready(page);
+    await addItems(page, "cider vinegar");
+
+    await input(page).fill("bean");
+    const suggestions = page.getByTestId("add-suggestions");
+    /* The family stays on offer; the pattern row comes last. */
+    await expect(
+      suggestions.getByRole("option", { name: /^Any bean — matches 4 kinds/ }),
+    ).toBeVisible();
+    const every = suggestions.getByRole("option", {
+      name: /^Match every line with “bean” — bean\* · matches 4 names/,
+    });
+    await expect(every).toBeVisible();
+    await expect(suggestions.getByRole("option").last()).toHaveAccessibleName(
+      /^Match every line with “bean”/,
+    );
+    await every.click();
+
+    const matcher = shelf(page).getByTestId("make-matcher");
+    await expect(matcher).toHaveAccessibleName("bean*");
+    /* Green, kidney and cannellini beans: the three-bean salad is ready. */
+    await expect(section(page, "make-can")).toContainText(
+      "Classic Three Bean Salad",
+    );
+    await expect(ticker(page)).toHaveText(/· 1 can make ·/);
+    /* Chickpeas aren't "bean…": Chickpea Cucumber Salad still needs them. */
+    await expect(section(page, "make-can")).not.toContainText(
       "Chickpea Cucumber Salad",
     );
-    await expect(section(page, "make-one-away")).not.toContainText("swap:");
 
-    /* Per browser: the choice survives a reload. */
-    await page.reload();
-    await ready(page);
-    await expect(beanSwitch(page)).not.toBeChecked();
-    await expect(section(page, "make-bean-swap")).toHaveCount(0);
-    await beanSwitch(page).check();
-    await expect(section(page, "make-bean-swap")).toContainText(
-      "Two Bean Salad",
+    await matcher.click();
+    const refine = page.getByRole("dialog", {
+      name: "Which of these do you have?",
+    });
+    await expect(refine).toContainText(
+      "Every line with a word starting “bean” counts as on hand now.",
+    );
+    await expect(refine.getByRole("checkbox")).toHaveCount(4);
+    await refine.getByRole("checkbox", { name: /^kidney bean/ }).check();
+    await refine.getByRole("button", { name: "Keep only these" }).click();
+    await expect(shelf(page).getByTestId("make-matcher")).toHaveCount(0);
+    await expect(
+      chips(page).getByRole("button", { name: "kidney bean", exact: true }),
+    ).toBeVisible();
+    await expect(toast(page)).toContainText("Kept kidney bean for bean*.");
+    await expect(section(page, "make-two-away")).toContainText(
+      "Classic Three Bean Salad",
+    );
+
+    await toast(page).getByRole("button", { name: "Undo" }).click();
+    await expect(shelf(page).getByTestId("make-matcher")).toBeVisible();
+    await expect(section(page, "make-can")).toContainText(
+      "Classic Three Bean Salad",
     );
   });
-});
 
+  test("a /regex/ item meets both spellings; a broken one says why and isn't added", async ({
+    page,
+  }) => {
+    await page.goto("/make");
+    await ready(page);
+    await addItems(page, "dijon mustard, celery");
+    await expect(section(page, "make-one-away")).toContainText("Egg Salad");
+
+    const error = page.getByTestId("inventory-input-error");
+    await input(page).fill("/may(/");
+    await expect(error).toContainText("Close the ( with a ).");
+    await expect(input(page)).toHaveAttribute("aria-invalid", "true");
+    await input(page).press("Enter");
+    await expect(input(page)).toHaveValue("/may(/");
+    await expect(shelf(page).getByTestId("make-matcher")).toHaveCount(0);
+
+    await input(page).fill("/(a+)+/");
+    await expect(error).toContainText("A group can't repeat");
+
+    await input(page).fill("/may(o|onnaise)/");
+    await expect(error).toBeEmpty();
+    await expect(input(page)).not.toHaveAttribute("aria-invalid", "true");
+    await expect(
+      page.getByTestId("add-suggestions").getByRole("option", {
+        name: /^\/may\(o\|onnaise\)\/ — matches 1 name/,
+      }),
+    ).toBeVisible();
+    await input(page).press("Enter");
+    await expect(input(page)).toHaveValue("");
+
+    const matcher = shelf(page).getByTestId("make-matcher");
+    await expect(matcher).toHaveAccessibleName("/may(o|onnaise)/");
+    await expect(section(page, "make-can")).toContainText("Egg Salad");
+
+    /* Its refine popover lists what it matched, and can't feature it. */
+    await matcher.click();
+    const refine = page.getByRole("dialog", {
+      name: "Which of these do you have?",
+    });
+    await expect(refine.getByRole("checkbox")).toHaveCount(1);
+    await expect(
+      refine.getByRole("checkbox", { name: /^mayonnaise/ }),
+    ).toBeVisible();
+    await expect(refine.getByRole("button", { name: /^Feature/ })).toHaveCount(
+      0,
+    );
+    await expectNoViolations(page);
+    await page.keyboard.press("Escape");
+
+    /* Kept through a reload, as text. */
+    await page.reload();
+    await ready(page);
+    await expect(shelf(page).getByTestId("make-matcher")).toHaveAccessibleName(
+      "/may(o|onnaise)/",
+    );
+    await expect(section(page, "make-can")).toContainText("Egg Salad");
+  });
+
+  test("an old bean-swap setting is read past (43m)", async ({ page }) => {
+    await page.goto("/make");
+    await page.evaluate(() =>
+      localStorage.setItem(
+        "make-settings-v1",
+        JSON.stringify({ beanSwaps: false, countClose: false }),
+      ),
+    );
+    await page.reload();
+    await ready(page);
+    await addItems(page, "black beans, cucumber, lemon juice");
+    /* Close matches count however it was stored; no swap group appears. */
+    await expect(page.getByTestId("make-bean-swap")).toHaveCount(0);
+    await expect(ticker(page)).not.toHaveText(/bean swap/);
+    await expect(section(page, "make-can")).toBeVisible();
+  });
+});
 /*
  * 42m2, on `make-beans`: a card's missing tape adds that ingredient to the
  * list; "bean" adds the `any bean` matcher, which refines to the beans
