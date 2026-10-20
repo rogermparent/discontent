@@ -6,6 +6,8 @@ import { getGroupBySlug } from "recipe-website-common/controller/data/readGroups
 import { recipeItems } from "recipe-website-common/controller/data/readRecipeItem";
 import { resolveGroupItems } from "recipe-website-common/controller/data/resolveGroupItems";
 import { resolveTermPage } from "recipe-website-common/controller/data/readTermPage";
+import { tagTermReads } from "recipe-website-common/controller/data/readTagTerms";
+import { facetTermsFromTree } from "recipe-website-common/util/facets";
 import { deleteFeaturedRecipe } from "../../../../../controller/actions/featuredRecipes";
 import { Button } from "@discontent/component-library/components/ui/button";
 import FeaturedRecipeDetailPage from "recipe-website-common/components/FeaturedRecipeDetailPage";
@@ -115,12 +117,16 @@ export default async function FeaturedRecipePage({
    * sense: the term page still renders, under the fold's label.
    */
   if (termSlug) {
-    const term = await resolveTermPage(termSlug);
+    const [term, tree] = await Promise.all([
+      resolveTermPage(termSlug),
+      tagTermReads.tree.read(),
+    ]);
     if (!term) notFound();
     return (
       <FeaturedRecipeDetailPage
         kind="term"
         term={term}
+        terms={facetTermsFromTree(tree)}
         note={note}
         actions={actions}
       />

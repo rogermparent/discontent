@@ -547,7 +547,176 @@ Files: `common/components/TagPage/` (`shared.tsx`, `routes.tsx`), `readTermPage.
 
 #### Results (43t)
 
-_Pending._
+**Landed** (canvas B, "Narrow it down"). Three pages over 43f's facet model;
+no index, projection or spec version changed — **reindex: none**.
+
+- **Pure half** — `common/controller/tagBoardPage.ts`: `tagBoardData({terms,
+recipes, groups})` (the board: four food columns, Collections, Holidays
+  with recipe and plan counts, three drinks columns, the Families run-in
+  list with nested families, other tags, "Find a tag" entries with trail,
+  aliases and facet), `findTags` (label/slug first, then aliases, "also …"),
+  and for term pages `pageTagSlugs` / `otherTags` (a card drops the page's
+  own tags), `carriesTerm`, `narrowChips` (the "Narrow X" rows) and
+  `rootSections` (a root page's sections), `isRootPage`, `tagSpelling` /
+  `spelledTagQuery`. `test/tagBoardPage.test.ts` (16).
+- **Reads** — `readTagBoardPage()` (`readTermPage.ts`): the same three
+  values `readTagBoard` reads (the tree, the two whole by-term maps), so the
+  board expires exactly as before. `termPageData` gains `allRecipes` (the
+  subtree's every row, pinned first — it already built them before the
+  48-cap), `pinnedCount` and `aliases`.
+- **`/tags`** (`TagPage/Board.tsx`, client): the panel (h1, New term for a
+  signed-in editor, Find a tag — an ARIA 1.2 combobox that opens the term,
+  Combine), the Food shelf (Course, Main ingredient, Cuisine, Speed &
+  effort + Collections; dot-leader rows nested by depth, `+` per row) beside
+  the Holidays aside (the 5 soonest on the browser's day, `useToday`, each
+  to `/holidays/<slug>`, "Each holiday's menu, in the almanac →"), the
+  Drinks shelf (Style, Strength & method, Spirit & base, Families), and
+  "N other tags" folded. Combine's count is `useQueryCount`: the search
+  corpus through `matchesFilter` and the `tag:` expansion — what
+  `/search?q=tag:a tag:b` will show (D3, Df9); only that count is a live
+  region (a polite `sr-only` status), not the whole bar. Pictures for the
+  holidays are rendered on the server (`TermPicture`, the almanac's rule),
+  for the dated holidays only — the only ones the aside can show.
+- **Term page** (`shared.tsx` `TermPageBody`, `TermRecipes.tsx`,
+  `HolidayWhen.tsx`): crumbs (`Tags ›` then the ancestors), the editor's
+  actions top right, h1, the count ticker ("41 recipes · 1 plan · also
+  filed as christmas-cookies"), the description; a holiday's when card
+  (days on the browser's day, date, Open the X menu, What can I make with
+  these?) or the term's picture and What can I make; plan cards and, signed
+  in with no pins, the pin slot; "Narrow X" chips over the subtree's rows,
+  filtering in place; list head with Clear and Grid / List; cards without
+  the page's own tags. The column is canvas B's 1152 px (`max-w-6xl`).
+- **Root page** (`RootTermBody`, `RootViews.tsx`): a facet root with
+  narrower terms (`isRootPage`, Dt8: `/tags/course`, `/tags/drink`,
+  `/tags/holidays`) — one section per narrower term by count (three photos,
+  its narrower terms as chips) for the first 7, "Only <Root> N" for the
+  recipes tagged with the root alone, "And N more" dot-leaders after
+  (narrower terms no recipe carries keep their count of plans, or 0 for the
+  curator), a By course / Newest switch (Newest is 34a's capped list), What
+  can I make, and on `holidays` the almanac link. A feature of a term
+  renders the same body with the same vocabulary (`facetTermsFromTree`), so
+  a featured root counts grandchildren and aliases as `/tags/<root>` does.
+- **Session** — the editor's two route files read `auth()` and pass
+  `signedIn` to `editorTagIndexRoute({signedIn})` / `editorTagRoute({params,
+signedIn})` — 43a's shape, kept as one rule after the merge (common can't
+  import the editor's auth); a guest sees no New term, Feature, Edit, Add a
+  narrower term or pin slot (43a's rule for these pages).
+- `TagPage/blockRows.ts` and `test/tagBlockRows.test.ts` are gone (the
+  count-bar board's row budget); `TagIndexPage` takes the board data.
+
+**Measured (Dt3).** A read-only scratch clone of the content repo
+(`tmp/43/43t/content-clone`, deleted after), the subtree's rows as JSON
+(`slug, date, name, image, tags` — 34a's rows): Christmas 41 rows = 8.1 KB
+(2.0 KB gzipped), Cookies 45 = 8.7 KB, Fall Favorites 64 = 12 KB, Desserts
+148 = 27 KB (6.4 KB), Holidays 139 = 27 KB, Drinks 222 = 41 KB, Course 597
+= 105 KB (27 KB). The vocabulary for the chips' model: 232 terms = 14.6 KB
+(3.1 KB). The real board (`tagBoardData` over the clone, after 43k): 603
+dishes + 222 drinks; Course 597 (14 rows), Main ingredient 399, Cuisine
+384, Speed & effort 327, Collections 86 (Fall Favorites 64, House recipes
+18, Syrups 5 › Lavender 3…), Holidays 153 (8 dated), Style 217, Strength &
+method 134, Spirit & base 201, Families 113 top-level / 144 with nested
+(Spritz 10 with 6 children, Moscow Mule 6, Sangria 6…), **0 other tags**,
+241 names and aliases; the board's serialized props 38.6 KB.
+
+**Decisions.**
+
+- **Dt1 — one pure board function over the facet model**, no second
+  grouping; the server passes every carrier as `{tags}` from the by-term
+  maps (`carriersFromRows`). Shelves count recipes (what "Show N recipes"
+  opens); a holiday's plans and the other tags count plans too, as `/tags`
+  always counted a bare tag.
+- **Dt2 — Collections sit on the Food shelf (canvas B)**, and the Drinks
+  shelf adds an "In collections" run-in line counted on drinks (House
+  recipes 17, Fall Favorites 2 on the real corpus), so the drinks-heavy
+  House collection is reachable from the bar's shelf too.
+- **Dt3 — "Narrow X" reads all of the subtree's rows** (measured above;
+  the biggest page that narrows, Desserts, is 27 KB). Root pages don't
+  narrow, they show sections. Past `TERM_NARROW_ROW_LIMIT` (400 rows) the
+  chips are left out rather than the page growing. With no chip pressed the
+  grid is the server's cards (34a's cap and "See all N recipes"); a pressed
+  chip or the List view draws client cards (`ClientListItem`,
+  `PureRecipeImage`) from the rows. The chips also need the vocabulary on
+  every narrowing page: 232 terms = 14.6 KB raw (3.1 KB gzipped) of
+  serialized props, pictures stripped (`lean`). "See all N" after narrowing
+  spells each tag as its carriers do (`spelledTagQuery`: `slow cooker`, not
+  `slow-cooker`), as the unpressed link always did.
+- **Dt4 — a visible `+` instead of long-press.** At `lg` and up, with a
+  pointer that hovers, `+` shows on hover and focus (canvas B); below `lg`
+  (the phone's disclosures) and on touch it is always there, 24 px. The phone hint reads "Tap + beside a row to combine it with
+  another."
+- **Dt5 — zero-count records leave the board** (they narrow nothing); Find
+  a tag still finds them, a root page lists them at 0 under "And N more",
+  and a term page's "Narrower:" line links every narrower term.
+- **Dt6 — cards keep the date line.** Canvas B shows a time; 34a's by-term
+  row carries no `totalTime`, and adding it is a projection change (a
+  version bump and a reindex) — deferred. The cards do drop the page's own
+  tags (the term, its ancestors and its subtree).
+- **Dt7 — chips AND together** and every count is within what is already
+  chosen; rows are the term's narrower terms, then up to 4 facet groups in
+  `FACET_GROUPS` order, 6 chips each, a pressed chip always kept; "All N"
+  clears. No Kind row.
+- **Dt8 — a root page is a facet root with narrower terms**
+  (`ROOT_PAGE_SLUGS` = `FACET_ROOT_ORDER`: course, main-ingredient,
+  cuisine, effort, holidays, drink and spirit — `spirit` too, as Spirit &
+  base is a facet column on the board). Every other term with narrower
+  terms (Syrups › Lavender, Fall Favorites, a `dessert` with children) is a
+  term page whose "Narrow X" leads with them. Both views are in the HTML
+  (the switch only shows one), so the export carries every link.
+- **Dt9 — plan cards** show the plan's picture, kind and size; canvas B's
+  six-photo strip needs each plan's members read and is left out.
+- **Dt10 — Families**: the 30 most made, then "All N families" opens the
+  rest in place; a family's own families follow it in brackets
+  ("Margarita 5 (Frozen Margarita, …)").
+- **Dt11 — Holidays aside**: the 5 soonest dated holidays; undated ones
+  live on the almanac. Find a tag opens the term page (it doesn't add to
+  Combine).
+
+**Review fixes** (after the read-only review): only the facet roots get
+the root layout (Dt8); "Only <Root> N" on a root page; a narrower term only
+plans carry keeps its count; the featured term page gets the vocabulary;
+"See all N" after narrowing spells the page's tag as its carriers do; the
+Combine live region is the count only; pictures for dated holidays only;
+the vocabulary payload line in Dt3. Then origin/main merged twice (43a's
+guest controls — one session rule, `editorTagRoute({params, signedIn})`,
+43t's ghost actions top right; 43n's ingredient names, nothing on these
+pages).
+
+**Gates.**
+
+- `pnpm --filter recipe-editor typecheck`, `pnpm --filter recipe-website
+exec tsc --noEmit`: clean (after both merges).
+- `pnpm exec vitest run`: 135 files / 2778 tests before the 43n merge; after
+  it 136 files / 2923 tests with 3 load-timing failures in
+  `test/queue.test.ts` (a 271 ms gap against 280, a 5 s timeout) and
+  `test/cliJson.test.ts` (a 30 s CLI timeout) while the heavy slot was
+  busy — both files plus `tagBoardPage` rerun alone: 3 files / 80 tests
+  passed. Nothing in 43t touches either.
+- Playwright, Docker, production build (`PLAYWRIGHT_BUILD=1`, e2e + mobile):
+  `tags-board`, `tag-pages`, `term-edit`, `holidays`, `accessibility`,
+  `featured-recipes`, `api-write`, `guest-controls` — 205 passed, 1 failed
+  (`tag-pages`: a stale "Newest" click on `/tags/dessert`, no root page
+  now); fixed, `tag-pages.spec` rerun 24/24.
+- `tags-board.spec` in dev mode (Docker): 12/12.
+- The 43n merge touched only ingredient, Make and shopping code, so the
+  Playwright runs above were not repeated after it.
+
+**Baselines.** First `/tags` baselines, Docker production mode,
+`tags-board.spec.ts/`: `tags-board`, `tags-term` (`/tags/halloween`) and
+`tags-root` (`/tags/drink`), each `-e2e` and `-mobile`. Each opened beside
+canvas B: the panel (h1, Find a tag, Combine), the Food shelf with
+Collections beside the Holidays aside (day count, date, recipes · plans,
+picture), the Drinks shelf with Families and "In collections", the folded
+other tags; the term page's crumbs, count ticker, when card, plan card,
+"Narrow Halloween" rows and cards without the page's tags; the root page's
+sections and By drinks / Newest switch. The fixture has no photos, so the
+root sections show no photo row and the cards their monograms. No existing
+baseline moved (no other spec snapshots a tag or featured term page).
+
+**Roger to confirm.** Dt2 (House recipes on both shelves), Dt5 (empty
+records off the board), Dt6 (the date, not the time, on term-page cards),
+Dt7 (chips AND rather than one at a time), Dt8 (`spirit` gets the root
+layout too; collections with narrower terms narrow instead), Dt9 (no
+six-photo strip on the plan card).
 
 ### 43p1 — Meal plan B "Plan at home, cook through it" (L)
 
@@ -951,7 +1120,151 @@ Files: `editor/.../new-recipe/` (`form.tsx`, `workspace.tsx`, `ImportProgress.ts
 
 #### Results (43e1)
 
-_Pending._
+**What changed.** `/new-recipe` and `/recipe/<slug>/edit` are canvas B's
+frame (board `B-start`, `B-desktop`, `B-phone`):
+
+- **The frame** (`common/components/Form/RecipeFormFrame.tsx`): h1 (the
+  edit page's "Editing recipe" eyebrow + name), a sticky section rail from
+  `lg` — Start from (new only) · Recipe · Tags · Picture · Ingredients ·
+  Steps · Times · Source — and the save card under it: **Create recipe** /
+  **Save**, **Cancel** (to `/` or the recipe), and **"N changes · not
+  saved"**. On a phone the rail is a jump row of section pills and the save
+  card a sticky bar above the tab bar (the `/shopping` bar's pattern). The
+  current section is marked from the scroll position (`aria-current`).
+- **The rail's model** (`common/components/Form/sections.ts`, pure):
+  statuses from the form state — "from the page/text/photo" while a
+  section is unchanged since the import, "N chosen" tags, line and step
+  counts, "N · all lines used" only when the recipe page's own matcher
+  (`matchStepIngredients`, 42c1) names every line, the total (or prep +
+  cook) time, the source's site or host, "needs a name", and "check" on a
+  section with a field error. `changedFields` counts real field changes
+  against the loaded values (CRLF, a trailing newline, a 0-minute time and
+  `type: undefined` are not changes; source and drink count per part).
+- **The sections** (`Form/index.tsx`): Recipe (name, description, yield),
+  Tags, Picture and video, Ingredients, Steps (+ timelines), Times, Source
+  and address (source link / site / author, slug, date, the Drink fold) —
+  headings with rules, every field's name and submit shape unchanged (D4).
+  The Add Ingredient / Instruction / Timeline buttons go outline: primary
+  is Save's alone.
+- **Start from** (`new-recipe/form.tsx`): five ways in as a radiogroup — A
+  link, Text, Photo, Roundup, Blank — over the existing import modes and
+  35r's `RoundupImport` (kept mounted, hidden, so a run survives a switch);
+  Text and Photo are disabled with "No local model / vision model
+  configured" where there is none. The live job panel (`ImportProgress`)
+  sits inside; once an import fills the form the card folds to a
+  **receipt** — the panel's one line with how it was read ("recipe data on
+  the page — no model needed", "read by qwen3:8b") and **Start over**.
+- **Duplicate check at Import time**: `recipeBySource` (`importList.ts`,
+  over the roundup's own `existingBySource`) behind `sameSourceAction`
+  (`new-recipe/duplicateActions.ts`); "Already in your recipes. X was
+  imported from this link on 14 Oct 2026." with **Open it** / **Edit that
+  one instead** / **Keep importing — save as a copy**, which sets the slug
+  from `resolveCopySlug` (`recipes.ts`: `nextCopySlug`, the first free
+  `-2`, `-3`…, counting on from a slug that already ends in a small number
+  whose base exists: `cookies-2` → `cookies-3`, `best-of-2024` →
+  `best-of-2024-2`) and
+  says so in the rail ("Same link as X — you chose to keep a copy",
+  `/recipe/x-2`). Asked again for a reopened `?job=`.
+- **Errors**: the slug conflict's Overwrite path is unchanged; the Slug
+  field now also says "This slug is taken: change it, or overwrite that
+  recipe." (`withSlugConflict`), and the rail marks Source "check".
+
+**Decisions.**
+
+- **De1-1 one Save in the DOM.** The rail's card is portalled out of the
+  recipe form (Start from is a `<form>` of its own; forms cannot nest), so
+  its buttons carry `form="recipe-form"`; `useFormStatus` still works (the
+  React tree is the form's). Which copy renders — rail card or phone bar —
+  follows `(min-width: 64rem)` after hydration (`useWideRail`); the server
+  renders the phone bar, hidden from `lg` by CSS. So there is one Save, one
+  Overwrite and one message at a time (strict locators stay strict).
+- **De1-2 the button names.** The canvas's copy wins: "Create recipe" and
+  "Save". 109 lookups of the recipe form's `Submit` in 25 specs were
+  rewritten by page (a script classifying each by the page it was on);
+  every other form's Submit (featured, group, term, menus, pages) stays.
+  Labels the specs find case-insensitively stay as they were where they are
+  43e2's (Prep Time, Add Ingredient…); the Source block's are now "Source
+  link", "Site", "Author".
+- **De1-3 no focus move on a mode switch.** 36d moved focus to the field a
+  mode link opened; with radios, focus stays on the radio (arrow keys move
+  through the five). The specs that asserted the old focus now assert the
+  field is shown.
+- **De1-4 "Start over" re-opens the ways in; it does not clear the form.**
+  The form keeps what the import gave it until the next import fills it
+  (D1: conservative). Roger to confirm.
+- **De1-5 the duplicate check informs only.** No index (or no match) is
+  silence; the slug conflict at Create still stands behind it. It is asked
+  for link imports (and a reopened link job), not for pasted text or photos.
+- **De1-6 the picture's change** is seen from the form element's own
+  `change`/`input` events on the file, URL and candidate inputs (the form
+  instance does not hold them): it counts as one change and turns the rail's
+  Picture to "new". It is compared with the inputs as the form mounted
+  (set ones only: a checked box, a chosen file, typed text), so typing then
+  deleting, or ticking then unticking, is back to no change.
+- **De1-7 Import stays primary** (board `B-start`); every other button in
+  the form is outline or ghost.
+- **De1-8 the phone's pill row is `contain: inline-size`.** A scroll
+  container still hands its content's min-content width up to an ancestor
+  grid track: the pills stretched the page to ~660 px at 393 until
+  contained (caught by the new spec's "nothing reaches past the screen"
+  check, which lists the offending boxes).
+
+- **De1-9 the duplicate check's match.** It uses the roundup's
+  `sourceUrlKey`: host without `www.`, path without a trailing slash or a
+  comment-page suffix, scheme, query (so `utm_*`) and fragment ignored. It
+  does not know that `youtu.be/x` and `youtube.com/watch?v=x` are one video
+  (the query is dropped, so the latter reads as `youtube.com/watch`); the
+  slug conflict at Create still catches a same-named copy. Roger to confirm.
+- **De1-10 a failed Create's counter.** After a slug conflict or a
+  validation error the form reloads with what was sent; the change count
+  compares against the pre-submit values (the import's recipe at the
+  copy/auto slug), not those. Checked by the e2e specs rather than a unit
+  test (it needs the server action's state).
+
+**Traps.**
+
+- The rail and the phone's jump row render only after hydration
+  (`useWideRail`; the server renders the phone bar): a layout shift on load,
+  and from `lg` there is no Save before hydration. Specs wait with
+  `expectHydrated`.
+- `nextCopySlug` counts on only from a number of at most two digits whose
+  base exists; a year or any other trailing number is part of the name.
+
+**Found, not fixed (43e2's):** an untouched save writes `"name": ""` into
+every untitled step (the step-name input posts an empty string and the
+schema keeps it) — pinned in `editFormRoundTrip.test.tsx` so the change is
+seen when the steps section is reworked. The ingredient, tag and drink-spec
+round-trip (D4) is exact.
+
+**Review fixes.** The round-trip test now carries timelines, a video, a
+cook time, an image and the date, and checks no clear flag rides along; a
+failed Create counts "N changes" against the pre-submit values (De1-10);
+`nextCopySlug` counts on only from a number of at most two digits whose base
+exists; the Picture marker compares with the inputs as mounted. Two things
+the Docker run found: on the current rail row the status text took the
+`success` colour (4.25:1 on the accent fill; now the row's own text colour),
+and the `sr-only` ": " spans inside the pill row were absolutely positioned
+against the page, stretching it to 477 px at 393 (the `ol` is `relative`
+now; the phone spec also asserts `scrollWidth`).
+
+**Gates** (head after the 43n merge). `recipe-editor` typecheck and
+`recipe-website` `tsc --noEmit` clean; vitest 138 files / 2,926 tests;
+Docker build-mode Playwright on the branch's touched specs plus `term-edit`
+(before the final merge): 425/425; after merging 43n, the form specs
+(edit-form-frame, new-recipe, edit, accessibility, visual,
+ingredient-preview, recipe): 195/195; `edit-form-frame.spec` once in dev
+mode (Docker, no build): 5/5.
+
+**Baselines moved** (Docker, `--update-snapshots`): `visual.spec`
+`new-recipe-form`, `new-recipe-form-overwrite`, `edit-form-populated`,
+`edit-form-overwrite`, `markdown-source-mode` (the form is the framed
+sections now, wider ingredient column), `ingredient-preview.spec`'s preview
+(524 → 840 px wide, the same reason), and new
+`edit-form-frame.spec` `new-recipe-imported` (1280 px, after an import) and
+`edit-form-mobile` (393 px, jump row and save bar).
+
+**Roger to confirm:** De1-4 (Start over keeps the form); the receipt's
+wording; Cancel on a new recipe goes to `/` without asking.
 
 ### 43e2 — Edit form B: tags, ingredients, steps, drinks (M–L)
 

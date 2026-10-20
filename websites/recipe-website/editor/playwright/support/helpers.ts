@@ -84,7 +84,11 @@ export async function signIn(
   page: Page,
   options?: SignInOptions,
 ): Promise<void> {
-  await page.getByRole("button", { name: "Sign In", exact: true }).click();
+  // The masthead's Sign In opens a client dialog: a click before it hydrates
+  // only focuses the button (43t's CI: the Email field never appeared).
+  const trigger = page.getByRole("button", { name: "Sign In", exact: true });
+  await expectHydrated(trigger);
+  await trigger.click();
   await fillSignInForm(page, options);
 }
 

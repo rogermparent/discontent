@@ -65,6 +65,16 @@ export interface TermPageData {
   /** How many recipes the whole subtree has, before the cap — the "M". */
   recipeCount: number;
   /**
+   * Every recipe of the subtree, uncapped, in `recipes`' order (pinned
+   * first, then the newest) — what a term page's "Narrow X" chips count and
+   * filter in place (43t), and a root page's per-term photo rows read.
+   */
+  allRecipes: RecipeListEntry[];
+  /** The record's pins that are listed here (0 without a record or pins). */
+  pinnedCount: number;
+  /** The record's own other names (`ownAliases`), absent when none. */
+  aliases?: string[];
+  /**
    * How many recipes carry this term itself (or one of its aliases) — the
    * page's "N here".
    */
@@ -356,10 +366,9 @@ export function termPageData({
   const pinnedCount = new Set(
     (record?.pinned ?? []).filter((pin) => listed.has(pin)),
   ).size;
-  const shown = applyPinned(recipes, record?.pinned).slice(
-    0,
-    Math.max(limit, pinnedCount),
-  );
+  const ordered = applyPinned(recipes, record?.pinned);
+  const shown = ordered.slice(0, Math.max(limit, pinnedCount));
+  const aliases = ownAliases(tree, slug);
 
   const labelOf = (term: string) =>
     tree?.[term]?.label ??
@@ -387,6 +396,9 @@ export function termPageData({
     }),
     recipes: shown,
     recipeCount: recipes.length,
+    allRecipes: ordered,
+    pinnedCount,
+    ...(aliases.length ? { aliases } : {}),
     ownRecipeCount: recipesOf([slug]).length,
     groups,
   };

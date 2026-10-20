@@ -101,9 +101,12 @@ test.describe("yt-dlp Import", () => {
       { timeout: 15_000 },
     );
 
-    await expect(page.getByRole("button", { name: "Import" })).toBeEnabled();
     await expect(panel.getByRole("heading", { level: 3 })).toHaveText(
       "Import done",
     );
+    /* 43e1: a finished import folds Start from into a receipt; Start over
+     * opens the ways in again, with Import usable. */
+    await page.getByRole("button", { name: "Start over" }).click();
+    await expect(page.getByRole("button", { name: "Import" })).toBeEnabled();
   });
 });

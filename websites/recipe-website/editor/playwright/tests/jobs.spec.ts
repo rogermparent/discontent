@@ -79,9 +79,8 @@ const VIDEO = "https://www.youtube.com/watch?v=SIDES_TEST";
 
 /** Paste a recipe and press Import. */
 async function importText(page: Page, text: string) {
-  await page
-    .getByRole("button", { name: "No link? Paste the recipe text instead" })
-    .click();
+  /* 43e1: Text is one of Start from's ways in. */
+  await page.getByRole("radio", { name: "Text", exact: true }).check();
   await page.getByLabel("Recipe text", { exact: true }).fill(text);
   await page.getByRole("button", { name: "Import", exact: true }).click();
 }
@@ -163,6 +162,12 @@ test.describe("Import jobs", () => {
       "data-status",
       "ok",
     );
+    /* 43e1: Start from folds to the receipt; Start over opens it again. */
+    await expect(
+      page.getByRole("button", { name: "Import", exact: true }),
+    ).toHaveCount(0);
+    await expect(page.getByTestId("import-receipt")).toHaveText(/^read by /);
+    await panel.getByRole("button", { name: "Start over" }).click();
     await expect(
       page.getByRole("button", { name: "Import", exact: true }),
     ).toBeEnabled();

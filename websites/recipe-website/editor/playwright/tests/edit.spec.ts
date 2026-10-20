@@ -57,7 +57,7 @@ test.describe("Recipe Edit View", () => {
 
         await page.getByText("Import Instructions", { exact: true }).click();
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
 
         await expect(
           page.getByRole("heading", { level: 1, name: "Recipe 6" }),
@@ -76,7 +76,7 @@ test.describe("Recipe Edit View", () => {
         const recipeDate = "2023-12-08T01:16:12.622";
         await expect(page.getByLabel("Date (UTC)")).toHaveValue(recipeDate);
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
 
         await expect(
           page.getByRole("heading", { level: 1, name: editedRecipeTitle }),
@@ -137,7 +137,7 @@ test.describe("Recipe Edit View", () => {
           "30",
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
 
         await expect(
           page.getByRole("heading", { level: 1, name: editedRecipeTitle }),
@@ -211,7 +211,7 @@ test.describe("Recipe Edit View", () => {
         await page.getByTitle("Total Time Minutes").fill("30");
         await page.getByTitle("Total Time Hours").fill("3");
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
 
         await expect(
           page.getByRole("heading", { level: 1, name: editedRecipeTitle }),
@@ -287,7 +287,7 @@ test.describe("Recipe Edit View", () => {
             .getByText("Heading", { exact: true }),
         ).toBeAttached();
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
 
         await expect(
           page.getByRole("heading", { level: 1, name: "Recipe 6" }),
@@ -321,7 +321,7 @@ test.describe("Recipe Edit View", () => {
           /^blob:/,
         );
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
 
         await expect(page.getByRole("img").first()).toHaveAttribute(
           "src",
@@ -365,7 +365,7 @@ test.describe("Recipe Edit View", () => {
           }),
         ).toHaveAttribute("src", imageUrl);
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
 
         await expect(
           page.getByRole("heading", { level: 1, name: "Recipe 6" }),
@@ -413,7 +413,7 @@ test.describe("Recipe Edit View", () => {
 
         await expect(page.getByLabel("Remove Image")).toHaveCount(0);
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
 
         await expect(
           page.getByRole("heading", { level: 1, name: "Recipe 5" }),
@@ -444,7 +444,7 @@ test.describe("Recipe Edit View", () => {
 
         await page.getByLabel("Remove Image").click();
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
 
         await page.getByRole("link", { name: "Edit", exact: true }).click();
 
@@ -468,7 +468,7 @@ test.describe("Recipe Edit View", () => {
         await page.getByLabel("Name").first().clear();
         await page.getByLabel("Name").first().fill(editedRecipeTitle);
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
 
         await expect(
           page.getByRole("heading", { level: 1, name: editedRecipeTitle }),
@@ -556,7 +556,7 @@ test.describe("Recipe Edit View", () => {
           page.locator('[name="ingredients[0].ingredient"]'),
         ).toHaveCount(0);
 
-        await page.getByRole("button", { name: "Submit", exact: true }).click();
+        await page.getByRole("button", { name: "Save", exact: true }).click();
         await expect(
           page.getByRole("heading", { level: 1, name: "Recipe 6" }),
         ).toBeVisible();

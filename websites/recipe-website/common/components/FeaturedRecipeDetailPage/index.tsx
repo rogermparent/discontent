@@ -7,6 +7,7 @@ import type { Group, Recipe } from "recipe-website-common/controller/types";
 import type { ResolvedGroupItem } from "recipe-website-common/controller/data/resolveGroupItems";
 import type { TermPageData } from "recipe-website-common/controller/tagVocabulary";
 import { TermPageBody } from "../TagPage/shared";
+import type { FacetTerm } from "../../util/facets";
 import { ReactNode } from "react";
 import {
   PageMain,
@@ -44,7 +45,16 @@ export type FeaturedRecipeDetailPageProps = {
    * by-term row per key of the term's subtree (34a) — and handed
    * over whole, so this page renders the term exactly as `/tags/<slug>` does.
    */
-  | { kind: "term"; term: TermPageData }
+  | {
+      kind: "term";
+      term: TermPageData;
+      /**
+       * The vocabulary (`facetTermsFromTree`), so a root page's sections and
+       * a term's chips count grandchildren and aliases as `/tags/<slug>`
+       * does (43t review).
+       */
+      terms?: FacetTerm[];
+    }
 );
 
 /**
@@ -83,12 +93,12 @@ export default function FeaturedRecipeDetailPage(
    * leaves out rather than for content this page withholds.
    */
   if (props.kind === "term") {
-    const { term } = props;
+    const { term, terms } = props;
     return (
       <PageMain>
         <FeatureNote note={note} />
         <PageSection maxWidth="4xl" grow>
-          <TermPageBody term={term} />
+          <TermPageBody term={term} terms={terms} />
         </PageSection>
         <PageActions>
           {actions}

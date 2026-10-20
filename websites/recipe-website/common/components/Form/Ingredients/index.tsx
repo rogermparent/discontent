@@ -194,6 +194,7 @@ export function IngredientsListInput({
               </ul>
               <div className="flex flex-row">
                 <Button
+                  variant="outline"
                   onClick={() => arrayField.pushValue({ ingredient: "" })}
                 >
                   Add Ingredient

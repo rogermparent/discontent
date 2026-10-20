@@ -36,7 +36,7 @@ async function editDescription(
   await fillSignInForm(page);
   await markdownEditorReady(page, "description");
   await fillMarkdownField(page, "description", description);
-  await page.getByRole("button", { name: "Submit", exact: true }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   /*
    * Wait for the *redirect*, not just for a heading — the edit page has a
    * level-1 heading of its own, so gating on one returns while the URL is
