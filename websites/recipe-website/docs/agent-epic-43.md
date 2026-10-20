@@ -579,7 +579,62 @@ in `PlanPage.tsx`, so a third section slots in beside Plan and Cook.
   minutes optional) so "rest overnight" is a fact, not a guess at the next
   number; the page quotes the rest's sentence only, so no wording changed.
 
-_Gates and baselines: below once run._
+**Merges.** origin/main merged three times: 43f (#295), 43a (#296 — its
+group-page action bar gives way to 43p1's More menu, Dp1-10; its
+`guest-controls.spec` group test now opens More before looking for Feature,
+Edit and Delete) and 43n (#297; a `backlog.md` conflict only — both rows
+kept struck).
+
+**Gates** (final tree 6e79c1bc unless said):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean. ESLint on the phase's changed `.ts`/`.tsx`:
+  clean.
+- `pnpm exec vitest run`: 138 files, 3,025 tests — 3,022 passed and 3
+  timed out under the machine's load (`cliJson` "keeps the inventory",
+  `curationGit` "aborts a conflict", `siteWrites` "git_status and pending
+  index refreshes"; an earlier full run timed out in `multiRecipe`
+  instead); those four files alone: 4 files, 176 tests passed. Before the
+  43n merge (c28d320d): 137 files, 2,880 tests passed.
+- Playwright, Docker build mode: `plan-page.spec` 16/16 on the final tree;
+  after the #296 merge `groups`, `api-write`, `featured-recipes`,
+  `accessibility`, `shopping`, `header`, `guest-controls` 208 passed, 1
+  failed — `featured-recipes` "features a group from the group page's
+  Feature button" looked for Feature outside the More menu; fixed
+  (d08ab1b6), then `featured-recipes` + `mcp-http` 60/60.
+- Dev mode (Docker, `next dev`): `plan-page.spec` 16/16, `guest-controls`
+  4/4. The first dev run lost the Sign In click in the four signed-in "plan
+  at home" tests (Tp1-1); fixed in c28d320d.
+- Axe WCAG 2.2 green in Plan (light, dark) and Cook (`plan-page.spec`).
+
+**Baselines** (Docker only, `--update-snapshots=all`): `plan-page-e2e`,
+`plans-list-e2e`, `plan-cook-mobile` regenerated after the 43f merge —
+`plan-cook-mobile` is now the spec's 393 × 1600 viewport capture (it was
+2,196 px tall), the other two moved by a one-pixel underline row; after the
+#296 merge they regenerated pixel-identical, and after the 43n merge they
+pass unchanged. Each opened against B's boards: Plan mode matches
+`B-desktop` (guest view, so no Save, scale or shopping panel), Cook
+matches `B-phone`, `/groups` matches `B-groups` with the placeholder in
+place of the photo strip (the fixture recipes have no pictures).
+
+**Traps.**
+
+- **Tp1-1 — a frozen clock under `next dev` loses the Sign In click.**
+  With `page.clock.setFixedTime` in the describe's `beforeEach`, every
+  signed-in plan test timed out waiting for the sign-in form in dev mode
+  (build mode passed). Only the tests that read the countdown freeze the
+  clock now, and sign-in waits for the button to hydrate.
+
+**Roger to confirm.**
+
+- Dp1-2: the server renders Plan (a phone switches to Cook as it
+  hydrates; a `?mode=cook` link now renders Cook from the server).
+- Dp1-3: "1–2 away" on the shelf's middle tile instead of the board's "two
+  away".
+- Dp1-9: the plan's own picture kept under the description.
+- Dp1-11: a Save over a plan that changed meanwhile is refused ("The plan
+  changed — reload to see it.") rather than merged.
+- Dp1-12: the viewport default is decided once per page load.
 
 ### 43p2 — The run sheet: C's features on the plan (M)
 
