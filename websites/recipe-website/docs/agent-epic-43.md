@@ -1823,6 +1823,11 @@ api-write.spec` — 212 passed, 1 failed (the add field's error contrast,
   next | Most used here card), `make-mobile` (same, stacked), and new
   `make-page-start` (Most used rows by uncanned name: chickpea, kidney
   bean, mayonnaise …). Each opened and checked.
+- **After merging origin/main 15ce93ec** (43p1, 43s, 43t, 43e1; only
+  `backlog.md` conflicted): both typechecks clean; vitest 142 files, 3,116
+  tests passed; the make baselines regenerated in Docker again
+  (`--update-snapshots=all`) — none moved; Docker build mode over the same
+  eight specs: 220 passed.
 
 ### 43q — Ask: AI search that fills in a page (L)
 
