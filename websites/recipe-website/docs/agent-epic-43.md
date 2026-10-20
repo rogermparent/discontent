@@ -362,7 +362,8 @@ recipes, groups})` (the board: four food columns, Collections, Holidays
   aliases and facet), `findTags` (label/slug first, then aliases, "also …"),
   and for term pages `pageTagSlugs` / `otherTags` (a card drops the page's
   own tags), `carriesTerm`, `narrowChips` (the "Narrow X" rows) and
-  `rootSections` (a root page's sections). `test/tagBoardPage.test.ts` (12).
+  `rootSections` (a root page's sections), `isRootPage`, `tagSpelling` /
+  `spelledTagQuery`. `test/tagBoardPage.test.ts` (16).
 - **Reads** — `readTagBoardPage()` (`readTermPage.ts`): the same three
   values `readTagBoard` reads (the tree, the two whole by-term maps), so the
   board expires exactly as before. `termPageData` gains `allRecipes` (the
@@ -475,7 +476,46 @@ method 134, Spirit & base 201, Families 113 top-level / 144 with nested
   live on the almanac. Find a tag opens the term page (it doesn't add to
   Combine).
 
-**Gates.** _Pending._
+**Review fixes** (after the read-only review): only the facet roots get
+the root layout (Dt8); "Only <Root> N" on a root page; a narrower term only
+plans carry keeps its count; the featured term page gets the vocabulary;
+"See all N" after narrowing spells the page's tag as its carriers do; the
+Combine live region is the count only; pictures for dated holidays only;
+the vocabulary payload line in Dt3. Then origin/main merged twice (43a's
+guest controls — one session rule, `editorTagRoute({params, signedIn})`,
+43t's ghost actions top right; 43n's ingredient names, nothing on these
+pages).
+
+**Gates.**
+
+- `pnpm --filter recipe-editor typecheck`, `pnpm --filter recipe-website
+exec tsc --noEmit`: clean (after both merges).
+- `pnpm exec vitest run`: 135 files / 2778 tests before the 43n merge; after
+  it 136 files / 2923 tests with 3 load-timing failures in
+  `test/queue.test.ts` (a 271 ms gap against 280, a 5 s timeout) and
+  `test/cliJson.test.ts` (a 30 s CLI timeout) while the heavy slot was
+  busy — both files plus `tagBoardPage` rerun alone: 3 files / 80 tests
+  passed. Nothing in 43t touches either.
+- Playwright, Docker, production build (`PLAYWRIGHT_BUILD=1`, e2e + mobile):
+  `tags-board`, `tag-pages`, `term-edit`, `holidays`, `accessibility`,
+  `featured-recipes`, `api-write`, `guest-controls` — 205 passed, 1 failed
+  (`tag-pages`: a stale "Newest" click on `/tags/dessert`, no root page
+  now); fixed, `tag-pages.spec` rerun 24/24.
+- `tags-board.spec` in dev mode (Docker): 12/12.
+- The 43n merge touched only ingredient, Make and shopping code, so the
+  Playwright runs above were not repeated after it.
+
+**Baselines.** First `/tags` baselines, Docker production mode,
+`tags-board.spec.ts/`: `tags-board`, `tags-term` (`/tags/halloween`) and
+`tags-root` (`/tags/drink`), each `-e2e` and `-mobile`. Each opened beside
+canvas B: the panel (h1, Find a tag, Combine), the Food shelf with
+Collections beside the Holidays aside (day count, date, recipes · plans,
+picture), the Drinks shelf with Families and "In collections", the folded
+other tags; the term page's crumbs, count ticker, when card, plan card,
+"Narrow Halloween" rows and cards without the page's tags; the root page's
+sections and By drinks / Newest switch. The fixture has no photos, so the
+root sections show no photo row and the cards their monograms. No existing
+baseline moved (no other spec snapshots a tag or featured term page).
 
 **Roger to confirm.** Dt2 (House recipes on both shelves), Dt5 (empty
 records off the board), Dt6 (the date, not the time, on term-page cards),
