@@ -176,10 +176,15 @@ function IngredientRow({
     ? { amount: "", rest: plain }
     : splitLine(plain);
   const flags = heading ? [] : ingredientFlags(plain);
-  const readable = inlineRuns(plain)
-    .map((run) => run.text)
-    .join("")
-    .trim();
+  /* The row's name is its visible text (WCAG 2.5.3, axe's
+   * label-content-name-mismatch): the amount column as shown ("2 cups ·
+   * 250g"), then the rest as read, markdown undone. */
+  const asRead = (text: string) =>
+    inlineRuns(text)
+      .map((run) => run.text)
+      .join("")
+      .trim();
+  const readable = [amount, asRead(rest)].filter(Boolean).join(" ");
   const id = useId();
 
   const field = (
@@ -292,7 +297,7 @@ function IngredientRow({
               type="button"
               onClick={startEditing}
               className="make-tape cursor-text text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-              aria-label={`Ingredient ${number}, a heading: ${plain}. Edit`}
+              aria-label={`Ingredient ${number}, a heading: ${asRead(plain)}. Edit`}
             >
               <span className="px-2.5 py-1 font-mono text-xs font-semibold tracking-[0.06em] uppercase">
                 <Inline text={plain} />
@@ -310,7 +315,9 @@ function IngredientRow({
             className="col-span-1 grid cursor-text grid-cols-[4.5rem_minmax(0,1fr)] items-baseline gap-x-2.5 rounded-sm py-2 text-left outline-none hover:bg-accent/40 focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:col-span-2 sm:grid-cols-[9.375rem_minmax(0,1fr)]"
           >
             <span className="font-mono text-[0.8125rem] leading-5 font-medium tabular-nums max-sm:text-[0.9375rem] max-sm:font-semibold max-sm:text-primary">
-              {amount}
+              {/* The trailing space keeps the visible text "2 oz white
+               * rum", as the name says, not "2 ozwhite rum". */}
+              {amount ? `${amount} ` : null}
             </span>
             <span className="min-w-0 break-words">
               {rest ? (
