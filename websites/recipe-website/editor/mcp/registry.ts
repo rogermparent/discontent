@@ -82,6 +82,7 @@ import {
   GroupInputSchema,
   GroupItemInputSchema,
   GroupPatchSchema,
+  InventoryAddItemSchema,
   InventoryItemSchema,
   InventoryMakeQuerySchema,
   InventorySetSchema,
@@ -1215,11 +1216,19 @@ export function createRecipeServer(
       description:
         "Add items to the shared list, one commit. Items already there are skipped. " +
         "Write the generic name first (`aperitif (Gnista)` or just `Gnista`), the way " +
-        "recipe lines are written. `any bean` is a matcher: every canned or dried bean " +
-        "a line names counts as on hand (never green or vanilla beans); `beans` is " +
-        "stored as `any bean`.",
+        "recipe lines are written. A plain item matches exactly; a matcher stands " +
+        "for many: `any bean` — every canned or dried bean a line names (never " +
+        "green or vanilla beans; `beans` is stored as `any bean`); one word of " +
+        "three letters or more with a star, `bean*` — every line naming a word " +
+        'that starts "bean" (green and vanilla beans too, not chickpeas); a ' +
+        "regular expression between slashes, `/may(o|onnaise)/` — tested " +
+        "case-insensitively against each line's normalized name, at most 64 " +
+        "characters, in a simple subset: a ?, *, + or {n,m} (at most 20) after " +
+        "one character or class, groups only for alternatives like (o|onnaise), " +
+        "no repeated groups like (a+)+, lookarounds or backreferences (anything " +
+        "else is refused as a validation error, saying why).",
       inputSchema: z.strictObject({
-        items: z.array(InventoryItemSchema).min(1).max(500),
+        items: z.array(InventoryAddItemSchema).min(1).max(500),
       }),
       annotations: WRITES,
     },
@@ -1281,11 +1290,10 @@ export function createRecipeServer(
         '`staples: false` — as the site\'s "Assume pantry staples" switch, on by ' +
         "default. A line can be met by making another recipe first (`makeFirst`), " +
         "or by a close item (`close`: {needs, have}, e.g. onion for a shallot), " +
-        "which counts as had. `beanSwap` (unless `beanSwaps: false`, as the site's " +
-        '"Let beans stand in for each other" switch, on by default) lists recipes ' +
-        "short only of beans that another bean on the list could replace — " +
-        "{slug, name, swaps: [{line, use}]}, e.g. use pinto beans for black bean; " +
-        "they stay in oneAway, twoAway or the further count too and never count as can make. " +
+        "which counts as had. Pattern items on the list (see inventory_add) — " +
+        "`bean*`, `/may(o|onnaise)/`, `any bean` — meet every line they match, " +
+        "strictly. `beanSwaps` is ignored (the bean-swap group is gone; put " +
+        "`bean*` or `any bean` on the list instead). " +
         "The same rules the site's /make page uses.",
       inputSchema: InventoryMakeQuerySchema,
       annotations: READ_ONLY,

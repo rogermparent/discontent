@@ -230,13 +230,17 @@ export function useLastMakeQuery(): [
 }
 
 /**
- * `/make`'s judgement settings, per browser like the list itself: whether a
- * close match counts as had (32j, on by default), what this kitchen always
- * has (32j, `DEFAULT_STAPLES` until edited), whether pantry staples are
- * assumed too (U5, on by default), and whether beans stand in for each
- * other as their own tier (42m, on by default). Each is stored only once
- * changed, so a
- * better default reaches everyone who never touched it.
+ * `/make`'s judgement settings, per browser like the list itself: what this
+ * kitchen always has (32j, `DEFAULT_STAPLES` until edited) and whether
+ * pantry staples are assumed too (U5, on by default) — plus Count from and
+ * the card view. Each is stored only once changed, so a better default
+ * reaches everyone who never touched it.
+ *
+ * Two switches went in 43m (Roger, 2026-10-19): "Count close matches" (32j)
+ * — close matches always count now, on every page and in the seats — and
+ * "Let beans stand in for each other" (42m), whose tier pattern items
+ * replaced. A stored `countClose` or `beanSwaps` is read past and dropped on
+ * the next save.
  *
  * `staples` is the **whole** assumed list — the always-on items plus, while
  * the switch is on, `PANTRY_STAPLES` — so any page that hands it to
@@ -246,7 +250,6 @@ export function useLastMakeQuery(): [
 export interface MakeSettings {
   /** False until the browser's storage has been read (38a: the sync waits). */
   ready: boolean;
-  countClose: boolean;
   /** Everything assumed on hand: `alwaysHave` ∪ pantry staples when on. */
   staples: string[];
   /** The editable "Assume I always have" list (32j). */
@@ -256,12 +259,6 @@ export interface MakeSettings {
   /** "Assume pantry staples" (U5): on unless this browser turned it off. */
   pantryStaples: boolean;
   /**
-   * "Let beans stand in for each other" (42m): the "With a bean swap" tier,
-   * on unless this browser turned it off. `/make` only — it adds a tier,
-   * so the pages that show counts alone never read it.
-   */
-  beanSwaps: boolean;
-  /**
    * "Count from" (41h): which list every count judges — this browser's
    * (the default, and U6's rule for a browser that never chose), the second
    * list the page has (the signed-in editor's saved list, or the house
@@ -270,9 +267,7 @@ export interface MakeSettings {
   source: CountFrom;
   /** The cards (41h): photo cards (the default) or compact spec cards. */
   view: CardView;
-  setCountClose: (value: boolean) => void;
   setPantryStaples: (value: boolean) => void;
-  setBeanSwaps: (value: boolean) => void;
   setStaples: (items: string[]) => void;
   resetStaples: () => void;
   setSource: (value: CountFrom) => void;
@@ -288,11 +283,8 @@ const COUNT_FROM: CountFrom[] = ["browser", "saved", "both"];
 const CARD_VIEWS: CardView[] = ["photos", "specs"];
 
 export interface StoredSettings {
-  countClose?: boolean;
   /** Stored only as `false`: on is the default. */
   pantryStaples?: boolean;
-  /** Stored only as `false`: on is the default (42m). */
-  beanSwaps?: boolean;
   staples?: string[];
   /** Stored only when not `"browser"` (41h). */
   source?: CountFrom;
@@ -303,18 +295,19 @@ export interface StoredSettings {
 /**
  * `make-settings-v1` as stored: anything unknown or mistyped is dropped, so a
  * value written before a field existed — every one before 41h has no
- * `source` — reads as that field's default.
+ * `source` — reads as that field's default, and one a later version retired
+ * — 32j's `countClose`, 42m's `beanSwaps`, both gone in 43m — is ignored.
  */
 export function parseSettings(raw: string): StoredSettings {
   try {
     const parsed = raw ? (JSON.parse(raw) as unknown) : {};
     if (!parsed || typeof parsed !== "object") return {};
-    const { countClose, pantryStaples, beanSwaps, staples, source, view } =
-      parsed as Record<string, unknown>;
+    const { pantryStaples, staples, source, view } = parsed as Record<
+      string,
+      unknown
+    >;
     const out: StoredSettings = {};
-    if (typeof countClose === "boolean") out.countClose = countClose;
     if (typeof pantryStaples === "boolean") out.pantryStaples = pantryStaples;
-    if (typeof beanSwaps === "boolean") out.beanSwaps = beanSwaps;
     if (Array.isArray(staples)) {
       out.staples = staples.filter(
         (item): item is string => typeof item === "string",
@@ -345,11 +338,9 @@ export function useMakeSettings(): MakeSettings {
       ...next,
     };
     const kept: StoredSettings = {};
-    if (merged.countClose !== undefined) kept.countClose = merged.countClose;
     if (merged.pantryStaples !== undefined) {
       kept.pantryStaples = merged.pantryStaples;
     }
-    if (merged.beanSwaps !== undefined) kept.beanSwaps = merged.beanSwaps;
     if (merged.staples !== undefined) kept.staples = merged.staples;
     if (merged.source !== undefined) kept.source = merged.source;
     if (merged.view !== undefined) kept.view = merged.view;
@@ -358,16 +349,8 @@ export function useMakeSettings(): MakeSettings {
       Object.keys(kept).length > 0 ? JSON.stringify(kept) : null,
     );
   }, []);
-  const setCountClose = useCallback(
-    (value: boolean) => save({ countClose: value ? undefined : false }),
-    [save],
-  );
   const setPantryStaples = useCallback(
     (value: boolean) => save({ pantryStaples: value ? undefined : false }),
-    [save],
-  );
-  const setBeanSwaps = useCallback(
-    (value: boolean) => save({ beanSwaps: value ? undefined : false }),
     [save],
   );
   const setStaples = useCallback(
@@ -393,17 +376,13 @@ export function useMakeSettings(): MakeSettings {
   );
   return {
     ready: raw !== null,
-    countClose: stored.countClose ?? true,
     staples,
     alwaysHave,
     defaultStaples: stored.staples === undefined,
     pantryStaples,
-    beanSwaps: stored.beanSwaps ?? true,
     source: stored.source ?? "browser",
     view: stored.view ?? "photos",
-    setCountClose,
     setPantryStaples,
-    setBeanSwaps,
     setStaples,
     resetStaples,
     setSource,

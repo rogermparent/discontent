@@ -292,16 +292,6 @@ export interface MakeableRow {
   close?: { needs: string; have: string }[];
 }
 
-/**
- * A recipe short only of beans that another bean on the list could stand
- * in for (42m): each missing bean line, and the bean on hand to use.
- */
-export interface BeanSwapRow {
-  slug: string;
-  name: string;
-  swaps: { line: string; use: string }[];
-}
-
 export interface MakeableResult {
   /** The scope as given (`""`: every recipe). */
   query: string;
@@ -320,11 +310,6 @@ export interface MakeableResult {
   /** Whether pantry staples counted as on hand (U5; on by default). */
   staples: boolean;
   /**
-   * Whether beans stood in for each other (42m; on by default): `/make`'s
-   * "Let beans stand in for each other".
-   */
-  beanSwaps: boolean;
-  /**
    * "Assume I always have" (41i): the editor's saved list (38a,
    * `settings.makeStaples`) when there is one, else `DEFAULT_STAPLES`.
    */
@@ -340,13 +325,6 @@ export interface MakeableResult {
   twoAway: MakeableRow[];
   /** Three or more away — a count, since a list of them says little. */
   further: number;
-  /**
-   * "With a bean swap" (42m), present while `beanSwaps` is on: recipes whose
-   * missing lines are all beans another bean on the list stands in for.
-   * Each is also in `oneAway`, `twoAway` or `further`, which stay as they
-   * were — a swap never makes a recipe "can make".
-   */
-  beanSwap?: BeanSwapRow[];
   buyNext: BuyNext[];
 }
 
@@ -368,17 +346,6 @@ function toRow(match: RecipeMatch): MakeableRow {
           })),
         }
       : {}),
-  };
-}
-
-function toSwapRow(match: RecipeMatch): BeanSwapRow {
-  return {
-    slug: match.recipe.slug,
-    name: match.recipe.name,
-    swaps: (match.swaps ?? []).map(({ requirement, use }) => ({
-      line: requirementLabel(requirement),
-      use,
-    })),
   };
 }
 
@@ -438,9 +405,10 @@ async function readSavedStaples(): Promise<string[] | undefined> {
  * - **The staples** are the editor's saved "Assume I always have"
  *   (`settings.makeStaples`) or `DEFAULT_STAPLES`, plus `PANTRY_STAPLES`
  *   unless `staples: false` (U5); close matches count as had.
- * - **Bean swaps** (42m), unless `beanSwaps: false`: `beanSwap` lists the
- *   recipes short only of beans another bean on the list stands in for, as
- *   the page's "With a bean swap" does.
+ * - **Pattern items** (43m) on the list — `bean*`, `/may(o|onnaise)/` — meet
+ *   lines as on the page: `parseInventoryItem` reads the stored text.
+ *   42m's bean-swap tier is gone (patterns replaced it): a `beanSwaps`
+ *   input is accepted and ignored, and the answer has no `beanSwap`.
  *
  * Buy next is computed inside the narrowed scope, as the page's "Buy next
  * for lime drinks" is.
@@ -454,7 +422,6 @@ export async function makeable(
     feature = [],
     limit = 20,
     staples = true,
-    beanSwaps = true,
   } = parseInput(InventoryMakeQuerySchema, raw);
   const scope = feature.reduce(withFeature, query);
   const features = featuredOfQuery(scope);
@@ -483,7 +450,6 @@ export async function makeable(
   const alwaysHave = saved ?? DEFAULT_STAPLES;
   const analysis = analyzeMakeable(scoped, prepared, items, {
     staples: assumedStaples(alwaysHave, staples),
-    beanSwaps,
   });
   return {
     query,
@@ -491,7 +457,6 @@ export async function makeable(
     features,
     link: `/make?${new URLSearchParams({ q: scope })}`,
     staples,
-    beanSwaps,
     alwaysHave,
     inventory: items.length,
     total: scoped.length,
@@ -500,9 +465,6 @@ export async function makeable(
     oneAway: analysis.oneAway.slice(0, limit).map(toRow),
     twoAway: analysis.twoAway.slice(0, limit).map(toRow),
     further: analysis.further.length,
-    ...(beanSwaps
-      ? { beanSwap: analysis.beanSwap.slice(0, limit).map(toSwapRow) }
-      : {}),
     buyNext: analysis.buyNext,
   };
 }

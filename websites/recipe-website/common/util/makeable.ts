@@ -25,13 +25,7 @@ import {
   type IngredientName,
   type Requirement,
 } from "./ingredientNames";
-import {
-  beanFor,
-  beanKind,
-  isBeanLine,
-  isFamilyBeanWords,
-  type BeanOnHand,
-} from "./beans";
+import { isFamilyBeanWords } from "./beans";
 import { matcherMeets, matcherOf, type IngredientMatcher } from "./matchers";
 
 /**
@@ -56,8 +50,8 @@ export const DEFAULT_STAPLES = ["salt", "black pepper", "water", "ice"];
  * inventory make` (`--no-staples`). Matched as an inventory item is, so
  * `flour` meets "all-purpose flour" and `sugar` "granulated sugar"; and
  * through the close tier, so `vegetable oil` stands in for canola oil and
- * `eggs` for egg yolks — the close note says so, and "Count close matches"
- * still decides whether that counts. `STAPLE_NOT_MODIFIERS` keeps a staple
+ * `eggs` for egg yolks — the close note says so, and it counts as had (since
+ * 43m always, on the page and in the seats). `STAPLE_NOT_MODIFIERS` keeps a staple
  * off the lines it only shares a last word with (almond flour, brown sugar).
  *
  * The page prints this list beside the switch, so it reads as people write.
@@ -153,10 +147,10 @@ export interface InventoryItem {
   aliasKeys: string[];
   names: IngredientName[];
   /**
-   * A matcher item (42m2, `matchers.ts`): `any bean` meets every line naming
-   * a family member, and has no names of its own — so it is never close to
-   * anything and never a bean to swap in, since it already meets every bean
-   * line.
+   * A matcher item (42m2, 43m, `matchers.ts`): `any bean` meets every line
+   * naming a family member, `bean*` every line with a word starting "bean",
+   * `/may(o|onnaise)/` every name it matches. It has no names of its own, so
+   * it is never close to anything.
    */
   matcher?: IngredientMatcher;
 }
@@ -654,16 +648,6 @@ export interface ViaRecipe {
   name: string;
 }
 
-/**
- * A bean line a different bean on hand could stand in for (42m): "Use pinto
- * beans for black beans".
- */
-export interface BeanSwap {
-  requirement: Requirement;
-  /** The bean on hand, as written: "pinto beans". */
-  use: string;
-}
-
 /** A line only an inventory item close to it meets (32j). */
 export interface CloseMatch {
   requirement: Requirement;
@@ -687,16 +671,14 @@ export interface RecipeMatch {
   close: CloseMatch[];
   /** `missing.length`; an alternative group counts once. */
   distance: number;
-  /**
-   * Set when every missing line is a bean line a bean on hand could stand
-   * in for (42m, `beanSwaps`): one swap per missing line. The recipe is in
-   * `beanSwap` as well as its own bucket; `missing` is unchanged.
-   */
-  swaps?: BeanSwap[];
 }
 
 export interface MakeableOptions {
-  /** Count a close match as had (default `true`; `/make`'s toggle). */
+  /**
+   * Count a close match as had (default `true`). `/make` and the seats
+   * always do since 43m, when its switch went; `measure-makeable --strict`
+   * and the tests still turn it off.
+   */
   countClose?: boolean;
   /**
    * Assumed on hand, matched like inventory items: the whole list. Absent,
@@ -710,13 +692,6 @@ export interface MakeableOptions {
    * `/make` passes `assumedStaples(alwaysHave, switch)` already built.
    */
   pantryStaples?: boolean;
-  /**
-   * Fill `beanSwap` (42m): recipes short only of beans, each bean line
-   * covered by a different family bean on hand (`beans.ts`). Off unless
-   * asked for — `/make`'s "Let beans stand in for each other" and the
-   * agents' `inventory make` ask; the page's other readers don't show it.
-   */
-  beanSwaps?: boolean;
 }
 
 /** `options`' staples as the judge sees them (see `MakeableOptions`). */
@@ -748,13 +723,6 @@ export interface MakeableAnalysis {
   oneAway: RecipeMatch[];
   twoAway: RecipeMatch[];
   further: RecipeMatch[];
-  /**
-   * "With a bean swap" (42m): recipes in `oneAway`, `twoAway` or `further`
-   * whose missing lines are all beans another bean on hand stands in for —
-   * the same match objects, each with its `swaps`. Never counted in the
-   * other buckets' sizes, never in `canMake`; empty unless `beanSwaps`.
-   */
-  beanSwap: RecipeMatch[];
   buyNext: BuyNext[];
   /** Scoped recipes with no ingredient lines to judge — left out of the buckets. */
   unjudged: number;
@@ -948,7 +916,7 @@ export function analyzeMakeable(
   inventory: string[],
   options: MakeableOptions = {},
 ): MakeableAnalysis {
-  const { countClose = true, beanSwaps = false } = options;
+  const { countClose = true } = options;
   const staples = resolveStaples(options);
   const prepared = Array.isArray(corpus) ? prepareCorpus(corpus) : corpus;
   const items = inventory.map(parseInventoryItem);
@@ -1008,16 +976,6 @@ export function analyzeMakeable(
     }
     return known ?? undefined;
   };
-  /* The family beans on hand (42m), the list's own first, read once. */
-  let beansOnHand: BeanOnHand[] | undefined;
-  const beansHeld = (): BeanOnHand[] =>
-    (beansOnHand ??= [...items, ...stapleItems].flatMap((item) => {
-      for (const name of item.names) {
-        const kind = beanKind(name);
-        if (kind) return [{ text: item.text, kind }];
-      }
-      return [];
-    }));
   const subMakeable = new Map<string, boolean>();
   const canMakeSub = (slug: string): boolean => {
     let known = subMakeable.get(slug);
@@ -1039,7 +997,6 @@ export function analyzeMakeable(
     oneAway: [],
     twoAway: [],
     further: [],
-    beanSwap: [],
     buyNext: [],
     unjudged: 0,
   };
@@ -1085,18 +1042,6 @@ export function analyzeMakeable(
       close,
       distance: missing.length,
     };
-    if (
-      beanSwaps &&
-      missing.length > 0 &&
-      missing.every(isBeanLine) &&
-      beansHeld().length > 0
-    ) {
-      match.swaps = missing.map((requirement) => ({
-        requirement,
-        use: beanFor(requirement, beansHeld())!.text,
-      }));
-      analysis.beanSwap.push(match);
-    }
     if (missing.length === 0) analysis.canMake.push(match);
     else if (missing.length === 1) analysis.oneAway.push(match);
     else if (missing.length === 2) analysis.twoAway.push(match);
@@ -1108,7 +1053,6 @@ export function analyzeMakeable(
     analysis.oneAway,
     analysis.twoAway,
     analysis.further,
-    analysis.beanSwap,
   ]) {
     bucket.sort(byName);
   }

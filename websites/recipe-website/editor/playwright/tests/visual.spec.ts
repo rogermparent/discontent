@@ -399,6 +399,19 @@ test.describe("Visual baselines @visual", () => {
     await snapshotPage(page, "make-page.png");
   });
 
+  // 43m: an empty list starts from what the recipes use most — the
+  // suggestions card on its "Most used here" tab, a pattern hint under the
+  // add field, and no bean-swap or close-match switches on the shelf.
+  test("make page starting from nothing", async ({ page, resetData }) => {
+    await resetData("make-patterns");
+    await page.goto("/make");
+    await expect(page.getByTestId("make-ticker")).toHaveText(/can make/i, {
+      timeout: 20_000,
+    });
+    await expect(page.getByTestId("most-used")).toContainText("in 2 of 6");
+    await snapshotPage(page, "make-page-start.png");
+  });
+
   // 42m2: the results at 1920 px — a matcher on the shelf, photo cards at
   // most four across with their tapes as buttons, further away as rows.
   test("make page results, wide", async ({ page, resetData }) => {

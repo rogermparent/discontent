@@ -21,6 +21,11 @@ import { FOCUS, MatcherMark } from "./Tape";
  * matcher with the ones ticked (one change, Undo). The popover also
  * features it, since the body no longer does. The × removes it like any
  * label.
+ *
+ * A pattern (43m: `bean*`, `/may(o|onnaise)/`) is the same tape: its
+ * members are the names it matches in scope ("Which of these do you
+ * have?"). A regular expression has no Feature button (the query language
+ * can't hold one), and a broken pattern's popover says what is wrong.
  */
 export function MatcherTape({
   item,
@@ -48,13 +53,18 @@ export function MatcherTape({
   const headingId = useId();
   const hintId = useId();
   const matcher = matcherOf(item);
-  const noun = matcher?.noun ?? item;
   const plural = matcher?.plural ?? item;
+  /*
+   * A regular expression can't be featured (43m): the query language reads
+   * its parentheses and bars as its own. A family or a word prefix can.
+   */
+  const featurable = matcher?.kind !== "regex";
   return (
     <li
       className="make-tape"
       data-kind="have"
       data-matcher="true"
+      data-invalid={matcher?.error ? "true" : undefined}
       data-featured={featured ? "true" : undefined}
       data-landed={landed ? "true" : undefined}
     >
@@ -96,13 +106,20 @@ export function MatcherTape({
           className="grid w-72 gap-3"
         >
           <h3 id={headingId} className="m-0 text-sm font-semibold">
-            Which {plural} do you have?
+            {matcher?.question ?? "Which of these do you have?"}
           </h3>
-          <p id={hintId} className="m-0 text-xs text-muted-foreground">
-            Every {noun} counts as on hand now. Tick the ones you have to keep
-            only those.
+          <p
+            id={hintId}
+            className={cn(
+              "m-0 text-xs",
+              matcher?.error ? "text-destructive" : "text-muted-foreground",
+            )}
+          >
+            {matcher?.error
+              ? `${matcher.error} It matches nothing until it's fixed: remove it and add it again.`
+              : matcher?.summary}
           </p>
-          {shown.length > 0 ? (
+          {matcher?.error ? null : shown.length > 0 ? (
             <ul className="m-0 grid max-h-64 list-none gap-0.5 overflow-y-auto p-0">
               {shown.map((member) => (
                 <MemberRow
@@ -122,7 +139,9 @@ export function MatcherTape({
             </ul>
           ) : (
             <p className="m-0 text-sm text-muted-foreground">
-              No {plural} in these recipes.
+              {matcher?.kind === "family"
+                ? `No ${plural} in these recipes.`
+                : `Nothing in these recipes matches ${plural}.`}
             </p>
           )}
           <div className="flex flex-wrap items-center gap-2">
@@ -140,18 +159,20 @@ export function MatcherTape({
             >
               Keep only these
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              aria-pressed={featured}
-              onClick={() => {
-                setOpen(false);
-                onToggleFeature();
-              }}
-            >
-              Feature {item}
-            </Button>
+            {featurable && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                aria-pressed={featured}
+                onClick={() => {
+                  setOpen(false);
+                  onToggleFeature();
+                }}
+              >
+                Feature {item}
+              </Button>
+            )}
           </div>
         </PopoverContent>
       </Popover>

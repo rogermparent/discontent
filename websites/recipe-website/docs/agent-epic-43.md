@@ -1744,7 +1744,230 @@ Files: `common/util/makeable.ts`, `matchers.ts`, `beans.ts`, `MakePage/` (`index
 
 #### Results (43m)
 
-_Pending._
+Branch `agent/43m-make` (origin/main 51465477 + `agent/43n-ingredient-names`;
+origin/main 03974887 — 43a and 43n's final #297 — merged in after review).
+**Reindex needed: no** (nothing an index, aggregate or `specVersions` pins
+changed; the inventory file's format is the same text). **Deploy: yes** (the
+editor's and the export's `/make`, the homepage tile and `/drinks` read the
+settings; the CLI, the stdio MCP and `/api/inventory/make` answer without
+`beanSwap`).
+
+**What changed.**
+
+- **Start from nothing.** `/make`'s Buy next card is now a two-tab card,
+  **Buy next | Most used here** (`MakeSuggestions.tsx`, Radix tabs). With the
+  counted list empty — a first visit, or after Clear — it opens on Most used
+  here: "Most used in these 6 recipes", each row a tap-to-add tape (42m2's
+  `AddTape`) and "in 2 of 6", twelve shown, then "Show all N" (at most 40).
+  A tap adds the name to this browser's list with Undo, keeps the tab, and
+  moves focus to the row that took its place. The old "Tell it what you
+  have" empty state is gone; "Type an item" and "Import a list" sit under the
+  heading while the list is empty. `mostUsed` (`makeMath.ts`) counts
+  43n's normalized names (`nameKey`) once per scoped recipe, every
+  alternative of a required line, and leaves out staples, optional lines,
+  a line's plain "beans" (the `any bean` matcher's) and whatever the counted
+  list and the assumed staples already cover (`probablyOnHand`), so every
+  tap adds something.
+- **Pattern items** (`matchers.ts`), stored as text like `any bean`:
+  - `bean*` — a **word prefix**: every line whose normalized name has a word
+    starting "bean" (black, green, kidney and vanilla beans; never
+    chickpeas). Folded on add (`Bean*` → `bean*`); matched as typed and as
+    `toName` reads the prefix, so `beans*` finds the singular names and
+    `mayo*` finds `mayonnaise` (43n's synonym).
+  - `/may(o|onnaise)/` — a **regular expression**, case-insensitive, tested
+    against each line's normalized name (the words `nameLabel` shows, accents
+    off). Kept as written (an `i` flag is tolerated and dropped).
+    `inventoryKey` keys it as written but for case (Dm10), and Import never
+    splits it on a comma.
+  - **"canned"** (43n's #297 reads every can shape as `canned X`): a pattern
+    tests the name without it (`withoutCanned`) and then the whole name, so
+    `/^chick/` and `chick*` meet "1 can chickpeas" and refine to `chickpea`,
+    and `/^canned/` still meets it (Dm11).
+  - **The add field**: a typed pattern is offered as itself ("✱
+    /may(o|onnaise)/ — matches 1 name in these recipes") and Enter adds it
+    whole; an invalid one says why under the field (`aria-invalid`,
+    `aria-describedby`) and Enter leaves it there to fix. One typed word of
+    three letters or more ends the list with **"✱ Match every line with
+    “bean”"** (adds `bean*`), last and never ranked over a name, only when it
+    matches two names in scope (Dm4). "Any
+    bean" is still offered for "bean". A hint under the field says what a
+    star and slashes do.
+  - **The tape** is 42m2's `MatcherTape`: ✱, its pull, and a popover
+    "Which of these do you have?" listing the names it matches in scope with
+    their recipe counts; **Keep only these** puts the ticked names in its
+    place (Undo). A word prefix can be featured from there; a regular
+    expression can't (Dm5). A broken stored pattern's popover says what is
+    wrong.
+  - `any bean` and its spellings read exactly as before (the family).
+- **Both switches gone.** "Let beans stand in for each other" and its "With a
+  bean swap" group, ticker part and card notes (42m) are removed from
+  `makeable.ts` (`beanSwaps`, `beanSwap`, `swaps`), `beans.ts` (`isBeanLine`,
+  `beanFor`, `BeanOnHand`) and the page. "Count close matches" is gone: close
+  matches always count on `/make`, the homepage tile and `/drinks`; the pure
+  judge keeps `countClose` for the tests and `measure-makeable --strict`.
+  `make-settings-v1`'s `countClose` and `beanSwaps` are read past
+  (`parseSettings`) and dropped on the next save.
+- **The seats** (41i parity): `inventory make` / `inventory_makeable` /
+  `/api/inventory/make` answer without `beanSwaps` and `beanSwap`; `beanSwaps`
+  (MCP, HTTP) and `--no-bean-swaps` (CLI) are accepted and ignored; the CLI's
+  text never prints a swap group, even from a 42m editor. Pattern items work
+  there unchanged (the seat reads the stored text through
+  `parseInventoryItem`); `inventory add` / `inventory_add` / `inventory set`
+  refuse a pattern the page can't use with its reason
+  (`InventoryAddItemSchema`), and `inventory remove` takes any text so a
+  broken one stored earlier can go. The tool descriptions, the CLI's help
+  and the curator skill's §8 say so (frontmatter unchanged, 59 / 45).
+- **Fixture** `make-patterns`: make-beans' four salads plus Egg Salad ("1/3
+  cup mayo") and Potato Salad ("1/2 cup mayonnaise"); indexes built on a
+  scratch copy with `scripts/build-corpus-indexes.ts` and copied in.
+- `backlog.md`: "Matchers beyond beans" struck (Done in 43m).
+
+**Decisions.**
+
+- **Dm1 — The syntax is the spelling.** A trailing `*` is a word prefix, a
+  leading `/` a regular expression, anything else a plain item matched
+  exactly as before (Roger: "plain items stay exact; patterns opt in").
+  `bean*` is the prefix, not the family — checked before the family's
+  spellings, which used to strip a `*`. No leading `*` (`*bean`) or infix
+  forms. A prefix is **one run of three letters or more** before the star
+  (review): "1/2*", "sugar snap*", `be*` and a pasted "salt & pepper*" stay
+  plain items, and the add field's "Match every line with" row shows only
+  for one typed word.
+- **Dm2 — Regex safety is a whitelist parser, plus a time-bound fuzz test**
+  (rewritten after review: the first version, a scan for nested repeats,
+  was beaten three ways — `(\w?){9}(\w?){9}(\w?){9}!` (single-digit counts
+  unchecked), `(?:a|a){9}(?:a|a){9}b` (counted alternation) and
+  `[]|([a ]+)+!]` (`[]` is a closed empty class in JavaScript) each ran
+  15–30 s on real names). `unsafePattern` parses a safe subset and refuses
+  anything else with a sentence saying what to change:
+  - atoms: a literal, `.`, `\w \d \s` (and capitals), `\b \B`, an escaped
+    punctuation mark, a character class read as JavaScript reads one (an
+    empty `[]` / `[^]` refused); a bare `]` or `}` must be escaped;
+  - a repeat `? * + {n} {n,m}` only right after one atom, one at a time (no
+    lazy `*?`), bounds ≤ 20, no `{n,}`;
+  - groups `( … )` / `(?: … )` for alternation only, at most 2 deep; a group
+    may be followed by `?` only, and only when nothing inside it repeats; no
+    lookarounds, backreferences or named groups;
+  - `^`, `$` anywhere (never repeated); body ≤ 64 characters;
+  - **a ways budget** (beyond the brief's list, which alone still admits
+    `\w*\w*\w*\w*!`, polynomial in a name's length): each `?` doubles the
+    ways to match from one place, `{n,m}` multiplies by its range, `*`/`+`
+    by 20, a group adds its branches; more than 1,000 is refused — `.*.*`
+    (400) and nine optional groups (512) pass, `.*.*.*` and ten don't.
+    Every name is tested on its first 120 characters, each distinct name once
+    (memoized), and the regex is compiled once in a try/catch. The vitest
+    refuses the three attacks and more, accepts the useful shapes
+    (`/may(o|onnaise)/`, `/^chick/`, `/bean$/`, `/(red|green) pepper/`,
+    `/chil[ei]/`, …), and runs 300 patterns — the heaviest the grammar
+    allows plus random ones generated from it (seeded) — each over 2,000
+    corpus-like names (some long) in under 200 ms. Conservative:
+    `(red|green)*`, `(ab)+` and `ch(ee|i){1,2}se` are refused though harmless.
+- **Dm3 — A pattern meets strictly, like the family**: it counts for can
+  make, pull and the what-if; never a close match, never a non-alcoholic
+  name or an infusion's flavour (`matcherMeets`). An invalid one stored
+  (an Import, a hand edit) meets nothing rather than reading as words.
+- **Dm4 — "Match every line" adds the word prefix.** "With 'bean'" reads as
+  "naming a word that starts bean", the same thing `bean*` means; a
+  substring anywhere would also match inside words ("ice" in "rice",
+  "lime" in "sublime"). Anything subtler is a `/regex/`. The row shows from
+  three letters typed and only when it would match two names or more in
+  scope (one is just that name), so 41h's suggestions read as before.
+- **Dm5 — A regular expression can't be featured.** The query language reads
+  its parentheses and bars as grouping, and `featureName` drops a
+  parenthetical. The family and a prefix (`ingredient:bean*`) can.
+- **Dm6 — Most used is a tab beside Buy next, one card** (the brief's
+  "record"). Empty list → Most used; otherwise Buy next, unless the visitor
+  picked a tab or tapped a Most used row; Clear forgets the pick, so it lands
+  on Most used when the list it emptied is the one counted — with Count from
+  the saved list, Clear empties this browser's list, what's counted hasn't
+  changed, and the card stays on Buy next. A row is keyed and labelled by
+  its name without a leading "canned" (`withoutCanned`, after #297), so "1
+  can black beans" and "2 cups black beans" are one `black bean` row and a
+  tap adds `black bean`. Pantry staples are left out because they count as
+  on hand.
+- **Dm7 — Focus after a Most used tap goes to the next row, not Undo**
+  (42m2's card tap moves to Undo). The point is adding one after another;
+  Undo stays in the toast and on Ctrl+Z (41h's Dh9).
+- **Dm8 — The page has one tree either way** (the empty list and the
+  results), so the first tap doesn't remount the card and lose focus.
+- **Dm9 — The seats tolerate the old inputs.** Strict schemas would have
+  refused an agent that learned `beanSwaps` from 42m's description; it
+  stays in the schema, described as ignored.
+- **Dm10 — A regular expression's key folds its case, not its escapes.**
+  Matching is case-insensitive, so `/Mayo/` and `/mayo/` are one item (the
+  first spelling kept); `\W` stays `\W` (it isn't `\w`). `fold` still isn't
+  used: it drops `^`.
+- **Dm11 — A pattern reads past a leading "canned"** as Make's names do
+  (43n's `withoutCanned`), and tries the whole name too: `/^chick/` meets
+  "canned chickpea", `/^canned/` still does. Refine rows and "Keep only
+  these" write the uncanned name (`chickpea`). The seats' `missing` keeps
+  the line's label as written (`canned chickpea`), as #297 left it.
+
+**Roger to confirm:** Most used as a tab rather than always beside Buy next
+(Dm6), and pantry staples left out of it; `bean*` meeting green and vanilla
+beans (it's a word match — `any bean` is still the family); a pasted
+footnote `sugar*` reading as a pattern (any one word of three letters and a
+star does, Dm1); regexes refused outside the whitelist — no repeated
+groups, a ways budget (Dm2); Clear with Count from the saved list staying
+on Buy next (Dm6); regexes not
+featurable (Dm5); focus moving to the next Most used row (Dm7); anyone who
+relied on "With a bean swap" now puts `any bean` or `bean*` on the list.
+
+**Tests.** `test/makePatterns.test.ts` (new: syntax and canonical text,
+errors, keys and Import, regex safety incl. the time bound, prefix and regex
+meeting real line shapes — 43n's balela lines, mayo/mayonnaise, mild feta —
+plain items exact, broken patterns, can make / pull / what-if, refine
+members and Keep only these, the add field's rows, Most used ranking and
+exclusions and scope); `makeableBeans` (the tier's tests replaced by "the
+tier is gone" and the settings read past), `makeMatchers` (the double-count
+block rewritten without the tier), `makeFeatured` (settings),
+`makeInventoryPanel` (no switches), `inventory` (no tier, `beanSwaps`
+ignored over the seat and the route, pattern items stored, refused when
+broken, and the page/seat parity), `mcp`, `cliJson` (the flag a no-op, a
+pattern round trip, a broken one a validation error). E2e: `make.spec`
+(the first visit, Clear and the guest/signed-in empty states now assert Most
+used; the close-match test without its switch; 42m's bean-swap block
+replaced by "start from nothing, and patterns" — four tests on
+`make-patterns`), `accessibility.spec` (the bean-swap scan replaced: empty
+list, a broken pattern's error, a pattern's popover), `visual.spec` (new
+`make-page-start`).
+
+**Review fixes (finisher).** The review's blockers: the ReDoS scan beaten
+three ways → the whitelist parser (Dm2); canned names after #297 → patterns,
+refine rows and Most used read past "canned" (Dm6, Dm11). Its minors: a word
+prefix is one word of three letters or more (Dm1); a regex's key folds case
+(Dm10); Clear with Count from the saved list stays on Buy next (Dm6, Roger to
+confirm). The gates found three more: the add field's pattern error was
+4.49:1 on the page background (`text-destructive` at 12 px; now mixed with a
+little `--foreground`), the suggestion tabs' colour transition let axe sample
+a trigger mid-fade (now `transition-none`), and a pre-hydration streamed copy
+of the ticker made make.spec's `ticker` ambiguous (now read inside `main`).
+`cliJson`'s 43m checks moved to a case of their own: thirteen CLI processes
+overran one case's 30 s on a loaded machine.
+
+**Gates** (after merging origin/main 03974887):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean (at 32f22b56; later commits change class
+  strings and one spec locator).
+- `pnpm exec vitest run`: 137 files, 2,932 tests passed.
+- Playwright, Docker build mode: `make.spec accessibility.spec visual.spec
+drinks.spec homepage-browse.spec homepage.spec mobile.spec
+api-write.spec` — 212 passed, 1 failed (the add field's error contrast,
+  fixed); then `make.spec accessibility.spec` 116 passed + 2 flaky (the tab
+  fade, the ticker; fixed), then 118 passed.
+- Dev mode (Docker, `next dev`): `make.spec accessibility.spec` — 117
+  passed, 1 flaky (the jobs page's timeline in dev's first compile, not 43m's).
+- Baselines, Docker only, `--update-snapshots=all` on the make tests after
+  the merge: `make-page`, `make-page-specs`, `make-results-wide` (the Buy
+  next | Most used here card), `make-mobile` (same, stacked), and new
+  `make-page-start` (Most used rows by uncanned name: chickpea, kidney
+  bean, mayonnaise …). Each opened and checked.
+- **After merging origin/main 15ce93ec** (43p1, 43s, 43t, 43e1; only
+  `backlog.md` conflicted): both typechecks clean; vitest 142 files, 3,116
+  tests passed; the make baselines regenerated in Docker again
+  (`--update-snapshots=all`) — none moved; Docker build mode over the same
+  eight specs: 220 passed.
 
 ### 43q — Ask: AI search that fills in a page (L)
 
