@@ -109,6 +109,18 @@ export async function searchFor(
   await field.press("Enter");
 }
 
+/**
+ * A row of `/search`'s Narrow column (43s) by its label — "dessert" finds
+ * the row reading "dessert 2", whatever the count inside these results. On
+ * a phone the column is the Narrow sheet's body; open the sheet first.
+ */
+export function narrowRow(page: Page, label: string): Locator {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return page
+    .getByTestId("narrow")
+    .getByRole("button", { name: new RegExp(`^${escaped} \\d+$`) });
+}
+
 // --- ⌘K command palette ---
 // Shared for the same reason `searchFor` is: the palette is driven from several
 // specs, and its opening ritual + readiness gate should live in one place.

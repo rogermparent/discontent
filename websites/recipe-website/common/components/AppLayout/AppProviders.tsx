@@ -10,6 +10,7 @@ import { ThemeVarsProvider } from "./ThemeVarsProvider";
 import { CommandPalette } from "../CommandPalette";
 import { StickyChromeSync } from "./useStickyChrome";
 import { WideRecipeSync } from "./useWideRecipe";
+import { OwnerProvider } from "./OwnerContext";
 
 export function AppProviders({
   children,
@@ -37,15 +38,20 @@ export function AppProviders({
         <StickyChromeSync />
         <WideRecipeSync />
         <QueryClientProvider>
-          <SearchProvider>
-            <BookmarksProvider>
-              {/* Wraps the app so the header's PaletteTrigger can open it via
+          <OwnerProvider value={isOwner}>
+            <SearchProvider>
+              <BookmarksProvider>
+                {/* Wraps the app so the header's PaletteTrigger can open it via
                   context; the dialog itself renders after `children`. */}
-              <CommandPalette isOwner={isOwner} authAction={commandPaletteAuth}>
-                {children}
-              </CommandPalette>
-            </BookmarksProvider>
-          </SearchProvider>
+                <CommandPalette
+                  isOwner={isOwner}
+                  authAction={commandPaletteAuth}
+                >
+                  {children}
+                </CommandPalette>
+              </BookmarksProvider>
+            </SearchProvider>
+          </OwnerProvider>
         </QueryClientProvider>
       </ThemeVarsProvider>
     </ThemeProvider>
