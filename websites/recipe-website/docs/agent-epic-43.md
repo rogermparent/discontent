@@ -451,11 +451,85 @@ counts, the term description, the palette's hand-over row and Ctrl ↵, the
 phone sheet with a 390 px overflow check). Baselines: `search-bands`,
 `search-term`, `search-term-mobile` new.
 
-**Gates.** _Pending._
+**Review fixes** (a finisher took the phase over from here):
+
+- **Completions offer the shortest plural form** (see Completions above):
+  the old key stripped `es` too ("limes" → "lim", so lime/limes never
+  met) and offered the more used spelling, so `ingredient:"pumpkin seeds"`
+  dropped the recipes that say "pumpkin seed kernels". Groups are formed
+  first and judged after, so a member already typed or matching no line
+  no longer hides its group.
+- **Focus survives a press.** Narrow groups were keyed on the query, so
+  every toggle remounted them and dropped focus. Now keyed on the group
+  (an opened "N more" closes when the free text changes); because groups
+  and rows still reorder by count, the pressed row names itself
+  (`data-focus-key`) and is focused again after the render that shows the
+  new query; "N more" focuses the first revealed row, "Clear tags" the
+  column's head. A band's "All N" focuses the first result, a Narrower
+  chip the term card's name.
+- **The palette's hand-over row**: Ctrl/⌘ ↵ opens `/search?q=<input>` with
+  or without recipe hits (it fell through to the highlighted nav row);
+  the debounce is dropped and the input committed; the count is withheld
+  while the input is ahead of the counted query; `aria-keyshortcuts` on
+  the row with its glyphs `aria-hidden`; only its top border is coloured
+  (the item's transparent selection border showed as a box).
+- Smaller: the band layouts memoized; a kind band's "N more" is the same
+  button as its "All N"; the desktop aside unmounts while the phone sheet
+  is open (one `data-testid="narrow"`); "All 1 drink" / "All 1 dish" at
+  one, as `/drinks` says it.
+- Found by the first Docker run: **the Narrow column is left out when it
+  has no row** (`hasNarrowRows`), so a tagless corpus's results take the
+  full width rather than sit beside an empty 232 px column, and the phone
+  shows no empty Narrow button; `command-palette.spec`'s `tag:soup` and
+  Groups-order cases count the hand-over row that now ends the recipes
+  group (Ds7).
+- **Ds9 — the band's "All N" stays when the band shows everything** (it
+  still writes the Kind, which narrows the Narrow counts and the ticker).
+- New checks in `search-facets.spec`: a Narrow row pressed from the
+  keyboard keeps focus (on and off), "All 5 drinks" from the keyboard
+  lands on the first result, plain ↵ opens the top recipe, Ctrl ↵ with no
+  recipe hits opens `/search?q=pantry` (not "What can I make?"), one
+  Narrow column while the sheet is open, and Escape hands focus back to
+  the Narrow button. Vitest: the shortest form found from a singular-only
+  line, -e and -es plurals deduped, a group judged by its passing members.
+
+**Baselines** (Docker, build mode, `--update-snapshots=all` after the
+main merge; other phases' PNGs put back). New: `search-bands`,
+`search-term`, `search-term-mobile`. Moved: `search-page-empty`,
+`search-page-with-hits` (4:5 cards in the B grid, full width when there
+is nothing to narrow; the masthead trigger gone), `search-page-recents`
+(the Narrow column beside the grid), `search-reveal-control` (1 px),
+`search-no-results` ("Nothing mentions …", Clear search),
+`palette-results`, `palette-deep-rows`, `palette-insert-rows` (rows with
+the meta and why lines, the hand-over row). `search-autocomplete` and
+`search-query-chips` came back pixel-identical and were left alone.
+Compared with the B boards: the bands, Narrow column, term card and
+date bands follow `B-desktop`; the phone follows `B-phone` but for Ds4
+(two-column grids, not the sideways scroller) and the toolbar, where the
+ticker keeps the query (Ds6) and wraps to three short lines beside Narrow
+and Sort at 390 px.
+
+**Gates.** `pnpm --filter recipe-editor typecheck` ✓; `pnpm --filter
+recipe-website exec tsc --noEmit` ✓; `pnpm exec vitest run` 136 files,
+2809 tests ✓ (after the 43a merge). Playwright in Docker, build mode:
+search-facets, search-tags, search-autocomplete, search-query-language,
+search-query-chips, search, search-live, search-cold-load,
+search-corpus-split, missing-media — **99 passed**; command-palette,
+empty-state, visual, mobile, accessibility, navigation, groups,
+homepage-browse, tag-pages, drinks — **237 passed**. Dev mode (Docker):
+search-facets and command-palette — 52 passed, 1 flaky (command-palette's
+"live search surfaces a recipe and Enter navigates to it", unchanged by
+43s: `next dev` compiling `/recipe/[slug]` on first visit outlasted the
+5 s URL wait; passed on retry). axe (WCAG 2.2 tags) is
+clean on `/search` desktop (bands, a term with date bands, no result) and
+on the phone with the Narrow sheet open (`search-facets`); the phone run
+asserts no sideways scroll at 390 px. Narrow rows are 30 px tall, the
+inline "N more" / "All N" buttons 24 px.
 
 **Roger to confirm.** Ds4 (full bands rather than the thumbnail rows on
-the desktop's `tag:` view; two-column grids on a phone) and Ds6 (the query
-stays in the ticker).
+the desktop's `tag:` view; two-column grids on a phone), Ds6 (the query
+stays in the ticker, so the phone toolbar wraps it to three lines), Ds9
+("All 1 dish" stays on a one-card band).
 
 ### 43t — /tags B "Narrow it down" (L)
 
