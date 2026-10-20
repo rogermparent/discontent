@@ -146,8 +146,8 @@ describe("aisleFor", () => {
     expect(lineAisle("1 lb ground beef")).toBe("meat-fish");
     expect(lineAisle("1 tsp ground cumin")).toBe("spices");
     expect(lineAisle("1 cup half-and-half")).toBe("dairy-eggs");
-    /* The unit `can` is gone before the name: tomatoes read as fresh. */
-    expect(lineAisle("1 (14 oz) can diced tomatoes")).toBe("produce");
+    /* Every can reads `canned X` (43n, Dn2): canned goods, the pantry. */
+    expect(lineAisle("1 (14 oz) can diced tomatoes")).toBe("pantry");
     expect(lineAisle("2 cups frozen peas")).toBe("frozen");
     expect(lineAisle("1/2 cup confectioners' sugar")).toBe("pantry");
     expect(lineAisle("3 scallions, thinly sliced")).toBe("produce");

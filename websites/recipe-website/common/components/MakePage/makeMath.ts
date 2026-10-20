@@ -4,7 +4,11 @@
  * them without a page.
  */
 import { dedupeItems, inventoryKey } from "../../util/inventoryText";
-import { nameLabel, type Requirement } from "../../util/ingredientNames";
+import {
+  nameLabel,
+  withoutCanned,
+  type Requirement,
+} from "../../util/ingredientNames";
 import {
   matcherForTyped,
   matcherOf,
@@ -168,7 +172,7 @@ export function addCandidates({
     for (const requirement of entry.requirements) {
       if (requirement.staple) continue;
       for (const alternative of requirement.alternatives) {
-        const label = nameLabel(alternative);
+        const label = nameLabel(withoutCanned(alternative));
         if (!fieldMatches(label, needle)) continue;
         note(label, {
           ...requirement,
