@@ -6,6 +6,7 @@ import {
   markdownEditorReady,
   searchFor,
   deleteWithConfirm,
+  openPlanMenu,
 } from "../support/helpers";
 
 test.describe("Featured Recipes", () => {
@@ -1137,6 +1138,8 @@ test.describe("Featured groups", () => {
     await page.goto("/group/week-of-may-4");
     await signIn(page);
 
+    /* 43p1: the plan page keeps Feature in its More menu. */
+    await openPlanMenu(page);
     await page.getByRole("link", { name: "Feature", exact: true }).click();
     await expect(page).toHaveURL(/\/featured-recipe\/new\?group=week-of-may-4/);
 
@@ -1261,6 +1264,7 @@ test.describe("Featured groups", () => {
     await resetData("three-recipes-groups");
     await page.goto("/group/weeknight-favourites");
     await signIn(page);
+    await openPlanMenu(page);
     await deleteWithConfirm(page, "group");
     await expect(page).toHaveURL(/\/groups$/);
 
