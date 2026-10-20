@@ -343,8 +343,8 @@ describe("makeable", () => {
         slug: "two-bean-salad",
         name: "Two Bean Salad",
         swaps: [
-          { line: "chickpea", use: "pinto beans" },
-          { line: "kidney bean", use: "pinto beans" },
+          { line: "canned chickpea", use: "pinto beans" },
+          { line: "canned kidney bean", use: "pinto beans" },
         ],
       },
     ]);
@@ -354,7 +354,7 @@ describe("makeable", () => {
       {
         slug: "two-bean-salad",
         name: "Two Bean Salad",
-        missing: ["chickpea", "kidney bean"],
+        missing: ["canned chickpea", "canned kidney bean"],
       },
     ]);
     const off = await makeable(ctx, {
