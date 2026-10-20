@@ -409,7 +409,7 @@ export function RecipeFormRail(props: RecipeFormRailProps) {
         <p className="hidden px-2.5 pb-2 font-mono text-xs leading-4 font-medium tracking-[0.05em] text-muted-foreground uppercase lg:block">
           {eyebrow}
         </p>
-        <ol className="flex gap-1.5 overflow-x-auto lg:flex-col lg:gap-0.5 lg:overflow-visible">
+        <ol className="relative flex gap-1.5 overflow-x-auto lg:flex-col lg:gap-0.5 lg:overflow-visible">
           {rows.map((row, index) => {
             const anchor = sectionAnchor(row.id);
             const here = current === anchor;
@@ -435,8 +435,13 @@ export function RecipeFormRail(props: RecipeFormRailProps) {
                   {text ? (
                     <span
                       className={cn(
-                        "font-mono text-[0.6875rem] leading-none text-muted-foreground lg:ml-auto",
-                        tone && TONE[tone],
+                        "font-mono text-[0.6875rem] leading-none lg:ml-auto",
+                        /* On the current row the status keeps the row's own
+                         * text colour (a tone colour is under 4.5:1 on the
+                         * accent fill); its mark still carries the tone. */
+                        here
+                          ? "text-accent-foreground"
+                          : cn("text-muted-foreground", tone && TONE[tone]),
                         /* The pills keep their counts and flags only. */
                         !tone && !/^\d+/.test(text) && "max-lg:hidden",
                       )}

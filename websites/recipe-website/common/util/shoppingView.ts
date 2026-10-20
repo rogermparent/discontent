@@ -62,12 +62,29 @@ export interface ShoppingName {
 }
 
 /**
+ * 43a: "optional: gel food coloring & sprinkles for decorating" is a list of
+ * things to buy, but the name reader (which never splits on `and`, for
+ * "mac and cheese") took the whole of it as one name — so it never met the
+ * same recipe's comma form, "gel food coloring, sprinkles, …", which keys by
+ * its first item, and the list showed two rows for one jar. A line that
+ * joins its items with `&` or `and` and ends in a decorating tail is read
+ * the way the comma form is: by its first item. Any other line is untouched.
+ */
+const DECORATING_LIST_RE =
+  /^(.+?)\s+(?:&|and)\s+[^,;]+?\s+for\s+(?:decorat|garnish|top|dust|dipp|sprinkl|serv)\w*\s*$/i;
+
+function decoratingListHead(text: string): string {
+  const match = DECORATING_LIST_RE.exec(text.trim());
+  return match ? match[1] : text;
+}
+
+/**
  * The name a line (or a typed name, "eggs") is merged, ticked and routed by.
  * A line with alternatives (`lemon or lime juice`) goes by its first, as the
  * aisle measure counts it (35b).
  */
 export function shoppingNameOf(text: string): ShoppingName {
-  const [requirement] = parseIngredientLine(text);
+  const [requirement] = parseIngredientLine(decoratingListHead(text));
   const name = requirement?.alternatives[0];
   if (requirement && name && name.words.length > 0) {
     return { key: nameKey(name), label: nameLabel(name), requirement };
@@ -99,7 +116,15 @@ function pluralWord(word: string): string {
  * line wrote it that way (`semi-sweet chocolate chips`) — but never for one
  * of a thing.
  */
-function displayName(label: string, amount: Amount, texts: string[]): string {
+function displayName(name: string, amount: Amount, texts: string[]): string {
+  /* `2 cans tomatoes`, not `2 cans canned tomatoes` (43n, Dn2): the key
+   * keeps `canned`, the line says it once. */
+  const label =
+    name.startsWith("canned ") &&
+    amount.parts.length > 0 &&
+    amount.parts.every((part) => part.unit === "can")
+      ? name.slice("canned ".length)
+      : name;
   const words = label.split(" ");
   const last = words[words.length - 1];
   if (!last || !/^\p{L}+$/u.test(last)) return label;

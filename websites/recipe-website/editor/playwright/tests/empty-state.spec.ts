@@ -36,7 +36,24 @@ test.describe("Empty States", () => {
     await searchFor(page, "zzzzzzz-no-matches-zzzzz");
 
     await expect(page.getByTestId("recipe-list")).toHaveCount(0);
-    await expect(page.getByText("No matches")).toBeVisible();
+    // 43s: what was searched, and where it looked.
+    await expect(
+      page.getByRole("heading", {
+        name: "Nothing mentions zzzzzzz-no-matches-zzzzz",
+      }),
+    ).toBeVisible();
+    await expect(page.getByTestId("search-no-results")).toContainText(
+      "Not a name, tag, ingredient or description in 3 recipes.",
+    );
+    // A reader is offered no import; Clear is there.
+    await expect(
+      page.getByRole("link", { name: "Import a recipe" }),
+    ).toHaveCount(0);
+    await expect(
+      page
+        .getByTestId("search-no-results")
+        .getByRole("button", { name: "Clear search" }),
+    ).toBeVisible();
     await snapshotPage(page, "search-no-results.png");
   });
 

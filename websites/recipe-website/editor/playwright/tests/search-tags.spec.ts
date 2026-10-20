@@ -4,6 +4,7 @@ import { test, expect, type Page } from "../support/test";
 import {
   fillSignInForm,
   markdownEditorReady,
+  narrowRow,
   searchFor,
 } from "../support/helpers";
 
@@ -114,18 +115,15 @@ test.describe("Search — tags", () => {
       page.getByRole("link", { name: "dessert", exact: true }),
     ).toBeVisible();
 
-    // The search card shows a compact tag chip.
+    // The search page offers the tag beside the result (43s: the Narrow
+    // column, counted inside the results, where the card chips were).
     await page.goto("/search");
     await searchFor(page, "Choco");
     await expect(listItems(page).first().getByRole("heading")).toHaveText(
       "Choco Cake",
       { timeout: SEARCH_TIMEOUT },
     );
-    await expect(
-      listItems(page)
-        .first()
-        .getByRole("button", { name: "Filter by tag dessert" }),
-    ).toBeVisible();
+    await expect(narrowRow(page, "dessert")).toHaveText("dessert 1");
   });
 
   test("suggestions offer existing corpus tags as one-click quick-adds", async ({
@@ -153,7 +151,7 @@ test.describe("Search — tags", () => {
     ).toBeVisible();
   });
 
-  test("the filter rail writes tag: terms into the query, and OR is typed", async ({
+  test("the Narrow column writes tag: terms into the query, and OR is typed", async ({
     page,
   }) => {
     await createRecipe(page, { name: "Apple Pie", tags: ["dessert", "baked"] });
@@ -161,9 +159,8 @@ test.describe("Search — tags", () => {
     await createRecipe(page, { name: "Baguette", tags: ["baked"] });
 
     await page.goto("/search");
-    const rail = page.locator('[aria-label="Tag filters"]');
-    const railTag = (tag: string) =>
-      rail.getByRole("button", { name: `Filter by tag ${tag}` });
+    // 43s: the Narrow column's rows, where the all-tags rail was.
+    const railTag = (tag: string) => narrowRow(page, tag);
     const field = page.getByLabel("Search recipes");
 
     await expect(railTag("dessert")).toBeVisible({ timeout: SEARCH_TIMEOUT });
@@ -250,7 +247,7 @@ test.describe("Search — tags", () => {
     );
   });
 
-  test("cards cap matched ingredients at three with a '+N more' overflow", async ({
+  test("a card says why it matched: the first matched line, its amount in mono", async ({
     page,
   }) => {
     await createRecipe(page, {
@@ -273,10 +270,11 @@ test.describe("Search — tags", () => {
       timeout: SEARCH_TIMEOUT,
     });
 
-    // Six ingredients match, but only three lines render + a "+3 more" overflow.
-    await expect(card.locator("ul > li")).toHaveCount(4);
-    await expect(card.getByText("+3 more")).toBeVisible();
-    // The first matched ingredient stays visible.
-    await expect(card.getByText("1 tsp olive oil")).toBeVisible();
+    // Six ingredients match; the card's one "why" line is the first of them
+    // (43s), its amount in the mono column and the word marked.
+    const why = card.getByTestId("card-why");
+    await expect(why).toHaveText("1 tsp olive oil");
+    await expect(why.locator("b")).toHaveText("1 tsp");
+    await expect(why.locator("mark")).toHaveText("oil");
   });
 });

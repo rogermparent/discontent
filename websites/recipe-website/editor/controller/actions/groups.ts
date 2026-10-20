@@ -27,10 +27,16 @@ import {
 } from "../successConfigs";
 import { curationContextFor } from "../apiContext";
 import {
+  addItem,
   assertNoGroupCycle,
   deleteGroup as deleteGroupAndFeatures,
+  setItems,
 } from "../curation/groups";
-import { GroupCycleError } from "../curation/errors";
+import { GroupCycleError, toErrorObject } from "../curation/errors";
+import {
+  PLAN_CHANGED,
+  planItemsKey,
+} from "recipe-website-common/util/planPage";
 
 /**
  * The parsed form, as a group record plus the uploads that go with it. The one
@@ -276,6 +282,72 @@ export async function deleteGroup(
   await deleteGroupAndFeatures(curationContextFor(email), slug);
   /* Outside any try: `redirect` throws, and that throw is the navigation. */
   redirect(groupDeleteSuccessConfig.redirectTo?.(slug) ?? "/groups");
+}
+
+/** A plan page write's answer (43p1): `{ok}`, or the seat's error message. */
+export type PlanWriteResult = { ok: true } | { error: string };
+
+async function planWrite(
+  run: (email: string) => Promise<unknown>,
+): Promise<PlanWriteResult> {
+  const email = await authenticateUser();
+  if (!email) return { error: "Sign in to change the plan." };
+  try {
+    await run(email);
+    return { ok: true };
+  } catch (error) {
+    return { error: toErrorObject(error).error.message };
+  }
+}
+
+/**
+ * The plan page's **Save** (43p1, D5): the rows in their new order, each
+ * with its scale, and without the rows taken off — one commit through the
+ * curation seat's `setItems`, which `PUT /api/group/<slug>` and the agents'
+ * `group_set_items` also write through. The seat validates every item (a
+ * scale must be positive, a sub-group row carries none) and refuses a
+ * cycle. `force`: the page writes back rows it already had, and a dangling
+ * row is a state the plan was in, not one this Save made (Dp1-5).
+ */
+export async function savePlanItems(
+  slug: string,
+  items: unknown,
+  base: unknown,
+): Promise<PlanWriteResult> {
+  /*
+   * `base`: the key of the rows the page's draft was made over
+   * (`planItemsKey`). When the stored rows differ — another tab, the API or
+   * an agent wrote since the page rendered — nothing is written and the page
+   * says so, rather than this Save silently undoing that write.
+   */
+  if (typeof base !== "string") return { error: PLAN_CHANGED };
+  return planWrite((email) =>
+    setItems(curationContextFor(email), slug, items, {
+      force: true,
+      unchanged: (current) => planItemsKey(current) === base,
+      changedMessage: PLAN_CHANGED,
+    }),
+  );
+}
+
+/**
+ * The plan page's "Add a recipe or a plan by name" (43p1): one row at the
+ * end, one commit (`addItem`). Not forced — a name the page offered exists,
+ * and a plan that would contain itself is refused.
+ */
+export async function addPlanItem(
+  slug: string,
+  ref: unknown,
+): Promise<PlanWriteResult> {
+  const value = (ref ?? {}) as { recipe?: unknown; group?: unknown };
+  const target =
+    typeof value.group === "string"
+      ? { group: value.group }
+      : typeof value.recipe === "string"
+        ? { recipe: value.recipe }
+        : undefined;
+  if (!target) return { error: "Name a recipe or a plan to add." };
+  return planWrite((email) => addItem(curationContextFor(email), slug, target));
 }
 
 export async function rebuildGroupIndex() {

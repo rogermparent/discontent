@@ -5,10 +5,12 @@ import {
   fillSignInForm,
   signIn,
   deleteWithConfirm,
+  openPlanMenu,
   markdownEditorReady,
   searchFor,
 } from "../support/helpers";
 import { fixturePath } from "../support/tasks";
+import { expectHydrated } from "../support/hydration";
 
 /** The client search pipeline has to fetch and index before a query resolves. */
 const SEARCH_TIMEOUT = 20_000;
@@ -73,7 +75,10 @@ test.describe("Groups", () => {
 
       const items = page.getByTestId("group-item");
       await expect(items).toHaveCount(3);
-      await expect(items.nth(0)).toContainText("Mon · Dinner");
+      /* 43p1: a label is its rows' heading, above them. */
+      await expect(page.getByTestId("group-item-label").first()).toHaveText(
+        "Mon · Dinner",
+      );
       await expect(items.nth(0)).toContainText("First Recipe");
       await expect(items.nth(0)).toContainText("Leftovers for lunch");
       await expect(items.nth(1)).toContainText("Second Recipe");
@@ -147,8 +152,8 @@ test.describe("Groups", () => {
       const items = page.getByTestId("group-item");
       await expect(items).toHaveCount(3);
 
-      // Each resolved row is a card whose one link opens the recipe.
-      await expect(items.nth(0).getByTestId("group-item-label")).toHaveText(
+      // Each resolved row's one link opens the recipe; its label heads it.
+      await expect(page.getByTestId("group-item-label").first()).toHaveText(
         "Mon · Dinner",
       );
       await expect(items.nth(0).getByRole("link")).toHaveAttribute(
@@ -412,7 +417,11 @@ test.describe("Groups", () => {
        */
       await page.goto("/groups");
       await expect(
-        groupCards(page).nth(0).getByTestId("group-thumbnail").locator("img"),
+        groupCards(page)
+          .nth(0)
+          .getByTestId("group-thumbnail")
+          .locator("img")
+          .first(),
       ).toHaveAttribute("src", OWN_IMAGE);
       const weeknight = groupCards(page).nth(1);
       await expect(weeknight).toContainText("Weeknight Favourites");
@@ -421,7 +430,7 @@ test.describe("Groups", () => {
         "member",
       );
       await expect(
-        weeknight.getByTestId("group-thumbnail").locator("img"),
+        weeknight.getByTestId("group-thumbnail").locator("img").first(),
       ).toHaveAttribute("src", MEMBER_IMAGE);
 
       await page.goto("/");
@@ -466,7 +475,7 @@ test.describe("Groups", () => {
         weeknightCard().getByTestId("group-thumbnail"),
       ).toHaveAttribute("data-group-image", "own");
       await expect(
-        weeknightCard().getByTestId("group-thumbnail").locator("img"),
+        weeknightCard().getByTestId("group-thumbnail").locator("img").first(),
       ).toHaveAttribute("src", WEEKNIGHT_OWN_IMAGE);
 
       await page.goto("/");
@@ -499,7 +508,7 @@ test.describe("Groups", () => {
         weeknightCard().getByTestId("group-thumbnail"),
       ).toHaveAttribute("data-group-image", "member");
       await expect(
-        weeknightCard().getByTestId("group-thumbnail").locator("img"),
+        weeknightCard().getByTestId("group-thumbnail").locator("img").first(),
       ).toHaveAttribute("src", MEMBER_IMAGE);
     });
 
@@ -516,7 +525,11 @@ test.describe("Groups", () => {
        */
       await page.goto("/groups");
       await expect(
-        groupCards(page).nth(0).getByTestId("group-thumbnail").locator("img"),
+        groupCards(page)
+          .nth(0)
+          .getByTestId("group-thumbnail")
+          .locator("img")
+          .first(),
       ).toBeVisible();
 
       await page.goto("/search");
@@ -554,11 +567,10 @@ test.describe("Groups", () => {
       baseURL,
     }) => {
       await resetData("three-recipes");
-      await page.goto("/recipe/first-recipe");
-
-      await page.getByRole("link", { name: "Group", exact: true }).click();
-      // Signed out, so the button lands on the sign-in form — with the
+      // Signed out, the recipe page no longer offers its Group link (43a), so
+      // go to that link's target: it lands on the sign-in form — with the
       // preselection preserved in `redirectTo`, which is the whole point.
+      await page.goto("/group/new?recipe=first-recipe");
       await fillSignInForm(page);
 
       await expect(page).toHaveURL(baseURL + "/group/new?recipe=first-recipe");
@@ -594,8 +606,7 @@ test.describe("Groups", () => {
 
     test("adds and removes item rows", async ({ page, resetData, baseURL }) => {
       await resetData("three-recipes");
-      await page.goto("/recipe/first-recipe");
-      await page.getByRole("link", { name: "Group", exact: true }).click();
+      await page.goto("/group/new?recipe=first-recipe");
       await fillSignInForm(page);
       await expect(page.getByText("Selected: First Recipe")).toBeVisible();
       await markdownEditorReady(page, "description");
@@ -717,7 +728,7 @@ test.describe("Groups", () => {
       await page.getByRole("button", { name: "Submit", exact: true }).click();
 
       await expect(page).toHaveURL(baseURL + "/group/week-of-may-4");
-      await expect(page.getByTestId("group-item").first()).toContainText(
+      await expect(page.getByTestId("group-item-label").first()).toHaveText(
         "Sun · Lunch",
       );
 
@@ -917,9 +928,20 @@ test.describe("Groups", () => {
       const nested = page.getByTestId("group-item-group");
       await expect(nested).toHaveCount(1);
       await expect(nested).toContainText("Week of May 4");
-      await expect(nested).toContainText("Meal plan");
-      await expect(items.nth(0)).toContainText("Week 1");
+      /* 43p1: a sub-plan row says what it is and how much is in it. */
+      await expect(nested).toContainText("plan · 3 recipes");
+      await expect(page.getByTestId("group-item-label").first()).toHaveText(
+        "Week 1",
+      );
       await expect(items.nth(1)).toContainText("Third Recipe");
+
+      /* It opens in place, through its own sub-plans (`walkGroupRecipes`). */
+      const show = nested.getByRole("button", { name: "Show its recipes" });
+      await expectHydrated(show);
+      await show.click();
+      await expect(
+        page.getByRole("list", { name: "In Week of May 4" }).getByRole("link"),
+      ).toHaveText(["First Recipe", "Second Recipe"]);
 
       /* The count names both kinds, and only when there is a second one. */
       await expect(page.getByText("1 recipe, 1 group")).toBeVisible();
@@ -982,7 +1004,7 @@ test.describe("Groups", () => {
        */
       const thumbnail = cards.nth(0).getByTestId("group-thumbnail");
       await expect(thumbnail).toHaveAttribute("data-group-image", "member");
-      await expect(thumbnail.locator("img")).toHaveAttribute(
+      await expect(thumbnail.locator("img").first()).toHaveAttribute(
         "src",
         /^\/image\/uploads\/group\/week-of-may-4\/uploads\/recipe-6-test-image-alternate\.png\/.*\.webp$/,
       );
@@ -1040,7 +1062,7 @@ test.describe("Groups", () => {
 
       await expect(page).toHaveURL(baseURL + "/group/spring-menus");
       await expect(page.getByTestId("group-item-group")).toHaveCount(1);
-      await expect(page.getByTestId("group-item").nth(0)).toContainText(
+      await expect(page.getByTestId("group-item-label").first()).toHaveText(
         "Week One",
       );
     });
@@ -1139,6 +1161,7 @@ test.describe("Groups", () => {
       ).toBeVisible();
       await signIn(page);
 
+      await openPlanMenu(page);
       await deleteWithConfirm(page, "group");
 
       await expect(page).toHaveURL(baseURL + "/groups");

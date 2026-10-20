@@ -3,6 +3,7 @@ import { test, expect, type Page } from "../support/test";
 import {
   fillSignInForm,
   markdownEditorReady,
+  narrowRow,
   searchFor,
 } from "../support/helpers";
 import { WCAG_TAGS } from "../support/a11y";
@@ -21,7 +22,8 @@ const listItems = (page: Page) =>
   page.getByTestId("recipe-list").locator("> li");
 
 /**
- * The row `aria-activedescendant` currently points at, by its text.
+ * The row `aria-activedescendant` currently points at, by its label (43s: a
+ * row also carries its count, which is not the term).
  *
  * An attribute selector rather than `#id`: `useId` produces ids containing `«»`,
  * which are not valid in a CSS id selector, and `CSS.escape` does not exist in
@@ -30,7 +32,10 @@ const listItems = (page: Page) =>
 async function activeOption(page: Page): Promise<string | null> {
   const id = await searchField(page).getAttribute("aria-activedescendant");
   if (!id) return null;
-  return page.locator(`[id="${id}"]`).innerText();
+  return page
+    .locator(`[id="${id}"]`)
+    .getByTestId("query-autocomplete-label")
+    .innerText();
 }
 
 /** Where the caret sits in the field. */
@@ -242,15 +247,14 @@ test.describe("Search — in-field autocomplete", () => {
       timeout: SEARCH_TIMEOUT,
     });
 
-    // The rail, not the card chips, which carry the same button names.
-    const rail = page.locator('[aria-label="Tag filters"]');
-    await rail.getByRole("button", { name: "Filter by tag salad" }).click();
+    // The Narrow column's row (43s).
+    await narrowRow(page, "salad").click();
     await expect(field).toHaveValue("tag:salad");
     await expect(page).toHaveURL(/\?q=tag%3Asalad$/);
 
     // A word the tag was not heading for stays, and the tag is appended.
     await searchFor(page, "ginger");
-    await rail.getByRole("button", { name: "Filter by tag dessert" }).click();
+    await narrowRow(page, "dessert").click();
     await expect(field).toHaveValue("ginger tag:dessert");
   });
 

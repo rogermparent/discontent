@@ -6,6 +6,7 @@ import {
   markdownEditorReady,
   searchFor,
   deleteWithConfirm,
+  openPlanMenu,
 } from "../support/helpers";
 
 test.describe("Featured Recipes", () => {
@@ -995,8 +996,8 @@ test.describe("Featured Recipes", () => {
       // asserting where an image file actually exists to render.
       await resetData("linked-recipes");
 
-      await page.goto("/recipe/kefir");
-      await page.getByRole("link", { name: "Feature", exact: true }).click();
+      /* Signed out the recipe page offers no Feature link (43a): go to its target. */
+      await page.goto("/featured-recipe/new?recipe=kefir");
       await fillSignInForm(page);
       await page.getByRole("button", { name: "Submit", exact: true }).click();
       /*
@@ -1137,6 +1138,8 @@ test.describe("Featured groups", () => {
     await page.goto("/group/week-of-may-4");
     await signIn(page);
 
+    /* 43p1: the plan page keeps Feature in its More menu. */
+    await openPlanMenu(page);
     await page.getByRole("link", { name: "Feature", exact: true }).click();
     await expect(page).toHaveURL(/\/featured-recipe\/new\?group=week-of-may-4/);
 
@@ -1261,6 +1264,7 @@ test.describe("Featured groups", () => {
     await resetData("three-recipes-groups");
     await page.goto("/group/weeknight-favourites");
     await signIn(page);
+    await openPlanMenu(page);
     await deleteWithConfirm(page, "group");
     await expect(page).toHaveURL(/\/groups$/);
 

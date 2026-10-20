@@ -259,6 +259,31 @@ test.describe("Visual baselines @visual", () => {
     await snapshotPage(page, "search-page-empty.png");
   });
 
+  /*
+   * 43s, canvas B: both kinds band into Food and Drinks, with the Narrow
+   * column beside them; and a `tag:` query opening on its term, its results
+   * by date (the clock is the canvas's day, so the countdowns hold still).
+   */
+  test("search page bands by kind", async ({ page, resetData }) => {
+    await resetData("drinks-bar");
+    await page.goto("/search");
+    await searchFor(page, "syrup");
+    await expect(page.getByRole("region", { name: "Drinks" })).toBeVisible({
+      timeout: 20_000,
+    });
+    await snapshotPage(page, "search-bands.png");
+  });
+
+  test("search page opens on a term", async ({ page, resetData }) => {
+    await resetData("drinks-bar");
+    await page.clock.setFixedTime(new Date(2026, 9, 18, 12));
+    await page.goto("/search?q=tag%3Avodka");
+    await expect(page.getByTestId("season-band")).toHaveCount(2, {
+      timeout: 20_000,
+    });
+    await snapshotPage(page, "search-term.png");
+  });
+
   test("search page with hits", async ({ page, resetData }) => {
     await resetData("three-recipes");
     await page.goto("/search");

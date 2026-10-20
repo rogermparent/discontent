@@ -1,15 +1,19 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import type { ReactNode } from "react";
+import { Plus } from "lucide-react";
 import { buttonVariants } from "@discontent/component-library/components/ui/button";
+import { readHolidayAlmanac } from "../../controller/data/readHolidays";
 import {
-  readTagBoard,
-  readTagVocabulary,
+  readTagBoardPage,
   readTermPageSlugs,
   readTermPageSlugsWithAliases,
   resolveTermAlias,
   resolveTermPage,
 } from "../../controller/data/readTermPage";
 import { tagTermReads } from "../../controller/data/readTagTerms";
+import { facetTermsFromTree } from "../../util/facets";
+import { TermPicture } from "../Homepage/TermPicture";
 import { TagAliasRedirect } from "./AliasRedirect";
 import { TagIndexPage, TagPage } from "./shared";
 
@@ -28,47 +32,79 @@ import { TagIndexPage, TagPage } from "./shared";
  * is the shape the whole epic turns on: a fourth carrier is a fourth read and
  * no new derived state, and tagging a group does not invalidate a page that
  * lists only recipes.
+ *
+ * **Signed-in controls** (43a's rule, 43t): the editor's two routes take
+ * `signedIn` from their route files, which read the session — this module is
+ * shared with the export and cannot import the editor's `auth`. A guest sees
+ * no New term, Feature, Edit or Add a narrower term; the server actions and
+ * the forms still refuse without a session either way.
  */
 
 /**
- * `/tags` — the hierarchy (31b), then the full tag list, every carrier's counts
- * summed, records included.
+ * `/tags` (43t, canvas B): the facet board — and beside it the Holidays,
+ * whose pictures (the record's, else the newest recipe photo, else the
+ * monogram: the almanac's rule, 42e) are rendered here on the server, for
+ * the dated holidays only.
  */
-export async function tagIndexRoute() {
-  const [tags, board] = await Promise.all([
-    readTagVocabulary(),
-    readTagBoard(),
+async function boardPage(actions?: ReactNode) {
+  const [board, almanac] = await Promise.all([
+    readTagBoardPage(),
+    readHolidayAlmanac(),
   ]);
-  return <TagIndexPage tags={tags} board={board} />;
+  /*
+   * Only the dated holidays can reach the aside (Dt11), so only they get a
+   * picture. Which five show is the browser's day, not the server's — the
+   * export is built once and read for months — so every dated one is
+   * rendered (8 on the real corpus) and the aside picks.
+   */
+  const dated = new Set(
+    board.holidays.filter((holiday) => holiday.rule).map((h) => h.slug),
+  );
+  const pictures: Record<string, ReactNode> = {};
+  for (const entry of almanac ?? []) {
+    if (!dated.has(entry.slug)) continue;
+    pictures[entry.slug] = (
+      <TermPicture
+        slug={entry.slug}
+        label={entry.label}
+        summary={{ image: entry.image, recipeImage: entry.recipeImage }}
+        width={96}
+        height={96}
+        sizes="48px"
+        small
+      />
+    );
+  }
+  return <TagIndexPage board={board} pictures={pictures} actions={actions} />;
+}
+
+/** `/tags` on the export. */
+export async function tagIndexRoute() {
+  return boardPage();
 }
 
 /**
- * The editor's `/tags` (31e): the same page, plus a **New term** link to
+ * The editor's `/tags` (31e): the same board, plus a **New term** link to
  * `/tags/new`.
  *
- * Shown to everyone who can reach the editor, as every editor affordance is
- * (the group page's Edit, this vocabulary's Feature, the footer's New Recipe):
- * the destination is what asks for a sign-in. Reading the session here would
- * make the index a per-request render for the sake of one link.
+ * Shown only to a signed-in editor (43a), as the masthead's `ownerOnly` links
+ * are. The session is the *route file's* to read and pass in: this module is
+ * shared with the export, which must not import the editor's auth. The page
+ * is already a per-request render through the root layout's `auth()`. The
+ * destination still asks for a sign-in; this only stops offering a guest a
+ * button that goes nowhere.
  */
-export async function editorTagIndexRoute() {
-  const [tags, board] = await Promise.all([
-    readTagVocabulary(),
-    readTagBoard(),
-  ]);
-  return (
-    <TagIndexPage
-      tags={tags}
-      board={board}
-      actions={
-        <Link
-          href="/tags/new"
-          className={buttonVariants({ variant: "secondary", size: "sm" })}
-        >
-          New term
-        </Link>
-      }
-    />
+export async function editorTagIndexRoute({ signedIn }: { signedIn: boolean }) {
+  return boardPage(
+    signedIn ? (
+      <Link
+        href="/tags/new"
+        className={buttonVariants({ variant: "ghost", size: "sm" })}
+      >
+        <Plus aria-hidden />
+        New term
+      </Link>
+    ) : undefined,
   );
 }
 
@@ -79,7 +115,10 @@ export async function tagRoute({
   params: Promise<{ tag: string }>;
 }) {
   const { tag } = await params;
-  const term = await resolveTermPage(tag);
+  const [term, tree] = await Promise.all([
+    resolveTermPage(tag),
+    tagTermReads.tree.read(),
+  ]);
   /*
    * An unknown tag is a 404, not an empty tag page — and "unknown" now means
    * *no carrier and no record*. Each folded value only holds slugs something
@@ -93,12 +132,12 @@ export async function tagRoute({
     if (!target) notFound();
     return <TagAliasRedirect alias={tag} target={target} />;
   }
-  return <TagPage term={term} />;
+  return <TagPage term={term} terms={facetTermsFromTree(tree)} />;
 }
 
 /**
  * The editor's `/tags/[tag]` — the same page, plus the affordances a read-only
- * export has no use for.
+ * export has no use for, for a signed-in editor, top right (43t).
  *
  * **Feature** (24c): the target is a slug, the form takes one, and `?term=`
  * preselects it exactly as `?group=` does. **Edit** (31e): the term form at
@@ -109,12 +148,15 @@ export async function tagRoute({
  *
  * Its own export rather than a prop on `tagRoute`, because a Next page module
  * exports a function and cannot pass it arguments — the editor's route file
- * re-exports this one and the export's re-exports the plain one.
+ * wraps this one (passing `signedIn`, 43a) and the export's re-exports the
+ * plain one. The buttons render for a signed-in editor only.
  */
 export async function editorTagRoute({
   params,
+  signedIn,
 }: {
   params: Promise<{ tag: string }>;
+  signedIn: boolean;
 }) {
   const { tag } = await params;
   const [term, tree] = await Promise.all([
@@ -132,32 +174,34 @@ export async function editorTagRoute({
    * only on its carriers offers no narrower term until Edit gives it one.
    */
   const hasRecord = Boolean(tree?.[term.slug]);
+  const action = buttonVariants({ variant: "ghost", size: "sm" });
   return (
     <TagPage
       term={term}
+      terms={facetTermsFromTree(tree)}
+      signedIn={signedIn}
       actions={
-        <>
-          <Link
-            href={`/featured-recipe/new?term=${term.slug}`}
-            className={buttonVariants({ variant: "secondary", size: "sm" })}
-          >
-            Feature
-          </Link>
-          <Link
-            href={`/tags/${term.slug}/edit`}
-            className={buttonVariants({ variant: "secondary", size: "sm" })}
-          >
-            Edit
-          </Link>
-          {hasRecord && (
+        signedIn ? (
+          <>
             <Link
-              href={`/tags/new?parent=${encodeURIComponent(term.slug)}`}
-              className={buttonVariants({ variant: "secondary", size: "sm" })}
+              href={`/featured-recipe/new?term=${term.slug}`}
+              className={action}
             >
-              Add a narrower term
+              Feature
             </Link>
-          )}
-        </>
+            <Link href={`/tags/${term.slug}/edit`} className={action}>
+              Edit
+            </Link>
+            {hasRecord && (
+              <Link
+                href={`/tags/new?parent=${encodeURIComponent(term.slug)}`}
+                className={action}
+              >
+                Add a narrower term
+              </Link>
+            )}
+          </>
+        ) : undefined
       }
     />
   );

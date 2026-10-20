@@ -253,7 +253,9 @@ test.describe("JSON write API", () => {
     await expect(page.getByTestId("group-kind")).toHaveText("Meal plan");
     const items = page.getByTestId("group-item");
     await expect(items).toHaveCount(1);
-    await expect(items.nth(0)).toContainText("Mon · Dinner");
+    await expect(page.getByTestId("group-item-label").first()).toHaveText(
+      "Mon · Dinner",
+    );
     await expect(items.nth(0)).toContainText("API Naan");
 
     await page.goto("/groups");

@@ -231,7 +231,12 @@ test.describe("Edit form B on a phone (43e1) @mobile", () => {
             `${element.tagName.toLowerCase()} "${(element.textContent ?? "").trim().slice(0, 40)}" → ${Math.round(element.getBoundingClientRect().right)}`,
           );
         }
-        return wide.slice(0, 8);
+        return [
+          ...wide.slice(0, 8),
+          ...(document.documentElement.scrollWidth > limit
+            ? [`page scrolls: ${document.documentElement.scrollWidth}`]
+            : []),
+        ];
       }, width),
     ).toEqual([]);
     await snapshotPage(page, "edit-form-mobile.png");

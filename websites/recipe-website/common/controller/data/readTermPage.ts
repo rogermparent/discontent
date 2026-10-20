@@ -17,6 +17,7 @@ import {
   type TagVocabularyEntry,
   type TermPageData,
 } from "../tagVocabulary";
+import { tagBoardData, type TagBoardData } from "../tagBoardPage";
 import {
   buildFacetModel,
   carriersFromRows,
@@ -89,6 +90,32 @@ export async function readTagBoard(): Promise<TagBoard> {
   /* Each term's carriers over its slug and its aliases (38a, D2): read
    * time only — the maps already hold every alias slug's rows. */
   return termBoard(tree, counts, termCarriers(tree, byRecipeTag, byGroupTag));
+}
+
+/**
+ * `/tags` as canvas B draws it (43t): the facet shelves, Holidays, the drink
+ * families, the other tags and "Find a tag" — from the same three reads as
+ * `readTagBoard` (the tree and the two whole by-term maps), grouped and
+ * counted by the facet model (43f). The terms are the vocabulary's options
+ * (records and carried-only tags, each with its fold's label), so a tag
+ * with no record is an "other tag" under its own spelling.
+ */
+export async function readTagBoardPage(): Promise<TagBoardData> {
+  const [byRecipeTag, byGroupTag, tree] = await Promise.all([
+    recipeTagReads.byTerm.read(),
+    groupTagReads.byTerm.read(),
+    tagTermReads.tree.read(),
+  ]);
+  const vocabulary = vocabularyOfRows({
+    recipeRows: byRecipeTag,
+    groupRows: byGroupTag,
+    tree,
+  });
+  return tagBoardData({
+    terms: facetTermsFromOptions(tagOptions(vocabulary, tree)),
+    recipes: carriersFromRows(byRecipeTag),
+    groups: carriersFromRows(byGroupTag),
+  });
 }
 
 /**
