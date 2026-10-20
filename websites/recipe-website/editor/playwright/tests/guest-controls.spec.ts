@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "../support/test";
+import { expectHydrated } from "../support/hydration";
 import { signIn } from "../support/helpers";
 
 /*
@@ -56,16 +57,21 @@ test.describe("Guest controls (43a)", () => {
   }) => {
     await resetData("three-recipes-groups");
     const controls = { links: ["Feature", "Edit"], deleteButton: true };
+    const more = page.getByRole("button", { name: "More", exact: true });
     await page.goto("/group/week-of-may-4");
     await expect(
-      page.getByRole("heading", { name: "Week of May 4" }),
+      page.getByRole("heading", { level: 1, name: "Week of May 4" }),
     ).toBeVisible();
+    await expect(more).toHaveCount(0);
     await expectControls(page, controls, false);
 
     await signIn(page);
     await expect(
       page.getByRole("button", { name: "Sign Out", exact: true }),
     ).toBeVisible({ timeout: 10_000 });
+    /* 43p1: the plan page keeps them in its More menu (Dp1-10). */
+    await expectHydrated(more);
+    await more.click();
     await expectControls(page, controls, true);
   });
 

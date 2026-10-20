@@ -95,7 +95,7 @@ test.describe("Lexical editor smoke @lexical", () => {
       page.locator('input[type=hidden][name="description"]'),
     ).toHaveValue(rewritten);
 
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
 
     // The edited description renders on the recipe view page.
     await expect(

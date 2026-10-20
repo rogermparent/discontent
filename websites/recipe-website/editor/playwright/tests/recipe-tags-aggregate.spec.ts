@@ -112,7 +112,9 @@ test.describe("Recipe tag aggregate", () => {
     await page.getByLabel("Name").first().clear();
     await page.getByLabel("Name").first().fill("Tag Probe");
     await addTag(page, "brandnew");
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Create recipe", exact: true })
+      .click();
     await expect(
       page.getByRole("heading", { name: "Tag Probe", exact: true }),
     ).toBeVisible();
@@ -136,7 +138,7 @@ test.describe("Recipe tag aggregate", () => {
     await signedInForm(page);
     await page.getByLabel("Name").first().clear();
     await page.getByLabel("Name").first().fill("Renamed Cake");
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "Renamed Cake", exact: true }),
     ).toBeVisible();

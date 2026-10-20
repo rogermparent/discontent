@@ -23,6 +23,7 @@ import { StickyChromeToggle } from "./useStickyChrome";
 import { WideRecipeToggle } from "./useWideRecipe";
 import {
   isCurrentPath,
+  navCurrent,
   NAV_ICONS,
   SITE_NAV,
   siteNavFor,
@@ -53,10 +54,10 @@ function NavLink({
   return (
     <Link
       href={item.href}
-      aria-current={isCurrentPath(pathname, item.href) ? "page" : undefined}
+      aria-current={navCurrent(pathname, item.href)}
       onClick={onNavigate}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md hover:text-primary aria-[current=page]:font-semibold aria-[current=page]:text-primary",
+        "inline-flex items-center gap-1.5 rounded-md hover:text-primary aria-[current=page]:font-semibold aria-[current=page]:text-primary aria-[current=true]:font-semibold aria-[current=true]:text-primary",
         className,
       )}
     >
@@ -78,9 +79,9 @@ function MastheadLink({ item }: { item: SiteNavItem }) {
   return (
     <Link
       href={item.href}
-      aria-current={isCurrentPath(pathname, item.href) ? "page" : undefined}
+      aria-current={navCurrent(pathname, item.href)}
       className={cn(
-        "inline-flex items-center whitespace-nowrap rounded-md px-2 py-1.5 font-medium transition-colors hover:text-primary aria-[current=page]:bg-accent aria-[current=page]:text-accent-foreground",
+        "inline-flex items-center whitespace-nowrap rounded-md px-2 py-1.5 font-medium transition-colors hover:text-primary aria-[current=page]:bg-accent aria-[current=page]:text-accent-foreground aria-[current=true]:bg-accent aria-[current=true]:text-accent-foreground",
         item.promoted && "font-semibold text-primary",
       )}
     >
@@ -124,6 +125,12 @@ export function HeaderNav({
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
   const items = siteNavFor(isOwner);
+  /*
+   * 43s: `/search` is the search — its own field leads the page, so the
+   * masthead drops its trigger there (⌘K still opens the palette), as
+   * canvas B draws it.
+   */
+  const onSearch = usePathname() === "/search";
   const known = new Set(SITE_NAV.map((item) => item.href));
   const extras = menuItems.filter(
     (item) => item.href !== "/search" && !known.has(item.href),
@@ -168,13 +175,13 @@ export function HeaderNav({
         ))}
       </nav>
       <div className="hidden shrink-0 items-center gap-1 text-sm md:flex">
-        <PaletteTrigger count={recipeCount} />
+        {!onSearch && <PaletteTrigger count={recipeCount} />}
         {extraNavItems}
         <AppearanceMenu className="ml-1" extraControls={stickyChromeField} />
       </div>
 
       <div className="flex items-center md:hidden">
-        <PaletteTrigger variant="icon" count={recipeCount} />
+        {!onSearch && <PaletteTrigger variant="icon" count={recipeCount} />}
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
             <Button

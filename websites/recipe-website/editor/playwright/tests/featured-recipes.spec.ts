@@ -6,6 +6,7 @@ import {
   markdownEditorReady,
   searchFor,
   deleteWithConfirm,
+  openPlanMenu,
 } from "../support/helpers";
 
 test.describe("Featured Recipes", () => {
@@ -885,7 +886,7 @@ test.describe("Featured Recipes", () => {
 
       await page.getByLabel("Name").first().clear();
       await page.getByLabel("Name").first().fill(name);
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
 
       // The redirect, awaited before anything navigates away. Widening the
       // write path is what tipped the demo's git spec over in D1.
@@ -969,7 +970,7 @@ test.describe("Featured Recipes", () => {
         "description",
         "A description no featured recipe borrows.",
       );
-      await page.getByRole("button", { name: "Submit", exact: true }).click();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
       await expect(
         page.getByRole("heading", { level: 1, name: "Featured Recipe" }),
       ).toBeVisible();
@@ -1137,6 +1138,8 @@ test.describe("Featured groups", () => {
     await page.goto("/group/week-of-may-4");
     await signIn(page);
 
+    /* 43p1: the plan page keeps Feature in its More menu. */
+    await openPlanMenu(page);
     await page.getByRole("link", { name: "Feature", exact: true }).click();
     await expect(page).toHaveURL(/\/featured-recipe\/new\?group=week-of-may-4/);
 
@@ -1261,6 +1264,7 @@ test.describe("Featured groups", () => {
     await resetData("three-recipes-groups");
     await page.goto("/group/weeknight-favourites");
     await signIn(page);
+    await openPlanMenu(page);
     await deleteWithConfirm(page, "group");
     await expect(page).toHaveURL(/\/groups$/);
 

@@ -130,10 +130,15 @@ test.describe("Visual baselines @visual", () => {
     await fillSignInForm(page);
     await markdownEditorReady(page, "description");
     await page.locator('[name="name"]').fill("Existing Recipe");
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Create recipe", exact: true })
+      .click();
     await expect(
       page.getByRole("button", { name: "Overwrite", exact: true }),
     ).toBeVisible();
+    /* 43e1: the Slug fill scrolled down, and the rail and masthead are
+     * sticky — a full-page shot is taken from the top. */
+    await page.evaluate(() => window.scrollTo(0, 0));
     await snapshotPage(page, "new-recipe-form-overwrite.png");
   });
 
@@ -161,10 +166,13 @@ test.describe("Visual baselines @visual", () => {
     await markdownEditorReady(page, "description");
     await page.getByLabel("Slug").clear();
     await page.getByLabel("Slug").fill("recipe-5");
-    await page.getByRole("button", { name: "Submit", exact: true }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Overwrite", exact: true }),
     ).toBeVisible();
+    /* 43e1: the Slug fill scrolled down, and the rail and masthead are
+     * sticky — a full-page shot is taken from the top. */
+    await page.evaluate(() => window.scrollTo(0, 0));
     await snapshotPage(page, "edit-form-overwrite.png", EDIT_FORM_IMAGE);
   });
 
@@ -249,6 +257,31 @@ test.describe("Visual baselines @visual", () => {
       /ALL 3 RECIPES/i,
     );
     await snapshotPage(page, "search-page-empty.png");
+  });
+
+  /*
+   * 43s, canvas B: both kinds band into Food and Drinks, with the Narrow
+   * column beside them; and a `tag:` query opening on its term, its results
+   * by date (the clock is the canvas's day, so the countdowns hold still).
+   */
+  test("search page bands by kind", async ({ page, resetData }) => {
+    await resetData("drinks-bar");
+    await page.goto("/search");
+    await searchFor(page, "syrup");
+    await expect(page.getByRole("region", { name: "Drinks" })).toBeVisible({
+      timeout: 20_000,
+    });
+    await snapshotPage(page, "search-bands.png");
+  });
+
+  test("search page opens on a term", async ({ page, resetData }) => {
+    await resetData("drinks-bar");
+    await page.clock.setFixedTime(new Date(2026, 9, 18, 12));
+    await page.goto("/search?q=tag%3Avodka");
+    await expect(page.getByTestId("season-band")).toHaveCount(2, {
+      timeout: 20_000,
+    });
+    await snapshotPage(page, "search-term.png");
   });
 
   test("search page with hits", async ({ page, resetData }) => {
