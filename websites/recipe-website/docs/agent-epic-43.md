@@ -2073,14 +2073,15 @@ tag picks + ingredient: features>&with=<pattern>…`, `/search?q=`,
   any vodka" is the drinks with a line `vodka*` meets. Patterns, not plain
   names, go there (a plain name is a feature in `?q=`, which the page
   already shows as "with lime" in its question).
-- **Dq6 — What reads as a question**: three words or more, no query syntax
+- **Dq6 — What reads as a question** (narrowed by Dq12): three words or more, no query syntax
   (a field, a negation, parentheses — the words "and"/"or" are a
   question's, though the search language reads them as operators), and
   either a closing "?", an opening question or request word (what, which,
   how, can, show, find, something, I, we, make, plan…) or six words or
   more. Tab asks anything else. Tab moves focus as before once the row is
   up and highlighted, so it never traps.
-- **Dq7 — The Ask row leads and takes the highlight while it shows**;
+- **Dq7 — The Ask row leads and takes the highlight while it shows** (only
+  for a question since Dq12);
   otherwise ⌘K is exactly 43s's (Enter opens the top recipe). A question
   is not recorded as a recent search (re-run as words it finds little).
 - **Dq8 — One "Filled in from" strip in the editor's layout**, not one per
@@ -2090,11 +2091,54 @@ tag picks + ingredient: features>&with=<pattern>…`, `/search?q=`,
   `useSyncExternalStore` so hydration never mismatches.
 - **Dq9 — "plan" opens any group** (`/group/<slug>`), meal plans and
   collections; the prompt lists the fifteen newest.
-- **Dq10 — A new Ask on `/make` is a new page**: the route keys `MakePage`
-  on `?ask=`, so the URL's query wins over what was typed before it.
+- **Dq10 — A new Ask on `/make` is a new page**: the URL's query wins over
+  what was typed before it. (Was a route `key` on `?ask=`; see Dq13.)
 - **Dq11 — No CLI or MCP seat.** Ask fills in a page; an agent already has
   the seats it would route to (`recipe_search`, `inventory_makeable`,
   `holiday_get`, `term_get`, `group_get`).
+
+_Review fixes (the finisher, after the read-only review):_
+
+- **Dq12 — Ask leads only for a question; Dq6/Dq7 amended.** The review
+  found "any bean salad", "make ahead breakfast", "use up buttermilk",
+  "plan for thanksgiving" and long recipe names reading as questions, so
+  Enter waited on the model. Now two rules (`question.ts`):
+  `readsLikeQuestion` — three words or more, no query syntax, and a
+  closing "?" or a wh-/modal word in front (what, which, how, can, could,
+  should, is, are, do, does, will, would, who, where, when, why) — and
+  the Ask row **leads**, highlighted, so Enter asks. `askOffers` — the old
+  request words (any, show, find, make, plan, use, I, we…) or six words or
+  more — and the row shows **after everything else**, unhighlighted, with
+  no ↵ mark, so Enter opens the top recipe; the "Press Tab" hint stays,
+  and Tab (or the arrows) reach it — Tab moves it to the top. Placed last
+  rather than under the recipes so that with no recipe hits cmdk's
+  first-item highlight lands on a launcher row, not on Ask.
+- **Dq13 — `/make` resets from the URL, never remounts (replaces Dq10's
+  key).** The route's `key={ask:…}` changed to `"make"` on the next server
+  render after Dismiss (a staples save revalidates `/make`), remounting
+  the page mid-edit. Now `MakePage` reads `?ask=` (`MAKE_ASK_PARAM`) with
+  `useSearchParams` and, by the derived-state pattern, resets the typed
+  query and the temporary scope (from `askScope`) when it changes to a
+  **new non-empty** question; its going away changes nothing. Other page
+  state (the picked suggestions tab, an open dialog) is kept across a
+  second Ask on `/make` — the URL's query and scope are what it fills in.
+- **Dq14 — Undo with no record opens the empty `/search`**, not history
+  back (a shared link's history may leave the site); the search state is
+  cleared with it. Undo and every Ask navigation check the target's
+  origin in the browser (`sameOriginPath`) after `isSiteUrl`, which now
+  also refuses a tab or line break (`"/\t/evil.example"` parses as
+  `//evil.example`).
+- **Dq15 — `/search`'s Ask box.** Escape is the search field again (an
+  Ask in flight stops, focus returns to the field). The `role=status`
+  line is empty until there is progress ("Asking…", "Opening…"); the
+  explainer is a plain description (`aria-describedby`), so turning Ask
+  on announces nothing by itself.
+- **Dq16 — The route's auth, tested for real.** `test/ask.test.ts` no
+  longer stands `requireCurationContext` in: a session (the `@/auth`
+  stub), a read-scope token and a write-scope token each get 200; a guest
+  and a bad token 401. A write token is accepted as the other read APIs
+  (git reads, `/api/jobs`) accept it — write includes read (27b/D6); only
+  a write route answers a read token 403.
 
 **Prompt size (40a).** Measured on a read-only scratch clone of the
 content repo (825 recipes, 232 term records, one plan; deleted after):
