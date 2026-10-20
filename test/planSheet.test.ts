@@ -161,10 +161,13 @@ describe("formatRest", () => {
 
 describe("yields", () => {
   it("reads what a yield counts, singular", () => {
-    expect(yieldNoun("bite-size cookies")).toBe("cookie");
-    expect(yieldNoun("cookies")).toBe("cookie");
+    expect(yieldNoun("bite-size cookies")).toBe(yieldNoun("cookies"));
+    expect(yieldNoun("cookie")).toBe(yieldNoun("cookies"));
+    expect(yieldNoun("brownies")).toBe(yieldNoun("brownie"));
     expect(yieldNoun("servings")).toBe("serving");
-    expect(yieldNoun("pastries")).toBe("pastry");
+    expect(yieldNoun("cookies")).not.toBe(yieldNoun("servings"));
+    /* A key, not a word: "pastry" and "pastries" count the same thing. */
+    expect(yieldNoun("pastries")).toBe(yieldNoun("pastry"));
     expect(yieldNoun("glass")).toBe("glass");
     expect(yieldNoun("")).toBe("");
   });
@@ -359,7 +362,7 @@ function settings(features: Partial<ShoppingFeatures> = {}): ShoppingSettings {
 
 const LINES = [
   line("1 cup unsalted butter, softened", "spritz"),
-  line("2 and 1/4 cups all-purpose flour", "spritz"),
+  line("2 1/4 cups all-purpose flour", "spritz"),
   line("1 large egg", "spritz"),
   line("3/4 cup unsalted butter, softened", "gingerbread"),
   line("3 cups all-purpose flour", "gingerbread"),

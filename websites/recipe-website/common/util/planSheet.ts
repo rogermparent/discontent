@@ -69,16 +69,20 @@ export function yieldNumber(value: PlanYield, scale = 1): string {
 }
 
 /**
- * What a yield counts — its unit's last word, singular: "84 bite-size
- * cookies" and "20 cookies" both count cookies; "Serves 4" counts servings.
- * `""` when the yield names no unit ("Makes about 24").
+ * What a yield counts, as a key — its unit's last word, singular-ish: "84
+ * bite-size cookies" and "20 cookies" count the same thing; "Serves 4"
+ * counts `serving`; "pastry" and "pastries" are both `pastri`, "cookies"
+ * `cooki`. `""` when the
+ * yield names no unit ("Makes about 24").
  */
 export function yieldNoun(unit: string): string {
   const last = unit.trim().toLowerCase().split(/\s+/).at(-1) ?? "";
   const word = last.replace(/[^a-z-]/g, "");
-  if (word.endsWith("ies") && word.length > 4) return `${word.slice(0, -3)}y`;
-  if (word.endsWith("s") && !word.endsWith("ss")) return word.slice(0, -1);
-  return word;
+  /* Singular-ish: drop a plural "s", then a final "ie" or "y" — so
+   * cookie/cookies, brownie/brownies, pastry/pastries each meet. */
+  const single =
+    word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word;
+  return single.replace(/(?:ie|y)$/, "i");
 }
 
 /** The plan's yields added up, where they count the same thing. */

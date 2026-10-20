@@ -642,7 +642,90 @@ On 43p1's page and parser: hero stats (recipes · doughs chill · one oven °F �
 
 #### Results (43p2)
 
-_Pending._
+Branch `agent/43p2-run-sheet`. **Reindex needed: no** (no index,
+projection or spec version moved). **Deploy: yes** — the plan page changes
+in both apps (the export gets the sheet from the same component; no
+docket there, as it has no shopping list).
+
+**What changed.**
+
+- **`common/util/planSheet.ts`** (pure) — the sheet's view model over
+  43p1's rows and `planTimes` facts: `hasRunSheet(rows)` (a recipe whose
+  steps give a bake or a chill), `buildPlanSheet(rows)` → the hero's counts
+  (recipes, `summarizeMakeAhead`'s chilling and doughs, the one oven when
+  there is one), each row's day before (`chill` short, `ahead`: keeps, rest,
+  "icing sets in 24 h"), its bake drawn to scale (`low`/`high` as % of the
+  plan's longest bake, "7–9 min a batch", the row's own oven only when the
+  plan's ovens differ), what comes after the oven ("then 10 min in the
+  freezer") and what it makes at its row's scale; `sumYields` (the yields
+  added up over the commonest thing counted — 84 bite-size cookies and 20–22
+  cookies are both cookies; a serving is never added to a cookie; the rest
+  are "+ N more"), `bakeScale` ("0 · 5 · 10 · 15 min" when the longest bake
+  lands on a round step, else "0–13 min"), `dayBeforeNote`, `formatRest`,
+  `yieldNoun`/`yieldNumber`, `mixedStorageKey` (`plan-mixed:<slug>`), and
+  `planDocket(view)` — rows by aisle (most first, ticked and on-hand rows
+  included) and "the big ones" (the rows that merge the most lines, two or
+  more, with /shopping's label) from `buildShoppingView`'s output, read-only.
+- **`RunSheet.tsx`** — canvas C on the page: **Start the bake** (→ Cook) and,
+  signed in, **Edit the sheet** (→ Plan), the four stats (recipes · doughs
+  chill · one oven · the yields, "not set" where nothing reads); on a wide
+  screen the **table** (# · recipe · Day before · mix + chill · Baking day ·
+  350°F with its scale · Makes · made), with a "mixed" tick beside each
+  chill tape and big mono yields; on a phone **Day before** (the chilling
+  doughs, ticked mixed, their chill tapes, "Doughs keep 3 days. Chill not
+  set: …") then **Baking day** (number, name, bar, minutes, yield); under
+  both the **shopping docket** — "On the list · N lines · N rows · N ticked",
+  rows by aisle, the big ones, Open the list — on a torn foot
+  (`GroupDetailPage/plan.css`, a `clip-path` zigzag, imported by both apps'
+  globals like `make.css`), or the rail's Add-to-list panel when the plan
+  isn't on the list; and **From your shelf** in the sheet's big mono.
+- **Ticks**: `planState.ts` grew `useMixedTicks(slug)` beside
+  `useMadeTicks` (one `useTicks` under both); both read after hydration, a
+  change in another tab shows. `Tick` (CookList) is exported with optional
+  names ("Mark Gingerbread Cookies dough mixed" / "Unmark … dough").
+- **The mode**: `PlanMode` is `plan | sheet | cook`; the switch shows **Run
+  sheet** between Plan and Cook when `hasRunSheet`; the title is the sheet's
+  big display face in that mode. The editor's route reads `?mode=sheet`
+  like `?mode=cook`; its shopping summary carries `docket` (`planDocket`
+  over the same view it already built).
+
+**Decisions.**
+
+- **Dp2-1 — the run sheet is a third mode, offered when the plan bakes or
+  chills.** C's boards replace the page, and the notes say it "fits a baking
+  day better than a week of dinners"; B stays the base (Roger: "B, plus C's
+  run-sheet features"), so the sheet sits beside Plan and Cook rather than
+  replacing either. It is never the default (Dp1-2/Dp1-12 unchanged); a
+  `?mode=sheet` link or this browser's last choice opens it, and on a plan
+  without a bake or chill a stored or linked "sheet" reads as Plan.
+- **Dp2-2 — nothing claims an absence** (Dp1-1 carried over): the board's
+  "no chill · bake same day" and "Spritz needs no chill" become "chill not
+  set" and "Chill not set: Spritz Cookies."; a missing bake is "bake not
+  set", a missing yield "— not set".
+- **Dp2-3 — the hero's yield label is "cookies + N more"**, not the board's
+  hand-worked "cookies + sugar": N counts the recipe rows not added in (no
+  yield read, or one counting something else).
+- **Dp2-4 — "the big ones" are the rows merging the most lines** (two or
+  more), at most five — what nearly every recipe calls for — with their
+  merged amounts; across units there is no honest "largest".
+- **Dp2-5 — mixed ticks sit in the table's Day before cell on a wide
+  screen** (C's desktop board has none; its phone board has the list), and
+  the phone's Baking day list has no made tick (as the board) — Start the
+  bake opens Cook, where made is ticked.
+- **Dp2-6 — the head stays 43p1's** (eyebrow, tags, the mode switch, More)
+  with the title in C's display size; Start the bake / Edit the sheet and the
+  stats are the sheet's first row. More is not repeated.
+- **Dp2-7 — a sub-plan row** says "a plan of its own" and links to its own
+  run sheet (`?mode=sheet`); a dangling row keeps its slot with no ticks.
+
+**Gates.** _Pending._
+
+**Roger to confirm.**
+
+- Dp2-1: the run sheet as a third mode, offered for plans that bake or
+  chill, never the default.
+- Dp2-3: "cookies + 1 more" for the board's "cookies + sugar".
+- Dp2-4: "the big ones" as the most-merged rows.
 
 ### 43e1 — Edit form B: review, then save (L)
 
