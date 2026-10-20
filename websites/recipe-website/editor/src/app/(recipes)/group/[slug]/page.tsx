@@ -8,6 +8,7 @@ import type {
 } from "recipe-website-common/components/GroupDetailPage/types";
 import { secondaryInventory } from "recipe-website-common/controller/secondaryInventory";
 import { buildShoppingView } from "recipe-website-common/util/shoppingView";
+import { planDocket } from "recipe-website-common/util/planSheet";
 import type {
   GroupItem,
   GroupItemRef,
@@ -48,8 +49,9 @@ export async function generateMetadata({
 /**
  * What of this plan is on the shopping list: the lines that came through it
  * (`via`, nested plans included), the rows /shopping merges them into, and
- * how many are ticked — `null` when none are. A failed read says nothing
- * rather than failing the page.
+ * how many are ticked — `null` when none are — and the run sheet's docket
+ * (43p2: rows by aisle, the big ones) from the same view, read-only. A
+ * failed read says nothing rather than failing the page.
  */
 async function shoppingSummary(
   email: string,
@@ -59,10 +61,12 @@ async function shoppingSummary(
     const { items, settings } = await readShopping(curationContextFor(email));
     const mine = items.filter((item) => (item.via ?? []).includes(slug));
     if (mine.length === 0) return null;
+    const view = buildShoppingView(mine, settings);
     return {
       lines: mine.length,
-      rows: buildShoppingView(mine, settings).counts.rows,
+      rows: view.counts.rows,
       ticked: mine.filter((item) => item.checked).length,
+      docket: planDocket(view),
     };
   } catch {
     return null;

@@ -308,6 +308,8 @@ describe("the add field's what-if (41h)", () => {
   });
 
   it("suggests names from the scope that match at a word start, best first", () => {
+    /* The names alone: 43m's "Match every line with …" row is
+     * `makePatterns.test.ts`'s. */
     const suggest = (typed: string, scoped = CORPUS) =>
       addCandidates({
         typed,
@@ -316,7 +318,7 @@ describe("the add field's what-if (41h)", () => {
         analysis,
         have: ["gin", "simple syrup", "white rum"],
         staples: [],
-      });
+      }).filter((candidate) => !candidate.pattern);
     expect(suggest("li")).toEqual([
       { name: "lime juice", unlocks: 2, helps: 0 },
     ]);
@@ -385,15 +387,15 @@ describe("make-settings-v1 grew source and view (41h)", () => {
   afterEach(() => localStorage.clear());
 
   it("reads a value from before 41h as this browser's list and photo cards", () => {
+    /* 43m: `countClose` is retired — read past, never returned. */
     expect(parseSettings('{"countClose":false,"staples":["salt"]}')).toEqual({
-      countClose: false,
       staples: ["salt"],
     });
     localStorage.setItem("make-settings-v1", '{"countClose":false}');
     const { result } = renderHook(() => useMakeSettings());
     expect(result.current.source).toBe("browser");
     expect(result.current.view).toBe("photos");
-    expect(result.current.countClose).toBe(false);
+    expect(result.current).not.toHaveProperty("countClose");
   });
 
   it("drops a source or view it doesn't know", () => {
@@ -405,18 +407,17 @@ describe("make-settings-v1 grew source and view (41h)", () => {
   });
 
   it("stores a choice only while it differs from the default", () => {
+    /* 43m: a retired `countClose` is dropped on the next save. */
     localStorage.setItem("make-settings-v1", '{"countClose":false}');
     const { result } = renderHook(() => useMakeSettings());
     act(() => result.current.setSource("both"));
     expect(result.current.source).toBe("both");
     expect(JSON.parse(localStorage.getItem("make-settings-v1")!)).toEqual({
-      countClose: false,
       source: "both",
     });
     act(() => result.current.setView("specs"));
     act(() => result.current.setSource("browser"));
     expect(JSON.parse(localStorage.getItem("make-settings-v1")!)).toEqual({
-      countClose: false,
       view: "specs",
     });
   });

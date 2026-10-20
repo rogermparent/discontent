@@ -14,8 +14,22 @@ export const MAX_ITEM_LENGTH = 80;
 /** Most items kept from one import. */
 export const MAX_ITEMS = 500;
 
-/** Two entries are the same item when their keys match: case, accents and spacing aside. */
+/**
+ * Two entries are the same item when their keys match: case, accents and
+ * spacing aside. A regular expression (43m, `/…/`) is keyed as written but
+ * for case, since it matches case-insensitively (`/Mayo/` is `/mayo/`):
+ * `fold` would drop `^` and `` ` `` (Unicode calls them diacritics), and an
+ * escape keeps its case, as `\w` and `\W` differ.
+ */
 export function inventoryKey(item: string): string {
+  const trimmed = item.trim();
+  if (/^\/.+\/i?$/s.test(trimmed)) {
+    return trimmed
+      .replace(/\/i$/, "/")
+      .replace(/(\\.)|[^\\]+/gs, (run, escape) =>
+        escape ? run : run.toLowerCase(),
+      );
+  }
   return fold(item).replace(/\s+/g, " ").trim();
 }
 
@@ -84,8 +98,11 @@ export function parseInventoryText(text: string): ParsedInventoryText {
     raw = json;
   } else {
     const lines = trimmed.split(/\r?\n/).map(cleanLine).filter(Boolean);
+    /* A pattern (43m) is one item, commas and all: `/a{1,3}/`. */
     raw =
-      lines.length === 1 && /[,;]/.test(lines[0])
+      lines.length === 1 &&
+      /[,;]/.test(lines[0]) &&
+      !/^\/.*\/i?$/.test(lines[0])
         ? lines[0].split(/[,;]/)
         : lines;
   }

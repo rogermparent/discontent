@@ -118,16 +118,19 @@ export function MatcherMark() {
 export function AddTape({
   item,
   onAdd,
+  testId = "make-add-missing",
 }: {
   /** What a tap adds, and what it says: the line's name, `chickpea`. */
   item: string;
   onAdd: (item: string) => void;
+  /** `make-add-used` in "Most used here" (43m). */
+  testId?: string;
 }) {
   return (
     <button
       type="button"
       data-kind="missing"
-      data-testid="make-add-missing"
+      data-testid={testId}
       aria-label={`Add ${item} to what I have`}
       onClick={() => onAdd(item)}
       className={cn(

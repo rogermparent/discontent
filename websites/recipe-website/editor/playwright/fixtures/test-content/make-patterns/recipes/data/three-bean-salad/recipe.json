@@ -1,0 +1,32 @@
+{
+  "name": "Classic Three Bean Salad",
+  "description": "Green beans, kidney beans and cannellini, sweet and sour.",
+  "tags": [
+    "salad",
+    "vegetarian"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "8 oz green beans, trimmed"
+    },
+    {
+      "ingredient": "1 (15 oz) can kidney beans, drained"
+    },
+    {
+      "ingredient": "1 (15 oz) can cannellini beans, drained"
+    },
+    {
+      "ingredient": "1/4 cup cider vinegar"
+    },
+    {
+      "ingredient": "2 tablespoons sugar"
+    }
+  ],
+  "date": 1792000180000,
+  "recipeYield": "6 servings",
+  "instructions": [
+    {
+      "text": "Toss it all together."
+    }
+  ]
+}

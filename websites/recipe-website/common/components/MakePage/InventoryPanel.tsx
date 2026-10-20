@@ -150,57 +150,6 @@ function StaplesEditor({ settings }: { settings: MakeSettings }) {
   );
 }
 
-/** "Count close matches (≈) as had" (32j), per browser. */
-function CloseSwitch({ settings }: { settings: MakeSettings }) {
-  const id = useId();
-  return (
-    <div className="flex items-start gap-2.5">
-      <input
-        id={id}
-        type="checkbox"
-        data-testid="make-count-close"
-        className="mt-0.5 size-4 shrink-0 accent-primary"
-        checked={settings.countClose}
-        onChange={(event) => settings.setCountClose(event.target.checked)}
-      />
-      <label htmlFor={id} className="text-sm">
-        Count close matches (≈) as had{" "}
-        <span className="text-muted-foreground">
-          — onion for a shallot, olive oil for vegetable oil
-        </span>
-      </label>
-    </div>
-  );
-}
-
-/**
- * "Let beans stand in for each other" (42m), per browser, on by default:
- * the "With a bean swap" group — recipes short only of beans another bean
- * on hand could replace. It never changes what counts as had.
- */
-function BeanSwitch({ settings }: { settings: MakeSettings }) {
-  const id = useId();
-  return (
-    <div className="flex items-start gap-2.5">
-      <input
-        id={id}
-        type="checkbox"
-        data-testid="make-bean-swaps"
-        className="mt-0.5 size-4 shrink-0 accent-primary"
-        checked={settings.beanSwaps}
-        onChange={(event) => settings.setBeanSwaps(event.target.checked)}
-      />
-      <label htmlFor={id} className="text-sm">
-        Let beans stand in for each other{" "}
-        <span className="text-muted-foreground">
-          — pinto for black beans, cannellini for chickpeas, in a group of their
-          own
-        </span>
-      </label>
-    </div>
-  );
-}
-
 /** The page's second list (41h): whose it is, for its labels and copy. */
 export interface SecondList {
   /** `saved`: the signed-in editor's saved list. `house`: the export's snapshot. */
@@ -305,16 +254,18 @@ export interface SaveToEditor {
  *   editor's saved list is also editable there item by item (42a,
  *   `savedEdit`): each label's × and "Add to saved list" commit at once,
  *   with Undo. The house list (the export, an editor guest) never is.
- * - The judge's settings — pantry staples, "Assume I always have", close
- *   matches — and Import / export.
+ * - The judge's settings — pantry staples and "Assume I always have" — and
+ *   Import / export. (43m took out "Count close matches", which always
+ *   count now, and "Let beans stand in for each other": patterns replaced it.)
  *
  * Each label's × is a **sibling** of its body, so each has a name of its own
  * ("Remove vodka") and nothing interactive nests.
  *
- * A matcher on this browser's list (42m2, "✱ any bean") is a `MatcherTape`:
- * its body opens "Which beans do you have?" to refine it (`onRefine`), and
- * features it from there. On the second list it is an outlined label marked
- * ✱, featurable as any other.
+ * A matcher on this browser's list (42m2, "✱ any bean"; 43m's patterns,
+ * "✱ bean*", "✱ /may(o|onnaise)/") is a `MatcherTape`: its body opens
+ * "Which beans do you have?" to refine it (`onRefine`), and features it from
+ * there. On the second list it is an outlined label marked ✱, featurable as
+ * any other.
  */
 export function InventoryPanel({
   inventory,
@@ -571,7 +522,8 @@ export function InventoryPanel({
           </>
         ) : (
           <p className="m-0 rounded border-[1.5px] border-dashed border-input p-3 text-sm text-muted-foreground">
-            The list is empty. Add what&apos;s in the bar or the fridge
+            The list is empty. Add what&apos;s in the bar or the fridge, or tap
+            what these recipes use most
             {second
               ? `, or count from the ${SECOND_COPY[second.kind].segment.toLowerCase()} below.`
               : "."}
@@ -653,8 +605,6 @@ export function InventoryPanel({
         <div className="grid gap-3">
           <PantrySwitch settings={settings} />
           <StaplesEditor settings={settings} />
-          <CloseSwitch settings={settings} />
-          <BeanSwitch settings={settings} />
         </div>
         <div className="flex flex-wrap gap-2">
           <ImportExportDialog

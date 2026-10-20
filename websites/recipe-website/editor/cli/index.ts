@@ -203,7 +203,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   inventory remove <item…>
   inventory set --file <list.txt|list.json>
   inventory make [<query…> | --query <q>] [--feature <name> …] [--limit 20]
-                 [--no-staples] [--no-bean-swaps]
+                 [--no-staples]
   holidays [<slug>] [--date YYYY-MM-DD]
   shopping [list] [--store <id>]
   shopping add (--recipe <slug> | --group <slug>) [--scale 2] | <line…>
@@ -298,9 +298,10 @@ What's on hand: \`inventory make\` judges the saved inventory as /make
 judges it, with the editor's saved "Assume I always have" list (else salt,
 pepper, water and ice) and the pantry staples (flour, sugar, butter, eggs,
 oil, milk, baking soda and powder) assumed — \`--no-staples\` drops the
-pantry, as /make's "Assume pantry staples" switch does, and
-\`--no-bean-swaps\` drops the "With a bean swap" group (recipes short only
-of beans another bean on hand can replace). \`--feature lime\`
+pantry, as /make's "Assume pantry staples" switch does (\`--no-bean-swaps\`
+is accepted and ignored: that group went in 43m). Pattern items on the
+list — \`bean*\` (a word starting "bean"), \`/may(o|onnaise)/\` (a regular
+expression over the line's name) — count as /make counts them. \`--feature lime\`
 features an ingredient as the page does, and the answer's \`link\` is the
 /make page showing the same (\`recipes inventory make --help\` has the JSON).
 The site's /make and /drinks lead with each visitor's own list, kept in
