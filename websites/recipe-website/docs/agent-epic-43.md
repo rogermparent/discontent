@@ -519,8 +519,9 @@ baseline moved (no other spec snapshots a tag or featured term page).
 
 **Roger to confirm.** Dt2 (House recipes on both shelves), Dt5 (empty
 records off the board), Dt6 (the date, not the time, on term-page cards),
-Dt7 (chips AND rather than one at a time), Dt9 (no six-photo strip on the
-plan card).
+Dt7 (chips AND rather than one at a time), Dt8 (`spirit` gets the root
+layout too; collections with narrower terms narrow instead), Dt9 (no
+six-photo strip on the plan card).
 
 ### 43p1 — Meal plan B "Plan at home, cook through it" (L)
 
