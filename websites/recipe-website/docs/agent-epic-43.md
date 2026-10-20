@@ -1840,7 +1840,161 @@ Editor only (D1: never on the export; never writes).
 
 #### Results (43q)
 
-_Pending._
+Branch `agent/43q-ask` (origin/main 7dbbb797: 43s, 43m and 43f in).
+**Reindex needed: no** (no index, aggregate or `specVersions` module
+changed). **Deploy: yes** (the editor only; the export gains nothing).
+
+**What changed.**
+
+- **Server — `POST /api/ask` `{question}`** (`src/app/api/ask/route.ts`,
+  `controller/ask/`): signed in, or a token with the read scope (27b;
+  `requireCurationContext(…, {need: "read"})`), a guest 401; the question
+  1–300 characters, strict body. Always 200 with a URL for an
+  authenticated caller: `{question, page, url, label, fallback?, model,
+durationMs, promptTokens, numCtx}`. A read: the route hands `ask` a
+  context with no author and no `onWrite`, calls no write seat and makes no
+  job (the vitest lists the content directory before and after).
+  - `readAskVocabulary` (`ask.ts`) reads Node-safe what `tag:` reads on the
+    server (`readTaxonomyTerms` ×2 + the term tree → `tagOptions`), the
+    groups (`listGroups`, up to 500) and `/make`'s corpus
+    (`readMakeCorpus`, now exported from `curation/inventory.ts`), and
+    builds 43f's facet model, the `tag:` resolver and `prepareCorpus`.
+  - `askPrompt` (`prompt.ts`): the system prompt (the five pages with their
+    fields, the query language — free words, `tag:`, `-tag:`,
+    `ingredient:`, `group:`, `time:`, Kind as `tag:drink` / `-tag:drink` —
+    the rules and seven examples), and a user prompt with today's date,
+    the **vocabulary** (one line per facet group, biggest rows first:
+    `slug` or `slug=Label`, up to three aliases, narrower terms in brackets
+    two deep), the newest plans, and the question.
+  - The model: `chatJson` (36) with `ASK_JSON_SCHEMA` (Ollama `format`,
+    OpenAI `response_format`, Claude structured outputs), `num_ctx` sized
+    to the prompt (40a), the whole Ask bounded by `ASK_TIMEOUT_MS` (Dq3).
+  - `groundAnswer` (`answer.ts`): zod `{page: search|make|holiday|tag|plan,
+q?, kind?: any|food|drinks, features? ≤4, patterns? ≤4, slug?}`, then the
+    page's own checks (Dq4), then the URL built in code — `/make?q=<kind +
+tag picks + ingredient: features>&with=<pattern>…`, `/search?q=`,
+    `/holidays/<slug>?kind=<word>`, `/tags/<slug>`, `/group/<slug>` — each
+    with `&ask=<question>`. A refusal, a timeout, a model error or no model
+    at all is the fallback: `/search?q=<question>&ask=<question>`, label
+    "Couldn't work that out — searching for the words instead".
+- **⌘K** (shared palette, `askSlot`): an **Ask** group leads the list when
+  the input reads as a question (`readsLikeQuestion`, Dq6) — "Ask:
+  “what drinks can I make with lime”", "Fills in a page from your
+  question", highlighted, so Enter asks. Anything else shows "Press Tab to
+  ask this as a question" under the list, and **Tab** calls the row up.
+  While it works the row's second line (and a polite status) reads
+  "Asking about “…”…", then "Opening What can I make: drinks with lime"
+  until the navigation's transition has landed; Escape aborts the request.
+- **/search** (editor): an **Ask** toggle (`aria-pressed`) beside the field
+  swaps it for a question box ("Your question", the field's look, a
+  Sparkles mark and a send button) with the same status line; it carries
+  over the words typed (not a query). A question answered by a search
+  stays on `/search` and the toggle goes back off over the new query.
+- **"Filled in from: “…”"** (`AskBanner`, the editor's root layout): a slim
+  strip under the masthead on any page whose URL has `?ask=`, with **Undo**
+  (back to the page and query the Ask came from) and **Dismiss** (drops
+  `?ask=`, keeps the page). The fallback's strip says so instead.
+- **/make's temporary scope** (Dq5): `?with=` pattern items, passed by the
+  editor's route as `askScope`, narrow the page as features do; a line under
+  the question — "Only recipes using ✱ vodka* · from your question, not on
+  your list" — with a × per item. Never on this browser's list, the saved
+  list or `localStorage`; Clear in "Nothing in scope" drops it too.
+
+**Decisions.**
+
+- **Dq1 — Editor only by injection.** The export has no Ask route, no
+  handler, no model call and no Ask UI: the shared pieces take slots only
+  the editor fills — the palette's `askSlot` (through `AppLayout`'s
+  `commandPaletteAsk`, as `commandPaletteAuth`), `SearchPageWrapper`'s
+  `field` render prop, `MakePage`'s `askScope` prop. The palette's Ask row
+  is dormant code in the shared bundle until a handler registers
+  (`useRegisterPaletteAsk`).
+- **Dq2 — Offered to a signed-in editor with a model set up**
+  (`askAvailable`: `RECIPE_LLM_URL`, or the Claude API with its key). No
+  settings switch: the model's configuration is the switch, as for an
+  import's `--llm` (36). The route also takes a read-scope token.
+- **Dq3 — Not a job; 30 s all told.** An Ask is seconds long and its
+  answer is a URL the person sees at once, so no job record or step log.
+  It still takes the machine's `gpu` queue line for the local model
+  (`chatJson` → `withResource("gpu")`, the `interactive` tier, behind a
+  running import's call rather than beside it); the Claude API takes none.
+  `ASK_TIMEOUT_MS = 30_000` bounds the queue wait, a cold load (4–9 s) and
+  the call; past it the person gets the word search.
+- **Dq4 — Grounding refuses, never repairs.** Every `tag:` value in `q`
+  resolves to a term (any spelling, aliases included); every `group:` names
+  a group by slug or name; a holiday slug is a child of `holidays` (an
+  alias opens the canonical page); a tag slug is any term; a plan slug is a
+  group; each feature and each pattern meets a line of a recipe in scope
+  (`featureScope`, as `/make` judges); the combined scope isn't empty; a
+  pattern is valid (43m's whitelist). A word filed under `patterns` with no
+  pattern syntax is read as a feature. Any refusal is the fallback, and the
+  response says why (`fallback: {code, detail}`).
+- **Dq5 — The temporary scope narrows, ANDed, like features**: "drinks with
+  any vodka" is the drinks with a line `vodka*` meets. Patterns, not plain
+  names, go there (a plain name is a feature in `?q=`, which the page
+  already shows as "with lime" in its question).
+- **Dq6 — What reads as a question**: three words or more, no query syntax
+  (a field, a negation, parentheses — the words "and"/"or" are a
+  question's, though the search language reads them as operators), and
+  either a closing "?", an opening question or request word (what, which,
+  how, can, show, find, something, I, we, make, plan…) or six words or
+  more. Tab asks anything else. Tab moves focus as before once the row is
+  up and highlighted, so it never traps.
+- **Dq7 — The Ask row leads and takes the highlight while it shows**;
+  otherwise ⌘K is exactly 43s's (Enter opens the top recipe). A question
+  is not recorded as a recent search (re-run as words it finds little).
+- **Dq8 — One "Filled in from" strip in the editor's layout**, not one per
+  page, keyed on `?ask=`. Undo returns to the page the Ask was made from
+  (a `sessionStorage` record for this tab: origin, target, fallback), else
+  history back; Dismiss keeps the filled-in page. The record is read with
+  `useSyncExternalStore` so hydration never mismatches.
+- **Dq9 — "plan" opens any group** (`/group/<slug>`), meal plans and
+  collections; the prompt lists the fifteen newest.
+- **Dq10 — A new Ask on `/make` is a new page**: the route keys `MakePage`
+  on `?ask=`, so the URL's query wins over what was typed before it.
+- **Dq11 — No CLI or MCP seat.** Ask fills in a page; an agent already has
+  the seats it would route to (`recipe_search`, `inventory_makeable`,
+  `holiday_get`, `term_get`, `group_get`).
+
+**Prompt size (40a).** Measured on a read-only scratch clone of the
+content repo (825 recipes, 232 term records, one plan; deleted after):
+system 2,744 characters + user 2,484 characters ≈ **1,743 tokens**
+(`estimateTokens`, which over-counts) → `num_ctx` **4,096**, the smallest
+step (with 256 tokens kept for the answer). Caps: 30 top-level rows a
+group (Families is the only one past it), 8 narrower rows, two levels, 20
+other tags (none today), 15 groups. The six sample answers (make with
+lime, food with `bean*`, Christmas drinks, a sour gin search, the cookies
+tag, an invented `tag:tiki`) grounded as expected; the last fell back.
+
+**Tests.** `test/ask.test.ts` (new, 38 tests; a tmpdir site with a drink
+tree, spirits, a course tree with an aliased Cookies, two holidays, six
+recipes with lines and a meal plan; `fetch` stubbed): question detection
+(positives and negatives), grounding per page (make with a feature, a
+pattern, tag picks in the label; a feature nothing uses, a pattern nothing
+meets, a broken regex, an empty scope; an invented tag or group; a tag and
+a holiday by alias; a plan; malformed answers; extra fields), the prompt
+(the language, the pages, the vocabulary lines, the plans, 4,096), `ask`
+(one schema-constrained, sized call; the invented tag, a non-JSON answer,
+a 502, a timeout and no model each ending in the fallback, the last
+without a call), the route (401 for a guest, 400 for bad bodies, a 200
+answer, nothing written), and `isSiteUrl`. E2E: `ask.spec.ts` (new; a
+stand-in model on loopback through `/settings/test-llm`, never a real
+one; `drinks-bar`): ⌘K's question → `/make` filled in, the strip and
+Undo; Tab-to-Ask → the Christmas drinks menu and Dismiss; the fallback;
+`/search`'s Ask → the `vodka*` temporary scope, not on the list, removed;
+a question answered by a search staying on `/search`; a 390 px phone (no
+sideways scroll, 24 px targets); not offered to a guest (and 401) or with
+no model; axe (WCAG 2.2 tags) on the palette's Ask row, the question box
+and the strip.
+
+**Gates.** _Pending (after review)._
+
+**Roger to confirm.** The question words and the three-word floor (Dq6);
+Tab calling the row up (Dq6); the 30 s budget, after which the word search
+opens (Dq3); Ask hidden on a machine with no model rather than shown and
+falling back (Dq2); patterns ANDed (Dq5); Undo going back to the page the
+Ask came from (Dq8); "plan" opening collections too (Dq9). The real run
+on the workstation (latency, the GPU line) is the orchestrator's.
 
 ### 43-close (S)
 

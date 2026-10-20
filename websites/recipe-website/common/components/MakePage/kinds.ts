@@ -173,6 +173,12 @@ export function withoutTagPicks(
   );
 }
 
+/**
+ * `/make`'s temporary scope (43q): one pattern item per `?with=`, which an
+ * editor's Ask fills in and only the editor's route reads. Never on a list.
+ */
+export const MAKE_SCOPE_PARAM = "with";
+
 // --- featured ingredients (41h) ---------------------------------------------
 
 /**

@@ -14,6 +14,11 @@ import { saveInventoryChanges } from "recipe-editor/controller/actions/inventory
 import { saveMakeStaples } from "recipe-editor/controller/actions/makeStaples";
 import { readSettings } from "@/settings";
 import { readInventory } from "recipe-editor/controller/curation/inventory";
+import {
+  ASK_MAX_ITEMS,
+  ASK_PARAM,
+  ASK_SCOPE_PARAM,
+} from "recipe-editor/controller/ask/urls";
 
 /**
  * The editor's `/make` (U6, 41h): this browser's list leads, as on the
@@ -31,7 +36,22 @@ import { readInventory } from "recipe-editor/controller/curation/inventory";
  * (38a, `settings.makeStaples`), which seeds a browser still on the default
  * list and is saved on every change; a guest's staples are its browser's.
  */
-export default async function Make() {
+export default async function Make({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  /*
+   * 43q: an Ask's temporary scope (`?with=`, pattern items) and the question
+   * that filled it in (`?ask=`). A new Ask on this page is a new page: the
+   * key remounts it, so the URL's query wins over what was typed before.
+   */
+  const params = await searchParams;
+  const scopeParam = params[ASK_SCOPE_PARAM];
+  const askScope = (
+    Array.isArray(scopeParam) ? scopeParam : scopeParam ? [scopeParam] : []
+  ).slice(0, ASK_MAX_ITEMS);
+  const askKey = params[ASK_PARAM];
   const session = await auth();
   const signedIn = !!session?.user?.email;
   const [saved, secondary, tags, settings] = await Promise.all([
@@ -62,6 +82,8 @@ export default async function Make() {
             export's `next build` refuses the page. */}
         <Suspense fallback={<SearchSkeleton />}>
           <MakePage
+            key={typeof askKey === "string" ? `ask:${askKey}` : "make"}
+            askScope={askScope.length > 0 ? askScope : undefined}
             tags={tags}
             secondary={secondary}
             saved={saved ? { ...saved, save: saveInventoryChanges } : undefined}

@@ -287,6 +287,11 @@ export interface AppLayoutProps {
   isOwner?: boolean;
   /** Editor-injected Sign In/Out palette item (absent in the reader export). */
   commandPaletteAuth?: ReactNode;
+  /**
+   * Editor-injected Ask (43q): registers the palette's Ask handler. Absent
+   * in the reader export, which has no Ask at all.
+   */
+  commandPaletteAsk?: ReactNode;
 }
 
 export async function AppLayout({
@@ -297,6 +302,7 @@ export async function AppLayout({
   theme,
   isOwner = false,
   commandPaletteAuth,
+  commandPaletteAsk,
 }: AppLayoutProps) {
   const defaultMode = theme?.defaultMode ?? "system";
   return (
@@ -340,6 +346,7 @@ export async function AppLayout({
           defaultMode={defaultMode}
           isOwner={isOwner}
           commandPaletteAuth={commandPaletteAuth}
+          commandPaletteAsk={commandPaletteAsk}
         >
           <SiteHeader extraNavItems={headerNavItems} isOwner={isOwner} />
           {children}

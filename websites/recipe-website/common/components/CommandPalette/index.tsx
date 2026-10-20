@@ -7,6 +7,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useTransition,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
@@ -20,6 +21,7 @@ import {
   CornerDownLeft,
   Filter,
   Layers,
+  Sparkles,
   Trash2,
   UtensilsCrossed,
 } from "lucide-react";
@@ -61,6 +63,25 @@ import {
 import { useShortcutModifier } from "./shortcutModifier";
 import { groupKindLabel } from "../../util/groupKindLabel";
 import { NAV_DESTINATIONS } from "./destinations";
+import { PaletteAskRegistry, type PaletteAskHandler } from "./askSlot";
+
+/** The Ask row's cmdk `value` (43q). */
+const ASK_VALUE = "ask:question";
+
+/**
+ * How long "Opening …" may wait for its navigation before the palette closes
+ * anyway (43q): a navigation the transition never reports still lands.
+ */
+const ASK_OPEN_GRACE_MS = 5_000;
+
+/** An Ask in flight (43q): waiting on the model, then routing. */
+interface AskState {
+  question: string;
+  phase: "asking" | "opening";
+  label?: string;
+  /** The answer is the plain word search: `label` is its sentence. */
+  fallback?: boolean;
+}
 
 /**
  * Max recipe rows the palette shows before the "See all results" overflow item.
@@ -194,6 +215,12 @@ export interface CommandPaletteProps {
    * export → no auth action, which is correct for the reader site.
    */
   authAction?: ReactNode;
+  /**
+   * Editor-injected Ask (43q): a component that registers a
+   * `PaletteAskHandler` (`useRegisterPaletteAsk`). Absent on the export, so
+   * the palette there has no Ask row, no Tab-to-Ask and no model call.
+   */
+  askSlot?: ReactNode;
 }
 
 /**
@@ -216,6 +243,7 @@ export function CommandPalette({
   children,
   isOwner = false,
   authAction,
+  askSlot,
 }: CommandPaletteProps) {
   const router = useRouter();
   const { setTheme } = useTheme();
@@ -261,6 +289,23 @@ export function CommandPalette({
     undefined,
   );
 
+  /*
+   * Ask (43q): the editor's handler, once its slot registers one; whether
+   * Tab has called the row up for an input that doesn't read as a question;
+   * the Ask in flight; and the input the row last took the highlight for.
+   */
+  const [askHandler, setAskHandler] = useState<PaletteAskHandler>();
+  const registerAsk = useCallback(
+    (handler: PaletteAskHandler | undefined) => setAskHandler(handler),
+    [],
+  );
+  const [askForced, setAskForced] = useState(false);
+  const [askState, setAskState] = useState<AskState>();
+  const [snappedAsk, setSnappedAsk] = useState<string | undefined>();
+  const askAbort = useRef<AbortController | undefined>(undefined);
+  const [routing, startRouting] = useTransition();
+  const [sawRouting, setSawRouting] = useState(false);
+
   // ⌘K / Ctrl-K toggle. The effect only *registers* the listener; the state
   // update lives in the handler, not the effect body, so it satisfies
   // eslint-plugin-react-hooks@7's `set-state-in-effect` rule.
@@ -294,7 +339,20 @@ export function CommandPalette({
   if (open !== wasOpen) {
     setWasOpen(open);
     if (open) setValue(query);
+    /* A new opening starts without Tab's Ask, and a closing ends any Ask
+     * (the effect below aborts its request). */
+    setAskForced(false);
+    if (!open) {
+      setAskState(undefined);
+      setSawRouting(false);
+    }
   }
+  useEffect(() => {
+    if (open) return;
+    askAbort.current?.abort();
+    /* Forgotten, so its grace timer can't close a later opening. */
+    askAbort.current = undefined;
+  }, [open]);
 
   // Close on route change, same derived-state pattern as `SidebarLayout`: compare
   // the live pathname to the last one seen and reset during render.
@@ -326,6 +384,7 @@ export function CommandPalette({
   const onValueChange = useCallback(
     (next: string) => {
       setValue(next);
+      if (!next.trim()) setAskForced(false);
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
         submitSearch(next.trim());
@@ -336,6 +395,62 @@ export function CommandPalette({
 
   const trimmed = value.trim();
   const q = trimmed.toLowerCase();
+
+  /*
+   * The Ask row (43q, the editor's only): first, and highlighted, when the
+   * input reads as a question ("what drinks can I make with lime") — or
+   * when Tab called it up for one that doesn't. An Ask in flight keeps it.
+   */
+  const showAsk =
+    !!askHandler &&
+    !!trimmed &&
+    (!!askState || askForced || askHandler.offers(trimmed));
+  const runAsk = (question: string) => {
+    if (!askHandler || askState) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const controller = new AbortController();
+    askAbort.current?.abort();
+    askAbort.current = controller;
+    setAskState({ question, phase: "asking" });
+    askHandler.ask(question, controller.signal).then(
+      (answer) => {
+        if (controller.signal.aborted) return;
+        setAskState({
+          question,
+          phase: "opening",
+          label: answer.label,
+          fallback: answer.fallback,
+        });
+        /* Not a recent search: a question re-run as words finds little. */
+        /* A transition, so "Opening …" stays up until the page is there. */
+        startRouting(() => askHandler.open(answer, question));
+        setTimeout(() => {
+          if (askAbort.current === controller) setOpen(false);
+        }, ASK_OPEN_GRACE_MS);
+      },
+      () => {
+        if (askAbort.current === controller && !controller.signal.aborted) {
+          setAskState(undefined);
+        }
+      },
+    );
+  };
+  /* "Opening …" until the navigation's transition has come and gone. */
+  if (askState?.phase === "opening") {
+    if (routing && !sawRouting) setSawRouting(true);
+    else if (!routing && sawRouting) {
+      setSawRouting(false);
+      setAskState(undefined);
+      setOpen(false);
+    }
+  }
+  const askLine = askState
+    ? askState.phase === "asking"
+      ? `Asking about “${askState.question}”…`
+      : askState.fallback
+        ? askState.label
+        : `Opening ${askState.label ?? "the page"}`
+    : undefined;
 
   // Static items are filtered manually (the single Command runs with
   // `shouldFilter={false}` so the live recipe rows aren't dropped by cmdk).
@@ -512,6 +627,25 @@ export function CommandPalette({
   // component. The compiler memoizes it for us anyway.
   const onListKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     /*
+     * Tab to Ask (43q): from the field, Tab calls the Ask row up (or moves
+     * the highlight onto it) instead of leaving the field. Once the row is
+     * up and highlighted, Tab moves focus as it always did — never a trap.
+     */
+    if (
+      e.key === "Tab" &&
+      !e.shiftKey &&
+      askHandler &&
+      trimmed &&
+      !askState &&
+      e.target === inputRef.current &&
+      (!showAsk || selectedValue !== ASK_VALUE)
+    ) {
+      e.preventDefault();
+      setAskForced(true);
+      setSelectedValue(ASK_VALUE);
+      return;
+    }
+    /*
      * Ctrl ↵ (⌘ ↵ on a Mac) opens every result on `/search` (43s), whatever
      * row is highlighted. Prevented before cmdk sees it: its root handler
      * runs only when the event is not already `defaultPrevented`, so plain
@@ -547,14 +681,28 @@ export function CommandPalette({
   // help the selection is stale or empty exactly when new rows land, and Enter
   // either does nothing or fires the wrong row ("Home", under a visible recent).
   const topSlug = hasRecipeHits ? topRecipes[0]?.slug : undefined;
+  /*
+   * The Ask row leads while it shows (43q): it takes the highlight once per
+   * input, and results landing later don't take it back.
+   */
+  const askKey = showAsk ? trimmed : undefined;
+  if (askKey !== snappedAsk) {
+    setSnappedAsk(askKey);
+    if (askKey) setSelectedValue(ASK_VALUE);
+    else if (selectedValue === ASK_VALUE) {
+      setSelectedValue(topSlug ? `recipe:${topSlug}` : "");
+    }
+  }
   if (topSlug && topSlug !== snappedSlug) {
     setSnappedSlug(topSlug);
-    setSelectedValue(`recipe:${topSlug}`);
+    setSelectedValue(showAsk ? ASK_VALUE : `recipe:${topSlug}`);
   } else if (!topSlug && snappedSlug !== undefined) {
     // Left recipe-search mode — hand the selection to the recents that reappear
     // beneath, else drop it so cmdk highlights the first launcher item.
     setSnappedSlug(undefined);
-    setSelectedValue(firstRecent ? `${RECENT_PREFIX}${firstRecent}` : "");
+    setSelectedValue(
+      showAsk ? ASK_VALUE : firstRecent ? `${RECENT_PREFIX}${firstRecent}` : "",
+    );
   }
 
   if (firstRecent && !topSlug && snappedRecent === undefined) {
@@ -569,7 +717,10 @@ export function CommandPalette({
 
   return (
     <CommandPaletteContext.Provider value={contextValue}>
-      {children}
+      <PaletteAskRegistry.Provider value={registerAsk}>
+        {children}
+        {askSlot}
+      </PaletteAskRegistry.Provider>
       <CommandDialog
         open={open}
         onOpenChange={setOpen}
@@ -606,6 +757,12 @@ export function CommandPalette({
               : "Searching recipes…"
             : ""}
         </p>
+        {/* Ask's progress (43q), for a screen reader: mounted once Ask is. */}
+        {askHandler && (
+          <p role="status" data-testid="palette-ask-status" className="sr-only">
+            {askLine ?? ""}
+          </p>
+        )}
         <CommandList
           className={SEARCH_MARKS}
           data-testid="palette-list"
@@ -613,6 +770,34 @@ export function CommandPalette({
           aria-busy={recipesPending || undefined}
         >
           {!recipesPending && <CommandEmpty>No results found.</CommandEmpty>}
+
+          {/*
+            Ask (43q) leads when it shows: the input reads as a question, so
+            the question is what Enter should send. Its second line is the
+            Ask's progress, said again by the status line above the list.
+          */}
+          {showAsk && (
+            <CommandGroup heading="Ask" data-testid="palette-ask-group">
+              <CommandItem
+                value={ASK_VALUE}
+                onSelect={() => runAsk(trimmed)}
+                aria-busy={askState ? true : undefined}
+              >
+                <span className="flex size-9 shrink-0 items-center justify-center">
+                  <Sparkles aria-hidden className="size-5 text-primary" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">
+                    Ask: “{askState?.question ?? trimmed}”
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {askLine ?? "Fills in a page from your question"}
+                  </span>
+                </span>
+                {!askState && <CommandShortcut aria-hidden>↵</CommandShortcut>}
+              </CommandItem>
+            </CommandGroup>
+          )}
 
           {hasRecipeHits && (
             <CommandGroup heading="Recipes" data-testid="palette-recipes-group">
@@ -897,6 +1082,15 @@ export function CommandPalette({
             </CommandGroup>
           )}
         </CommandList>
+        {/* How to ask what doesn't read as a question (43q). */}
+        {askHandler && trimmed && !showAsk && (
+          <p
+            data-testid="palette-ask-hint"
+            className="border-t px-4 py-2 text-xs text-muted-foreground"
+          >
+            Press <kbd className="font-mono">Tab</kbd> to ask this as a question
+          </p>
+        )}
       </CommandDialog>
     </CommandPaletteContext.Provider>
   );
