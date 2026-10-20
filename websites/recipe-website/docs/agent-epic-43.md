@@ -1106,13 +1106,14 @@ one (Dp2-7), the recipe cell as the row header, the big ones skip ticked
 rows (Dp2-4), the phone's captions per C-phone (Dp2-8). A test each.
 
 **Merges.** origin/main merged three times: 43p1 (#298, clean), 43s (#299,
-clean) before the gates, and 43e1 (#300, clean; doc and backlog
-auto-merged) after them — both typechecks re-run on that tree.
+clean) before the gates, and 43t (#301) with 43e1 (#300) after them
+(clean; doc and backlog auto-merged) — both typechecks re-run on that tree
+(e6364955); the Playwright runs predate it.
 
 **Gates** (tree eaeea570 + d7b7880f unless said):
 
 - `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
-exec tsc --noEmit`: clean, before and after the #300 merge.
+exec tsc --noEmit`: clean, before and after the #300/#301 merge.
 - `pnpm exec vitest run`: 140 files, 3,095 tests — 3,094 passed, 1 failed:
   `inventory.test.ts`'s export guard (no `common/` file names "on-hand")
   caught a comment in `planSheet.ts`; reworded (ca1c0b27), then
