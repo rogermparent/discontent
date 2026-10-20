@@ -589,6 +589,332 @@ test.describe("Meal plan: cook through it @mobile", () => {
   });
 });
 
+/** The run sheet's desktop table (43p2). */
+const sheetRows = (page: Page) =>
+  page.getByTestId("sheet-table").getByTestId("sheet-row");
+
+test.describe("Meal plan: the run sheet", () => {
+  test.beforeEach(async ({ resetData, request, createApiToken }) => {
+    await resetData("drinks-bar");
+    await writeTray(request, await createApiToken());
+  });
+
+  test("the hero counts, and the table reads each recipe's steps", async ({
+    page,
+  }) => {
+    await page.goto(`/group/${PLAN}?mode=sheet`);
+    await expect(
+      page.getByRole("button", { name: "Run sheet", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    const sheet = page.getByTestId("plan-run-sheet");
+
+    /* 4 recipes · 3 doughs chill · one oven · 84 + 24 + 24 cookies and the
+     * sugar cookies, whose yield is not set. */
+    const stats = sheet.getByTestId("sheet-stats");
+    await expect(stats.getByRole("term")).toHaveText([
+      "recipes",
+      "doughs chill",
+      /^one oven/,
+      "cookies + 1 more",
+    ]);
+    await expect(stats.getByRole("definition")).toHaveText([
+      "4",
+      "3",
+      /^350°/,
+      "132",
+    ]);
+
+    await expect(sheetRows(page)).toHaveCount(4);
+    await expect(sheetRows(page).getByRole("link")).toHaveText([
+      "Spritz Cookies",
+      "Gingerbread Cookies",
+      "Peanut Butter Blossoms",
+      "Iced Sugar Cookies",
+    ]);
+    await expect(sheetRows(page).getByTestId("sheet-ahead")).toHaveText([
+      "chill not set",
+      "chill ≥ 3 hkeeps 3 days",
+      "chill ≥ 1 hkeeps 3 days",
+      "chill 1–2 hicing sets in 24 h",
+    ]);
+    /* The bars run to the longest bake, the blossoms' 13 minutes. */
+    await expect(
+      page.getByRole("columnheader", { name: /Baking day · 350°F/ }),
+    ).toContainText("0–13 min");
+    await expect(sheetRows(page).getByTestId("sheet-bake")).toHaveText([
+      "7–9 min a batch",
+      "9–10 min a batch",
+      "11–13 min a batch, then 10 min in the freezer",
+      "11–12 min",
+    ]);
+    await expect(sheetRows(page).getByTestId("sheet-makes")).toHaveText([
+      "84bite-size cookies",
+      "24four-inch cookies",
+      "24cookies",
+      "—not set",
+    ]);
+
+    /* A guest: no docket, the shelf is there. */
+    await expect(sheet.getByTestId("sheet-docket")).toHaveCount(0);
+    await expect(sheet.getByTestId("sheet-shelf")).toBeVisible();
+    await expect(
+      sheet.getByRole("button", { name: "Edit the sheet" }),
+    ).toHaveCount(0);
+  });
+
+  test("mixed and made are separate ticks, and both stay", async ({ page }) => {
+    await page.goto(`/group/${PLAN}?mode=sheet`);
+    const mixed = page.getByRole("button", {
+      name: "Mark Gingerbread Cookies dough mixed",
+    });
+    await expectHydrated(mixed);
+    await mixed.click();
+    await expect(
+      page.getByRole("button", { name: "Unmark Gingerbread Cookies dough" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    /* Spritz's steps give no chill: nothing to mix ahead. */
+    await expect(
+      page.getByRole("button", { name: /Spritz Cookies dough mixed/ }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Mark Gingerbread Cookies made" }),
+    ).toHaveAttribute("aria-pressed", "false");
+
+    await page
+      .getByRole("button", { name: "Mark Spritz Cookies made" })
+      .click();
+    await expect(sheetRows(page).nth(0)).toHaveAttribute("data-made", "true");
+
+    await page.reload();
+    await expect(
+      page.getByRole("button", { name: "Unmark Gingerbread Cookies dough" }),
+    ).toBeVisible();
+    await expect(sheetRows(page).nth(0)).toHaveAttribute("data-made", "true");
+    const stored = await page.evaluate((slug) => {
+      return {
+        made: localStorage.getItem(`plan-made:${slug}`),
+        mixed: localStorage.getItem(`plan-mixed:${slug}`),
+      };
+    }, PLAN);
+    expect(stored).toEqual({
+      made: JSON.stringify(["recipe:plan-spritz"]),
+      mixed: JSON.stringify(["recipe:plan-gingerbread"]),
+    });
+
+    /* Start the bake: Cook mode, where Spritz is already made. */
+    await page.getByRole("button", { name: "Start the bake" }).click();
+    await expect(
+      page.getByRole("button", { name: "Cook", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("plan-made-count")).toHaveText("1 of 4 made");
+  });
+
+  test("a sub-plan row is a plan of its own, counted in the hero", async ({
+    page,
+    request,
+    createApiToken,
+  }) => {
+    await writeWeek(request, await createApiToken());
+    await page.goto("/group/holiday-week?mode=sheet");
+    const stats = page.getByTestId("sheet-stats");
+    await expect(stats.getByRole("term").first()).toHaveText(
+      "recipes + 1 plan",
+    );
+    await expect(stats.getByRole("definition").first()).toHaveText("3");
+    /* Each row is named by its recipe (the row header). */
+    await expect(sheetRows(page).getByRole("rowheader")).toContainText([
+      "Gingerbread Cookies",
+      "Iced Sugar Cookies",
+      "Spritz Cookies",
+      "Cookie Tray",
+    ]);
+    await expect(
+      sheetRows(page).nth(3).getByRole("link", { name: "Its own run sheet" }),
+    ).toHaveAttribute("href", `/group/${PLAN}?mode=sheet`);
+  });
+
+  test("a plan with nothing to bake or chill has no run sheet", async ({
+    page,
+    request,
+    createApiToken,
+  }) => {
+    const headers = { authorization: `Bearer ${await createApiToken()}` };
+    const soup = await request.post("/api/recipes", {
+      headers,
+      data: {
+        name: "Lentil Soup",
+        slug: "plan-soup",
+        ingredients: ["1 cup lentils", "4 cups stock"],
+        instructions: [
+          { text: "Simmer the lentils in the stock for 25 minutes." },
+        ],
+      },
+    });
+    expect(soup.status()).toBe(201);
+    const plan = await request.post("/api/groups", {
+      headers,
+      data: {
+        name: "Soup Night",
+        slug: "soup-night",
+        items: [{ recipe: "plan-soup" }],
+      },
+    });
+    expect(plan.status()).toBe(201);
+    await page.goto("/group/soup-night?mode=sheet");
+    await expect(
+      page.getByRole("button", { name: "Plan", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      page.getByRole("button", { name: "Run sheet", exact: true }),
+    ).toHaveCount(0);
+  });
+
+  test("signed in: the docket shows the plan's lines by aisle", async ({
+    page,
+    initializeContentGit,
+  }) => {
+    await initializeContentGit();
+    await page.goto(`/group/${PLAN}`);
+    await signInHydrated(page);
+    await expect(page).toHaveURL(new RegExp(`/group/${PLAN}$`));
+    await page.goto(`/group/${PLAN}?mode=sheet`);
+    const sheet = page.getByTestId("plan-run-sheet");
+    await expect(
+      sheet.getByRole("button", { name: "Edit the sheet" }),
+    ).toBeVisible();
+    const panel = sheet.getByRole("region", { name: "Shopping list" });
+    await expect(panel).toContainText("Not on your shopping list");
+    await expect(page.getByTestId("add-group-to-shopping")).toHaveAttribute(
+      "data-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+    await panel.getByRole("button", { name: "Add to shopping list" }).click();
+    await expect(page.getByTestId("shopping-add-result")).toContainText(
+      "21 items added",
+    );
+
+    await page.reload();
+    const docket = sheet.getByTestId("sheet-docket");
+    await expect(docket).toContainText(/21 lines · \d+ rows · 0 ticked/);
+    await expect(docket.getByRole("heading")).toHaveText("On the list");
+    const aisles = docket.getByTestId("sheet-aisles");
+    await expect(aisles.getByRole("term").first()).toBeVisible();
+    /* Butter, flour and an egg are in every recipe. */
+    await expect(docket.getByTestId("sheet-big-ones")).toContainText(
+      /^The big ones: .*flour/,
+    );
+    await expect(docket.getByTestId("sheet-big-ones")).toContainText("butter");
+    await expect(
+      docket.getByRole("link", { name: "Open the list" }),
+    ).toHaveAttribute("href", "/shopping");
+
+    await sheet.getByRole("button", { name: "Edit the sheet" }).click();
+    await expect(
+      page.getByRole("button", { name: "Plan", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("no WCAG 2.2 violations on the run sheet, light and dark", async ({
+    page,
+  }) => {
+    await page.clock.setFixedTime(SUNDAY);
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme });
+      await page.goto(`/group/${PLAN}?mode=sheet`);
+      await counted(page);
+      await expect(page.getByTestId("sheet-shelf")).toContainText(
+        /Nothing on your list yet|ready/,
+        { timeout: 20_000 },
+      );
+      await expectNoViolations(page);
+    }
+  });
+
+  test("run sheet @visual", async ({ page }) => {
+    await page.clock.setFixedTime(SUNDAY);
+    await page.addInitScript((key) => {
+      localStorage.setItem(key, JSON.stringify(["recipe:plan-gingerbread"]));
+    }, `plan-mixed:${PLAN}`);
+    await page.goto(`/group/${PLAN}?mode=sheet`);
+    await counted(page);
+    await expect(page.getByTestId("sheet-shelf")).toContainText(
+      "Nothing on your list yet",
+      { timeout: 20_000 },
+    );
+    await expect(
+      page.getByRole("button", { name: "Unmark Gingerbread Cookies dough" }),
+    ).toBeVisible();
+    await snapshotPage(page, "plan-sheet.png");
+  });
+});
+
+test.describe("Meal plan: the run sheet on a phone @mobile", () => {
+  test.beforeEach(async ({ page, resetData, request, createApiToken }) => {
+    await resetData("drinks-bar");
+    await writeTray(request, await createApiToken());
+    await page.clock.setFixedTime(SUNDAY);
+  });
+
+  test("day before, then baking day, with no sideways scroll", async ({
+    page,
+  }) => {
+    await page.goto(`/group/${PLAN}?mode=sheet`);
+    const before = page.getByRole("region", { name: "Day before" });
+    await expect(before.getByRole("link")).toHaveText([
+      "Gingerbread Cookies",
+      "Peanut Butter Blossoms",
+      "Iced Sugar Cookies",
+    ]);
+    await expect(before).toContainText(
+      "Doughs keep 3 days. Chill not set: Spritz Cookies.",
+    );
+    const mixed = before.getByRole("button", {
+      name: "Mark Peanut Butter Blossoms dough mixed",
+    });
+    await expectHydrated(mixed);
+    await mixed.click();
+    await expect(
+      before.getByRole("button", {
+        name: "Unmark Peanut Butter Blossoms dough",
+      }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    const baking = page.getByRole("region", { name: "Baking day" });
+    await expect(baking.getByRole("listitem")).toHaveCount(4);
+    await expect(baking.getByRole("listitem").nth(3)).toContainText(
+      "11–12 min · icing sets in 24 h",
+    );
+    await expect(baking.getByRole("listitem").nth(3)).toContainText("not set");
+
+    const sideways = await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    );
+    expect(sideways).toBeLessThanOrEqual(0);
+  });
+
+  test("no WCAG 2.2 violations on the phone's run sheet", async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 2600 });
+    await page.goto(`/group/${PLAN}?mode=sheet`);
+    await expect(page.getByTestId("sheet-shelf")).toContainText(
+      /Nothing on your list yet|ready/,
+      { timeout: 20_000 },
+    );
+    await expectNoViolations(page);
+  });
+
+  test("run sheet on a phone @visual", async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 2000 });
+    await page.goto(`/group/${PLAN}?mode=sheet`);
+    await counted(page);
+    await expect(page.getByTestId("sheet-shelf")).toContainText(
+      "Nothing on your list yet",
+      { timeout: 20_000 },
+    );
+    await snapshotPage(page, "plan-sheet.png", { fullPage: false });
+  });
+});
+
 test.describe("Plans: the list", () => {
   test.beforeEach(async ({ page, resetData, request, createApiToken }) => {
     await resetData("drinks-bar");

@@ -59,21 +59,32 @@ function rowName(row: PlanRowView): string {
   return row.recipe?.name ?? row.group?.name ?? row.missing ?? "this row";
 }
 
-/** A made tick: a 44 px target on a phone (WCAG 2.5.8 asks 24). */
-function Tick({
+/**
+ * A made tick: a 44 px target on a phone (WCAG 2.5.8 asks 24). `mark` and
+ * `unmark` name it otherwise — the run sheet's "mixed" ticks (43p2).
+ */
+export function Tick({
   done,
   name,
   onToggle,
+  mark,
+  unmark,
 }: {
   done: boolean;
   name: string;
   onToggle: () => void;
+  /** The name while unticked; "Mark <name> made" by default. */
+  mark?: string;
+  /** The name while ticked; "Unmark <name>" by default. */
+  unmark?: string;
 }) {
   return (
     <button
       type="button"
       aria-pressed={done}
-      aria-label={done ? `Unmark ${name}` : `Mark ${name} made`}
+      aria-label={
+        done ? (unmark ?? `Unmark ${name}`) : (mark ?? `Mark ${name} made`)
+      }
       onClick={onToggle}
       className={cn(
         "inline-flex size-11 shrink-0 items-center justify-center rounded-md",

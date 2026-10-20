@@ -132,35 +132,36 @@ test.describe("Accessibility (axe)", () => {
     expect(specs.violations).toEqual([]);
   });
 
-  /* 42m: the bean-swap group, its tapes, and the switch beside close matches. */
-  test("make page with a bean swap has no WCAG2AA violations", async ({
+  /* 43m (replacing 42m's bean-swap scan): an empty list on Most used here,
+   * then a broken pattern's inline error and a pattern tape's popover. */
+  test("make page starting from nothing, with patterns, has no WCAG2AA violations", async ({
     page,
     resetData,
   }) => {
-    await resetData("make-beans");
+    await resetData("make-patterns");
     await page.goto("/make");
     const main = page.getByRole("main");
     await expect(main.getByTestId("make-ticker")).toHaveText(/can make/i, {
       timeout: 20_000,
     });
-    const input = main.getByTestId("inventory-input");
-    await input.fill("pinto beans, cucumber, lemon");
-    await input.press("Enter");
-    await expect(main.getByTestId("make-bean-swap")).toContainText(
-      "Use pinto beans for chickpea",
-    );
-    const photos = await new AxeBuilder({ page }).withTags(TAGS).analyze();
-    expect(photos.violations).toEqual([]);
+    await expect(main.getByTestId("most-used")).toBeVisible();
+    const empty = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(empty.violations).toEqual([]);
 
-    await main
-      .getByRole("group", { name: "Cards" })
-      .getByRole("radio", { name: "Specs" })
-      .check();
+    const input = main.getByTestId("inventory-input");
+    await input.fill("/may(/");
+    await expect(main.getByTestId("inventory-input-error")).not.toBeEmpty();
+    const invalid = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(invalid.violations).toEqual([]);
+
+    await input.fill("bean*");
+    await input.press("Enter");
+    await main.getByTestId("make-matcher").click();
     await expect(
-      main.getByTestId("make-bean-swap").getByTestId("make-spec-cards"),
+      page.getByRole("dialog", { name: "Which of these do you have?" }),
     ).toBeVisible();
-    const specs = await new AxeBuilder({ page }).withTags(TAGS).analyze();
-    expect(specs.violations).toEqual([]);
+    const refine = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    expect(refine.violations).toEqual([]);
   });
 
   /* 42m2: a matcher on the shelf, its refine popover open, and the cards'

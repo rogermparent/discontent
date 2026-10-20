@@ -1,0 +1,32 @@
+{
+  "name": "Black Bean and Corn Salad",
+  "description": "Black beans, corn and peppers with lime.",
+  "tags": [
+    "salad",
+    "vegetarian"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "1 (15 oz) can black beans, drained and rinsed"
+    },
+    {
+      "ingredient": "1 1/2 cups corn kernels"
+    },
+    {
+      "ingredient": "1 red bell pepper, diced"
+    },
+    {
+      "ingredient": "2 tablespoons lime juice"
+    },
+    {
+      "ingredient": "1/2 teaspoon kosher salt"
+    }
+  ],
+  "date": 1792000060000,
+  "recipeYield": "4 servings",
+  "instructions": [
+    {
+      "text": "Toss it all together."
+    }
+  ]
+}

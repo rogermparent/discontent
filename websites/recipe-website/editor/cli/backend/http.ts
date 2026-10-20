@@ -577,12 +577,11 @@ export function createHttpBackend({
     setInventory(raw) {
       return call<InventoryWriteResult>("PUT", "/api/inventory", { body: raw });
     },
-    async inventoryMakeable({ staples, beanSwaps, ...options } = {}) {
+    async inventoryMakeable({ staples, ...options } = {}) {
       const result = await call<MakeableResult>("GET", "/api/inventory/make", {
         query: {
           ...options,
           staples: staples === false ? 0 : undefined,
-          beanSwaps: beanSwaps === false ? 0 : undefined,
         },
       });
       /* An editor from before 41i ignores `feature` and answers the whole

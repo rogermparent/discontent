@@ -1,0 +1,29 @@
+{
+  "name": "Potato Salad",
+  "description": "Potatoes, mayonnaise, onion and dill.",
+  "tags": [
+    "salad",
+    "vegetarian"
+  ],
+  "ingredients": [
+    {
+      "ingredient": "2 lb Yukon Gold potatoes"
+    },
+    {
+      "ingredient": "1/2 cup mayonnaise"
+    },
+    {
+      "ingredient": "1/2 red onion, diced"
+    },
+    {
+      "ingredient": "2 tablespoons chopped fresh dill"
+    }
+  ],
+  "date": 1792000300000,
+  "recipeYield": "6 servings",
+  "instructions": [
+    {
+      "text": "Boil the potatoes, cool them, and fold everything together."
+    }
+  ]
+}

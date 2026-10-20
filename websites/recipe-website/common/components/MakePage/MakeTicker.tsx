@@ -50,9 +50,7 @@ function Num({ value }: { value: number }) {
  *
  *   72 DRINKS · 14 CAN MAKE · 10 ONE AWAY · 17 TWO AWAY
  *
- * and, when beans can stand in for each other and some recipe needs that
- * (42m), "· 6 WITH A BEAN SWAP" — those recipes are among the one-, two-
- * and further-away ones, never added to them.
+ * (42m's "· 6 WITH A BEAN SWAP" went with its tier in 43m.)
  *
  * Twice: the numbers tick for the eye (`aria-hidden`), and a plain copy —
  * the `make-ticker` the specs read — is the live region, so adding an item
@@ -63,7 +61,6 @@ export function MakeTicker({
   canMake,
   oneAway,
   twoAway,
-  beanSwap = 0,
   kind,
   pending,
 }: {
@@ -71,8 +68,6 @@ export function MakeTicker({
   canMake: number;
   oneAway: number;
   twoAway: number;
-  /** Recipes in "With a bean swap" (42m); not shown at 0. */
-  beanSwap?: number;
   kind: MakeKind;
   pending: boolean;
 }) {
@@ -84,7 +79,6 @@ export function MakeTicker({
         `${canMake} can make`,
         `${oneAway} one away`,
         `${twoAway} two away`,
-        ...(beanSwap > 0 ? [`${beanSwap} with a bean swap`] : []),
       ].join(" · ");
   const shared =
     "font-mono text-[0.72rem] leading-snug tracking-[0.07em] text-muted-foreground uppercase tabular-nums";
@@ -100,12 +94,6 @@ export function MakeTicker({
           <>
             <Num value={total} /> {noun} · <Num value={canMake} /> can make ·{" "}
             <Num value={oneAway} /> one away · <Num value={twoAway} /> two away
-            {beanSwap > 0 && (
-              <>
-                {" "}
-                · <Num value={beanSwap} /> with a bean swap
-              </>
-            )}
           </>
         )}
       </p>
