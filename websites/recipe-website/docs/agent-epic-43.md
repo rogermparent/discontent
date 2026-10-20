@@ -104,7 +104,76 @@ update`, never commit `editor/content`.
 
 #### Results (43a)
 
-_Pending._
+**Guest controls hidden.** The editor's recipe page (Delete, Edit, Copy,
+Feature, Group: the whole `PageActions` row), group page (Delete, Feature,
+Edit, Add to shopping list) and term pages (Feature, Edit, Add a narrower
+term, and `/tags`'s New term) render them only with a session, read the way
+the recipe and group pages already read it (`Boolean((await auth())?.user?.email)`).
+The pages were already per-request renders (`force-dynamic`, and the root
+layout's `auth()`), so nothing changes in rendering mode. `TagPage/routes.tsx`
+is shared with the export, which must not import editor auth: `editorTagRoute`
+and `editorTagIndexRoute` now take `signedIn`, and the editor's two route files
+(`tags/page.tsx`, `tags/[tag]/page.tsx`) read the session and pass it in. The
+export's `tagRoute` is untouched.
+
+- New `guest-controls.spec.ts` (4 tests): signed out, none of the controls;
+  after signing in on the page, all of them.
+- Seven existing specs reached these controls signed out ("click Edit, then
+  sign in"). They now go to the control's target (`/recipe/<slug>/edit`,
+  `/group/new?recipe=`, `/featured-recipe/new?recipe=`, `/tags/new`,
+  `/tags/new?parent=`), which still lands on the sign-in form with
+  `redirectTo` kept: `recipe.spec`, `groups.spec` (2), `featured-recipes.spec`,
+  `term-edit.spec` (2).
+- Baselines moved (Docker, opened and checked): `recipe-detail-signed-out-e2e`
+  and `recipe-6-multiplied-e2e` lose the Delete/Edit/Copy/Feature/Group row
+  under the ingredients (the page is 49 px shorter). No other PNG changed.
+
+**/shopping.**
+
+- **The duplicate "gel food coloring"** (found in the real shopping store:
+  two items, from `christmas-sugar-cookies-recipe-with-easy-icing` and
+  `my-favorite-spritz-cookies`): "optional: gel food coloring & sprinkles for
+  decorating" and "optional: gel food coloring, sprinkles, chocolate chips,
+  and melted chocolate for decorating". The name reader never splits on `and`
+  / `&` (right for "mac and cheese"), so the first line's name was the whole
+  "gel food coloring sprinkle for decorating", while the comma form keys by
+  its first item, "gel food coloring". Two keys, two rows. Fix, in
+  `shoppingNameOf` only (`ingredientNames`, which Make shares, is untouched):
+  a line that joins items with `&` or `and` and ends in a decorating tail
+  (`for decorating|garnish|topping|dusting|dipping|sprinkling|serving`) is
+  read by its first item, as the comma form is. Any other line is untouched.
+- **"optional"** (`Da1`): the merge already marks a row optional when every
+  source line is (`items.every(optional)`), so the mark was lost only because
+  the two lines never shared a row. A row from some optional and some
+  required lines is **not optional**: you buy it for the recipe that needs it.
+  Recorded and pinned by a test; no "optional for X" text was added (it
+  would change `buildShoppingView`'s output for every mixed row).
+- Vitest: `shoppingView.test.ts` 35 → 38 (name keys, one merged optional
+  row, all-vs-some optional). The 35 earlier tests are the contract and pass
+  unchanged.
+
+**Build timeout (42s-T2).** The editor's `next.config.mjs` sets
+`staticPageGenerationTimeout: 180`. No `experimental.cpus`: not measured to
+help (the default 7 workers built everything below). Main-checkout-shaped
+build (`editor/content` linked to a scratch clone of the real content repo,
+reindexed; `export/public/{image,uploads}` absolute links through it; scratch
+removed afterwards): `next build` **303 static pages in 84 s** at load ~20,
+no "Dynamic filesystem access" and no "leaves the filesystem root" warning.
+That run would also have passed at the 60 s default, so it shows the setting
+is harmless, not that it is needed; the failure it guards (42s-T2) needs a
+loaded machine (~30).
+
+**Gates.** `recipe-editor` typecheck clean; `recipe-website` `tsc --noEmit`
+clean; `vitest run` 134 files, 2731 tests passed. Playwright (Docker, build
+mode): `guest-controls recipe groups tag-pages term-edit shopping
+featured-recipes reference-updates visual edit pages` specs, 243 tests: 241
+passed, 2 failed on exactly the two baselines above; after regenerating them
+`recipe.spec visual.spec` 86/86. Dev mode once (`guest-controls`, `term-edit`):
+12 passed, 1 flaky (`term-edit:25`, the `/tags/bar-cookies/edit` URL wait at
+5 s, a dev first-compile of an untouched click).
+
+**Roger to confirm.** Da1: a merged row with a mix of optional and required
+lines is shown as required (not "optional for X").
 
 ### 43f — The facet model (S–M)
 
@@ -355,17 +424,19 @@ recipe page's "Uses" and the `inventory make` seats read the new names).
 
 Measured on a scratch clone of the content repo (825 recipes, 8,283
 ingredient lines) with read-only dumps of every line's name, amount and
-every step's "Uses", before (`origin/main` `db12c934`) and after:
+every step's "Uses", before (`origin/main` `db12c934`) and after (the
+final code, review fixes included; the first-pass figures are in brackets):
 
-|                                                                            | Before    | After                                      |
-| -------------------------------------------------------------------------- | --------- | ------------------------------------------ |
-| Names still carrying amount debris (a unit, a number, a leading `to`/`or`) | 427 lines | 24                                         |
-| Lines whose name changed                                                   | —         | 941 (11.4 %)                               |
-| Lines whose amount changed                                                 | —         | 1 ("1 packed cup cilantro": `1` → `1 cup`) |
-| Distinct names                                                             | 1,746     | 1,727                                      |
-| Step "Uses" matches                                                        | —         | +167 / −32                                 |
+|                                                                            | Before     | After                                      |
+| -------------------------------------------------------------------------- | ---------- | ------------------------------------------ |
+| Names still carrying amount debris (a unit, a number, a leading `to`/`or`) | 427 lines  | 22 (24)                                    |
+| Lines whose name changed                                                   | —          | 999, 12.1 % (941)                          |
+| Lines whose amount changed                                                 | —          | 1 ("1 packed cup cilantro": `1` → `1 cup`) |
+| Distinct names (every alternative of every line)                           | 2,061      | 1,722 (1,727)                              |
+| Step "Uses" matches                                                        | —          | +176 / −32 (+167 / −32)                    |
+| Parse of all 8,283 lines, warm (min of 22 rounds)                          | 241–262 ms | 265–273 ms (505–510 ms)                    |
 
-The 24 left are one-offs and typos ("50g gr 3Tbsp rainy mustard", "1
+The 22 left are one-offs and typos ("50g gr 3Tbsp rainy mustard", "1
 Tablespoon granulated sugar + 1/2 teaspoon cinnamon", "Half of 1/4
 teaspoon"). Of the 32 step matches lost, most were false positives the old
 garbage names produced — `tahini or chinese sesame paste note` matched
@@ -396,7 +467,8 @@ bell pepper` (already right; now pinned). `parseAmount` already read
 cream`; "100g or 2 large carrots", "20g or 1/4 of a red onion".
 - **A container after a measure** (`CONTAINER_AFTER_RE`): "15oz can",
   "One 15-ounce can", "12 ounce bag", "4 6-oz. bags", "two 4-ounce bars",
-  "1-inch piece of", "2-inch knob". A can or tin leaves `canned` (Dn2).
+  "1-inch piece of", "2-inch knob". Every can shape reads `canned X`
+  (Dn2, `withCanned`).
 - **`tidyLine`** before anything else: `15-ounce` / `15- ounce` → `15
 ounce`, `4 x 400g`, `8ish`, `3/4c+1tbsp`, `200g-250g`,
   `medium-to-large`, and a word dash with a space on either side as a comma
@@ -458,7 +530,8 @@ scripts live in `editor/scripts/`). Three sections: names that still
 differ only by a plural, word order or a candidate word (grouped, with
 line and recipe counts); "one word more" pairs both in the corpus; and
 each table row with its line count. The scratch run is in the
-orchestrator's scratch at `tmp/43/43n/dupes.md` (134 groups, 560 pairs).
+orchestrator's scratch at `tmp/43/43n/dupes.md` (134 groups; re-run on
+the final code — the canned rows below are its counts).
 The top of what is **left for Roger to pick** (lines in brackets; none
 merged by 43n):
 
@@ -478,16 +551,16 @@ merged by 43n):
 14. ground beef (26) · lean ground beef (7)
 15. chicken broth (19) · low / reduced sodium chicken broth (12) · chicken stock (22)
 16. ground clove (23) · clove (6)
-17. tomato (23) · canned tomato (6)
+17. tomato (19) · canned tomato (10)
 18. cheddar cheese (15) · sharp cheddar cheese (7) · sharp white / extra sharp (3)
 19. cream cheese (17) · brick cream cheese (18)
 20. yellow mustard (9) · mustard (8) · ground / dry mustard (6)
-21. pumpkin puree (16) · canned pumpkin puree (5)
-22. tomato paste (22) · canned tomato paste (2)
+21. pumpkin puree (11) · canned pumpkin puree (11)
+22. tomato paste (20) · canned tomato paste (4)
 23. molasses (9) · dark molasses (9) · unsulphured molasses (8)
 24. ground coriander (10) · coriander (3)
-25. black bean (8) · canned black bean (8)
-26. corn (9) · frozen corn (5) · canned corn (2)
+25. canned black bean (14) · black bean (3)
+26. corn (7) · frozen corn (5) · canned corn (5)
 27. creamy peanut butter (8) · creamy unsweetened peanut butter (2)
 28. dry white wine was merged; sparkling wine (10) · dry sparkling wine (2) was not
 29. cooked rice (3) · cooked white rice (2) · white rice (2) · rice (2)
@@ -500,9 +573,120 @@ lines on the server, the shopping view and the recipe page at request
 time. Stored state keyed by a name: the shopping settings'
 `aisleOverrides` / `storeOverrides` (by `nameKey`) — the content repo has
 no `shopping/settings.json` today, so nothing is orphaned (Tn2). Every
-rewritten name shelves where its old form did (`aisleFor` checked for
-each row's before and after: spices, pantry, dairy, produce unchanged;
-`can tomato` and `canned tomato` both pantry).
+synonym row's name shelves where its old form did (`aisleFor` checked for
+each row's before and after: spices, pantry, dairy, produce unchanged).
+The aisles that moved are the canned lines going to the pantry (below)
+and debris names now read right ("for rolling cup granulated" `other` →
+`granulated sugar` pantry, "or 1c frozen pea" produce → `frozen pea`
+frozen): 20 kinds of name against `origin/main`.
+
+**5. Review fixes** (the read-only review of `ac854ec5`; each a vitest
+case):
+
+1. **Cayenne backtracking.** `cayenne(?: pepper)?(?: powder)?` backed off
+   to `cayenne` in "2 cayenne peppers, sliced" and read `cayenne pepper
+pepper`; the row is now `cayenne(?: pepper powder| powder)?(?!
+peppers?\b)` ("cayenne peppers", "cayenne pepper powder" → `cayenne
+pepper`).
+2. **Cheese-row backtracking.** "pecorino romano cheese" backed off to
+   `pecorino` (`pecorino cheese romano cheese`), the real line
+   "cheddar-jack cheese blend" read `cheddar cheese jack cheese blend`,
+   "ricotta salata" `ricotta cheese salata`. A `\b` before the lookahead,
+   and the lookahead takes ` romano| jack| style| salata| reggiano`: they
+   now read `pecorino romano cheese`, `cheddar jack cheese blend`,
+   `ricotta salata`, `feta style cheese`.
+3. **A label that is the name** (`dropLabel`). "Flour: 2 cups" read `cup`,
+   "Kosher salt: 1 teaspoon" `teaspoon`. The label goes only when what
+   follows still names something once its amount is gone, or when it names
+   a part of the recipe (`optional`, `for …`, `egg wash`, `topping`,
+   `filling`, `garnish`, `frosting`, `glaze`, `crust`, `dough`, `add-in`,
+   …); otherwise the line reads as "Flour, 2 cups" — `flour`, `kosher
+salt`, "Bread flour: 500g" `bread flour`, "Eggs: 2 large" `egg`. The
+   corpus has no such line today (all 47 labelled lines name a part), so
+   no name moved.
+4. **`canned` for every can shape** (Dn2, rewritten): 75 more lines moved
+   (below), Make unchanged, step matches +9 / −0 against the first pass.
+5. **Speed.** The first pass parsed ~1.9× slower than `origin/main` (min
+   505–510 ms against 273–281 ms for all 8,283 lines, warm, tsx on this
+   machine at load 4–13); now 265–273 ms against 241–262 ms, ~1.07×. What
+   did it, from a CPU profile (`toName` was 43 % of the time): each
+   synonym table tested once as one combined alternation before its rows
+   run (`anyRow`; a row can only fire on text an earlier row wrote, so a
+   miss skips the table safely), `toName` on the prep cut only when the
+   cut changed the text, the alias bracket's cheap prefix test before its
+   `toName`, `TRAILING_AMOUNT_RE` behind a `/\d[\p{L}\s.%]{0,20}$/u`
+   gate, `tidyLine`'s rewrites each behind a test for its character, and
+   `stripMarkup` returning early when a line has no `<`, `[` or `&`. The
+   dumps before and after the speed work are byte-identical.
+
+Also from the review pass: a choice that is only a measure is dropped
+("3 cups cooked black eyed peas (1/2 pound) or 2 15-ounce cans" was
+`cooked black eyed pea or can`; "(or a 15 oz can, if u want I guess)"
+was `… or can or if u want i guess`), `(or …)` parts opening with `if`
+are remarks ("honey (or less, if using sweetened peanut butter)" was
+`honey or if using sweetened peanut butter`), `(drained and rinsed)` is a
+remark bracket (it left only its `and`), and "garbanzos beans" is
+`chickpea` (was `chickpea bean`).
+
+**Canned, re-measured** (Dn2) — 75 lines moved against the first pass,
+all can lines: "1 (28 ounce) can crushed tomatoes", "1 can black beans",
+"2 cans (15 ounces each) pinto beans", "1 can (14 oz) sweetened condensed
+milk", "1 (13.5- ounce) can full-fat coconut milk", "1 can chiles in adobo
+sauce", "1 can salmon", "15 ounces (can) refried beans", "2 (15-ounce
+cans) chickpeas" and the like now read `canned X`; "15 ounce can or 260g
+drained cooked black beans" `canned black bean or cooked black bean` (was
+`canned cooked black bean` — the alternative restored), "1 (14-ounce)
+can (drained and rinsed) or 1 package of frozen corn" `canned corn or
+frozen corn`, "450g or 2 8oz cans tomato sauce" `canned tomato sauce or
+tomato sauce`, "1 can corn or peas" `canned corn or canned pea`, "2 cans
+black beans (or pinto or cannellini beans)" three canned alternatives;
+"6-ounce can of water" is `water` again (a staple; it had become `canned
+water`), and "1 (8-ounce) can refrigerated crescent roll dough" stays
+`refrigerated crescent roll dough`. Left as they were: a can only in a
+remark after the name ("12 ounces corn kernels (1 can, drained)", "1 1/2
+cups black beans ((1 15-oz can …))") — the measure there is the ounces or
+cups.
+
+- **Make: unchanged.** `/make`'s buckets for a can-heavy pantry (black
+  beans, tomatoes, chickpeas, kidney and pinto beans, corn, tomato sauce
+  and paste, pumpkin puree, coconut milk, green chiles, onion, garlic, …;
+  food scope, the default staples) are identical before and after (11 can
+  make, 39 one away, 54 two away), and so are they with every can item
+  typed `canned …` — a plain name on hand is the tail of `canned X`, and
+  `canned X` on hand has `X` as its tail (vitest: black beans, tomatoes,
+  chickpeas, kidney beans, either way). Make reads a name without its
+  leading `canned` (`withoutCanned`, in `namesMatch`, `suggestNames`, Buy
+  next's item, the add field's candidates and a card's add tapes), so "1 (15 oz) can beans" is
+  still met by black beans on hand (Dm7's bare `bean`) and the add field
+  still offers "black bean", not "canned black bean". The bean family
+  already ignored `canned`. So the page reads as before — "Use black beans
+  for chickpea", "Needs chickpea (swap: black beans)": its tapes are what
+  a tap would add. A requirement's label keeps the can: the `inventory
+make` seat's `missing` / `swaps[].line` say `canned chickpea`, and so do
+  a static tape and `makeableBeans`' swap labels (`inventory` and
+  `makeableBeans` tests updated; `make.spec` and `accessibility.spec`
+  unchanged).
+- **Shopping:** every `canned X` shelves in the pantry. Against the first
+  pass, the moves are canned goods leaving fresh aisles — `tomato`,
+  `petite tomato` (6 lines), `corn` (2), `green chile` (4), `green bean`,
+  `ro tel tomato green chili` produce → pantry; `salmon`, `anchovy`
+  meat-fish → pantry; "1 (14-ounce) can … or 1 package of frozen corn"
+  frozen → pantry (its first choice is now the can); and "6-ounce can of
+  water" back to `water`, a staple. A list
+  holding "1 can black beans" and "1 cup black beans" now has two rows
+  (`canned black bean`, `black bean`) where `origin/main` merged them as
+  "1 can + 1 cup black beans" — as "28 oz can diced tomatoes" and "2
+  tomatoes" were already two rows on `origin/main` (`can tomato`). A row
+  counted in cans says `canned` once: "2 cans tomatoes", not "2 cans
+  canned tomatoes" (`shoppingView` `displayName`; the key keeps it).
+- **Steps:** a step says "the tomato sauce", not "the canned tomato
+  sauce", so a `canned X` line also goes by `X` (`stepIngredients`
+  `lineNames`). Against the first pass +9 / −0 ("Add the tomato sauce"
+  finds "1 15 oz. can tomato sauce" again, "the beans" both bean cans in
+  mediterranean-dense-bean-salad); against `origin/main` +176 / −32.
+- **e2e fixtures:** `make-beans` reads six bean cans `canned …`,
+  `christmas-cookies`' weeknight-chili two (`canned kidney bean`, `canned
+tomato`); the shopping row reads "2 cans kidney beans" as before.
 
 **For 43m.** Normalized names: `prepareCorpus(corpus).recipes.get(slug)
 .requirements` (already parsed, cached) and, per requirement, each
@@ -511,9 +695,10 @@ drinks" is distinct recipes per `nameKey`) and `nameLabel` (to show; it is
 also what a `/regex/` item should test, the folded words joined). A typed
 pattern or tape normalizes through `toName(text)`. Count each
 requirement's first alternative, or every alternative once per recipe;
-skip `staple` and `optional` requirements. `canned black bean` and `black
-bean` are two names (Dn2), as `can black bean` and `black bean` were: fold
-them only if "most used" should — `beans.ts` already ignores `canned`.
+skip `staple` and `optional` requirements. Every can line's name opens
+with `canned` (Dn2): for "most used", count and show
+`withoutCanned(alternative)` (as `suggestNames` and the add field do), or
+"black beans" splits into two tapes; `beans.ts` already ignores `canned`.
 
 **Decisions**
 
@@ -524,14 +709,21 @@ them only if "most used" should — `beans.ts` already ignores `canned`.
   alternative), and never a hyphen between letters: "red bell
   pepper-diced" reads right already (`diced` is descriptive), and
   "semi-sweet", "all-purpose", "fire-roasted" are one word each.
-- **Dn2 — a can or tin after a measure becomes `canned`.** The old names
-  kept the word (`can tomato`, `can black bean`), which kept "28 oz can
-  diced tomatoes" apart from fresh tomatoes on a list and shelved it in the
-  pantry (`aisles.ts` reads `can`/`canned` as a cue). Dropping it would
-  have merged canned with fresh; `canned tomato` keeps both and reads as
-  people write. Other containers (bag, box, jar, bar, block, piece, knob,
-  pack) are dropped. "1 can black beans" (the can as the unit) still reads
-  `black bean`, as before.
+- **Dn2 — every can reads `canned X`** (the orchestrator's call at
+  review). The old names kept the word only where the can came after a
+  measure (`can tomato`), which kept "28 oz can diced tomatoes" apart from
+  fresh tomatoes on a list and shelved it in the pantry (`aisles.ts` reads
+  `can`/`canned` as a cue), while "1 (28 ounce) can crushed tomatoes" (the
+  can as the unit) read `tomato` and shelved in produce. Now every shape —
+  the can as the unit, after a measure, in the size bracket ("2 (15-ounce
+  cans) chickpeas"), as a bracket ("15 ounces (can)") — reads `canned X`;
+  each choice before the first comma is canned; a second measure joined
+  by `or` offers the canned thing or the other, without `cooked` /
+  `frozen` / `drained` on the canned one. Not water, refrigerated dough or
+  whipped cream. Make is unaffected (tail rule); shopping keeps canned and
+  fresh apart; step matching reads the name with and without `canned`.
+  Other containers (bag, box, jar, bar, block, piece, knob, pack) are
+  dropped.
 - **Dn3 — a synonym's target is the longer name unless measured
   otherwise.** Shortening a name to one another line contains makes it
   ambiguous for step matching (D3 shows neither), so named cheeses gain
@@ -570,29 +762,45 @@ parsley` → `italian parsley` (one plant, two names) and plain `parsley`
 `ingredientNames.test.ts` — "dry red wine, such as Cabernet Sauvignon" →
 `red wine` (×2, drink lines), "1/2 cup plus 2 tablespoons white sugar" →
 `granulated sugar`, "kosher salt & freshly ground black pepper" → `kosher
-salt` + `black pepper`; `makeableBeans.test.ts` — the `(or pinto or
-cannellini beans)` line has three alternatives and reads `black bean or
-pinto bean or cannellini bean`. `makeable`, `makeMatchers`,
-`makeMatcherUi`, `shoppingView`, `shoppingLines`, `stepIngredients`,
-`ingredientAmount`, `aisles`, `headsUp`: unchanged and green.
+salt` + `black pepper`, and from the review "1 can black beans" →
+`canned black bean` (was `black bean`), "15 ounces (can) refried beans" →
+`canned refried bean`, "1 (14-ounce) can (drained and rinsed) or 1
+package of frozen corn" → `canned corn or frozen corn` (was `frozen
+corn`), "1 (15-ounce/425g) can chickpeas, drained and rinsed" and "1 can
+garbanzo beans, drained" → `canned chickpea`; `makeableBeans.test.ts` —
+the `(or pinto or cannellini beans)` line has three alternatives and
+reads `canned black bean or canned pinto bean or canned cannellini bean`,
+and the bean-swap labels read `canned chickpea` / `canned kidney bean`;
+`aisles.test.ts` — "1 (14 oz) can diced tomatoes" shelves in the pantry
+(was produce: "the unit `can` is gone before the name"). `makeable`,
+`makeMatchers`, `makeMatcherUi`, `shoppingView`, `shoppingLines`,
+`stepIngredients`, `ingredientAmount`, `headsUp`: unchanged and green;
+`inventory.test.ts` — the seat's bean-swap `line` and `missing` read
+`canned chickpea` / `canned kidney bean`. e2e: no expectation moved.
 
 **Roger to confirm:** the merges in the table (above), especially ground
 spices → the bare spice, `dry` red/white wine → the wine, white sugar →
-granulated sugar and `canned X` names; and which of the 30 left to merge.
+granulated sugar; `canned X` for every can (Dn2) — in particular that a
+list now keeps "1 can black beans" and "1 cup black beans" on two rows
+(fold `canned` in the shopping key if one row is wanted), and `canned chickpea` in the `inventory make` seat's labels (the page's tapes drop it); the label rule (a label is the name unless
+something named follows it, or it names a part of the recipe); and which
+of the 30 left to merge.
 
-**Gates** (all through the capped heavy slot): `pnpm --filter
-recipe-editor typecheck` and `pnpm --filter recipe-website exec tsc
---noEmit` clean; `pnpm exec vitest run` on the final code 2,840 / 2,842 — the two red were
-30 s timeouts under a load average of ~8 (`cliJson` "keeps the
-inventory…", `instance` "syncs a workstation commit…"), both green re-run
-alone (53/53); an earlier full run, before the `(or …)` split, was 2,839 /
-2,839;
-Playwright in Docker build mode (`DOCKER=1 heavy-pw.sh`), `make.spec`,
-`cook-view.spec`, `recipe-cooking-order.spec`, `shopping.spec`,
-`shopping-modes.spec`, `drinks.spec` × e2e + mobile: **103 passed**. No
-baseline moved or was regenerated: the e2e fixtures changed two names
-(above), neither on a screenshotted surface; no new spec, so no dev-mode
-run.
+**Gates** (all through the capped heavy slot), on the final code (review
+fixes included): `pnpm --filter recipe-editor typecheck` and `pnpm
+--filter recipe-website exec tsc --noEmit` clean; `pnpm exec vitest run`
+**2,872 / 2,873** — the one red a 30 s timeout under load (`cliJson`
+"keeps the inventory…", the same test the first pass saw time out),
+green re-run alone (26 / 26). Playwright in Docker build mode
+(`DOCKER=1 heavy-pw.sh`), e2e + mobile: `make.spec`, `cook-view.spec`,
+`recipe-cooking-order.spec`, `shopping.spec`, `shopping-modes.spec`,
+`drinks.spec` and `accessibility.spec` 169 / 171, the two red being
+bean-swap texts a first try had changed to "for canned chickpea" (the
+page's tapes drop the can, so those edits were reverted); `make.spec` +
+`accessibility.spec` re-run on the final code **115 / 115**. The first
+pass: 2,840 / 2,842 and 103 passed. No baseline moved or was
+regenerated: the page's tapes read as before, and the fixture names that
+moved (above) show on no screenshot; no new spec, so no dev-mode run.
 
 #### Traps (43n)
 

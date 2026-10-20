@@ -241,7 +241,7 @@ const COMPOUNDS = new Set([
 const SYNONYMS: [RegExp, string][] = [
   [/\b(?:scallions?|spring onions?)\b/g, "green onion"],
   [/\b(?:fresh coriander|coriander (?:leaf|leaves))\b/g, "cilantro"],
-  [/\b(?:garbanzo beans?|garbanzos?|chick peas?)\b/g, "chickpea"],
+  [/\b(?:garbanzos? beans?|garbanzos?|chick peas?)\b/g, "chickpea"],
   [/\b(?:confectioners?|powdered|icing) sugar\b/g, "powdered sugar"],
   [/\b(?:caster|castor) sugar\b/g, "superfine sugar"],
   [/\bcourgettes?\b/g, "zucchini"],
@@ -310,14 +310,15 @@ export const NAME_SYNONYMS: readonly (readonly [string, string])[] = [
   ["mayo", "mayonnaise"],
   ["dijon(?! mustard)", "dijon mustard"],
   ["worcestershire(?! sauce)", "worcestershire sauce"],
-  ["cayenne(?: pepper)?(?: powder)?", "cayenne pepper"],
+  /* Not "cayenne peppers": the pepper is already there (43n review). */
+  ["cayenne(?: pepper powder| powder)?(?! peppers?\\b)", "cayenne pepper"],
   ["(?:ap|plain) flour", "all purpose flour"],
   /* One plant, two names; plain `parsley` stays its own (curly or either). */
   ["(?:italian )?flat leaf parsley", "italian parsley"],
   ["(?:granulated white|white granulated|white) sugar", "granulated sugar"],
   ["parm|parmigiano(?: reggiano)?", "parmesan"],
   [
-    "(feta|cheddar|mozzarella|ricotta|gruyere|parmesan|pecorino romano|pecorino|provolone|cotija|monterey jack|pepper jack|gouda|fontina|asiago|manchego|halloumi|havarti|muenster|mascarpone)(?! cheese| rind| crisp)",
+    "(feta|cheddar|mozzarella|ricotta|gruyere|parmesan|pecorino romano|pecorino|provolone|cotija|monterey jack|pepper jack|gouda|fontina|asiago|manchego|halloumi|havarti|muenster|mascarpone)\\b(?! cheese| rind| crisp| romano| jack| style| salata| reggiano)",
     "$1 cheese",
   ],
   /* What the recipe means by the plain name anyway. */
@@ -349,6 +350,18 @@ const NAME_SYNONYM_RES: [RegExp, string][] = NAME_SYNONYMS.map(([from, to]) => [
   new RegExp(`\\b(?:${from})\\b`, "g"),
   to,
 ]);
+
+/**
+ * Every row of a table as one pattern, tested once before the rows run
+ * (43n review: `toName` is the parser's hot path, and most names meet no
+ * row). A row can only fire on text an earlier row wrote, so text no row
+ * meets is left as it is.
+ */
+function anyRow(rows: readonly (readonly [RegExp, string])[]): RegExp {
+  return new RegExp(rows.map(([pattern]) => `(?:${pattern.source})`).join("|"));
+}
+const ANY_SYNONYM_RE = anyRow(SYNONYMS);
+const ANY_NAME_SYNONYM_RE = anyRow(NAME_SYNONYM_RES);
 const NAME_DESCRIPTOR_SET = new Set(NAME_DESCRIPTORS);
 
 /** Not alcohol-free: "virgin" is left alone on purpose (olive oil). */
@@ -443,11 +456,15 @@ export function toName(text: string): IngredientName {
     return " ";
   });
   folded = folded.replace(/\s+/g, " ").trim();
-  for (const [pattern, replacement] of SYNONYMS) {
-    folded = folded.replace(pattern, replacement);
+  if (ANY_SYNONYM_RE.test(folded)) {
+    for (const [pattern, replacement] of SYNONYMS) {
+      folded = folded.replace(pattern, replacement);
+    }
   }
-  for (const [pattern, replacement] of NAME_SYNONYM_RES) {
-    folded = folded.replace(pattern, replacement);
+  if (ANY_NAME_SYNONYM_RE.test(folded)) {
+    for (const [pattern, replacement] of NAME_SYNONYM_RES) {
+      folded = folded.replace(pattern, replacement);
+    }
   }
   /*
    * Compounds are paired *before* descriptive words are dropped (27c): `hot`
@@ -494,6 +511,17 @@ export function toName(text: string): IngredientName {
   return { words, na };
 }
 
+/**
+ * A name without its leading `canned` (43n, Dn2): what Make matches and
+ * offers by, so "1 can black beans" is met by black beans on hand and
+ * suggests "black bean". The shopping list keeps the word.
+ */
+export function withoutCanned(name: IngredientName): IngredientName {
+  return name.words[0] === "canned" && name.words.length > 1
+    ? { ...name, words: name.words.slice(1) }
+    : name;
+}
+
 /** How a name reads back: `lime juice`, `aperitif (non-alcoholic)`. */
 export function nameLabel(name: IngredientName): string {
   const label = name.words.join(" ");
@@ -527,6 +555,7 @@ export function stripOrLabel(text: string): string | null {
 
 /** Undo the two kinds of markup a stored line can carry. */
 export function stripMarkup(text: string): string {
+  if (!/[<[&]/.test(text)) return text;
   return text
     .replace(/<Multiplyable\s+baseNumber="([^"]*)"\s*\/>/g, "$1")
     .replace(/<[^>]*>/g, " ")
@@ -635,7 +664,7 @@ function alternativeParts(text: string): string[] {
       (part) =>
         part &&
         /* `(or seasoned salt), plus more`, `(… - Note 5)`, `(or chicken), optional` (43n). */
-        !/^(?:more|less|so|divided|as needed|if needed|to taste|plus|optional|note|see|combination)\b/i.test(
+        !/^(?:more|less|so|divided|as needed|if|to taste|plus|optional|note|see|combination)\b/i.test(
           part,
         ),
     );
@@ -665,10 +694,11 @@ function remarkBracket(text: string): number {
   if (!bracket) return 0;
   const inner = bracket[1].trim();
   const unit = UNIT_RE.exec(inner);
+  /* `(drained and rinsed)` leaves only its `and`. */
   const remark =
     !inner ||
     (unit !== null && unit[0].trim().length === inner.length) ||
-    toName(inner).words.length === 0;
+    toName(inner).words.every((word) => /^(?:and|or|of|the|with)$/.test(word));
   return remark ? bracket[0].length : 0;
 }
 
@@ -696,19 +726,24 @@ function secondMeasure(text: string): number {
   return at + (/^of\s+(?:an?\s+)?/i.exec(text.slice(at))?.[0].length ?? 0);
 }
 
+/** What `skipAfterUnit` walked past that the name keeps a trace of. */
+interface AfterUnit {
+  text: string;
+  /** A can or tin was the measure, or came after it. */
+  canned: boolean;
+  /** A second measure joined by `or` ("15 ounce can or 260g …"). */
+  orMeasure: boolean;
+}
+
 /**
  * After a unit: a second container (`or can`, 27c), the amount in other
  * units (`/1.5kg`, 32j), brackets, a range's other end, a container and
  * `of` (43n) — walked until nothing more comes off.
- *
- * A can or tin after a measure leaves `canned` in its place: the name used
- * to keep the word (`can tomato`, so `28 oz can diced tomatoes` stayed apart
- * from fresh tomatoes on a list and shelved in the pantry), and `canned
- * tomato` keeps both while reading as people write it.
  */
-function skipAfterUnit(text: string): string {
+function skipAfterUnit(text: string): AfterUnit {
   let after = text;
   let canned = false;
+  let orMeasure = false;
   /* "1 bottle or can tomato juice": either container (27c). */
   const orUnit = UNIT_OR_RE.exec(after);
   if (orUnit) after = after.slice(orUnit[0].length);
@@ -723,19 +758,74 @@ function skipAfterUnit(text: string): string {
       const unit = UNIT_RE.exec(after);
       if (unit && /\p{L}/u.test(after.slice(unit[0].length))) {
         after = after.slice(unit[0].length);
+        /* `1 oz. (14-oz.) can crushed tomatoes`. */
+        if (CAN_RE.test(unit[0])) canned = true;
       }
     }
-    after = after.slice(remarkBracket(after));
-    after = after.slice(secondMeasure(after));
-    after = after
-      .replace(CONTAINER_AFTER_RE, (container) => {
-        if (/^(?:can|tin)/i.test(container)) canned = true;
-        return "";
-      })
-      .replace(/^of\s+/i, "");
+    const remark = remarkBracket(after);
+    /* `15 ounces (can) refried beans`. */
+    if (remark && CAN_BRACKET_RE.test(after)) canned = true;
+    after = after.slice(remark);
+    const second = secondMeasure(after);
+    if (second && /^or\b/i.test(after)) orMeasure = true;
+    after = after.slice(second);
+    const container = CONTAINER_AFTER_RE.exec(after);
+    if (container) {
+      if (CAN_RE.test(container[0])) canned = true;
+      after = after.slice(container[0].length);
+    }
+    after = after.replace(/^of\s+/i, "");
     if (after === before) break;
   }
-  return canned && after.trim() ? `canned ${after}` : after;
+  return { text: after, canned, orMeasure };
+}
+
+/** A can or tin, as a unit or a container. */
+const CAN_RE = /^(?:can|tin)s?\b/i;
+const CAN_BRACKET_RE = /^\(+\s*(?:can|tin)s?\s*\)/i;
+
+/**
+ * What comes in a can but isn't canned goods: a can's worth of water, a
+ * tube of crescent dough, a can of whipped cream — and, unless the line
+ * offers another measure, frozen juice concentrate.
+ */
+const NOT_CANNED_RE =
+  /^(?:(?:cold|warm|hot)\s+)?(?:water|refrigerated|crescent|biscuit|whipped)\b/i;
+
+/**
+ * Words the canned choice can't also be: "15 ounce can or 260g drained
+ * cooked black beans" offers canned black beans or cooked ones.
+ */
+const NOT_CANNED_WORDS_RE =
+  /^(?:(?:drained|cooked|frozen|thawed|dried|fresh)\s+)+/i;
+
+/**
+ * Every can reads `canned X` (43n, Dn2): "28 oz can diced tomatoes", "1
+ * (28 ounce) can crushed tomatoes", "1 can black beans", "15 ounces (can)
+ * refried beans". The old names kept the word only where the can came after
+ * a measure (`can tomato`), which kept those apart from fresh tomatoes on a
+ * list and shelved them in the pantry; `canned tomato` does the same for
+ * every shape and reads as people write it. Each choice before the first
+ * comma is canned ("1 can corn or peas"); with a second measure joined by
+ * `or` the line offers the canned thing or the other ("15 ounce can or 260g
+ * drained cooked black beans", "1 can (drained) or 1 package of frozen
+ * corn").
+ */
+function withCanned(text: string, orMeasure: boolean): string {
+  if (!text || NOT_CANNED_RE.test(text)) return text;
+  if (!orMeasure && /^frozen\b/i.test(text)) return text;
+  const comma = topLevelComma(text);
+  const head = comma >= 0 ? text.slice(0, comma) : text;
+  const tail = comma >= 0 ? text.slice(comma) : "";
+  if (!/\p{L}/u.test(splitParentheses(head).outside)) return text;
+  const choices = (
+    orMeasure ? head.replace(NOT_CANNED_WORDS_RE, "") : head
+  ).replace(
+    /(?<=^|\s|\()or\s+(?!(?:more|less|so|as|if|to|for)\b)(?=\p{L})/giu,
+    "or canned ",
+  );
+  const canned = `canned ${choices}`;
+  return orMeasure ? `${canned} or ${head}${tail}` : `${canned}${tail}`;
 }
 
 /**
@@ -745,13 +835,19 @@ function skipAfterUnit(text: string): string {
 function stripAmount(text: string): string {
   let rest = text;
   let hadQuantity = false;
+  let canned = false;
+  let orMeasure = false;
   for (let guard = 0; guard < 3; guard++) {
     const match = QUANTITY_RE.exec(rest);
     if (!match || match[0].length === 0) break;
     hadQuantity = true;
     rest = rest.slice(match[0].length);
-    /* `(14 oz)` / `(420ml)` between the number and the name. */
-    rest = rest.replace(MEASURE_BRACKET_RE, "");
+    /* `(14 oz)` / `(420ml)` between the number and the name — and `2
+     * (15-ounce cans) chickpeas` (43n). */
+    rest = rest.replace(MEASURE_BRACKET_RE, (bracket) => {
+      if (/\b(?:can|tin)s?\b/i.test(bracket)) canned = true;
+      return "";
+    });
   }
 
   if (hadQuantity) {
@@ -769,10 +865,12 @@ function stripAmount(text: string): string {
        * "4 cloves", "4 cloves (minced)": the unit *is* the name. A bracket
        * with a name after it is a remark (`4 lbs (meaty!) beef oxtail`, 43n).
        */
-      const trimmed = after.trim();
+      const trimmed = after.text.trim();
       if (!trimmed || trimmed.startsWith(",")) break;
       if (/^\(+[^()]*\)+\s*(?:,|$)/.test(trimmed)) break;
-      rest = after;
+      rest = after.text;
+      canned ||= after.canned || CAN_RE.test(unit[0]);
+      orMeasure ||= after.orMeasure;
 
       const chain = /^(?:plus|and|\+)\s+/i.exec(rest);
       if (!chain) break;
@@ -789,6 +887,7 @@ function stripAmount(text: string): string {
     const unitOf = UNIT_OF_RE.exec(rest);
     if (unitOf) {
       rest = rest.slice(unitOf[0].length);
+      canned = CAN_RE.test(unitOf[0]);
     } else {
       /* "pinch salt", "dash bitters" (38d): a pinch with no "a" and no "of"
        * still names salt, so it merges with "2 tsp salt" on a list — and so
@@ -810,7 +909,10 @@ function stripAmount(text: string): string {
     const [, part, whole] = partOf;
     rest = `${stripAmount(whole)} ${part}`;
   }
-  return rest.trim();
+  rest = rest.trim();
+  if (!canned) return rest;
+  /* "2 cans 15 1/2 ounces each) beans": a size the can's bracket lost. */
+  return withCanned(/^\d/.test(rest) ? stripAmount(rest) : rest, orMeasure);
 }
 
 /**
@@ -859,21 +961,28 @@ const STANDALONE = new Set([
  */
 function inheritTails(names: IngredientName[]): IngredientName[] {
   const out = names.map((name) => ({ ...name, words: [...name.words] }));
+  /* A leading `canned` is no part of the noun: "canned black or canned
+   * pinto beans" lends `bean` as "black or pinto beans" does (43n). */
+  const own = (words: string[]) =>
+    words[0] === "canned" ? words.slice(1) : words;
   for (let i = out.length - 2; i >= 0; i--) {
-    const next = out[i + 1];
-    const [left] = out[i].words;
+    const mine = own(out[i].words);
+    /* "cooked or canned chickpeas" still lends `chickpea`. */
+    const theirs =
+      mine === out[i].words ? out[i + 1].words : own(out[i + 1].words);
+    const [left] = mine;
     if (
-      out[i].words.length !== 1 ||
-      next.words.length < 2 ||
+      mine.length !== 1 ||
+      theirs.length < 2 ||
       left.includes(" ") ||
       STANDALONE.has(left) ||
       /* "Chambord or crème de mure" (43n): a tail that opens with a
        * connecting word is the rest of a name, not a noun to lend. */
-      /^(?:de|di|du|del|la|le|of|the|and|with|en|au)$/.test(next.words[1])
+      /^(?:de|di|du|del|la|le|of|the|and|with|en|au)$/.test(theirs[1])
     ) {
       continue;
     }
-    out[i].words.push(...next.words.slice(1).filter((word) => word !== left));
+    out[i].words.push(...theirs.slice(1).filter((word) => word !== left));
   }
   return out;
 }
@@ -922,11 +1031,15 @@ function requirement(
  *   "semi-sweet" is one word.
  */
 function tidyLine(text: string): string {
-  return text
+  /* Each rewrite runs only when its character is there: this is every
+   * line's first step (43n review, the parse's speed). */
+  let out = text;
+  if (/[x×]/i.test(out)) out = out.replace(/(?<=\d)\s*[x×]\s*(?=\d)/g, " ");
+  if (/ish\b/i.test(out)) out = out.replace(/(?<=\d)ish\b/gi, "");
+  if (out.includes("+")) out = out.replace(/(?<=\S)\+(?=\S)/g, " + ");
+  if (!/[-–—/]/.test(out)) return out;
+  return out
     .replace(/(?<=\d)\s*-\s*(?=\p{L})/gu, " ")
-    .replace(/(?<=\d)\s*[x×]\s*(?=\d)/g, " ")
-    .replace(/(?<=\d)ish\b/gi, "")
-    .replace(/(?<=\S)\+(?=\S)/g, " + ")
     .replace(/(\d\s*\p{L}+\.?)\s*[-–—]\s*(?=\d)/gu, "$1 - ")
     .replace(
       /\b(?:small|medium|large)(?:[\s-]+(?:to|or)[\s-]+|\s*[-–/]\s*)(?:small|medium|large)\b\s*/gi,
@@ -938,7 +1051,42 @@ function tidyLine(text: string): string {
 
 /** `egg wash:`, `for rolling:`, `optional add-in:` before an amount (43n). */
 const LABEL_RE =
-  /^\p{L}[\p{L}\s'’&-]{0,40}:\s*(?=\d|\.\d|(?:an?|one|two|three|four|half)\s)/iu;
+  /^(\p{L}[\p{L}\s'’&-]{0,40}):\s*(?=\d|\.\d|(?:an?|one|two|three|four|half)\s)/iu;
+
+/** A label that names a part of the recipe, never an ingredient. */
+const SECTION_LABEL_RE =
+  /\b(?:optional|for|egg wash|toppings?|garnish(?:es)?|fillings?|frosting|glaze|icing|crust|dough|streusel|crumble|add[\s-]?ins?|to serve|serving|decoration)\b/i;
+
+/**
+ * Drop a label before the amount (43n review) — unless the label is the
+ * name: "Flour: 2 cups" and "Bread flour: 500g" name nothing after the
+ * label, so they read as "Flour, 2 cups" (`flour`), not `cup`. A label that
+ * names a part of the recipe ("egg wash:", "for rolling:", "optional:") is
+ * dropped whatever follows it.
+ */
+function dropLabel(text: string): string {
+  const label = LABEL_RE.exec(text);
+  if (!label) return text;
+  const rest = text.slice(label[0].length);
+  if (SECTION_LABEL_RE.test(label[1]) || namesAfterAmount(rest)) return rest;
+  return `${label[1].trim()}, ${rest}`;
+}
+
+/** Does `text` name something once its amount is gone (not just a unit)? */
+function namesAfterAmount(text: string): boolean {
+  const rest = stripAmount(text);
+  const comma = topLevelComma(rest);
+  const head = splitParentheses(
+    comma >= 0 ? rest.slice(0, comma) : rest,
+  ).outside;
+  return !!head && !isBareUnit(head) && toName(head).words.length > 0;
+}
+
+/** `cups`, `can`: a unit and nothing else. */
+function isBareUnit(text: string): boolean {
+  const unit = UNIT_RE.exec(text);
+  return unit !== null && unit[0].trim().length === text.trim().length;
+}
 
 /** Words before a quantity `QUANTITY_RE`'s modifiers don't cover (43n). */
 const LEAD_SOFTENER_RE =
@@ -992,7 +1140,7 @@ export function parseIngredientLine(
   }
   /* `egg wash: 1 large egg …`, `for rolling: 2/3 cup sugar` (43n): a label
    * before the amount, the way `parseAmount` skips it. */
-  text = text.replace(LABEL_RE, "").replace(LEAD_SOFTENER_RE, "");
+  text = dropLabel(text).replace(LEAD_SOFTENER_RE, "");
 
   // 3–4. Remarks that say nothing about what (32j), then quantity, unit, `of`.
   text = text
@@ -1015,7 +1163,7 @@ export function parseIngredientLine(
   /* Not when the cut leaves only describing words (43n): "finely chopped
    * and toasted pecans" is pecans. */
   const prepCut = head.replace(TRAILING_PREP_RE, "");
-  if (toName(prepCut).words.length > 0) head = prepCut;
+  if (prepCut !== head && toName(prepCut).words.length > 0) head = prepCut;
 
   // 6. Parentheticals: brands become aliases, `(or X)` an alternative.
   const split = splitParentheses(head);
@@ -1023,9 +1171,12 @@ export function parseIngredientLine(
   /* `Bread flour 300g`, `soy sauce + 1 tsp` (43n): an amount written last.
    * And an `or` left first by a remark before it — "1 can (drained) or 1
    * package of frozen corn". */
-  const outside = split.outside
-    .replace(TRAILING_AMOUNT_RE, "")
-    .replace(/^or\s+/i, "");
+  /* Cheap gate first (43n review): the last digit is near the end. */
+  const outside = (
+    /\d[\p{L}\s.%]{0,20}$/u.test(split.outside)
+      ? split.outside.replace(TRAILING_AMOUNT_RE, "")
+      : split.outside
+  ).replace(/^or\s+/i, "");
   const alternativeTexts: string[] = [];
   for (const raw of groups) {
     const group = raw.replace(/^[\s(]+|[\s)]+$/g, "");
@@ -1039,11 +1190,11 @@ export function parseIngredientLine(
       alternativeTexts.push(...alternativeParts(or[1]));
     } else if (
       !/\d/.test(group) &&
-      /* `(minced)`, `(chopped)` describe; they don't name. */
-      toName(group).words.length > 0 &&
       !/^(?:about|approx|optional|see|plus|from|for|if|i|we|use|substitute|preferably|divided|at|to|any|homemade|store|or|and)\b/i.test(
         group,
-      )
+      ) &&
+      /* `(minced)`, `(chopped)` describe; they don't name. */
+      toName(group).words.length > 0
     ) {
       aliases.push(group);
     }
@@ -1077,17 +1228,21 @@ export function parseIngredientLine(
   }
 
   // 9. Alternatives, then words.
-  const names = inheritTails(
-    splitAlternatives(outside.replace(OR_MORE_NAME_RE, "or ")).map((part) =>
-      toName(stripAmount(part)),
-    ),
-  );
+  const parts = splitAlternatives(outside.replace(OR_MORE_NAME_RE, "or "))
+    .map(stripAmount)
+    /* "cooked black eyed peas (1/2 pound) or 2 15-ounce cans": a choice
+     * that is only a measure names nothing more (43n). */
+    .filter((part, _i, all) => all.length === 1 || !isBareUnit(part));
+  const names = inheritTails(parts.map((part) => toName(part)));
   /* `(or pinto or cannellini beans)` is two more ways, each lent the last
    * one's noun as the line's own alternatives are (43n). */
   for (const alternative of alternativeTexts) {
     names.push(
       ...inheritTails(
-        splitAlternatives(alternative).map((part) => toName(stripAmount(part))),
+        splitAlternatives(alternative)
+          .map(stripAmount)
+          .filter((part) => !isBareUnit(part))
+          .map((part) => toName(part)),
       ),
     );
   }

@@ -168,7 +168,7 @@ describe("parseIngredientLine — quantities, units and alternatives", () => {
     ["1/4 to 1/2 oz vodka", "vodka"],
     ["1-2 dashes Angostura bitters", "angostura bitters"],
     ["12–16 ounces (340–454g) hard pretzels", "hard pretzel"],
-    ["1 (15-ounce/425g) can chickpeas, drained and rinsed", "chickpea"],
+    ["1 (15-ounce/425g) can chickpeas, drained and rinsed", "canned chickpea"],
     ["2 Tablespoons (30ml) fresh lemon juice", "lemon juice"],
     ["1 tbsp. fresh thyme leaves", "thyme leaf"],
     ["2 oz of kale (56 g)", "kale"],
@@ -373,7 +373,7 @@ describe("parseIngredientLine — food lines (32j)", () => {
     ["1 cup/240ml milk", "milk"],
     /* Food synonyms. */
     ["2 scallions, thinly sliced", "green onion"],
-    ["1 can garbanzo beans, drained", "chickpea"],
+    ["1 can garbanzo beans, drained", "canned chickpea"],
     ["1 cup confectioners' sugar", "powdered sugar"],
     ["2 courgettes", "zucchini"],
     ["1 cup double cream", "heavy cream"],
@@ -520,7 +520,7 @@ describe("parseIngredientLine — ranges, dashes and amount shapes (43n)", () =>
     /* A bracket after the unit: `cup white sugar`, `lbs beef oxtail`. */
     ["55g (1/4) cup white sugar", "granulated sugar"],
     ["1 1/2 cups (packed) brown sugar, divided", "brown sugar"],
-    ["15 ounces (can) refried beans", "refried bean"],
+    ["15 ounces (can) refried beans", "canned refried bean"],
     [
       "4 lbs (meaty!) fresh beef oxtail, already cut into pieces",
       "beef oxtail",
@@ -576,14 +576,14 @@ describe("parseIngredientLine — ranges, dashes and amount shapes (43n)", () =>
     ],
     [
       "1 (14-ounce) can (drained and rinsed) or 1 package of frozen corn",
-      "frozen corn",
+      "canned corn or frozen corn",
     ],
     ["pinch or two chili flakes (optional, but good)", "chili flake"],
     ["zest 1 lemon", "lemon zest"],
     /* The backlog's `(or A or B C)`: `pinto or cannellini bean` was one name. */
     [
       "2 (about 15-ounce) cans black beans (or pinto or cannellini beans), drained and rinsed",
-      "black bean or pinto bean or cannellini bean",
+      "canned black bean or canned pinto bean or canned cannellini bean",
     ],
     [
       "1 cup (150g) shredded apple (or shredded carrot/zucchini)",
@@ -605,9 +605,63 @@ describe("parseIngredientLine — ranges, dashes and amount shapes (43n)", () =>
     expect(label("2 cups all-purpose flour")).toBe("all purpose flour");
   });
 
-  it("keeps a can that is the unit, and a unit that is the name", () => {
-    expect(label("1 can black beans")).toBe("black bean");
+  it("keeps a unit that is the name", () => {
     expect(label("4 cloves (minced)")).toBe("clove");
+    expect(label("2 cans, drained")).toBe("can");
+  });
+
+  /* Dn2 (43n review): every can shape reads `canned X`, not only a can
+   * after a measure. */
+  it.each([
+    ["1 can black beans", "canned black bean"],
+    ["2 cans chickpeas", "canned chickpea"],
+    ["1 (28 ounce) can crushed tomatoes", "canned tomato"],
+    ["28 oz can diced tomatoes", "canned tomato"],
+    ["1 (15-ounce) can pinto beans, drained and rinsed", "canned pinto bean"],
+    ["2 (15-ounce cans) chickpeas (drained and rinsed)", "canned chickpea"],
+    ["1 oz. (14-oz.) can crushed tomatoes", "canned tomato"],
+    ["1 can (15 ounces) chickpeas or garbanzo beans", "canned chickpea"],
+    ["1 can corn or peas (optional)", "canned corn or canned pea"],
+    ["1 can black or pinto beans", "canned black bean or canned pinto bean"],
+    /* A second measure joined by `or`: the canned thing or the other. */
+    [
+      "15 ounce can or 260g drained cooked black beans",
+      "canned black bean or cooked black bean",
+    ],
+    ["450g or 2 8oz cans tomato sauce", "canned tomato sauce or tomato sauce"],
+    /* What comes in a can but isn't canned goods. */
+    ["6-ounce can of water", "water"],
+    [
+      "1 (8-ounce) can refrigerated crescent roll dough",
+      "refrigerated crescent roll dough",
+    ],
+    [
+      "1 (12 ounce) can frozen orange juice concentrate",
+      "frozen orange juice concentrate",
+    ],
+    /* A choice that is only a measure names nothing. */
+    [
+      "3 cups cooked black eyed peas (1/2 pound) or 2 15-ounce cans",
+      "cooked black eyed pea",
+    ],
+    [
+      "15 oz (425g) roasted pumpkin puree (or a 15 oz can, if u want I guess)",
+      "roasted pumpkin puree",
+    ],
+  ])("%s → %s", (line, expected) => {
+    expect(label(line)).toBe(expected);
+  });
+
+  it("keeps the label when it is the name (43n review)", () => {
+    expect(label("Flour: 2 cups")).toBe("flour");
+    expect(label("Kosher salt: 1 teaspoon")).toBe("kosher salt");
+    expect(label("Bread flour: 500g")).toBe("bread flour");
+    expect(label("Flour: 2 cups, sifted")).toBe("flour");
+    expect(label("Eggs: 2 large")).toBe("egg");
+    /* …and drops one that names a part of the recipe, or with a name after it. */
+    expect(label("Filling: 2 cups blueberries")).toBe("blueberry");
+    expect(label("Topping: 1/2 cup pecans")).toBe("pecan");
+    expect(label("Dough: 3 cups bread flour")).toBe("bread flour");
   });
 });
 
@@ -631,6 +685,14 @@ describe("toName — synonyms and descriptors (43n)", () => {
     ["Worcestershire", "worcestershire sauce"],
     ["cayenne", "cayenne pepper"],
     ["cayenne powder", "cayenne pepper"],
+    ["cayenne pepper powder", "cayenne pepper"],
+    /* 43n review: the rows backtracked into "pepper pepper", "romano cheese". */
+    ["cayenne peppers", "cayenne pepper"],
+    ["pecorino romano", "pecorino romano cheese"],
+    ["pecorino romano cheese", "pecorino romano cheese"],
+    ["cheddar-jack cheese blend", "cheddar jack cheese blend"],
+    ["ricotta salata", "ricotta salata"],
+    ["feta-style cheese", "feta style cheese"],
     ["AP flour", "all purpose flour"],
     ["plain flour", "all purpose flour"],
     ["flat-leaf parsley", "italian parsley"],

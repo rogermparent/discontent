@@ -21,6 +21,7 @@ import {
   parseIngredientList,
   requirementLabel,
   toName,
+  withoutCanned,
   type IngredientName,
   type Requirement,
 } from "./ingredientNames";
@@ -187,7 +188,10 @@ function isTail(short: string[], long: string[]): boolean {
  * covers `extra dry vermouth`, `london dry gin` covers `gin`. A lone vague
  * word (`syrup`, `juice`) never stands for a longer name.
  */
-function namesMatch(item: string[], line: string[]): boolean {
+function namesMatch(itemWords: string[], lineWords: string[]): boolean {
+  /* `canned black bean` is a black bean, and "1 can beans" any bean (Dn2). */
+  const item = withoutCanned({ words: itemWords, na: false }).words;
+  const line = withoutCanned({ words: lineWords, na: false }).words;
   if (isTail(line, item)) return bareBeanOk(line, item);
   if (!isTail(item, line)) return false;
   if (item.length === 1 && line.length > 1 && isGenericHead(item[0])) {
@@ -1073,7 +1077,7 @@ function rankBuyNext(
 ): BuyNext[] {
   return missingLines({ oneAway, twoAway })
     .map(({ requirement, unlocks, helps }): BuyNext => ({
-      item: nameLabel(requirement.alternatives[0]),
+      item: nameLabel(withoutCanned(requirement.alternatives[0])),
       label: requirementLabel(requirement),
       unlocks: unlocks.length,
       helps,
@@ -1217,7 +1221,9 @@ export function suggestNames(
   for (const { requirements } of prepared.recipes.values()) {
     for (const requirement of requirements) {
       if (requirement.staple && !includeStaples) continue;
-      for (const name of requirement.alternatives) bump(nameLabel(name));
+      for (const name of requirement.alternatives) {
+        bump(nameLabel(withoutCanned(name)));
+      }
       requirement.aliases.forEach((alias, i) => {
         if (prepared.aliases.get(requirement.aliasKeys[i])?.size === 1) {
           bump(alias);

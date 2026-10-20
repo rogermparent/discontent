@@ -343,7 +343,7 @@ describe("makeable", () => {
       {
         slug: "two-bean-salad",
         name: "Two Bean Salad",
-        missing: ["chickpea", "kidney bean"],
+        missing: ["canned chickpea", "canned kidney bean"],
       },
     ]);
     /* An agent that learned `beanSwaps` isn't refused, and nothing changes. */
@@ -410,7 +410,7 @@ describe("makeable", () => {
           {
             path: "add.0",
             message: expect.stringMatching(
-              /^\/may\(\/: That isn't a pattern this page can read/,
+              /^\/may\(\/: Close the \( with a \)/,
             ),
           },
         ],
@@ -424,7 +424,12 @@ describe("makeable", () => {
     ]);
     /* bean* is a word prefix: chickpeas aren't "bean…". */
     expect(result.oneAway).toEqual([
-      { slug: "chickpea-salad", name: "Chickpea Salad", missing: ["chickpea"] },
+      {
+        slug: "chickpea-salad",
+        name: "Chickpea Salad",
+        /* The seat names the line as written (43n keeps "canned" there). */
+        missing: ["canned chickpea"],
+      },
     ]);
     /* The page's judge over the same lines and list says the same. */
     const corpus = recipes.map((recipe) => ({

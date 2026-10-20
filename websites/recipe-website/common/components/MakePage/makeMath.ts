@@ -7,6 +7,7 @@ import { dedupeItems, inventoryKey } from "../../util/inventoryText";
 import {
   nameKey,
   nameLabel,
+  withoutCanned,
   type Requirement,
 } from "../../util/ingredientNames";
 import {
@@ -204,7 +205,7 @@ export function addCandidates({
     for (const requirement of entry.requirements) {
       if (requirement.staple) continue;
       for (const alternative of requirement.alternatives) {
-        const label = nameLabel(alternative);
+        const label = nameLabel(withoutCanned(alternative));
         if (!fieldMatches(label, needle)) continue;
         note(label, {
           ...requirement,
@@ -311,8 +312,9 @@ export interface MostUsed {
  * Staples and optional lines are skipped, and so is a name the list (with
  * the assumed staples) already covers, so a tap always adds something. A
  * line's plain "beans" is left to the `any bean` matcher, as the add field
- * leaves it. `canned black bean` and `black bean` stay two names (43n's
- * Dn2): each meets the other's lines, so either tap does.
+ * leaves it. A leading "canned" is read past as Make reads it (43n's
+ * `withoutCanned`): "1 can black beans" and "2 cups black beans" are one
+ * `black bean` row, and a tap adds `black bean`.
  */
 export function mostUsed({
   scoped,
@@ -337,10 +339,11 @@ export function mostUsed({
       if (requirement.staple || requirement.optional) continue;
       for (const alternative of requirement.alternatives) {
         if (alternative.words.length === 0) continue;
-        const key = nameKey(alternative);
+        const plain = withoutCanned(alternative);
+        const key = nameKey(plain);
         let row = found.get(key);
         if (!row) {
-          const name = nameLabel(alternative);
+          const name = nameLabel(plain);
           if (matcherOf(name)) continue;
           row = {
             name,

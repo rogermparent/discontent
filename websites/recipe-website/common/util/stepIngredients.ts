@@ -27,6 +27,7 @@ import {
   parseIngredientLine,
   stripMarkup,
   toName,
+  withoutCanned,
 } from "./ingredientNames";
 
 /** Entry → step → the indices (into `ingredients`) of the lines it uses. */
@@ -197,6 +198,8 @@ export function lineNames(ingredients: readonly Ingredient[]): LineNames[] {
       if (requirement.loose) continue;
       for (const alternative of requirement.alternatives) {
         add(alternative.words);
+        /* A step says "the tomato sauce", not "the canned tomato sauce" (43n). */
+        add(withoutCanned(alternative).words);
       }
     }
     for (const text of linkTexts(ingredient)) add(toName(text).words);
