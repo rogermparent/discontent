@@ -46,6 +46,23 @@ test.describe("Mobile @mobile", () => {
     ).toContainText("Second");
   });
 
+  /* 43s: a term and its bands on a phone, the Narrow button beside Sort. */
+  test("search opens on a term on a small viewport @visual", async ({
+    page,
+    resetData,
+  }) => {
+    await resetData("drinks-bar");
+    await page.clock.setFixedTime(new Date(2026, 9, 18, 12));
+    await page.goto("/search?q=tag%3Avodka");
+    await expect(page.getByTestId("season-band")).toHaveCount(2, {
+      timeout: 20_000,
+    });
+    await expect(
+      page.getByRole("button", { name: "Narrow", exact: true }),
+    ).toBeVisible();
+    await snapshotPage(page, "search-term-mobile.png");
+  });
+
   test("featured recipes grid collapses on mobile", async ({
     page,
     resetData,

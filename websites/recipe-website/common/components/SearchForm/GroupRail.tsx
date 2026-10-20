@@ -9,10 +9,10 @@ import { useSearch } from "./SearchContext";
 const RAIL_LIMIT = 12;
 
 /**
- * A horizontal rail of group chips, shown on the *idle* search page beside the
- * tag rail (22f).
+ * A horizontal rail of group chips, shown on the *idle* search page above the
+ * results (22f).
  *
- * Unlike `TagFilterRail` these chips do not write into the query: a group is a
+ * Unlike the Narrow column's rows (43s) these chips do not write into the query: a group is a
  * destination with a page of its own, and a reader reaching for "the pie-iron
  * collection" wants to read it, not to filter recipes by it. (The narrowing
  * move exists too — it is the "Search within this group" link on that page,
