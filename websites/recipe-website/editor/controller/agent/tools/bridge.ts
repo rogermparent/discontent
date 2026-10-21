@@ -17,10 +17,10 @@
  * true})` (44c), as MCP over HTTP uses — so writes commit one per call
  * exactly as Claude Code's do, and the Git page can revert any of them.
  */
-import type { CuratorBackend } from "../../../cli/backend/types";
+import type { CuratorBackend, SeatRun } from "../../../cli/backend/types";
 import { recipeToolDefinitions } from "../../../mcp/registry";
 import { toErrorObject } from "../../curation/errors";
-import type { AgentTool } from "../types";
+import type { AgentTool, AgentToolContext } from "../types";
 import { AGENT_TOOL_NAMES, type AgentToolName } from "./names";
 import {
   parseToolInput,
@@ -133,6 +133,28 @@ async function urlsRefusal(
   return undefined;
 }
 
+/**
+ * What a handler's job-running seat is handed (44c, Ec1): the call's
+ * signal — the run's cancel and its wall-time budget together — and the
+ * run's job with that signal, so an import the tool starts runs inside the
+ * run's job (its steps nest under this call's step) and stops when the run
+ * does. Without `beyondCancel`: a seat must never seal the whole run.
+ */
+function seatRun(ctx: AgentToolContext): SeatRun {
+  if (!ctx.job) return { signal: ctx.signal };
+  const { log, tier, jobId, waiting } = ctx.job;
+  return {
+    signal: ctx.signal,
+    job: {
+      log,
+      tier,
+      signal: ctx.signal,
+      ...(jobId ? { jobId } : {}),
+      ...(waiting ? { waiting } : {}),
+    },
+  };
+}
+
 export interface RecipeAgentToolsOptions {
   only?: readonly AgentToolName[];
   guard?: UrlGuardOptions;
@@ -170,7 +192,7 @@ export function recipeAgentTools(
           if (refused) return refused;
         }
         try {
-          const result = await tool.handler(parsed.data);
+          const result = await tool.handler(parsed.data, seatRun(ctx));
           if (result.structuredContent !== undefined) {
             return result.structuredContent;
           }

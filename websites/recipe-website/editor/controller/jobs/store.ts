@@ -129,6 +129,7 @@ const PRUNE_STAMP = ".prune-stamp";
 const META = ".meta.json";
 const LOG = ".log.jsonl";
 const CANCEL = ".cancel";
+const TRANSCRIPT = ".transcript.jsonl";
 const JOB_ID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
 export function metaPath(dir: string, id: string): string {
@@ -137,6 +138,15 @@ export function metaPath(dir: string, id: string): string {
 
 export function logPath(dir: string, id: string): string {
   return path.join(dir, `${id}${LOG}`);
+}
+
+/**
+ * An agent run's conversation (epic 44, E2): `<id>.transcript.jsonl`, beside
+ * its meta and log, because the step log redacts text over 200 characters
+ * by design. Pruned with its job (`pruneJobs`).
+ */
+export function transcriptPath(dir: string, id: string): string {
+  return path.join(dir, `${id}${TRANSCRIPT}`);
 }
 
 /**
@@ -499,15 +509,20 @@ export async function pruneJobs(
     await rm(metaPath(dir, id), { force: true });
     await rm(logPath(dir, id), { force: true });
     await rm(cancelPath(dir, id), { force: true });
+    /* 44c: an agent run's conversation goes with it. */
+    await rm(transcriptPath(dir, id), { force: true });
     removed.push(id);
   }
   /*
-   * A log whose meta never landed, a temp file a killed write left, or a
-   * cancel request nobody picked up (its job ended, or never ran).
+   * A log (or an agent's transcript) whose meta never landed, a temp file a
+   * killed write left, or a cancel request nobody picked up (its job ended,
+   * or never ran).
    */
   for (const name of await readdir(dir).catch(() => [] as string[])) {
     const orphanLog =
-      name.endsWith(LOG) && !ids.includes(name.slice(0, -LOG.length));
+      (name.endsWith(LOG) && !ids.includes(name.slice(0, -LOG.length))) ||
+      (name.endsWith(TRANSCRIPT) &&
+        !ids.includes(name.slice(0, -TRANSCRIPT.length)));
     if (!orphanLog && !name.endsWith(".tmp") && !name.endsWith(CANCEL)) {
       continue;
     }

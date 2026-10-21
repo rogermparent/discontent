@@ -45,7 +45,7 @@ import {
   type ToolAnnotations,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import type { CuratorBackend } from "../cli/backend/types";
+import type { CuratorBackend, SeatRun } from "../cli/backend/types";
 import { toErrorObject } from "../controller/curation/errors";
 import { readImageFile } from "../controller/imageImport";
 import {
@@ -386,13 +386,18 @@ export interface RecipeServerInfo {
 async function importPhotoPaths(
   backend: CuratorBackend,
   target: Extract<ImportTarget, { kind: "photos" }>,
+  run?: SeatRun,
 ) {
   const files: File[] = [];
   for (const photo of target.photos) files.push(await readImageFile(photo));
-  return backend.importPhotos(files, {
-    ...target.options,
-    ...(target.source ? { source: target.source } : {}),
-  });
+  return backend.importPhotos(
+    files,
+    {
+      ...target.options,
+      ...(target.source ? { source: target.source } : {}),
+    },
+    run,
+  );
 }
 
 /**
@@ -410,8 +415,13 @@ export interface RecipeToolDefinition {
   /**
    * The handler, given input the schema has already parsed. It never throws
    * for a failure from below: that is a `CallToolResult` with `isError`.
+   *
+   * `run` (44c, Ec1) is the editor agent's: its signal and job, handed to
+   * the seats that run a job (the imports and inspects), so a cancel stops
+   * them and their steps nest under the tool call's. The MCP server never
+   * passes it (`createRecipeServer` calls `handler(args)`).
    */
-  handler: (args: unknown) => Promise<CallToolResult>;
+  handler: (args: unknown, run?: SeatRun) => Promise<CallToolResult>;
 }
 
 /** How each tool below is declared: typed by its own schema. */
@@ -423,7 +433,7 @@ type RecipeToolSink = <S extends z.ZodType>(
     inputSchema: S;
     annotations: ToolAnnotations;
   },
-  handler: (args: z.output<S>) => Promise<CallToolResult>,
+  handler: (args: z.output<S>, run?: SeatRun) => Promise<CallToolResult>,
 ) => void;
 
 /**
@@ -443,7 +453,10 @@ export function recipeToolDefinitions(
     definitions.push({
       name,
       ...config,
-      handler: handler as (args: unknown) => Promise<CallToolResult>,
+      handler: handler as (
+        args: unknown,
+        run?: SeatRun,
+      ) => Promise<CallToolResult>,
     });
   };
 
@@ -545,7 +558,8 @@ export function recipeToolDefinitions(
       }),
       annotations: READ_ONLY,
     },
-    async ({ url, ...options }) => read(() => backend.inspect(url, options)),
+    async ({ url, ...options }, run) =>
+      read(() => backend.inspect(url, options, run)),
   );
 
   register(
@@ -594,19 +608,23 @@ export function recipeToolDefinitions(
       inputSchema: ImportRequestSchema,
       annotations: WRITES,
     },
-    async (request) => {
+    async (request, run) => {
       const target = importTarget(request);
       return write(
         backend,
         () =>
           target.kind === "photos"
-            ? importPhotoPaths(backend, target)
+            ? importPhotoPaths(backend, target, run)
             : target.kind === "text"
-              ? backend.importText(target.text, {
-                  ...target.options,
-                  ...(target.source ? { source: target.source } : {}),
-                })
-              : backend.importRecipe(target.url, target.options),
+              ? backend.importText(
+                  target.text,
+                  {
+                    ...target.options,
+                    ...(target.source ? { source: target.source } : {}),
+                  },
+                  run,
+                )
+              : backend.importRecipe(target.url, target.options, run),
         { notify: request.dryRun !== true },
       );
     },
@@ -630,7 +648,7 @@ export function recipeToolDefinitions(
       inputSchema: z.strictObject({ url: z.string().min(1) }),
       annotations: READ_ONLY,
     },
-    async ({ url }) => read(() => backend.inspectList(url)),
+    async ({ url }, run) => read(() => backend.inspectList(url, run)),
   );
 
   register(
@@ -674,8 +692,8 @@ export function recipeToolDefinitions(
       }),
       annotations: WRITES,
     },
-    async ({ url, ...options }) =>
-      write(backend, () => backend.importList(url, options), {
+    async ({ url, ...options }, run) =>
+      write(backend, () => backend.importList(url, options, run), {
         notify: options.dryRun !== true,
       }),
   );

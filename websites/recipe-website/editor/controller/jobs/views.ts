@@ -169,6 +169,7 @@ export function summarizeSpec(spec: unknown): unknown {
     picks,
     url,
     source,
+    prompt,
     author: _author,
     contentDirectory: _contentDirectory,
     ...rest
@@ -177,11 +178,14 @@ export function summarizeSpec(spec: unknown): unknown {
     picks?: unknown;
     url?: unknown;
     source?: unknown;
+    prompt?: unknown;
     author?: unknown;
     contentDirectory?: unknown;
   } & Record<string, unknown>;
   return {
     ...rest,
+    /* 44c: an agent's ask, whole (it is capped), its secrets taken out. */
+    ...(typeof prompt === "string" ? { prompt: redactUrlText(prompt) } : {}),
     ...(typeof url === "string" ? { url: redactUrlText(url) } : {}),
     ...(typeof source === "string" ? { source: redactUrlText(source) } : {}),
     ...(typeof text === "string" ? { textChars: text.length } : {}),

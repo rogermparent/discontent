@@ -15,6 +15,7 @@
     "revoke-token": "tsx ./scripts/revoke-token.ts",
     "recipes": "tsx ./cli/index.ts",
     "mcp": "tsx ./mcp/server.ts",
+    "generate-skill-text": "tsx ./scripts/generate-skill-text.ts",
     "e2e-dev": "playwright test --project=e2e --project=mobile",
     "e2e-dev:headed": "playwright test --project=e2e --project=mobile --ui",
     "e2e-dev:update": "playwright test --project=e2e --project=mobile --update-snapshots",

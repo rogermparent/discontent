@@ -214,14 +214,24 @@ describe("runAgent — the loop", () => {
       },
     ]);
     expect(events.map((event) => event.type)).toEqual([
+      "message",
       "turn.start",
+      "message",
       "turn.end",
       "tool.start",
+      "message",
       "tool.end",
       "turn.start",
+      "message",
       "turn.end",
       "stop",
     ]);
+    /* 44c (Ec2): each message the run adds is reported, in transcript order. */
+    expect(
+      events.flatMap((event) =>
+        event.type === "message" ? [event.message] : [],
+      ),
+    ).toEqual(result.transcript);
     expect(result.usage).toMatchObject({ inputTokens: 200, outputTokens: 20 });
   });
 

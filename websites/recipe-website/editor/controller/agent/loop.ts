@@ -407,8 +407,16 @@ class WallTimeOut extends Error {
   }
 }
 
-/** Every call of the last assistant message that has no result yet gets `reason` as its error. */
-function closePending(messages: AgentMessage[], reason: string): void {
+/**
+ * Every call of the last assistant message that has no result yet gets
+ * `reason` as its error, appended through `add` (the run's, which also
+ * reports each message: 44c's transcript).
+ */
+function closePending(
+  messages: AgentMessage[],
+  reason: string,
+  add: (message: AgentMessage) => void = (message) => messages.push(message),
+): void {
   const index = messages
     .map((message) => message.role)
     .lastIndexOf("assistant");
@@ -424,7 +432,7 @@ function closePending(messages: AgentMessage[], reason: string): void {
   );
   for (const call of assistant.toolCalls) {
     if (answered.has(call.id)) continue;
-    messages.push({
+    add({
       role: "tool",
       toolCallId: call.id,
       name: call.name,
@@ -514,16 +522,6 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   const cancel = options.signal ?? options.job?.signal;
   const signal = cancel ? AbortSignal.any([cancel, wall.signal]) : wall.signal;
 
-  const messages: AgentMessage[] = [...(options.history ?? [])];
-  closePending(messages, "the earlier run ended before it ran");
-  messages.push({ role: "user", text: options.prompt });
-
-  let usage: AgentUsage = emptyUsage();
-  let turns = 0;
-  let toolCalls = 0;
-  let trimmedTotal = 0;
-  let text = "";
-
   const emit = (event: AgentEvent) => {
     try {
       options.onEvent?.(event);
@@ -531,6 +529,21 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       /* A listener's failure is not the run's. */
     }
   };
+
+  const messages: AgentMessage[] = [...(options.history ?? [])];
+  /* Every message this run adds, reported as it is added (44c, Ec2). */
+  const add = (message: AgentMessage) => {
+    messages.push(message);
+    emit({ type: "message", message });
+  };
+  closePending(messages, "the earlier run ended before it ran", add);
+  add({ role: "user", text: options.prompt });
+
+  let usage: AgentUsage = emptyUsage();
+  let turns = 0;
+  let toolCalls = 0;
+  let trimmedTotal = 0;
+  let text = "";
 
   /** Why a signal aborted: the caller's cancel, or the wall-time budget. */
   const abortedStop = (): { stopReason: AgentStopReason; error?: string } =>
@@ -550,6 +563,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
         : stopReason.startsWith("budget:")
           ? `${BUDGET_WORDS[stopReason.slice(7) as AgentBudgetName]} ended`
           : "the run stopped on an error",
+      add,
     );
     emit({ type: "stop", stopReason, ...(error ? { error } : {}) });
     return {
@@ -650,7 +664,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     }
 
     usage = addUsage(usage, result.usage);
-    messages.push(result.message);
+    add(result.message);
     text = result.message.text;
     emit({
       type: "turn.end",
@@ -729,7 +743,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
         if (error instanceof StoppedWhileRunning || signal.aborted) {
           /* Ea12: the tool's real result if it settled in its grace,
            * else an honest "unknown". */
-          messages.push({
+          add({
             role: "tool",
             toolCallId: call.id,
             name: call.name,
@@ -750,7 +764,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
           isError: true,
         };
       }
-      messages.push({
+      add({
         role: "tool",
         toolCallId: call.id,
         name: call.name,

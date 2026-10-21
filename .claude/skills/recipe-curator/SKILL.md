@@ -6,7 +6,16 @@ allowed-tools: mcp__recipes__recipe_search, mcp__recipes__recipe_list, mcp__reci
 
 # Recipe curator
 
+<!-- claude-code-only -->
+
+<!-- What sits between claude-code-only markers is cut from the editor
+agent's system prompt (epic 44, editor/controller/agent/skillText.ts).
+After editing this file or examples.md, run
+`pnpm --filter recipe-editor generate-skill-text`. -->
+
 The ask is `$ARGUMENTS` (or the user's message when invoked by description).
+
+<!-- /claude-code-only -->
 
 Work through the `recipes` MCP server. Every tool returns JSON; a failure
 carries `isError` and `{error: {code, message, …}}`. A write may also answer
@@ -51,10 +60,14 @@ only reason to stop here. A `path` outside the editor's own `content`
 directory means someone pointed `CONTENT_DIRECTORY` at a scratch copy or a
 fixture deliberately: write there, and say so in the report.
 
+<!-- claude-code-only -->
+
 The `recipes` server may be the local stdio one or a running editor's
 `/api/mcp` over HTTP, registered under the same name — the tool names and this
 skill are identical either way; over HTTP, `path` is the server's directory
 rather than this machine's.
+
+<!-- /claude-code-only -->
 
 ## 2. Turn the ask into constraints
 
@@ -655,6 +668,8 @@ running against that repository, the editor rebuilds them itself when it starts,
 suggest restarting or updating the editor, not a reindex from an agent. Never pass `overwrite` or `force`, and never put `RECIPE_API_TOKEN` on
 a command line.
 
+<!-- claude-code-only -->
+
 ## Fallback (CLI)
 
 When the `recipes` server is not connected, the same operations exist as
@@ -702,3 +717,5 @@ it with `create --dry-run`, then create. Never pass `--author`,
 `--remote`, `--editor-url`, `--notify`, `--overwrite`, `--force` or
 `--content-dir` — the environment chooses the target, and a flag would let a
 fallback run write somewhere the tools would not.
+
+<!-- /claude-code-only -->

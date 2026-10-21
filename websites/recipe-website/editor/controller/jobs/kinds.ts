@@ -26,7 +26,12 @@ import type {
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { FAILED_OUTCOMES } from "@discontent/cms/git/syncState";
-import { UsageError } from "../curation/errors";
+import {
+  CancelledError,
+  UsageError,
+  withJob,
+  withWarnings,
+} from "../curation/errors";
 import type {
   ImportListOptions,
   ImportListResult,
@@ -36,14 +41,16 @@ import type { InspectResult } from "../curation/inspect";
 import type { ReindexResult } from "../curation/reindex";
 import type { SyncResult } from "../curation/sync";
 import type { RecipeActionState } from "../formImport";
+import type { AgentJobResult } from "../agent/job";
 import type { LlmMode } from "../llm/mode";
 import type { JobContext } from "./context";
 import { NOT_RETRIED_KINDS, type JOB_KIND_NAMES } from "./listing";
 import { jobsDirectory } from "./location";
+import { redactUrlText } from "./log";
 import type { StoredPhoto } from "./photos";
 import { repoResource } from "./queue";
 import type { ReadingCache } from "./readingCache";
-import { startJob, type RunJobOptions } from "./run";
+import { startJob, withSurfacedWarnings, type RunJobOptions } from "./run";
 import type { JobError, JobMeta, JobTier } from "./store";
 
 /**
@@ -152,6 +159,19 @@ export type JobSpec =
       kind: "git-sync";
       remote?: string;
       triggers: string[];
+    })
+  /**
+   * The editor's agent (epic 44, 44c, E2): the person's ask, run by the
+   * configured model with the curator's tools (`controller/agent/job.ts`).
+   * `continues` is the run a follow-up carries on from — its transcript is
+   * the history. Never retried (`NOT_RETRIED_KINDS`): ask again instead.
+   */
+  | (CorpusSpec & {
+      kind: "agent";
+      prompt: string;
+      continues?: string;
+      /** A lower turn budget than E3's 40 (`--max-turns`, `maxTurns`). */
+      maxTurns?: number;
     });
 
 /** Who asked for a rebuild — the label says it. */
@@ -193,6 +213,7 @@ export interface JobResults {
   "form-batch": FormBatchResult;
   reindex: ReindexResult;
   "git-sync": SyncResult;
+  agent: AgentJobResult;
 }
 
 /** What "Import N selected" answers: one row per pick. */
@@ -396,6 +417,14 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
       return runMirrorSync(spec.contentDirectory, spec.remote, job);
     });
   },
+  async agent(spec, { ctx, job, dir }) {
+    const { runAgentJob } = await import("../agent/job");
+    return runAgentJob(spec, {
+      ctx: contextFor(spec, ctx),
+      job,
+      dir: dir ?? jobsDirectory(),
+    });
+  },
 };
 
 /**
@@ -470,6 +499,14 @@ const JOB_FAILURES: {
   "form-text": formFailure,
   "form-photo": formFailure,
   "git-sync": syncFailure,
+  /* 44c: a run the model's failure ended (a budget's end is `done`). */
+  agent: (result) =>
+    result.stopReason === "error"
+      ? {
+          code: "agent_failed",
+          message: result.error ?? "the agent stopped on an error",
+        }
+      : undefined,
 };
 
 /**
@@ -552,9 +589,28 @@ export function jobLabel(spec: JobSpec): string {
     }
     case "git-sync":
       return `sync with ${spec.remote ?? "the upstream"} (${spec.triggers.join(", ") || "manual"})`;
+    case "agent":
+      return agentLabel(spec.prompt, spec.continues !== undefined);
     default:
       return shortUrl(spec.url);
   }
+}
+
+/** How much of an ask a list shows. */
+const AGENT_LABEL_CHARS = 80;
+
+/**
+ * `ask: "find three vegetarian dinners…"`, or `follow-up: "…"` (44c): the
+ * prompt, one line, cut, with any secret-looking environment value or URL
+ * credential taken out (the log's redaction).
+ */
+export function agentLabel(prompt: string, followUp: boolean): string {
+  const line = redactUrlText(prompt).replace(/\s+/g, " ").trim();
+  const cut =
+    line.length > AGENT_LABEL_CHARS
+      ? `${line.slice(0, AGENT_LABEL_CHARS - 1)}…`
+      : line;
+  return `${followUp ? "follow-up" : "ask"}: "${cut}"`;
 }
 
 const REINDEX_TRIGGER_TEXT: Record<ReindexTrigger, string> = {
@@ -679,6 +735,53 @@ export async function startSpec<S extends JobSpec>(
   return { job: started.job, stored: started.stored, done };
 }
 
+/**
+ * Run a spec **inside a job that is already running** (44c, Ec1): the
+ * editor's agent calls an import or inspect seat from a tool call, and the
+ * seat's steps belong in the run's own log, nested under the tool's step
+ * (the log's async context does the nesting), its waits in the run's queue
+ * place and its cancel the run's `signal`. No record of its own: the result
+ * carries the enclosing job's id as `job`.
+ *
+ * As `runJob` would: a failure is rethrown with the warnings the seat
+ * surfaced and the job's id; a failure after a cancel is `cancelled`;
+ * warnings it surfaced join the result's. A seat that came back although
+ * cancelled answers what it did (Ea12: a write that landed is reported).
+ */
+export async function runSpecInline<S extends JobSpec>(
+  spec: S,
+  {
+    ctx,
+    job,
+    dir = jobsDirectory(),
+  }: { ctx?: CurationContext; job: JobContext; dir?: string },
+): Promise<JobResults[S["kind"]] & { job: string }> {
+  const handler = JOB_HANDLERS[spec.kind] as unknown as (
+    spec: S,
+    env: JobEnv,
+  ) => Promise<JobResults[S["kind"]]>;
+  const before = new Set(job.log.surfaced);
+  const surfacedHere = () =>
+    job.log.surfaced.filter((message) => !before.has(message));
+  const id = job.jobId ?? job.log.jobId;
+  let result: JobResults[S["kind"]];
+  try {
+    result = await handler(spec, { ctx, job, dir });
+  } catch (error) {
+    const reason = job.signal?.reason;
+    const thrown = job.signal?.aborted
+      ? new CancelledError(
+          reason instanceof Error ? reason.message : "the job was cancelled",
+        )
+      : withWarnings(error, surfacedHere());
+    throw id ? withJob(thrown, id) : thrown;
+  }
+  return withSurfacedWarnings(
+    { ...result, ...(id ? { job: id } : {}) },
+    surfacedHere(),
+  ) as JobResults[S["kind"]] & { job: string };
+}
+
 /** Whether running the spec commits to the corpus (a dry run does not). */
 export function specWrites(spec: JobSpec): boolean {
   switch (spec.kind) {
@@ -691,6 +794,8 @@ export function specWrites(spec: JobSpec): boolean {
     /* A merge commits; a rebuild writes no commit but replaces every index. */
     case "git-sync":
     case "reindex":
+    /* 44c: the agent may write through its tools. */
+    case "agent":
       return true;
     default:
       return false;
@@ -722,6 +827,8 @@ const NOT_RETRIED_TEXT: Record<NotRetriedKind, string> = {
     "A rebuild is not retried: run a new one (recipes reindex, MCP reindex, or Rebuild on the editor's Git page).",
   "git-sync":
     "A sync is not retried: run a new one (Sync now on the editor's Git page, or POST /api/git/sync).",
+  agent:
+    "An agent run is not retried: its tools may already have written. Ask again, or follow up on the run (POST /api/agent with runId, recipes agent --run).",
 };
 
 /**

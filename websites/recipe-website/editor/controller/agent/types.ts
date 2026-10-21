@@ -177,6 +177,12 @@ export type AgentStopReason =
 
 /** What `onEvent` hears, in order. */
 export type AgentEvent =
+  /**
+   * A message the run added to the transcript — the prompt, each assistant
+   * turn, each tool result, a "not run" answer a stop left (44c, Ec2) — as it
+   * is added, so a caller can keep the conversation as it happens.
+   */
+  | { type: "message"; message: AgentMessage }
   | { type: "turn.start"; turn: number }
   | {
       type: "turn.end";

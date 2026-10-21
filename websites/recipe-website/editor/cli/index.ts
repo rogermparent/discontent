@@ -28,6 +28,7 @@ import {
   exitCodeFor,
 } from "../controller/curation/errors";
 import { resolveBackend } from "./backend/resolve";
+import { agentCommand } from "./commands/agent";
 import { EDITOR_DIRECTORY, loadEditorEnv } from "./editorEnv";
 import { gpuUsedHere, setJobsRoot } from "../controller/jobs/location";
 import { setJobMirror } from "../controller/jobs/log";
@@ -99,6 +100,8 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
   reindex: reindexCommand,
   /* The holidays, for the agents (42h). */
   holidays: holidaysCommand,
+  /* The editor's agent from the shell (44c). */
+  agent: agentCommand,
 };
 
 /**
@@ -223,6 +226,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   git revert <hash> [--yes]
   git restore <type> <slug> <rev> [--yes]
   git push [<remote>] [--set-upstream]
+  agent "<ask>" [--run <id>] [--max-turns 1-40] [--verbose]
 
 Globals: --json  --content-dir <dir>  --author "Name <email>"  --help
 Remote:  --remote <url>  |  --notify [--editor-url <url>]
@@ -246,7 +250,7 @@ Environment:
   RECIPE_EDITOR_URL    Same as --editor-url
   RECIPE_ENV_FILE      The file RECIPE_API_TOKEN, RECIPE_EDITOR_URL, the
                        RECIPE_LLM_* variables (the vision model's too),
-                       RECIPE_JOBS_DIR,
+                       RECIPE_SEARCH_URL, RECIPE_JOBS_DIR,
                        RECIPE_QUEUE_DIR and the RECIPE_GPU_* hooks are read
                        from when the environment lacks them (default
                        websites/recipe-website/editor/.env; nothing else in
@@ -267,6 +271,10 @@ Environment:
                        anthropic (the Claude API, /v1/messages)
   RECIPE_LLM_API_KEY   The Claude API's key (required with anthropic; never
                        ANTHROPIC_API_KEY), or an openai server's bearer
+  RECIPE_SEARCH_URL    A SearXNG server (JSON output on) that gives \`agent\`
+                       a web_search with a local model; unset, a local
+                       model has none (the Claude API brings its own).
+                       Read from editor/.env too
   RECIPE_AUTHOR        "Name <email>" for local commits; same as --author
   CONTENT_DIRECTORY    Local content directory; same as --content-dir
   YTDLP_PATH           yt-dlp binary for video imports (else the Settings
@@ -396,6 +404,17 @@ runs one again with this process's content directory and author — a job
 recorded against another content directory is refused. With --remote they
 read and act on the editor's jobs, and a retry runs there. A cancelled job
 fails with code \`cancelled\` (Ctrl-C too, exit 130).
+
+The agent: \`agent "find three vegetarian dinners under 45 minutes"\` runs the
+editor's curator agent — the configured model (RECIPE_LLM_*: a local model,
+or the Claude API) with the curator's tools: search, inspect, import,
+create, terms, groups, the shopping list, web_fetch, and web_search — as a
+job, printing the model's words and each tool call as they happen. It
+writes (one commit per tool call), so a committer is needed. \`--run <id>\`
+follows up on a run with its conversation as history; \`--max-turns\` lowers
+the 40-turn budget. With --remote the editor runs it and this follows it (a
+Ctrl-C stops following, not the run: \`jobs cancel <id>\`). --json prints one
+object at the end; exit 1 when the run failed, 130 when it was cancelled.
 
 Piping --json: run it as \`pnpm --silent recipes …\`. Without --silent, pnpm
 prints its own script banner on stdout ahead of the object, so the stream is
