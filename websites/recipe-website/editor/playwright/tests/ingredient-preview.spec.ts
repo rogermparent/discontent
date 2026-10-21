@@ -1,159 +1,231 @@
+import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "../support/test";
 import { fillSignInForm, markdownEditorReady } from "../support/helpers";
 import { snapshotLocator } from "../support/visual";
 
-test.describe("Ingredient Auto-Preview", () => {
+/*
+ * Ingredient rows (43e2, edit form B): each line is a row — its amount in a
+ * mono column, the rest as plain text with the asides muted — and a click
+ * opens it for typing, as plain text. Typed amounts are marked up for the
+ * scaler on the way in (`createIngredient`); an untouched row posts its
+ * stored markup back unchanged. Replaces the old input-and-preview pair.
+ */
+
+function rows(page: Page): Locator {
+  return page.getByTestId("ingredient-row");
+}
+
+function stored(page: Page, index: number): Locator {
+  return page.locator(
+    `input[type="hidden"][name="ingredients[${index}].ingredient"]`,
+  );
+}
+
+/** Open row `n` (1-based) for typing and replace its text. */
+async function typeIntoRow(page: Page, n: number, text: string) {
+  await rows(page)
+    .nth(n - 1)
+    .getByRole("button", { name: new RegExp(`^Ingredient ${n}: `) })
+    .click();
+  const field = page.getByLabel(`Ingredient ${n}`, { exact: true });
+  await expect(field).toBeFocused();
+  await field.fill(text);
+  await field.press("Enter");
+}
+
+test.describe("Ingredient rows", () => {
   test.describe("with two-pages fixture", () => {
     test.beforeEach(async ({ page, resetData }) => {
       await resetData("two-pages");
       await page.goto("/recipe/recipe-6/edit");
+      await fillSignInForm(page);
+      // Gate on the recipe-form island hydrating so early field interactions
+      // aren't dropped/reset mid-hydration (dev-mode flake).
+      await markdownEditorReady(page, "description");
     });
 
-    test.describe("when authenticated", () => {
-      test.beforeEach(async ({ page }) => {
-        await fillSignInForm(page);
-        // Gate on the recipe-form island hydrating so early field interactions
-        // aren't dropped/reset mid-hydration (dev-mode flake).
-        await markdownEditorReady(page, "description");
-      });
+    test("shows each line as a row: the amount in its column, the rest as text", async ({
+      page,
+    }) => {
+      await expect(page.getByText("Editing Recipe: Recipe 6")).toBeVisible();
+      await expect(rows(page)).toHaveCount(2);
+      const first = rows(page).first();
+      await expect(first).toContainText("1 1/2 tsp");
+      await expect(first).toContainText("salt");
+      /* No markup on the page; the stored line keeps it. */
+      await expect(first).not.toContainText("Multiplyable");
+      await expect(stored(page, 0)).toHaveValue(
+        '<Multiplyable baseNumber="1 1/2" /> tsp salt',
+      );
+    });
 
-      test("should show ingredient input and preview side-by-side", async ({
-        page,
-      }) => {
-        await expect(page.getByText("Editing Recipe: Recipe 6")).toBeVisible();
-        await expect(
-          page.getByLabel("Ingredient 1", { exact: true }),
-        ).toBeVisible();
-        await expect(page.getByLabel("Ingredient 1 Preview")).toBeAttached();
-      });
+    test("a row opens as plain text, and what is typed is marked up to scale", async ({
+      page,
+    }) => {
+      await rows(page)
+        .first()
+        .getByRole("button", { name: /^Ingredient 1: / })
+        .click();
+      await expect(
+        page.getByLabel("Ingredient 1", { exact: true }),
+      ).toHaveValue("1 1/2 tsp salt");
+      await page
+        .getByLabel("Ingredient 1", { exact: true })
+        .fill("2 cups sugar");
+      await page.getByLabel("Ingredient 1", { exact: true }).press("Enter");
 
-      test("should auto-update preview when typing in ingredient field", async ({
-        page,
-      }) => {
-        await expect(page.getByText("Editing Recipe: Recipe 6")).toBeVisible();
+      await expect(stored(page, 0)).toHaveValue(
+        '<Multiplyable baseNumber="2" /> cups sugar',
+      );
+      await expect(rows(page).first()).toContainText("2 cups");
+      await expect(rows(page).first()).toContainText("sugar");
+      await snapshotLocator(
+        rows(page).first(),
+        "ingredient-row-2-cups-sugar.png",
+      );
+    });
 
-        await page.getByLabel("Ingredient 1", { exact: true }).click();
-        await page.getByLabel("Ingredient 1", { exact: true }).clear();
-        await page
-          .getByLabel("Ingredient 1", { exact: true })
-          .fill('<Multiplyable baseNumber="2" /> cups sugar');
+    test("renders the line's markdown in the row", async ({ page }) => {
+      await typeIntoRow(page, 1, "1 cup **strong** coffee");
+      await expect(rows(page).first().locator("strong")).toHaveText("strong");
+      await expect(stored(page, 0)).toHaveValue(
+        '<Multiplyable baseNumber="1" /> cup **strong** coffee',
+      );
+    });
 
-        await expect(page.getByLabel("Ingredient 1 Preview")).toHaveText(
-          "2 cups sugar",
-        );
-        await snapshotLocator(
-          page.getByLabel("Ingredient 1 Preview"),
-          "ingredient-1-preview-2-cups-sugar.png",
-        );
-      });
+    test("an emptied row says so, and the save reports it", async ({
+      page,
+    }) => {
+      await typeIntoRow(page, 1, "");
+      await expect(rows(page).first()).toContainText("(empty — type the line)");
+      await expect(stored(page, 0)).toHaveValue("");
+    });
 
-      test("should render markdown in the preview", async ({ page }) => {
-        await expect(page.getByText("Editing Recipe: Recipe 6")).toBeVisible();
+    test("a new line opens for typing", async ({ page }) => {
+      await page
+        .getByRole("button", { name: "Add ingredient", exact: true })
+        .click();
+      const field = page.getByLabel("Ingredient 3", { exact: true });
+      await expect(field).toBeFocused();
+      await field.fill("3 eggs");
+      await field.press("Enter");
+      await expect(stored(page, 2)).toHaveValue(
+        '<Multiplyable baseNumber="3" /> eggs',
+      );
+    });
 
-        await page.getByLabel("Ingredient 1", { exact: true }).click();
-        await page.getByLabel("Ingredient 1", { exact: true }).clear();
-        await page
-          .getByLabel("Ingredient 1", { exact: true })
-          .fill('<Multiplyable baseNumber="1" /> cup **strong** coffee');
+    test("the row's menu turns a line into a heading and back", async ({
+      page,
+    }) => {
+      const first = rows(page).first();
+      await first.getByRole("button", { name: "Ingredient 1 actions" }).click();
+      await page
+        .getByRole("button", { name: "Make it a heading", exact: true })
+        .click();
+      await expect(first).toHaveAttribute("data-heading", "true");
+      await expect(
+        page.locator('input[name="ingredients[0].type"][value="heading"]'),
+      ).toHaveCount(1);
 
-        await expect(
-          page.getByLabel("Ingredient 1 Preview").locator("strong"),
-        ).toContainText("strong");
-        await expect(page.getByLabel("Ingredient 1 Preview")).toHaveText(
-          "1 cup strong coffee",
-        );
-      });
+      await first.getByRole("button", { name: "Ingredient 1 actions" }).click();
+      await page
+        .getByRole("button", { name: "Make it an ingredient", exact: true })
+        .click();
+      await expect(first).not.toHaveAttribute("data-heading", "true");
+      await expect(
+        page.locator('input[name="ingredients[0].type"]'),
+      ).toHaveCount(0);
+    });
 
-      test("should handle empty ingredient input gracefully", async ({
-        page,
-      }) => {
-        await expect(page.getByText("Editing Recipe: Recipe 6")).toBeVisible();
+    test("a * that points at a note is flagged, and the rail counts it", async ({
+      page,
+    }) => {
+      await typeIntoRow(page, 2, "coarse sugar* — for rolling");
+      await expect(rows(page).nth(1)).toContainText(
+        "points at a note on the page that did not come in",
+      );
+      await expect(page.getByTestId("recipe-form-rail")).toContainText(
+        "1 check",
+      );
+    });
 
-        await page.getByLabel("Ingredient 1", { exact: true }).click();
-        await page.getByLabel("Ingredient 1", { exact: true }).clear();
+    test("an edited line is saved marked up, the rest as they were", async ({
+      page,
+    }) => {
+      await typeIntoRow(page, 1, "2 tsp pepper");
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Recipe 6" }),
+      ).toBeVisible();
+      await expect(page.getByText("2 tsp pepper")).toBeVisible();
 
-        await expect(page.getByLabel("Ingredient 1 Preview")).toBeAttached();
-        await expect(page.getByLabel("Ingredient 1 Preview")).toHaveText("");
-      });
+      await page.getByRole("link", { name: "Edit", exact: true }).click();
+      await markdownEditorReady(page, "description");
+      await expect(stored(page, 0)).toHaveValue(
+        '<Multiplyable baseNumber="2" /> tsp pepper',
+      );
+      await expect(stored(page, 1)).toHaveValue(
+        '<Multiplyable baseNumber="1" /> cup water',
+      );
+    });
 
-      test("should show preview for newly added ingredients", async ({
-        page,
-      }) => {
-        await expect(page.getByText("Editing Recipe: Recipe 6")).toBeVisible();
+    /*
+     * The menu's Edit and Insert open a field: the closing popover must not
+     * hand focus back to ⋯, or the field blurs and closes as it opens.
+     */
+    test("from the keyboard, ⋯ → Edit opens the field, and the typed line saves", async ({
+      page,
+    }) => {
+      const trigger = rows(page)
+        .first()
+        .getByRole("button", { name: "Ingredient 1 actions" });
+      await trigger.focus();
+      await trigger.press("Enter");
+      const edit = page.getByRole("button", { name: "Edit", exact: true });
+      await expect(edit).toBeFocused();
+      await edit.press("Enter");
+      const field = page.getByLabel("Ingredient 1", { exact: true });
+      await expect(field).toBeFocused();
+      await page.keyboard.press("ControlOrMeta+a");
+      await page.keyboard.type("3 tsp pepper");
+      await expect(field).toHaveValue("3 tsp pepper");
+      await field.press("Enter");
+      await expect(stored(page, 0)).toHaveValue(
+        '<Multiplyable baseNumber="3" /> tsp pepper',
+      );
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Recipe 6" }),
+      ).toBeVisible();
+      await expect(page.getByText("3 tsp pepper")).toBeVisible();
+    });
 
-        await page
-          .getByRole("button", { name: "Add Ingredient", exact: true })
-          .click();
-
-        await expect(
-          page.getByLabel("Ingredient 3", { exact: true }),
-        ).toBeAttached();
-        await page.getByLabel("Ingredient 3", { exact: true }).click();
-
-        await page
-          .getByLabel("Ingredient 3", { exact: true })
-          .fill('<Multiplyable baseNumber="3" /> eggs');
-
-        await expect(page.getByLabel("Ingredient 3 Preview")).toHaveText(
-          "3 eggs",
-        );
-      });
-
-      test("should maintain preview when toggling between ingredient and heading", async ({
-        page,
-      }) => {
-        await expect(page.getByText("Editing Recipe: Recipe 6")).toBeVisible();
-
-        await expect(page.getByLabel("Ingredient 1 Preview")).toBeAttached();
-
-        await page.getByLabel("Toggle Ingredient 1 Type").click();
-
-        await expect(page.getByLabel("Ingredient 1 Preview")).toBeAttached();
-
-        await page.getByLabel("Toggle Ingredient 1 Type").click();
-
-        await expect(page.getByLabel("Ingredient 1 Preview")).toBeAttached();
-      });
-
-      test("should render Multiplyable component in preview", async ({
-        page,
-      }) => {
-        await expect(page.getByText("Editing Recipe: Recipe 6")).toBeVisible();
-
-        await expect(page.getByLabel("Ingredient 1 Preview")).toHaveText(
-          "1 1/2 tsp salt",
-        );
-      });
-
-      test("should persist preview state after form submission", async ({
-        page,
-      }) => {
-        await expect(page.getByText("Editing Recipe: Recipe 6")).toBeVisible();
-
-        await page.getByLabel("Ingredient 1", { exact: true }).click();
-        await page.getByLabel("Ingredient 1", { exact: true }).clear();
-        await page
-          .getByLabel("Ingredient 1", { exact: true })
-          .fill('<Multiplyable baseNumber="2" /> tsp pepper');
-
-        await page.getByRole("button", { name: "Save", exact: true }).click();
-
-        await expect(
-          page.getByRole("heading", { level: 1, name: "Recipe 6" }),
-        ).toBeVisible();
-
-        await expect(page.getByText("2 tsp pepper")).toBeVisible();
-
-        await page.getByRole("link", { name: "Edit", exact: true }).click();
-
-        await expect(page.getByLabel("Ingredient 1 Preview")).toHaveText(
-          "2 tsp pepper",
-        );
-      });
+    test("⋯ → Insert a line above opens the new line for typing", async ({
+      page,
+    }) => {
+      await rows(page)
+        .nth(1)
+        .getByRole("button", { name: "Ingredient 2 actions" })
+        .click();
+      await page
+        .getByRole("button", { name: "Insert a line above", exact: true })
+        .click();
+      const field = page.getByLabel("Ingredient 2", { exact: true });
+      await expect(field).toBeFocused();
+      await page.keyboard.type("2 eggs");
+      await expect(field).toHaveValue("2 eggs");
+      await field.press("Enter");
+      await expect(rows(page)).toHaveCount(3);
+      await expect(stored(page, 1)).toHaveValue(
+        '<Multiplyable baseNumber="2" /> eggs',
+      );
+      await expect(stored(page, 2)).toHaveValue(
+        '<Multiplyable baseNumber="1" /> cup water',
+      );
     });
   });
 
-  test.describe("ingredient import with preview", () => {
+  test.describe("Edit as text", () => {
     test.beforeEach(async ({ page, resetData }) => {
       await resetData("two-pages");
       await page.goto("/recipe/recipe-6/edit");
@@ -161,11 +233,15 @@ test.describe("Ingredient Auto-Preview", () => {
       await markdownEditorReady(page, "description");
     });
 
-    test("should show preview for imported ingredients", async ({ page }) => {
-      await expect(page.getByText("Editing Recipe: Recipe 6")).toBeVisible();
-
-      await page.getByText("Paste Ingredients", { exact: true }).click();
-      await page.getByTitle("Ingredients Paste Area").click();
+    test("shows the list as text, and a pasted list becomes the rows", async ({
+      page,
+    }) => {
+      await page
+        .getByRole("button", { name: "Edit as text", exact: true })
+        .click();
+      await expect(page.getByTitle("Ingredients Paste Area")).toHaveValue(
+        "1 1/2 tsp salt\n1 cup water",
+      );
       await page.getByTitle("Ingredients Paste Area").fill(
         `
 * 1 cup water
@@ -173,31 +249,17 @@ test.describe("Ingredient Auto-Preview", () => {
 * 3 Tbsp oil
 `,
       );
+      await page.getByRole("button", { name: "Rows", exact: true }).click();
 
-      await page.getByText("Import Ingredients", { exact: true }).click();
-
-      await expect(
-        page.getByLabel("Ingredient 1", { exact: true }),
-      ).toHaveValue('<Multiplyable baseNumber="1" /> cup water');
-      await expect(page.getByLabel("Ingredient 1 Preview")).toHaveText(
-        "1 cup water",
+      await expect(stored(page, 0)).toHaveValue(
+        '<Multiplyable baseNumber="1" /> cup water',
       );
-
-      await expect(
-        page.getByLabel("Ingredient 2", { exact: true }),
-      ).toHaveValue('<Multiplyable baseNumber="2" /> tsp **sugar**');
-      await expect(
-        page.getByLabel("Ingredient 2 Preview").locator("strong"),
-      ).toContainText("sugar");
-      await expect(page.getByLabel("Ingredient 2 Preview")).toHaveText(
-        "2 tsp sugar",
+      await expect(stored(page, 1)).toHaveValue(
+        '<Multiplyable baseNumber="2" /> tsp **sugar**',
       );
-
-      await expect(
-        page.getByLabel("Ingredient 3", { exact: true }),
-      ).toHaveValue('<Multiplyable baseNumber="3" /> Tbsp oil');
-      await expect(page.getByLabel("Ingredient 3 Preview")).toHaveText(
-        "3 Tbsp oil",
+      await expect(rows(page).nth(1).locator("strong")).toHaveText("sugar");
+      await expect(stored(page, 2)).toHaveValue(
+        '<Multiplyable baseNumber="3" /> Tbsp oil',
       );
     });
   });

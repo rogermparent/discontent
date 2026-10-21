@@ -21,11 +21,11 @@ test.describe("Paste Field Replace Feature", () => {
         test("should replace text in pasted ingredients (case-insensitive)", async ({
           page,
         }) => {
-          await page.getByText("Paste Ingredients", { exact: true }).click();
+          await page
+            .getByRole("button", { name: "Edit as text", exact: true })
+            .click();
 
-          const scope = page
-            .getByText("Paste Ingredients")
-            .locator("xpath=ancestor::details[1]");
+          const scope = page.getByTestId("ingredients-text");
 
           await scope.getByTitle("Ingredients Paste Area").fill(
             `1 Cup flour
@@ -45,7 +45,7 @@ test.describe("Paste Field Replace Feature", () => {
 3 tablespoon water`,
           );
 
-          await scope.getByText("Import Ingredients", { exact: true }).click();
+          await page.getByRole("button", { name: "Rows", exact: true }).click();
 
           await expect(
             page.locator('[name="ingredients[0].ingredient"]'),
@@ -66,11 +66,11 @@ test.describe("Paste Field Replace Feature", () => {
         test("should replace all occurrences on a single line", async ({
           page,
         }) => {
-          await page.getByText("Paste Ingredients", { exact: true }).click();
+          await page
+            .getByRole("button", { name: "Edit as text", exact: true })
+            .click();
 
-          const scope = page
-            .getByText("Paste Ingredients")
-            .locator("xpath=ancestor::details[1]");
+          const scope = page.getByTestId("ingredients-text");
 
           await scope
             .getByTitle("Ingredients Paste Area")
@@ -88,11 +88,11 @@ test.describe("Paste Field Replace Feature", () => {
         });
 
         test("should do nothing when find field is empty", async ({ page }) => {
-          await page.getByText("Paste Ingredients", { exact: true }).click();
+          await page
+            .getByRole("button", { name: "Edit as text", exact: true })
+            .click();
 
-          const scope = page
-            .getByText("Paste Ingredients")
-            .locator("xpath=ancestor::details[1]");
+          const scope = page.getByTestId("ingredients-text");
 
           await scope.getByTitle("Ingredients Paste Area").fill(`1 cup flour`);
 
@@ -109,11 +109,11 @@ test.describe("Paste Field Replace Feature", () => {
         test("should replace with empty string (delete matches)", async ({
           page,
         }) => {
-          await page.getByText("Paste Ingredients", { exact: true }).click();
+          await page
+            .getByRole("button", { name: "Edit as text", exact: true })
+            .click();
 
-          const scope = page
-            .getByText("Paste Ingredients")
-            .locator("xpath=ancestor::details[1]");
+          const scope = page.getByTestId("ingredients-text");
 
           await scope
             .getByTitle("Ingredients Paste Area")
@@ -132,11 +132,11 @@ test.describe("Paste Field Replace Feature", () => {
         test("should handle special regex characters in find text", async ({
           page,
         }) => {
-          await page.getByText("Paste Ingredients", { exact: true }).click();
+          await page
+            .getByRole("button", { name: "Edit as text", exact: true })
+            .click();
 
-          const scope = page
-            .getByText("Paste Ingredients")
-            .locator("xpath=ancestor::details[1]");
+          const scope = page.getByTestId("ingredients-text");
 
           await scope.getByTitle("Ingredients Paste Area").fill(
             `flour (1 cup)

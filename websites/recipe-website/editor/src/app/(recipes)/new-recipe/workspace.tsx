@@ -3,6 +3,7 @@
 import { RecipeFormFrame } from "recipe-website-common/components/Form/RecipeFormFrame";
 import CreateForm from "./form";
 import type { RecipeActionState } from "./common";
+import type { TagPickerData } from "recipe-website-common/components/Form/Tags/tagPicker";
 
 /**
  * `/new-recipe` in edit form B, "Review, then save" (43e1): the frame — the
@@ -17,6 +18,7 @@ export default function NewRecipeWorkspace({
   initialJob,
   initialImportUrl,
   allTags,
+  tagPicker,
   terms,
   llmModel,
   visionModel,
@@ -27,6 +29,8 @@ export default function NewRecipeWorkspace({
   /** `/new-recipe?import=<url>` (38b, D3): the URL to fill in, not fetch. */
   initialImportUrl?: string;
   allTags: string[];
+  /** The tag picker's vocabulary and counts (43e2). */
+  tagPicker?: TagPickerData;
   terms: { slug: string; label: string }[];
   /** The local model's name, or nothing when none is configured (36b). */
   llmModel?: string;
@@ -40,6 +44,7 @@ export default function NewRecipeWorkspace({
         initialJob={initialJob}
         initialImportUrl={initialImportUrl}
         allTags={allTags}
+        tagPicker={tagPicker}
         terms={terms}
         llmModel={llmModel}
         visionModel={visionModel}

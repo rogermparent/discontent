@@ -160,6 +160,9 @@ export function VideoInput({
       {inputMode === "file" ? (
         <FileInput
           label={label}
+          /* The legend above already says it: the file input keeps its name
+           * for assistive tech, and the page says "Video" once. */
+          labelClassName="sr-only"
           name={name}
           id={id}
           errors={errors}

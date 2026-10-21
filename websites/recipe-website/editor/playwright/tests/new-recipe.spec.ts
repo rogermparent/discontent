@@ -337,11 +337,11 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
         await page.getByLabel("Name").first().fill(newRecipeTitle);
 
         await page
-          .getByRole("button", { name: "Add Ingredient", exact: true })
+          .getByRole("button", { name: "Add ingredient", exact: true })
           .click();
 
         await page
-          .locator('[name="ingredients[0].ingredient"]')
+          .getByLabel("Ingredient 1", { exact: true })
           .fill("1 cup of water");
 
         await page
@@ -368,11 +368,10 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
         await page.getByLabel("Name").first().fill(newRecipeTitle);
 
         await page
-          .getByRole("button", { name: "Add Ingredient", exact: true })
+          .getByRole("button", { name: "Add a heading", exact: true })
           .click();
-        await page.getByText("Ingredient", { exact: true }).click();
         await page
-          .locator('[name="ingredients[0].ingredient"]')
+          .getByLabel("Ingredient 1", { exact: true })
           .fill("My Ingredient Heading");
 
         await page
@@ -398,7 +397,7 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
         await page.getByLabel("Name").first().fill(newRecipeTitle);
 
         await page
-          .getByRole("button", { name: "Add Ingredient", exact: true })
+          .getByRole("button", { name: "Add ingredient", exact: true })
           .click();
 
         await expect(
@@ -937,7 +936,9 @@ Sprinkle`,
         await page.getByLabel("Name").first().clear();
         await page.getByLabel("Name").first().fill(newRecipeTitle);
 
-        await page.getByText("Paste Ingredients", { exact: true }).click();
+        await page
+          .getByRole("button", { name: "Edit as text", exact: true })
+          .click();
         await page.getByTitle("Ingredients Paste Area").fill(
           `
 - 20/10 cup flour
@@ -945,7 +946,7 @@ Sprinkle`,
 `,
         );
 
-        await page.getByText("Import Ingredients", { exact: true }).click();
+        await page.getByRole("button", { name: "Rows", exact: true }).click();
 
         await expect(
           page.locator('[name="ingredients[0].ingredient"]'),
@@ -977,7 +978,9 @@ Sprinkle`,
         await page.getByLabel("Name").first().clear();
         await page.getByLabel("Name").first().fill(newRecipeTitle);
 
-        await page.getByText("Paste Ingredients", { exact: true }).click();
+        await page
+          .getByRole("button", { name: "Edit as text", exact: true })
+          .click();
         await page.getByTitle("Ingredients Paste Area").fill(
           `
 - 1 cup flour
@@ -989,7 +992,7 @@ Sprinkle`,
 `,
         );
 
-        await page.getByText("Import Ingredients", { exact: true }).click();
+        await page.getByRole("button", { name: "Rows", exact: true }).click();
 
         await expect(
           page.locator('[name="ingredients[0].ingredient"]'),
@@ -1037,7 +1040,9 @@ Sprinkle`,
         await page.getByLabel("Name").first().clear();
         await page.getByLabel("Name").first().fill(newRecipeTitle);
 
-        await page.getByText("Paste Ingredients", { exact: true }).click();
+        await page
+          .getByRole("button", { name: "Edit as text", exact: true })
+          .click();
         await page.getByTitle("Ingredients Paste Area").fill(
           `
 - 1 cup flour
@@ -1049,7 +1054,7 @@ Sprinkle`,
 `,
         );
 
-        await page.getByText("Import Ingredients", { exact: true }).click();
+        await page.getByRole("button", { name: "Rows", exact: true }).click();
 
         await expect(
           page.locator('[name="ingredients[0].ingredient"]'),
@@ -1097,7 +1102,9 @@ Sprinkle`,
         await page.getByLabel("Name").first().clear();
         await page.getByLabel("Name").first().fill(newRecipeTitle);
 
-        await page.getByText("Paste Ingredients", { exact: true }).click();
+        await page
+          .getByRole("button", { name: "Edit as text", exact: true })
+          .click();
         await page.getByTitle("Ingredients Paste Area").fill(
           `
 - 1/2 large onion (100g)
@@ -1105,7 +1112,7 @@ Sprinkle`,
 `,
         );
 
-        await page.getByText("Import Ingredients", { exact: true }).click();
+        await page.getByRole("button", { name: "Rows", exact: true }).click();
 
         await expect(
           page.locator('[name="ingredients[0].ingredient"]'),
@@ -1143,7 +1150,9 @@ Sprinkle`,
         await page.getByLabel("Name").first().clear();
         await page.getByLabel("Name").first().fill(newRecipeTitle);
 
-        await page.getByText("Paste Ingredients", { exact: true }).click();
+        await page
+          .getByRole("button", { name: "Edit as text", exact: true })
+          .click();
         await page.getByTitle("Ingredients Paste Area").fill(
           `
 - 1/2 onion
@@ -1151,7 +1160,7 @@ Sprinkle`,
 `,
         );
 
-        await page.getByText("Import Ingredients", { exact: true }).click();
+        await page.getByRole("button", { name: "Rows", exact: true }).click();
 
         await expect(
           page.locator('[name="ingredients[0].ingredient"]'),
@@ -1183,7 +1192,9 @@ Sprinkle`,
         await page.getByLabel("Name").first().clear();
         await page.getByLabel("Name").first().fill(newRecipeTitle);
 
-        await page.getByText("Paste Ingredients", { exact: true }).click();
+        await page
+          .getByRole("button", { name: "Edit as text", exact: true })
+          .click();
         await page.getByTitle("Ingredients Paste Area").fill(
           `
 * 1 cup flour
@@ -1195,7 +1206,7 @@ Sprinkle`,
 `,
         );
 
-        await page.getByText("Import Ingredients", { exact: true }).click();
+        await page.getByRole("button", { name: "Rows", exact: true }).click();
 
         await expect(
           page.locator('[name="ingredients[0].ingredient"]'),
@@ -1243,7 +1254,9 @@ Sprinkle`,
         await page.getByLabel("Name").first().clear();
         await page.getByLabel("Name").first().fill(newRecipeTitle);
 
-        await page.getByText("Paste Ingredients", { exact: true }).click();
+        await page
+          .getByRole("button", { name: "Edit as text", exact: true })
+          .click();
         await page.getByTitle("Ingredients Paste Area").fill(
           `
  * 1 cup 2% milk
@@ -1252,7 +1265,7 @@ Sprinkle`,
 `,
         );
 
-        await page.getByText("Import Ingredients", { exact: true }).click();
+        await page.getByRole("button", { name: "Rows", exact: true }).click();
 
         await expect(
           page.locator('[name="ingredients[0].ingredient"]'),
@@ -1839,7 +1852,9 @@ Sprinkle`,
         await page.getByLabel("Name").first().clear();
         await page.getByLabel("Name").first().fill(newRecipeTitle);
 
-        await page.getByText("Paste Ingredients", { exact: true }).click();
+        await page
+          .getByRole("button", { name: "Edit as text", exact: true })
+          .click();
         await page.getByTitle("Ingredients Paste Area").fill(
           `
 * 1 cup water
@@ -1848,7 +1863,7 @@ Sprinkle`,
 `,
         );
 
-        await page.getByText("Import Ingredients", { exact: true }).click();
+        await page.getByRole("button", { name: "Rows", exact: true }).click();
 
         await expect(
           page.locator('[name="ingredients[0].ingredient"]'),
@@ -1863,7 +1878,9 @@ Sprinkle`,
           page.locator('[name="ingredients[3].ingredient"]'),
         ).toHaveCount(0);
 
-        await page.getByText("Paste Ingredients", { exact: true }).click();
+        await page
+          .getByRole("button", { name: "Edit as text", exact: true })
+          .click();
         await page.getByTitle("Ingredients Paste Area").clear();
         await page.getByTitle("Ingredients Paste Area").fill(
           `
@@ -1872,7 +1889,7 @@ Sprinkle`,
 `,
         );
 
-        await page.getByText("Import Ingredients", { exact: true }).click();
+        await page.getByRole("button", { name: "Rows", exact: true }).click();
 
         await expect(
           page.locator('[name="ingredients[0].ingredient"]'),
@@ -1884,9 +1901,11 @@ Sprinkle`,
           page.locator('[name="ingredients[2].ingredient"]'),
         ).toHaveCount(0);
 
-        await page.getByText("Paste Ingredients", { exact: true }).click();
+        await page
+          .getByRole("button", { name: "Edit as text", exact: true })
+          .click();
         await page.getByTitle("Ingredients Paste Area").clear();
-        await page.getByText("Import Ingredients", { exact: true }).click();
+        await page.getByRole("button", { name: "Rows", exact: true }).click();
 
         await expect(
           page.locator('[name="ingredients[0].ingredient"]'),

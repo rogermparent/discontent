@@ -11,10 +11,13 @@ function FileInputComponent(
     label,
     placeholder,
     errors,
+    labelClassName,
   }: {
     name: string;
     id?: string;
     label: string;
+    /** Classes for the label (`sr-only` when a legend already names it). */
+    labelClassName?: string;
     defaultValue?: string;
     onChange?: ChangeEventHandler<HTMLInputElement>;
     placeholder?: string;
@@ -23,7 +26,7 @@ function FileInputComponent(
   ref?: ForwardedRef<HTMLInputElement>,
 ) {
   return (
-    <FieldWrapper label={label} id={id}>
+    <FieldWrapper label={label} id={id} labelClassName={labelClassName}>
       <Errors errors={errors} />
       {/* The file input stays a native, *uncontrolled* <input type="file"> —
           browsers do not allow setting a file input's value programmatically.

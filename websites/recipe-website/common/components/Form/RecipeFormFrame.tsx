@@ -17,8 +17,9 @@ import { Button } from "@discontent/component-library/components/ui/button";
 import { buttonVariants } from "@discontent/component-library/components/ui/button";
 import { cn } from "@discontent/component-library/lib/utils";
 import { useRecipeForm, type RecipeFormValues } from "./formContext";
+import { useDrinkShown } from "./drinkShown";
 import {
-  RECIPE_SECTIONS,
+  recipeSections,
   changeText,
   changedFields,
   sectionAnchor,
@@ -321,6 +322,7 @@ export function RecipeFormRail(props: RecipeFormRailProps) {
   const loaded = baseline ?? form.options.defaultValues!;
   const values = useStore(form.store, (state) => state.values);
   const pictureTouched = usePictureTouched("recipe-form");
+  const drinkShown = useDrinkShown();
 
   const statuses = useMemo(
     () =>
@@ -340,7 +342,7 @@ export function RecipeFormRail(props: RecipeFormRailProps) {
     ...(start
       ? [{ id: "start" as const, label: "Start from", status: start }]
       : []),
-    ...RECIPE_SECTIONS.map((section) => ({
+    ...recipeSections(drinkShown).map((section) => ({
       id: section.id,
       label: section.label,
       status: statuses[section.id],

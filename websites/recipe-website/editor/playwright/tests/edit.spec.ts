@@ -268,23 +268,22 @@ test.describe("Recipe Edit View", () => {
           () => new Promise((resolve) => requestIdleCallback(resolve)),
         );
 
-        const ingredientInput = page
-          .locator("input,textarea")
-          .and(
-            page.locator(
-              `[value='<Multiplyable baseNumber="1 1/2" /> tsp salt']`,
-            ),
-          );
+        // 43e2: the row's menu turns a line into a heading (a tape row).
+        const ingredientInput = page.locator(
+          `input[type="hidden"][value='<Multiplyable baseNumber="1 1/2" /> tsp salt']`,
+        );
+        const row = ingredientInput.locator("xpath=ancestor::li[1]");
 
-        await ingredientInput
-          .locator("xpath=ancestor::li[1]")
-          .getByText("Ingredient", { exact: true })
+        await row
+          .getByRole("button", { name: /^Ingredient \d+ actions$/ })
+          .click();
+        await page
+          .getByRole("button", { name: "Make it a heading", exact: true })
           .click();
 
+        await expect(row).toHaveAttribute("data-heading", "true");
         await expect(
-          ingredientInput
-            .locator("xpath=ancestor::li[1]")
-            .getByText("Heading", { exact: true }),
+          row.locator('input[type="hidden"][value="heading"]'),
         ).toBeAttached();
 
         await page.getByRole("button", { name: "Save", exact: true }).click();
@@ -503,7 +502,9 @@ test.describe("Recipe Edit View", () => {
       }) => {
         await expect(page.getByText("Editing Recipe: Recipe 6")).toBeVisible();
 
-        await page.getByText("Paste Ingredients", { exact: true }).click();
+        await page
+          .getByRole("button", { name: "Edit as text", exact: true })
+          .click();
         await page.getByTitle("Ingredients Paste Area").fill(
           `
 * 1 cup water
@@ -512,7 +513,7 @@ test.describe("Recipe Edit View", () => {
 `,
         );
 
-        await page.getByText("Import Ingredients", { exact: true }).click();
+        await page.getByRole("button", { name: "Rows", exact: true }).click();
 
         await expect(
           page.locator('[name="ingredients[0].ingredient"]'),
@@ -527,7 +528,9 @@ test.describe("Recipe Edit View", () => {
           page.locator('[name="ingredients[3].ingredient"]'),
         ).toHaveCount(0);
 
-        await page.getByText("Paste Ingredients", { exact: true }).click();
+        await page
+          .getByRole("button", { name: "Edit as text", exact: true })
+          .click();
         await page.getByTitle("Ingredients Paste Area").clear();
         await page.getByTitle("Ingredients Paste Area").fill(
           `
@@ -536,7 +539,7 @@ test.describe("Recipe Edit View", () => {
 `,
         );
 
-        await page.getByText("Import Ingredients", { exact: true }).click();
+        await page.getByRole("button", { name: "Rows", exact: true }).click();
 
         await expect(
           page.locator('[name="ingredients[0].ingredient"]'),
@@ -548,9 +551,11 @@ test.describe("Recipe Edit View", () => {
           page.locator('[name="ingredients[2].ingredient"]'),
         ).toHaveCount(0);
 
-        await page.getByText("Paste Ingredients", { exact: true }).click();
+        await page
+          .getByRole("button", { name: "Edit as text", exact: true })
+          .click();
         await page.getByTitle("Ingredients Paste Area").clear();
-        await page.getByText("Import Ingredients", { exact: true }).click();
+        await page.getByRole("button", { name: "Rows", exact: true }).click();
 
         await expect(
           page.locator('[name="ingredients[0].ingredient"]'),

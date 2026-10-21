@@ -54,16 +54,23 @@ export function FieldWrapper({
   label,
   id,
   className,
+  labelClassName,
   children,
 }: {
   label?: string;
   id?: string;
   className?: string;
+  /** Classes for the label: `sr-only` keeps the name and hides the text. */
+  labelClassName?: string;
   children: ReactNode;
 }) {
   return (
     <Field className={cn("mb-1 gap-0", className)}>
-      {label && <Label htmlFor={id}>{label}</Label>}
+      {label && (
+        <Label htmlFor={id} className={labelClassName}>
+          {label}
+        </Label>
+      )}
       {children}
     </Field>
   );

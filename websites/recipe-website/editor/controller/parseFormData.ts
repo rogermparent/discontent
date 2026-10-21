@@ -128,6 +128,17 @@ const drinkSchema = z
     return Object.values(drink).some(Boolean) ? drink : undefined;
   });
 
+/**
+ * A step's own name (rarely set). Every step's name field is mounted, so an
+ * untitled step posts `""` — kept, that wrote `"name": ""` into each
+ * untitled step on every save (43e1's round-trip test found it). An empty
+ * name is no name (43e2), as an empty `source` is no source.
+ */
+const stepNameSchema = z
+  .string()
+  .optional()
+  .transform((name) => name || undefined);
+
 const RecipeFormSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
@@ -162,14 +173,14 @@ const RecipeFormSchema = z.object({
     .array(
       z.union([
         z.object({
-          name: z.string().optional(),
+          name: stepNameSchema,
           text: z.string().min(1),
         }),
         z.object({
           name: z.string().min(1),
           instructions: z.array(
             z.object({
-              name: z.string().optional(),
+              name: stepNameSchema,
               text: z.string().min(1),
             }),
           ),
