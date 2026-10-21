@@ -350,13 +350,13 @@ function toRow(match: RecipeMatch): MakeableRow {
 }
 
 /** A corpus row both the scope (`RecipeRow`) and the judge (`MakeRecipe`) read. */
-type MakeRow = RecipeRow & MakeRecipe & { groups?: string[] };
+export type MakeRow = RecipeRow & MakeRecipe & { groups?: string[] };
 
 /**
  * The whole corpus, newest first: the search row plus the two 25c fields
  * `RecipeRow` leaves out — one read for the scope and the judge.
  */
-async function readMakeCorpus(ctx: CurationContext): Promise<MakeRow[]> {
+export async function readMakeCorpus(ctx: CurationContext): Promise<MakeRow[]> {
   const { entries } = await readContentIndex<
     RecipeEntryValue,
     RecipeEntryKey,

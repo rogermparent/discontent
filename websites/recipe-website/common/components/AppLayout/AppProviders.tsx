@@ -17,6 +17,7 @@ export function AppProviders({
   defaultMode = "system",
   isOwner = false,
   commandPaletteAuth,
+  commandPaletteAsk,
 }: {
   children: ReactNode;
   defaultMode?: ColorMode;
@@ -24,6 +25,8 @@ export function AppProviders({
   isOwner?: boolean;
   /** Editor-injected Sign In/Out item for the palette (absent in export). */
   commandPaletteAuth?: ReactNode;
+  /** Editor-injected Ask for the palette (43q; absent in export). */
+  commandPaletteAsk?: ReactNode;
 }) {
   return (
     <ThemeProvider
@@ -46,6 +49,7 @@ export function AppProviders({
                 <CommandPalette
                   isOwner={isOwner}
                   authAction={commandPaletteAuth}
+                  askSlot={commandPaletteAsk}
                 >
                   {children}
                 </CommandPalette>

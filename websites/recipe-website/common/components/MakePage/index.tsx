@@ -12,6 +12,7 @@ import {
 } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { X } from "lucide-react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Input } from "@discontent/component-library/components/ui/input";
 import type { MassagedRecipeEntry } from "../../controller/data/read";
@@ -62,7 +63,9 @@ import { useSavedStaples, type SavedStaples } from "./useSavedStaples";
 import {
   featuredOfQuery,
   kindOfQuery,
+  MAKE_ASK_PARAM,
   MAKE_KINDS,
+  MAKE_SCOPE_PARAM,
   toggleFeature,
   withKind,
   withoutFeature,
@@ -81,6 +84,7 @@ import {
 } from "./makeMath";
 import { MakeSuggestions, type SuggestionTab } from "./MakeSuggestions";
 import { useUndoToast } from "./Toast";
+import { FOCUS, MatcherMark } from "./Tape";
 
 /**
  * A first visit's scope: every recipe (28g). It was `tag:drink` while drinks
@@ -159,22 +163,66 @@ const KIND_TAGS = new Set(
  * routes. `savedStaples` (38a, signed-in editor only) keeps "Assume I always
  * have" in the editor's settings.
  */
+/** An Ask's pattern items that are patterns (43q); the rest are dropped. */
+function validScope(items: readonly string[] | undefined): string[] {
+  return (items ?? []).filter((item) => {
+    const matcher = matcherOf(item);
+    return !!matcher && !matcher.error;
+  });
+}
+
 export function MakePage({
   tags,
   secondary,
   saved,
   savedStaples,
+  askScope,
 }: {
   tags?: TagOption[];
   secondary?: SecondaryInventory;
   saved?: SavedInventoryProps;
   /** The signed-in editor's saved staples (38a); never on the export. */
   savedStaples?: SavedStaples;
+  /**
+   * Pattern items an Ask filled in (43q, the editor's `?with=`): a
+   * **temporary scope** — only recipes with a line each one meets — that
+   * lives in this page and its URL, never on this browser's list or the
+   * saved one. The export never passes it.
+   */
+  askScope?: string[];
 }) {
   const searchParams = useSearchParams();
+  const [scopeItems, setScopeItems] = useState<string[]>(() =>
+    validScope(askScope),
+  );
+  /* The temporary scope and its `?with=`, together: a reload keeps it. */
+  const setScope = useCallback((next: string[]) => {
+    setScopeItems(next);
+    const url = new URL(window.location.href);
+    url.searchParams.delete(MAKE_SCOPE_PARAM);
+    for (const kept of next) url.searchParams.append(MAKE_SCOPE_PARAM, kept);
+    window.history.replaceState(window.history.state, "", url);
+  }, []);
+  const scopeLabelId = useId();
   const urlQuery = searchParams.get("q");
   const [lastQuery, rememberQuery] = useLastMakeQuery();
   const [typed, setTyped] = useState<string | null>(null);
+  /*
+   * A new Ask on this page (43q, Dq13): a new `?ask=` resets what was typed
+   * and the temporary scope to the URL's — the derived-state pattern, read
+   * from the URL here rather than as a server-side `key`, so nothing
+   * remounts the page. Dismiss drops `?ask=` and a later server render (a
+   * staples save revalidates `/make`) sees none: neither resets anything.
+   */
+  const askParam = searchParams.get(MAKE_ASK_PARAM);
+  const [seenAsk, setSeenAsk] = useState(askParam);
+  if (askParam !== seenAsk) {
+    setSeenAsk(askParam);
+    if (askParam !== null) {
+      setTyped(null);
+      setScopeItems(validScope(askScope));
+    }
+  }
   const query =
     typed ?? urlQuery ?? (lastQuery == null ? FIRST_VISIT_QUERY : lastQuery);
 
@@ -255,9 +303,10 @@ export function MakePage({
       featureScope(
         scopeRecipes(corpus, withoutFeatures(q), tagResolver),
         prepared,
-        featuredOfQuery(q),
+        /* An Ask's temporary scope (43q) narrows as features do. */
+        [...featuredOfQuery(q), ...scopeItems],
       ),
-    [corpus, tagResolver, prepared],
+    [corpus, tagResolver, prepared, scopeItems],
   );
   const scoped = useMemo(() => scopeOf(scopeQuery), [scopeOf, scopeQuery]);
 
@@ -786,7 +835,10 @@ export function MakePage({
           <Button
             type="button"
             variant="secondary"
-            onClick={() => setQuery("")}
+            onClick={() => {
+              setQuery("");
+              if (scopeItems.length > 0) setScope([]);
+            }}
           >
             Clear
           </Button>
@@ -868,6 +920,47 @@ export function MakePage({
         onKind={(kind) => setQuery(switchKind(query, kind))}
         onUnfeature={(name) => setQuery(withoutFeature(query, name))}
       />
+      {scopeItems.length > 0 && (
+        <div
+          data-testid="make-ask-scope"
+          className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm"
+        >
+          <span id={scopeLabelId} className="text-muted-foreground">
+            Only recipes using
+          </span>
+          <ul
+            aria-labelledby={scopeLabelId}
+            className="m-0 flex list-none flex-wrap gap-1.5 p-0"
+          >
+            {scopeItems.map((item) => (
+              <li
+                key={item}
+                className="make-tape"
+                data-kind="saved"
+                data-matcher="true"
+              >
+                <span className="inline-flex min-h-7 items-center gap-1.5 py-1 pr-1 pl-2.5 font-mono text-[0.8rem] leading-none">
+                  <MatcherMark />
+                  {item}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Stop using ${item}`}
+                  onClick={() =>
+                    setScope(scopeItems.filter((kept) => kept !== item))
+                  }
+                  className={`inline-flex min-h-7 min-w-6 items-center justify-center pr-2 pl-0.5 opacity-70 hover:opacity-100 ${FOCUS}`}
+                >
+                  <X aria-hidden className="size-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <span className="text-muted-foreground">
+            · from your question, not on your list
+          </span>
+        </div>
+      )}
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="flex max-w-[40rem] min-w-0 grow basis-[22rem] items-center gap-2">
           <label

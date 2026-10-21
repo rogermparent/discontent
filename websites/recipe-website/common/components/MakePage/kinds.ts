@@ -173,6 +173,19 @@ export function withoutTagPicks(
   );
 }
 
+/**
+ * `/make`'s temporary scope (43q): one pattern item per `?with=`, which an
+ * editor's Ask fills in and only the editor's route reads. Never on a list.
+ */
+export const MAKE_SCOPE_PARAM = "with";
+
+/**
+ * The question an editor's Ask filled `/make` in from (43q, `?ask=`). A new
+ * value is a new Ask, which resets the page's typed query and its temporary
+ * scope; the value going away (Dismiss) changes nothing (Dq13).
+ */
+export const MAKE_ASK_PARAM = "ask";
+
 // --- featured ingredients (41h) ---------------------------------------------
 
 /**
