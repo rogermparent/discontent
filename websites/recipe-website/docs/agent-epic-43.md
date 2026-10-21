@@ -2419,6 +2419,20 @@ _Review fixes (the finisher, after the read-only review):_
   and a bad token 401. A write token is accepted as the other read APIs
   (git reads, `/api/jobs`) accept it — write includes read (27b/D6); only
   a write route answers a read token 403.
+- **Dq17 — Ask's URL moves go through Next's history sync.** Next adopts
+  a `pushState`/`replaceState` only when its state is not Next's own, so
+  Dismiss now replaces the URL with a `null` state (with
+  `window.history.state` the URL lost `?ask=` but `useSearchParams`, and so
+  the strip, never followed). A `/search` answer asked on `/search` is
+  pushed in place (`pushState(null, …)` + `submitSearch`) instead of a
+  `router.push` to the same page, which raced the search's own
+  `replaceState` of `?q=` and lost `?ask=`; `open()` answers `true` then,
+  and the palette closes and `/search`'s box goes off at once.
+- **Dq18 — A mark on the highlighted palette row reads in the
+  foreground.** The new axe check on "any bean salad" found 4.2:1 for a
+  `<mark>` in the muted line of the selected recipe row (43s's tint over the
+  row's accent, 12 px). The palette list gives marks under
+  `[data-selected=true]` `text-foreground`; no baseline moved.
 
 **Prompt size (40a).** Measured on a read-only scratch clone of the
 content repo (825 recipes, 232 term records, one plan; deleted after):
@@ -2451,13 +2465,39 @@ sideways scroll, 24 px targets); not offered to a guest (and 401) or with
 no model; axe (WCAG 2.2 tags) on the palette's Ask row, the question box
 and the strip.
 
-**Gates.** _Pending (after review)._
+**Gates.** After the review fixes, on origin/main 1813ae92 (43n2, 43e2
+merged in, both clean): `pnpm --filter recipe-editor typecheck` and
+`pnpm --filter recipe-website exec tsc --noEmit` clean (before the 43e2
+merge, again after it, and again on the e2e fixes); vitest **145 files,
+3,264 passed, 1 failed** — the known cliJson "keeps the inventory…" 30 s
+timeout under load, which **passed alone** (before 43e2: 144 files,
+3,226/3,226). Playwright, Docker build mode (`ask`, `command-palette`,
+the nine `search*` specs, `make`, `accessibility`, `visual`): first run
+**287 passed, 7 failed, 1 flaky** — all seven in the new `ask.spec`, which
+had not run before (the `<q>` quotes are CSS, Dismiss and same-page
+answers not reaching Next's URL, Dq17; the mark contrast, Dq18); the flaky
+one `search-query-chips` (two tickers while loading; passed on retry, not
+43q's). After the fixes (`ask`, `command-palette`, `search`,
+`accessibility`, `visual`): **156/156**, no baseline moved. `ask.spec` in
+dev mode: first 8 passed, 2 flaky (the first visits to `/make`
+and a recipe page compile past `toHaveURL`'s 5 s; both passed on retry),
+then with a 30 s first-visit wait on those two **10/10**. Axe (WCAG 2.2 tags) green on the palette with the
+leading and the trailing Ask row, `/search` with Ask on, and the strip on
+`/make` and at 390 px. The real-model run on the workstation is the
+orchestrator's._
 
 **Roger to confirm.** The question words and the three-word floor (Dq6);
 Tab calling the row up (Dq6); the 30 s budget, after which the word search
 opens (Dq3); Ask hidden on a machine with no model rather than shown and
 falling back (Dq2); patterns ANDed (Dq5); Undo going back to the page the
-Ask came from (Dq8); "plan" opening collections too (Dq9). The real run
+Ask came from (Dq8); "plan" opening collections too (Dq9). From the
+review: only a "?" or a question word in front takes the highlight, a
+request like "any bean salad" gets the row after the results (Dq12); a
+second Ask on `/make` resets only the query and scope (Dq13); Undo with no
+record opening the empty search (Dq14); Escape leaving the Ask box (Dq15);
+a write token accepted by `/api/ask` as by the other reads (Dq16); in-place
+`/search` answers and Dismiss's plain history state (Dq17); the mark
+colour on the highlighted palette row (Dq18). The real run
 on the workstation (latency, the GPU line) is the orchestrator's.
 
 ### 43-close (S)

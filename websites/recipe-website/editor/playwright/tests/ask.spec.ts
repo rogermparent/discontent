@@ -100,6 +100,9 @@ async function signInAndHome(page: Page) {
 
 const askGroup = (page: Page) => page.getByTestId("palette-ask-group");
 const askRow = (page: Page) => askGroup(page).getByRole("option");
+/* A page's first visit in `next dev` compiles it first (well past 5 s). */
+const FIRST_VISIT = 30_000;
+
 /* The question sits in a `<q>`, whose quote marks are CSS, not text. */
 const banner = (page: Page) => page.getByTestId("ask-banner");
 
@@ -137,6 +140,7 @@ test.describe("Ask", () => {
 
     await expect(page).toHaveURL(
       /\/make\?q=tag%3Adrink\+ingredient%3Alime&ask=what\+drinks\+can\+I\+make\+with\+lime$/,
+      { timeout: FIRST_VISIT },
     );
     await expect(page.getByTestId("make-question")).toHaveText(
       "What drinks can I make with lime?",
@@ -202,7 +206,9 @@ test.describe("Ask", () => {
     await axeClean(page);
     await paletteInput(page).press("Enter");
 
-    await expect(page).toHaveURL(/\/recipe\/[^/?]+$|\/search\?/);
+    await expect(page).toHaveURL(/\/recipe\/[^/?]+$|\/search\?/, {
+      timeout: FIRST_VISIT,
+    });
     await expect(page).not.toHaveURL(/[?&]ask=/);
     await expect(banner(page)).toHaveCount(0);
     expect(asked).toEqual([]);
