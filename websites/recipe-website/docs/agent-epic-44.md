@@ -320,7 +320,11 @@ descriptions **23,501** — about 10k tokens, close to qwen3:8b's whole
 (`agentTools(…, {only})`, kept in the grant's order) or shorter
 descriptions; Claude takes the full set.
 
-Gates (host, through `heavy.sh`): GATES_PLACEHOLDER
+Gates (host, through `heavy.sh`, after the review fixes and a merge of
+`origin/main` at 546d95f9): `pnpm --filter recipe-editor typecheck`
+clean; `pnpm --filter recipe-website exec tsc --noEmit` clean;
+`pnpm exec vitest run` **147 files, 3,293 tests passed** (3,287 before
+the review; the 44b files hold 27). No UI file changed, so no Playwright.
 
 Roger to confirm: Eb4's rebinding gap; Eb8's local `path` / `photos` in
 the grant; SearXNG bound to 127.0.0.1 only (the editor runs on the same
