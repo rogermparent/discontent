@@ -761,7 +761,17 @@ line is 8,704, Ea6), leaving ~1.8k for the conversation — tight:
 this; Claude's ~36k of prompt and tools is cached after the first turn
 (Ea5).
 
-**Gates:** see below (after the review).
+**Gates** (2026-10-21, host, through `heavy.sh`, at 4c5c1608 before the
+review): `pnpm --filter recipe-editor typecheck` clean; `pnpm --filter
+recipe-website exec tsc --noEmit` clean; `pnpm exec vitest run` **152
+files, 3,373 tests passed** (the 44c files hold 21). No UI file changed,
+so no Playwright. No real model anywhere: the Claude API and the
+OpenAI-style server are `fetch` stubbed per turn.
+
+**Trap (44c).** The generated skill module must be in **both**
+`.prettierignore`s: lint-staged runs prettier with `cwd=editor/`, where
+only `editor/.prettierignore` is read (prettier would rewrite its JSON
+strings and the freshness test would fail).
 
 **Roger to confirm.**
 
