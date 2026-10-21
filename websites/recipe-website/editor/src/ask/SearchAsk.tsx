@@ -99,8 +99,17 @@ function AskableField({ input }: { input: ReactNode }) {
     postAsk(words, controller.signal).then(
       (answer) => {
         if (controller.signal.aborted) return;
+        let inPlace = false;
+        startRouting(() => {
+          inPlace = open(answer, words);
+        });
+        if (inPlace) {
+          /* A search, here: the field holds it now, the toggle goes off. */
+          setState({ phase: "idle" });
+          setOn(false);
+          return;
+        }
         setState({ phase: "opening", question: words, answer });
-        startRouting(() => open(answer, words));
       },
       () => {
         if (!controller.signal.aborted) setState({ phase: "idle" });

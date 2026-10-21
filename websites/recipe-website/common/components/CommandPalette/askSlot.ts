@@ -31,8 +31,11 @@ export interface PaletteAskHandler {
   leads(text: string): boolean;
   /** Ask the server; rejects when `signal` aborts. */
   ask(question: string, signal: AbortSignal): Promise<PaletteAskAnswer>;
-  /** Go there (the palette has closed itself). */
-  open(answer: PaletteAskAnswer, question: string): void;
+  /**
+   * Go there. `true` when that was done in place (a search on the search
+   * page): no navigation follows, so the palette closes at once.
+   */
+  open(answer: PaletteAskAnswer, question: string): boolean;
 }
 
 type Register = (handler: PaletteAskHandler | undefined) => void;

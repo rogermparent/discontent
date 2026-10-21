@@ -427,7 +427,15 @@ export function CommandPalette({
         });
         /* Not a recent search: a question re-run as words finds little. */
         /* A transition, so "Opening …" stays up until the page is there. */
-        startRouting(() => askHandler.open(answer, question));
+        let inPlace = false;
+        startRouting(() => {
+          inPlace = askHandler.open(answer, question);
+        });
+        if (inPlace) {
+          askAbort.current = undefined;
+          setOpen(false);
+          return;
+        }
         setTimeout(() => {
           if (askAbort.current === controller) setOpen(false);
         }, ASK_OPEN_GRACE_MS);
@@ -797,8 +805,11 @@ export function CommandPalette({
             {askLine ?? ""}
           </p>
         )}
+        {/* A mark in a muted line of the highlighted row reads in the
+            foreground: muted text on the mark's tint over the row's accent
+            measured 4.2:1 (43q's axe run, Dq18). */}
         <CommandList
-          className={SEARCH_MARKS}
+          className={`${SEARCH_MARKS} [&_[data-selected=true]_mark]:text-foreground`}
           data-testid="palette-list"
           data-index-ready={String(indexPopulated)}
           aria-busy={recipesPending || undefined}

@@ -100,6 +100,7 @@ async function signInAndHome(page: Page) {
 
 const askGroup = (page: Page) => page.getByTestId("palette-ask-group");
 const askRow = (page: Page) => askGroup(page).getByRole("option");
+/* The question sits in a `<q>`, whose quote marks are CSS, not text. */
 const banner = (page: Page) => page.getByTestId("ask-banner");
 
 async function axeClean(page: Page) {
@@ -141,7 +142,7 @@ test.describe("Ask", () => {
       "What drinks can I make with lime?",
     );
     await expect(banner(page)).toContainText(
-      "Filled in from: “what drinks can I make with lime”",
+      "Filled in from: what drinks can I make with lime",
     );
     await expect(palette(page)).toBeHidden();
     expect(asked).toEqual(["what drinks can I make with lime"]);
@@ -224,7 +225,7 @@ test.describe("Ask", () => {
       "what tiki drinks are there",
     );
     await expect(banner(page)).toContainText(
-      "Couldn't work that out — searching for the words instead: “what tiki drinks are there”",
+      "Couldn't work that out — searching for the words instead: what tiki drinks are there",
     );
   });
 
@@ -346,7 +347,7 @@ test.describe("Ask", () => {
     await signInAndHome(page);
     await page.goto("/make?q=tag%3Adrink&ask=what+drinks+can+I+make");
     await expect(banner(page)).toContainText(
-      "Filled in from: “what drinks can I make”",
+      "Filled in from: what drinks can I make",
     );
     const undo = banner(page).getByRole("button", { name: "Undo" });
     await expectHydrated(undo);

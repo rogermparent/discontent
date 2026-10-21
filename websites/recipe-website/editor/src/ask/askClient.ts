@@ -99,18 +99,25 @@ export async function postAsk(
 /**
  * Go to an answer: remember where this was (for Undo), hand a `/search`
  * target's query to the search state (the page reads `?q=` only on its first
- * load, and the search is shared app-wide), then navigate.
+ * load, and the search is shared app-wide), then navigate. Answers `true`
+ * when it was done in place — a `/search` answer asked on `/search` — so the
+ * caller has no navigation to wait for.
+ *
+ * In place, the URL is pushed with a plain `null` state: Next adopts such a
+ * `pushState` (its router and `useSearchParams` follow, so the strip sees
+ * `?ask=`), where a `router.push` to the same page raced the search's own
+ * `replaceState` of `?q=` and lost `?ask=` (Dq17).
  */
 export function useOpenAsk(): (
   answer: PaletteAskAnswer,
   question: string,
-) => void {
+) => boolean {
   const router = useRouter();
   const { submitSearch } = useSearch();
   return useCallback(
     (answer: PaletteAskAnswer, question: string) => {
       const url = onThisSite(answer.url);
-      if (!url) return;
+      if (!url) return true;
       const record: AskRecord = {
         question: askWords(question),
         origin: `${window.location.pathname}${window.location.search}`,
@@ -124,9 +131,15 @@ export function useOpenAsk(): (
       }
       const target = new URL(url, window.location.origin);
       if (target.pathname === "/search") {
+        if (window.location.pathname === "/search") {
+          window.history.pushState(null, "", url);
+          submitSearch(target.searchParams.get("q") ?? "");
+          return true;
+        }
         submitSearch(target.searchParams.get("q") ?? "");
       }
       router.push(url);
+      return false;
     },
     [router, submitSearch],
   );

@@ -74,7 +74,9 @@ export function AskBanner() {
     forgetAskRecord();
     const url = new URL(window.location.href);
     url.searchParams.delete(ASK_PARAM);
-    window.history.replaceState(window.history.state, "", url);
+    /* A plain state, so Next adopts the URL and this strip (and `/make`'s
+     * `?ask=` reader) sees `?ask=` gone; Next's own state would be ignored. */
+    window.history.replaceState(null, "", url);
   };
 
   return (
