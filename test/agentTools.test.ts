@@ -9,7 +9,7 @@
 // trip — one write, two reads — answers what the MCP tool answers, failures
 // included, as returned objects rather than throws.
 
-import { mkdtemp, readFile, rm } from "fs-extra";
+import { mkdtemp, readFile, rm, writeFile } from "fs-extra";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,6 +25,7 @@ import {
 import {
   AGENT_HELD_BACK,
   AGENT_TOOL_NAMES,
+  LOCAL_FILE_REFUSAL,
   agentTools,
   recipeAgentTools,
   type AgentToolName,
@@ -302,6 +303,53 @@ describe("the bridge over a temp content directory", () => {
     }
     /* Refused before the handler: nothing was written. */
     expect(await run("recipe_list", {})).toMatchObject({ recipes: [] });
+  });
+
+  it("refuses a local file — an image `path`, import `photos` — nothing written (Ec10)", async () => {
+    const image = join(contentDirectory, "secret.jpg");
+    await writeFile(image, "not really a jpeg");
+    expect(
+      await tool("recipe_create").run(
+        { recipe: { name: "Toast", ingredients: ["bread"] } },
+        ctx(),
+      ),
+    ).toMatchObject({ slug: "toast" });
+    await tool("term_create").run({ term: { label: "Breakfast" } }, ctx());
+    const before = JSON.stringify(
+      await tool("recipe_get").run({ slug: "toast" }, ctx()),
+    );
+
+    const cases: [string, Record<string, unknown>][] = [
+      ["recipe_set_image", { slug: "toast", path: image }],
+      ["term_set_image", { slug: "breakfast", path: image }],
+      ["recipe_import", { photos: [image] }],
+      ["recipe_import", { photos: ["/etc/passwd"], dryRun: true }],
+    ];
+    for (const [name, args] of cases) {
+      expect(await tool(name).run(args, ctx()), name).toEqual({
+        error: { code: "forbidden", message: LOCAL_FILE_REFUSAL },
+      });
+    }
+    expect(
+      JSON.stringify(await tool("recipe_get").run({ slug: "toast" }, ctx())),
+    ).toBe(before);
+    expect(
+      await tool("term_get").run({ slug: "breakfast" }, ctx()),
+    ).not.toMatchObject({ term: { image: expect.anything() } });
+
+    /* A URL still reaches the handler (here a 404, not a refusal). */
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("gone", { status: 404 })),
+    );
+    const viaUrl = await agentTools(backend, {
+      webSearch: false,
+      guard: { lookup: async () => ["93.184.216.34"] },
+    })
+      .find((entry) => entry.name === "recipe_set_image")
+      ?.run({ slug: "toast", url: "https://example.invalid/a.jpg" }, ctx());
+    expect(viaUrl).not.toMatchObject({ error: { code: "forbidden" } });
+    vi.unstubAllGlobals();
   });
 
   it("offers nothing for a held-back name smuggled into `only`", () => {

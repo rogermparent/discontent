@@ -764,9 +764,79 @@ this; Claude's ~36k of prompt and tools is cached after the first turn
 **Gates** (2026-10-21, host, through `heavy.sh`, at 4c5c1608 before the
 review): `pnpm --filter recipe-editor typecheck` clean; `pnpm --filter
 recipe-website exec tsc --noEmit` clean; `pnpm exec vitest run` **152
-files, 3,373 tests passed** (the 44c files hold 21). No UI file changed,
+files, 3,373 tests passed** (the 44c files hold 21). **After the review
+fixes** (origin/main unchanged at b0537a2f, nothing to merge): both
+typechecks clean; `pnpm exec vitest run` **152 files, 3,379 tests
+passed**. No UI file changed,
 so no Playwright. No real model anywhere: the Claude API and the
 OpenAI-style server are `fetch` stubbed per turn.
+
+**Review fixes** (after the read-only review of 10b2ab86):
+
+- **One follow-up per run, however asked** (`runs.ts`). `startAgentRun`
+  resolved the run, checked it across awaits, then marked it — so two
+  follow-ups of one run (a double-click, or the CLI beside the editor)
+  could both pass the checks and both start. Now the run id is resolved
+  (`requireJob`) and marked in this process's set **before** any check,
+  then the run's **continue lock** is taken — `<run>.continue.lock` in the
+  job store, epic 37's `fileLock` (`acquireLock`, waiting up to
+  `CONTINUE_LOCK_WAIT_MS`, 10 s, for another process's start; stale after
+  60 s or a dead holder) — and only then are the live / live-follow-up /
+  directory / transcript checks run and the job started. Both marks are
+  held until `startSpec` answers, which is after the new job's meta is
+  written, so any later check sees it as a live follow-up. A lock held past
+  the wait is `job_live` ("being continued by another process"). The key is
+  the run being continued (its resolved id), the thing the checks judge.
+- **Ec10 — No local files through the agent** (Eb8's question, answered
+  conservatively). The bridge refuses `recipe_set_image` /
+  `term_set_image` with a local `path` and `recipe_import` with `photos`
+  before the handler: `{error: {code: "forbidden", message: "local files
+aren't available to the curator; give a URL"}}`, nothing read or written.
+  URLs work as before (Eb9 guards them); the tools' schemas and
+  descriptions are unchanged (they stay the MCP server's, Eb2), and the
+  preamble tells the model a local file is refused. The MCP server is
+  unchanged: Claude Code keeps `path` and `photos`.
+- **Credentials out of git remotes** (`curation/git.ts`,
+  `redactRemoteUrl`): `gitStatus` strips `user:pass@` from every remote URL
+  and a token-only `user@` from http(s) ones, so the MCP result, the
+  agent's transcript, the model and the `/git` page never carry a remote's
+  secret. `ssh://git@host/…` keeps its user; scp-like `git@host:path` and
+  local paths are not URLs and are kept as they are. `RemoteSummary` has
+  only `fetchUrl` (there is no `pushUrl` field to strip).
+- **Transcript reads from the offset** (`transcript.ts`): `readTranscript`
+  opens the file and reads from `transcriptFrom` (`open` + `read` at the
+  offset), at most `TRANSCRIPT_READ_MAX_BYTES` (1 MB) a read — a line
+  longer than that is read whole (the read doubles until it holds a line
+  end) — instead of reading the whole file every poll. A cut read answers
+  `more`; `GET /api/agent/<id>` passes it on as `transcriptMore: true`, and
+  `followAgentRun` (the CLI) reads again at once before waiting or
+  finishing, so a long run's end is never missed.
+- **Ec11 — A conversation has a ceiling.** A follow-up is refused when the
+  run's transcript (the whole conversation, Ec3) is over
+  `AGENT_TRANSCRIPT_MAX_BYTES` (2 MB): `ConversationTooLongError`, code
+  `validation`, "This conversation is long (… KB, over 2 MB) — start a new
+  one."; **413** from `POST /api/agent` (the route maps the class, as it
+  maps an over-long ask; a new error code would have meant a new exit code
+  and HTTP rehydration for one case). The size is a `stat`, not a read.
+- **A follow-up stays in its content directory.** `continuable` refuses
+  (`usage`) a run recorded against another content directory than the
+  caller's (both resolved through symlinks, `resolvedDirectory`, now
+  exported from `kinds.ts`) — as Retry does (37c) — so a CLI run against a
+  scratch clone is never continued against the real repo, or the reverse.
+- Tests (+6, and one route case extended): `agentJobs.test.ts` — two
+  follow-ups under `Promise.allSettled` start exactly one, the other
+  `job_live`, and a third while it runs is refused naming it (the "already
+  being continued by" branch), no lock left behind; a continue lock held by
+  another live process (pid 1) is waited for and refused past a 150 ms wait,
+  then the follow-up starts once it is gone; another content directory and
+  a transcript over 2 MB refused; `readTranscript` from an offset, a partial
+  last line, a cap smaller than a line, `more`. `agentTools.test.ts` — the
+  three local-file refusals, nothing written, a URL still reaching the
+  handler. `curationGit.test.ts` — remote URLs redacted (https user:pass,
+  token, ssh user:pass; ssh user, scp-like, plain, local kept).
+  `agentRoute.test.ts` — the 413. The `Promise.all` case also passed on the
+  old code (in-process timing); the lock case is the one that fails
+  without the fix.
 
 **Trap (44c).** The generated skill module must be in **both**
 `.prettierignore`s: lint-staged runs prettier with `cwd=editor/`, where
@@ -781,6 +851,10 @@ strings and the freshness test would fail).
   `/jobs`), each holding the whole conversation.
 - Ec6: the local tool subset, and Claude's 5 searches per model call.
 - Ec7: the 4,000-character ask, and 202 for a started run.
+- Ec10: no local `path` / `photos` through the agent (Eb8 closed
+  conservatively); lifting it is one entry in the bridge's
+  `LOCAL_FILE_ARGS`.
+- Ec11: the 2 MB conversation ceiling for a follow-up.
 
 ### 44d — The curator page
 

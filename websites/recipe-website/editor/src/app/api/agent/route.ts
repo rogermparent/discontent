@@ -10,8 +10,10 @@
  * `runId` continues that run: its transcript is the history, and the new
  * run's transcript holds the whole conversation. A run still live — or one
  * a live follow-up already continues — is `job_live` (409), naming the live
- * one; a job that is not an agent run, or one with no transcript, is
- * `usage` (400); an unknown id 404.
+ * one; a job that is not an agent run, one with no transcript, or one
+ * recorded against another content directory is `usage` (400); an unknown
+ * id 404. A conversation whose transcript is over
+ * `AGENT_TRANSCRIPT_MAX_BYTES` (2 MB) is 413 `validation`: start a new one.
  *
  * - **Auth (E5):** a signed-in session or a **write**-scope token; a read
  *   token is 403 (a run writes), a guest 401.
@@ -37,7 +39,10 @@ import {
 import { parseInput } from "recipe-editor/controller/curation/schema";
 import { AGENT_PROMPT_MAX } from "recipe-editor/controller/agent/job";
 import { DEFAULT_AGENT_BUDGETS } from "recipe-editor/controller/agent/loop";
-import { startAgentRun } from "recipe-editor/controller/agent/runs";
+import {
+  ConversationTooLongError,
+  startAgentRun,
+} from "recipe-editor/controller/agent/runs";
 
 const AgentRequestSchema = z.strictObject({
   prompt: z.string(),
@@ -77,6 +82,9 @@ export async function POST(request: Request) {
     void _done;
     return Response.json(started, { status: 202 });
   } catch (error) {
+    if (error instanceof ConversationTooLongError) {
+      return Response.json(toErrorObject(error), { status: 413 });
+    }
     return errorResponse(error);
   }
 }

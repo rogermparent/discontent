@@ -63,7 +63,7 @@ export function agentPreamble({
     "",
     "Where you are:",
     "- The person reads your replies in the editor's curator panel, beside each tool call as a step as it runs. They can stop the run at any time, and answer you with a follow-up on this same run. So when you must ask something, ask it plainly and end your turn: their answer arrives as the next message.",
-    "- You run inside the editor: there is no shell, no file system and no CLI. Work only through the tools you are given. The `recipes` tools are the ones a guide may call the `recipes` MCP server's; they answer the same JSON.",
+    "- You run inside the editor: there is no shell, no file system and no CLI. Work only through the tools you are given; a local file (`recipe_set_image`'s or `term_set_image`'s `path`, `recipe_import`'s `photos`) is refused here: use a URL. The `recipes` tools are the ones a guide may call the `recipes` MCP server's; they answer the same JSON.",
     search
       ? "- `web_search` searches the web; `web_fetch` reads a page as text. Where a guide says WebSearch or WebFetch, use these."
       : "- There is no web search here. `web_fetch` reads a page whose URL you have (one the person gave, or one a tool answered with): work from those. Where a guide says WebFetch, use it; where it says WebSearch, ask the person for URLs instead.",

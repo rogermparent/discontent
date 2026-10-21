@@ -7,7 +7,7 @@
 // a read, a write token and a session 202; no model configured 400; an
 // over-long ask 413; a follow-up and its refusals; the view's two offsets.
 
-import { mkdtemp, rm } from "fs-extra";
+import { appendFile, mkdtemp, rm } from "fs-extra";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,6 +19,8 @@ import {
   writeUser,
 } from "../websites/recipe-website/editor/src/users";
 import { auth } from "./stub_auth.js";
+import { AGENT_TRANSCRIPT_MAX_BYTES } from "../websites/recipe-website/editor/controller/agent/runs";
+import { transcriptPath } from "../websites/recipe-website/editor/controller/jobs/store";
 
 /* `after()` outside Next: each task kept, so a test can await the run. */
 const { afterTasks } = vi.hoisted(() => ({
@@ -218,8 +220,21 @@ describe("POST /api/agent", () => {
     stubModel("Second.");
     const followUp = await post({ prompt: "another", runId: first.job });
     expect(followUp.status).toBe(202);
-    expect(await followUp.json()).toMatchObject({ continues: first.job });
+    const second = await followUp.json();
+    expect(second).toMatchObject({ continues: first.job });
     await Promise.all(afterTasks);
+
+    /* A conversation past the cap (2 MB): 413, start a new one. */
+    await appendFile(
+      transcriptPath(dir, second.job),
+      `${JSON.stringify({ type: "note", pad: "x".repeat(AGENT_TRANSCRIPT_MAX_BYTES) })}\n`,
+    );
+    const long = await post({ prompt: "and more", runId: second.job });
+    expect(long.status).toBe(413);
+    expect((await long.json()).error).toMatchObject({
+      code: "validation",
+      message: expect.stringContaining("start a new one"),
+    });
 
     expect(
       (await post({ prompt: "x", runId: "01JNOPENOPENOPENOPENOPENOPE" }))

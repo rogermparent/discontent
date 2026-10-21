@@ -13,7 +13,14 @@
 // its steps nest under the tool's; the transcript is pruned with its job;
 // `recipes agent --json`.
 
-import { mkdtemp, readFile, readdir, rm } from "fs-extra";
+import {
+  appendFile,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "fs-extra";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -24,9 +31,13 @@ import { createLocalBackend } from "../websites/recipe-website/editor/cli/backen
 import { main } from "../websites/recipe-website/editor/cli/index";
 import { AGENT_HELD_BACK } from "../websites/recipe-website/editor/controller/agent/tools";
 import {
+  AGENT_TRANSCRIPT_MAX_BYTES,
+  ConversationTooLongError,
+  continueLockPath,
   getAgentRunView,
   startAgentRun,
 } from "../websites/recipe-website/editor/controller/agent/runs";
+import { processIdentity } from "@discontent/cms/git/fileLock";
 import type { AgentJobResult } from "../websites/recipe-website/editor/controller/agent/job";
 import {
   readTranscript,
@@ -462,6 +473,187 @@ describe("the agent job kind", () => {
     await expect(startAgentRun(ctx, { prompt: "hi" })).rejects.toMatchObject({
       code: "usage",
     });
+  });
+
+  it("starts one follow-up of a run however many are asked at once (44c review)", async () => {
+    stubFetch([{ content: [text("ok")] }]);
+    const first = await startAgentRun(ctx, { prompt: "make an apple pie" });
+    await first.done;
+
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const slow = async (signal?: AbortSignal) => {
+      await Promise.race([
+        waiting,
+        new Promise((_, reject) =>
+          signal?.addEventListener("abort", () => reject(signal.reason)),
+        ),
+      ]);
+      return new Response(
+        JSON.stringify({
+          id: "msg_slow",
+          type: "message",
+          role: "assistant",
+          content: [text("more")],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 10, output_tokens: 1 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+    stubFetch([slow, slow]);
+
+    /* A double-click: two follow-ups of one run, at once. */
+    const both = await Promise.allSettled([
+      startAgentRun(ctx, { prompt: "and another", runId: first.job }),
+      startAgentRun(ctx, { prompt: "and another", runId: first.job }),
+    ]);
+    const started = both.filter((entry) => entry.status === "fulfilled");
+    const refused = both.filter((entry) => entry.status === "rejected");
+    expect(started).toHaveLength(1);
+    expect(refused).toHaveLength(1);
+    expect((refused[0] as PromiseRejectedResult).reason).toMatchObject({
+      code: "job_live",
+    });
+    const live = (
+      started[0] as PromiseFulfilledResult<
+        Awaited<ReturnType<typeof startAgentRun>>
+      >
+    ).value;
+
+    /* Later, while that follow-up runs: refused, naming it. */
+    await expect(
+      startAgentRun(ctx, { prompt: "a third", runId: first.job }),
+    ).rejects.toMatchObject({
+      code: "job_live",
+      job: live.job,
+      message: expect.stringContaining(
+        `already being continued by ${live.job}`,
+      ),
+    });
+
+    release();
+    await live.done;
+    const runs = (await readdir(dir)).filter((name) =>
+      name.endsWith(".meta.json"),
+    );
+    expect(runs).toHaveLength(2);
+    /* The guard leaves nothing behind. */
+    expect(
+      (await readdir(dir)).filter((name) => name.includes(".continue.lock")),
+    ).toEqual([]);
+  });
+
+  it("waits for another process's follow-up start, and refuses past the wait", async () => {
+    stubFetch([{ content: [text("ok")] }, { content: [text("more")] }]);
+    const first = await startAgentRun(ctx, { prompt: "make an apple pie" });
+    await first.done;
+
+    /* Another live process (pid 1, on this host and pid namespace) holds it. */
+    const lock = continueLockPath(dir, first.job);
+    await writeFile(
+      lock,
+      JSON.stringify({
+        ...processIdentity(),
+        pid: 1,
+        nonce: "another-process",
+        continueId: "01JOTHERPROCESSOTHERPROCES",
+      }),
+    );
+    await expect(
+      startAgentRun(
+        ctx,
+        { prompt: "and another", runId: first.job },
+        { continueLockWaitMs: 150 },
+      ),
+    ).rejects.toMatchObject({
+      code: "job_live",
+      message: expect.stringContaining("another process"),
+    });
+    /* Its lock is left to it. */
+    await expect(readFile(lock, "utf8")).resolves.toContain("another-process");
+
+    /* Once it lets go, the follow-up starts. */
+    await rm(lock);
+    const second = await startAgentRun(ctx, {
+      prompt: "and another",
+      runId: first.job,
+    });
+    await second.done;
+    expect(second.continues).toBe(first.job);
+  });
+
+  it("refuses a follow-up from another content directory, or of a conversation too long", async () => {
+    stubFetch([{ content: [text("ok")] }]);
+    const first = await startAgentRun(ctx, { prompt: "make an apple pie" });
+    await first.done;
+
+    const elsewhere = await mkdtemp(join(tmpdir(), "agent-jobs-other-"));
+    try {
+      await expect(
+        startAgentRun(
+          { contentDirectory: elsewhere },
+          { prompt: "and another", runId: first.job },
+        ),
+      ).rejects.toMatchObject({
+        code: "usage",
+        message: expect.stringContaining("not this content directory"),
+      });
+    } finally {
+      await rm(elsewhere, { recursive: true, force: true });
+    }
+
+    await appendFile(
+      transcriptPath(dir, first.job),
+      `${JSON.stringify({ type: "note", pad: "x".repeat(AGENT_TRANSCRIPT_MAX_BYTES) })}\n`,
+    );
+    await expect(
+      startAgentRun(ctx, { prompt: "and another", runId: first.job }),
+    ).rejects.toBeInstanceOf(ConversationTooLongError);
+    await expect(
+      startAgentRun(ctx, { prompt: "and another", runId: first.job }),
+    ).rejects.toMatchObject({
+      code: "validation",
+      message: expect.stringContaining("start a new one"),
+    });
+  });
+
+  it("reads a transcript from its offset, a line at a time if it must", async () => {
+    const file = transcriptPath(dir, "01JTRANSCRIPTREADTRANSCRIP");
+    const line = (n: number, pad = "") =>
+      `${JSON.stringify({ t: "x", type: "start", job: `j${n}`, pad })}\n`;
+    await writeFile(file, line(1) + line(2, "y".repeat(500)) + '{"type":"st');
+    const id = "01JTRANSCRIPTREADTRANSCRIP";
+
+    const all = await readTranscript(dir, id);
+    expect(all.records.map((record) => record.job)).toEqual(["j1", "j2"]);
+    /* The partial last line is left for next time. */
+    expect(all.next).toBe(
+      Buffer.byteLength(line(1) + line(2, "y".repeat(500))),
+    );
+    expect(await readTranscript(dir, id, all.next)).toEqual({
+      records: [],
+      next: all.next,
+    });
+
+    /* From the second line's offset: only it. */
+    const second = await readTranscript(dir, id, Buffer.byteLength(line(1)));
+    expect(second.records.map((record) => record.job)).toEqual(["j2"]);
+
+    /* A cap smaller than a line: one line per read, the long one whole. */
+    const first = await readTranscript(dir, id, 0, { maxBytes: 40 });
+    expect(first.records.map((record) => record.job)).toEqual(["j1"]);
+    expect(first.more).toBe(true);
+    const next = await readTranscript(dir, id, first.next, { maxBytes: 40 });
+    expect(next.records.map((record) => record.job)).toEqual(["j2"]);
+    expect(next.next).toBe(all.next);
+
+    /* The line finished: read from where it was left. */
+    await appendFile(file, 'art","job":"j3"}\n');
+    const last = await readTranscript(dir, id, all.next);
+    expect(last.records.map((record) => record.job)).toEqual(["j3"]);
   });
 
   it("stops an import in flight when the run is cancelled, its steps under the tool's", async () => {

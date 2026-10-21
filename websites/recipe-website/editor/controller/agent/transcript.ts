@@ -27,7 +27,7 @@
  * included.
  */
 import { appendFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { open, readFile, stat, type FileHandle } from "node:fs/promises";
 import type { LlmApi } from "../llm/client";
 import { scrubSecretValues } from "../jobs/log";
 import { transcriptPath } from "../jobs/store";
@@ -148,34 +148,75 @@ function parseLines(text: string): TranscriptRecord[] {
     });
 }
 
+/** The most of a transcript one read hands back (a poll catching up reads again). */
+export const TRANSCRIPT_READ_MAX_BYTES = 1024 * 1024;
+
 /**
  * A run's transcript from byte `from` on, and the offset to ask from next
  * (as `readJobLog` reads a log): a last line still being written is left
- * for next time. No file is no records.
+ * for next time. No file is no records. Only the bytes from `from` are
+ * read (`open` + `read` at the offset, 44c review), at most
+ * `TRANSCRIPT_READ_MAX_BYTES` at a time, so a poll of a long conversation
+ * reads what is new, not the whole file each second. A single line longer
+ * than that cap is read whole (the read doubles until it holds a line end).
+ * `more` says the cap cut the read: there is more to read at once.
  */
 export async function readTranscript(
   dir: string,
   id: string,
   rawFrom = 0,
-): Promise<{ records: TranscriptRecord[]; next: number }> {
+  { maxBytes = TRANSCRIPT_READ_MAX_BYTES }: { maxBytes?: number } = {},
+): Promise<{ records: TranscriptRecord[]; next: number; more?: boolean }> {
   const from =
     Number.isFinite(rawFrom) && rawFrom > 0 ? Math.floor(rawFrom) : 0;
-  let buffer: Buffer;
+  let handle: FileHandle;
   try {
-    buffer = await readFile(/*turbopackIgnore: true*/ transcriptPath(dir, id));
+    handle = await open(/*turbopackIgnore: true*/ transcriptPath(dir, id), "r");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return { records: [], next: from };
     }
     throw error;
   }
-  const chunk = buffer.subarray(from);
-  const end = chunk.lastIndexOf(0x0a);
-  if (end < 0) return { records: [], next: from };
-  return {
-    records: parseLines(chunk.subarray(0, end).toString("utf8")),
-    next: from + end + 1,
-  };
+  try {
+    const { size } = await handle.stat();
+    if (from >= size) return { records: [], next: from };
+    let length = Math.min(size - from, Math.max(1, maxBytes));
+    for (;;) {
+      const chunk = Buffer.alloc(length);
+      const { bytesRead } = await handle.read(chunk, 0, length, from);
+      const read = chunk.subarray(0, bytesRead);
+      const end = read.lastIndexOf(0x0a);
+      if (end >= 0) {
+        return {
+          records: parseLines(read.subarray(0, end).toString("utf8")),
+          next: from + end + 1,
+          /* The cap cut this read: ask again at once for the rest. */
+          ...(from + bytesRead < size ? { more: true } : {}),
+        };
+      }
+      /* No whole line yet: the file ends mid-line, or one line is longer than the cap. */
+      if (from + bytesRead >= size || bytesRead < length) {
+        return { records: [], next: from };
+      }
+      length = Math.min(size - from, length * 2);
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+/** A run's transcript's size in bytes, or `undefined` when it has none. */
+export async function transcriptSize(
+  dir: string,
+  id: string,
+): Promise<number | undefined> {
+  try {
+    return (await stat(/*turbopackIgnore: true*/ transcriptPath(dir, id))).size;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
 }
 
 /**

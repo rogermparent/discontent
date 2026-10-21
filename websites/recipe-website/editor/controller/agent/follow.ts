@@ -34,6 +34,8 @@ export interface AgentRunView extends JobView {
   transcript: TranscriptRecord[];
   /** The offset to ask the transcript from next. */
   transcriptNext: number;
+  /** The read was cut at its size cap: ask again at once for the rest. */
+  transcriptMore?: boolean;
 }
 
 /** How a run ended, as `recipes agent --json` prints it. */
@@ -97,6 +99,8 @@ export async function followAgentRun(
     from = view.next;
     transcriptFrom = view.transcriptNext;
     onProgress?.(view);
+    /* A long transcript comes a megabyte a read: catch up before waiting. */
+    if (view.transcriptMore) continue;
     if (!view.live || !(await wait())) return agentOutcome(view);
   }
 }

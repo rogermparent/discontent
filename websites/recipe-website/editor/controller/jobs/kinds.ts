@@ -808,7 +808,7 @@ function isCorpusSpec(spec: JobSpec): spec is JobSpec & CorpusSpec {
 }
 
 /** A directory as the filesystem resolves it (a symlink followed), else as given. */
-async function resolvedDirectory(directory: string): Promise<string> {
+export async function resolvedDirectory(directory: string): Promise<string> {
   const absolute = path.resolve(directory);
   return realpath(absolute).catch(() => absolute);
 }
