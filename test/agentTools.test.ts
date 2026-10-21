@@ -27,6 +27,7 @@ import {
   AGENT_TOOL_NAMES,
   agentTools,
   recipeAgentTools,
+  type AgentToolName,
 } from "../websites/recipe-website/editor/controller/agent/tools";
 import type { AgentTool } from "../websites/recipe-website/editor/controller/agent/types";
 
@@ -240,6 +241,75 @@ describe("the bridge over a temp content directory", () => {
       await client.close();
       await server.close();
     }
+  });
+
+  it("refuses a download from a private address before the handler runs (Eb9)", async () => {
+    const guarded = agentTools(backend, {
+      webSearch: false,
+      guard: {
+        lookup: async (host) =>
+          host === "inner.example" ? ["10.9.8.7"] : ["93.184.216.34"],
+      },
+    });
+    const run = (name: string, args: Record<string, unknown>) =>
+      (guarded.find((entry) => entry.name === name) as AgentTool).run(
+        args,
+        ctx(),
+      );
+    const cases: [string, Record<string, unknown>][] = [
+      ["page_inspect", { url: "http://169.254.169.254/latest/meta-data/" }],
+      ["page_inspect", { url: "https://inner.example/recipe" }],
+      ["recipe_import", { url: "http://2130706433/", dryRun: true }],
+      [
+        "recipe_import",
+        { url: "https://example.com/r", image: "http://[::1]/x.jpg" },
+      ],
+      ["recipe_import", { url: "file:///etc/passwd" }],
+      ["page_inspect_list", { url: "http://[::ffff:7f00:1]/" }],
+      [
+        "recipe_import_list",
+        {
+          url: "https://example.com/list",
+          pick: [{ n: 1, url: "http://0.0.0.0/" }],
+        },
+      ],
+      ["recipe_set_image", { slug: "x", url: "http://192.168.1.1/a.jpg" }],
+      ["term_set_image", { slug: "x", url: "http://[::7f00:1]/a.jpg" }],
+      [
+        "recipe_create",
+        { recipe: { name: "Sneaky", imageImportUrl: "http://10.0.0.1/a.jpg" } },
+      ],
+      [
+        "recipe_update",
+        { slug: "x", patch: { imageImportUrl: "http://127.0.0.1/a.jpg" } },
+      ],
+      [
+        "group_create",
+        { group: { name: "G", imageImportUrl: "http://10.0.0.1/a.jpg" } },
+      ],
+      [
+        "term_create",
+        { term: { label: "T", imageImportUrl: "http://10.0.0.1/a.jpg" } },
+      ],
+    ];
+    for (const [name, args] of cases) {
+      expect(
+        await run(name, args),
+        `${name} ${JSON.stringify(args)}`,
+      ).toMatchObject({
+        error: { code: "forbidden" },
+      });
+    }
+    /* Refused before the handler: nothing was written. */
+    expect(await run("recipe_list", {})).toMatchObject({ recipes: [] });
+  });
+
+  it("offers nothing for a held-back name smuggled into `only`", () => {
+    expect(
+      recipeAgentTools(backend, {
+        only: ["recipe_delete", "git_push"] as unknown as AgentToolName[],
+      }),
+    ).toEqual([]);
   });
 
   it("returns failures as the layer's error object, never a throw", async () => {

@@ -1,5 +1,11 @@
 /** The agent's tools (epic 44, 44b). */
-export { agentTools, recipeAgentTools, type AgentToolsOptions } from "./bridge";
+export {
+  agentTools,
+  recipeAgentTools,
+  type AgentToolsOptions,
+  type RecipeAgentToolsOptions,
+} from "./bridge";
+export { isBlockedAddress, urlRefusal, type UrlGuardOptions } from "./urlGuard";
 export {
   AGENT_HELD_BACK,
   AGENT_TOOL_NAMES,

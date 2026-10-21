@@ -19,6 +19,11 @@ import {
   webFetchTool,
 } from "../websites/recipe-website/editor/controller/agent/tools/webFetch";
 import {
+  SitePacer,
+  SiteState,
+  type Pacing,
+} from "../websites/recipe-website/editor/controller/curation/sitePacing";
+import {
   searchEndpoint,
   webSearchTool,
 } from "../websites/recipe-website/editor/controller/agent/tools/webSearch";
@@ -99,6 +104,20 @@ describe("web_fetch", () => {
         const browser = /Chrome\//.test(req.headers["user-agent"] ?? "");
         res.writeHead(browser ? 200 : 403, { "content-type": "text/html" });
         res.end(browser ? "<p>Served to a browser.</p>" : "no");
+      } else if (path === "/refused-then-slow") {
+        /* Refused plainly; the browser retry never answers in time. */
+        const browser = /Chrome\//.test(req.headers["user-agent"] ?? "");
+        if (!browser) {
+          res.writeHead(403);
+          res.end("no");
+        } else {
+          setTimeout(() => {
+            if (!res.destroyed) res.end("late");
+          }, 1_500);
+        }
+      } else if (path === "/always-403") {
+        res.writeHead(403);
+        res.end("no");
       } else {
         res.writeHead(404);
         res.end();
@@ -110,6 +129,7 @@ describe("web_fetch", () => {
 
   afterAll(async () => {
     vi.unstubAllEnvs();
+    server.closeAllConnections();
     await new Promise((done) => server.close(done));
   });
 
@@ -163,13 +183,13 @@ describe("web_fetch", () => {
     hits.length = 0;
     expect(
       await tool().run({ url: `${base}/to-loopback` }, ctx()),
-    ).toMatchObject({ error: { code: "blocked" } });
+    ).toMatchObject({ error: { code: "forbidden" } });
     expect(hits).toEqual(["/to-loopback"]);
 
     const lan = (await tool().run({ url: `${base}/to-lan` }, ctx())) as {
       error: { code: string; message: string };
     };
-    expect(lan.error.code).toBe("blocked");
+    expect(lan.error.code).toBe("forbidden");
     expect(lan.error.message).toContain("10.0.0.7");
   });
 
@@ -184,18 +204,18 @@ describe("web_fetch", () => {
       });
     }
     expect(await tool().run({ url: `${base}/to-file` }, ctx())).toMatchObject({
-      error: { code: "blocked" },
+      error: { code: "forbidden" },
     });
   });
 
   it("refuses a private host without the test exemption, and a name that resolves privately", async () => {
     const plain = webFetchTool();
     expect(await plain.run({ url: `${base}/recipe` }, ctx())).toMatchObject({
-      error: { code: "blocked" },
+      error: { code: "forbidden" },
     });
     expect(
       await plain.run({ url: "http://192.168.1.1/" }, ctx()),
-    ).toMatchObject({ error: { code: "blocked" } });
+    ).toMatchObject({ error: { code: "forbidden" } });
 
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
@@ -207,7 +227,7 @@ describe("web_fetch", () => {
         { url: "https://looks-public.example/" },
         ctx(),
       )) as { error: { code: string; message: string } };
-      expect(refused.error.code).toBe("blocked");
+      expect(refused.error.code).toBe("forbidden");
       expect(refused.error.message).toContain("10.1.2.3");
       expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
@@ -249,6 +269,90 @@ describe("web_fetch", () => {
     expect(result.text).toContain("Served to a browser.");
   });
 
+  /*
+   * Review of 44b: a timeout in the 403's retry, or a long wait for the
+   * site's turn, must never read as a second refusal — `SitePacer` would
+   * drop the site for an hour, machine-wide. A pacer of the test's own
+   * (`paceLoopback`, no gap, a fresh `SiteState`, no machine queue) so the
+   * fixture host is paced and its drops are visible.
+   */
+  describe("pacing", () => {
+    const pacingWith = (state: SiteState): Pacing => ({
+      now: () => Date.now(),
+      sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+      gapMs: 0,
+      paceLoopback: true,
+      state,
+    });
+
+    it("a 403 whose retry times out fails the call and drops nothing", async () => {
+      vi.stubEnv("RECIPE_FETCH_403_DELAY_MS", "0");
+      const state = new SiteState();
+      const pacing = pacingWith(state);
+      const result = (await tool({ pacing, timeoutMs: 200 }).run(
+        { url: `${base}/refused-then-slow` },
+        ctx(),
+      )) as { error: { code: string; message: string } };
+      expect(result.error.code).toBe("fetch_failed");
+      expect(result.error.message).toMatch(/did not answer/);
+      expect(state.droppedUntil.size).toBe(0);
+      /* The site still answers the next call. */
+      expect(
+        await tool({ pacing }).run({ url: `${base}/recipe` }, ctx()),
+      ).toMatchObject({ status: 200 });
+    });
+
+    it("a wait for the site's turn is bounded, and drops nothing", async () => {
+      const state = new SiteState();
+      const pacing = pacingWith(state);
+      const site = new SitePacer(pacing).site(`${base}/recipe`);
+      const release = await state.acquire(site);
+      try {
+        const result = (await tool({ pacing, queueTimeoutMs: 150 }).run(
+          { url: `${base}/recipe` },
+          ctx(),
+        )) as { error: { code: string; message: string } };
+        expect(result.error.code).toBe("fetch_failed");
+        expect(result.error.message).toMatch(/Waited more than/);
+      } finally {
+        release();
+      }
+      expect(state.droppedUntil.size).toBe(0);
+    });
+
+    it("a site that answers the retry with 403 again is dropped (as the importer drops it)", async () => {
+      vi.stubEnv("RECIPE_FETCH_403_DELAY_MS", "0");
+      const state = new SiteState();
+      const pacing = pacingWith(state);
+      expect(
+        await tool({ pacing }).run({ url: `${base}/always-403` }, ctx()),
+      ).toMatchObject({ error: { code: "fetch_failed", status: 403 } });
+      expect(state.droppedUntil.size).toBe(1);
+      expect(
+        await tool({ pacing }).run({ url: `${base}/recipe` }, ctx()),
+      ).toMatchObject({ error: { code: "fetch_failed" } });
+    });
+  });
+
+  it("refuses private URL literals in every spelling", async () => {
+    const plain = webFetchTool();
+    for (const url of [
+      "http://2130706433/",
+      "http://0x7f000001/",
+      "http://[::ffff:7f00:1]/",
+      "http://[::7f00:1]/",
+      "http://[64:ff9b::a00:1]/",
+      "http://[2002:a00:1::]/",
+      "http://[fec0::1]/",
+      "http://0.0.0.0/",
+      "http://169.254.169.254/latest/meta-data/",
+    ]) {
+      expect(await plain.run({ url }, ctx()), url).toMatchObject({
+        error: { code: "forbidden" },
+      });
+    }
+  });
+
   it("returns bad input and a stopped run as error objects", async () => {
     expect(await tool().run({}, ctx())).toMatchObject({
       error: { code: "validation" },
@@ -280,10 +384,29 @@ describe("web_fetch", () => {
       "::ffff:127.0.0.1",
       "ff02::1",
       "not-an-ip",
+      /* IPv4 inside IPv6 (review of 44b). */
+      "::7f00:1",
+      "::127.0.0.1",
+      "::",
+      "64:ff9b::a00:1",
+      "64:ff9b::127.0.0.1",
+      "64:ff9b:1::1",
+      "2002:7f00:1::",
+      "2002:c0a8:101::1",
+      "2001:0:4136:e378:8000:63bf:80ff:fffe",
+      "fec0::1",
+      "fc00::1",
     ]) {
       expect(isBlockedAddress(address), address).toBe(true);
     }
-    for (const address of ["93.184.216.34", "8.8.8.8", "2606:4700::1111"]) {
+    for (const address of [
+      "93.184.216.34",
+      "8.8.8.8",
+      "2606:4700::1111",
+      "64:ff9b::808:808",
+      "2002:808:808::1",
+      "::ffff:8.8.8.8",
+    ]) {
       expect(isBlockedAddress(address), address).toBe(false);
     }
   });
