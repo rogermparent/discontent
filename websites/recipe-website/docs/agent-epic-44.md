@@ -182,6 +182,164 @@ signal, job?, step?})` in `controller/llm/` beside `chatJson`: a neutral
   (redirect to a private host refused, size cap, text extraction);
   `web_search` against a stub SearXNG.
 
+#### Results (44b)
+
+What changed:
+
+- **`mcp/registry.ts`: the tools are data.** `recipeToolDefinitions(backend)`
+  returns the 59 as `{name, title, description, inputSchema (zod),
+annotations, handler}` in `TOOL_NAMES` order; `createRecipeServer`
+  registers them (a read-only session skips the writes instead of
+  registering and `remove()`ing them — same `tools/list`). No tool's name,
+  description, schema, annotations or handler changed; `INSTRUCTIONS` is
+  exported for 44e. The MCP suites (`mcp`, `mcpHttp`, `mcpStdio`,
+  `curatorSkill`, 67 tests) pass unchanged.
+- **`controller/agent/tools/`** (new):
+  - `names.ts` — `AGENT_TOOL_NAMES` (the 45, spelled out) and
+    `AGENT_HELD_BACK` (the 14), both `satisfies readonly ToolName[]`;
+  - `schema.ts` — `toolInputSchema` (the SDK's own conversion: zod's
+    Standard JSON Schema `input` at draft 2020-12, `type: "object"` at the
+    root, `$schema` dropped), `parseToolInput` (safeParseAsync → the
+    `validation` error object), `toolError`;
+  - `bridge.ts` — `recipeAgentTools(backend, {only?, guard?})` and
+    `agentTools(backend, {webFetch?, webSearch?, only?, guard?})`: the 45,
+    then `web_fetch`, then `web_search` when configured. `run` parses the
+    input, refuses a private download URL (Eb9), calls the MCP handler and
+    returns its `structuredContent`; a throw is `toErrorObject`, an aborted
+    signal is `cancelled` — never thrown;
+  - `urlGuard.ts` — `urlRefusal(url, {hop?, lookup?, allowHosts?})` and
+    `isBlockedAddress`, shared by `web_fetch` and the bridge;
+  - `webFetch.ts` — `web_fetch {url, maxChars?, links?}`;
+  - `webSearch.ts` — `web_search {query, site?}` over SearXNG;
+  - `index.ts` re-exports.
+- **`controller/agent/types.ts`** created with the Interfaces block, plus
+  `import type { JobContext as JobHandle } from "../jobs/context"` — the
+  block names `JobHandle` and nothing defines it. 44a writes the same
+  file: take 44a's at merge if they differ.
+- **`editor/.env.example`** (it held only the `AUTH_SECRET` line, kept):
+  `RECIPE_SEARCH_URL`, SearXNG's
+  `docker run` (from docs.searxng.org/admin/installation-docker.html, bound
+  to 127.0.0.1:8888) and the `settings.yml` change that enables JSON
+  (`search.formats: [html, json]`, from
+  docs.searxng.org/admin/settings/settings_search.html).
+- `backlog.md`: a row for a redirect-level guard inside the importer's own
+  fetch (Eb9).
+- Tests: `test/agentTools.test.ts` (8) and `test/agentWebTools.test.ts`
+  (19).
+
+Decisions:
+
+- **Eb1 — Input checking.** The agent parses each call with the tool's
+  own zod schema, so the handler gets exactly what the SDK would hand it.
+  A refusal is `{error: {code: "validation", message: "Invalid arguments
+for <tool>: …", issues}}`, not the SDK's protocol error (T28): a model
+  reads it like any other failure.
+- **Eb2 — Schemas.** The model's `inputSchema` equals the MCP `tools/list`
+  schema minus `$schema` (a test asserts it for all 45). Strict objects
+  stay `additionalProperties: false`; descriptions stay where zod put them.
+  That suits Anthropic's `input_schema` (an object schema) as it is;
+  Ollama keeps what its tool struct knows (type, properties, required,
+  enum, description, items) and ignores the rest — fine for best-effort
+  qwen.
+- **Eb3 — Untrusted tools.** `web_fetch`, `web_search`, `page_inspect`
+  and `page_inspect_list` are `untrusted: true` (their results are a
+  site's words, E7). `recipe_import` is not: it answers a written record.
+- **Eb4 — `web_fetch`'s SSRF guard** (`urlGuard.ts`). http(s) only
+  (`usage` otherwise); the host is checked with `isPrivateHost`, an
+  address literal and every address a name resolves to (a DNS lookup,
+  `all: true`) with `isBlockedAddress` — `isPrivateHost`'s ranges plus
+  multicast, broadcast and reserved IPv4, IPv6 multicast, unique-local,
+  link-local and site-local (`fec0::/10`), and the IPv4 inside IPv6
+  decoded and checked (mapped `::ffff:a.b.c.d`, compatible `::a.b.c.d`,
+  NAT64 `64:ff9b::/96` with the local-use `64:ff9b:1::/48` refused,
+  6to4 `2002::/16`, Teredo). Spellings like `http://2130706433/`,
+  `http://0x7f000001/` and `http://[::7f00:1]/` are refused (tested).
+  Redirects are followed by hand (`redirect: "manual"`, at most 5), each
+  target checked the same way, another scheme there `forbidden`. **Not
+  caught:** DNS rebinding between the lookup and `fetch`'s own connection —
+  closing it needs a dispatcher with a checked `lookup` (undici is not a
+  dependency; `fetch` stays, per 44's trap). Roger to confirm that is
+  acceptable on the workstation and the Pi.
+- **Eb5 — Pacing and the size of things.** One `web_fetch` is one request
+  on the first URL's site queue (`SitePacer`, the polite 403 retry, a
+  twice-refused site dropped), its redirects inside it as the importer's
+  are — so `www.` → bare domain does not wait 15 s for itself; the final
+  site's clock moves after. Body read to 2 MB (`bytesCapped`), then 36's
+  `pageTextDetail` cut from the middle to `maxChars` (default 8 000, max
+  24 000). `links: true` adds up to 50 `{text, url}` (page text drops
+  links, and a roundup or article is mostly links). Not text
+  (image, PDF…) is `fetch_failed`. **Timeouts (review):** each request has
+  its own 30 s from when it is sent, so the queue and the gaps never eat
+  it; the wait for the site's turn — the queue, the polite gap, a 403's
+  gap — is bounded at 120 s ("Waited more than 120 s for <site>'s turn").
+  `web_fetch` does its own 403 retry (once a call, as a browser, after the
+  pacer's `beforeRetry`) and never lets a failure out of the paced
+  request: `SitePacer#request` reads a 403 whose retry _threw_ as a
+  second refusal and drops the site machine-wide for an hour, so a
+  timeout, a reset or a stop comes back as a value and only a retry that
+  answered 403 again drops the site (tested both ways).
+- **Eb6 — `web_search`.** Absent unless `RECIPE_SEARCH_URL` (or the
+  option) is set. `GET <base>/search?q=…&format=json` (`/search` appended
+  unless the base ends so), 15 s timeout, top 8 http(s) results deduped as
+  `{title, url, snippet?}` (snippets ≤ 300 chars), `site:` appended to the
+  query, up to 5 `suggestions`. SearXNG is Roger's own service: not paced,
+  not SSRF-guarded. A 403 says `json` is missing from `search.formats`.
+- **Eb7 — Error codes.** A private or reserved address, or another
+  scheme, is `forbidden` everywhere (the bridge and `web_fetch`; the code
+  is already in the curation vocabulary). New: `fetch_failed` (with
+  `status`/`finalUrl` when there was an answer) and `search_failed`. 44e's
+  prompt should name them.
+- **Eb8 — Same grant, same reach.** The 45 include `recipe_set_image` /
+  `term_set_image` with a local `path` and `recipe_import` with local
+  `photos`: the agent can read any image file the editor's process can
+  read, as Claude Code's MCP server can, and commit it into the content
+  repo. Every such write is one revertable commit. **Roger to confirm**
+  that local `path` and `photos` stay in the agent's grant (a prompt a
+  page injects could ask for them); dropping them would mean a bridge-side
+  refusal of those two arguments.
+- **Eb9 — The recipes tools' downloads are guarded too (review).** Before
+  the handler, the bridge runs `urlRefusal` (host forms + DNS) on every URL
+  a tool downloads: `page_inspect` and `page_inspect_list`'s `url`,
+  `recipe_import`'s `url` and `image`, `recipe_import_list`'s `url` and the
+  picks it names by URL, `recipe_set_image` / `term_set_image`'s `url`,
+  and the `imageImportUrl` of `recipe_create` / `recipe_update`,
+  `group_create` / `group_update` and `term_create` / `term_update`. A
+  refusal is `{error: {code: "forbidden"}}` and nothing is written; another
+  scheme (`file:`, `ftp:`…) is refused outright; a string that does not
+  parse as a URL is left to the handler (the importer adds no scheme). A
+  recipe's `source` and `videoImportUrl` are cited, never fetched, and are
+  not checked. **Follow-up (backlog):** the importer's own fetches
+  (`fetchRecipePage`, the image download, yt-dlp) follow redirects
+  themselves, so a public page that redirects to a private address is
+  still fetched through those tools; a redirect-level guard belongs in the
+  importer.
+
+Measured: the 45 tools' JSON schemas are **17,189 characters** and their
+descriptions **23,501** — about 10k tokens, close to qwen3:8b's whole
+12,288-token context (40a). 44e must hand a local model a subset
+(`agentTools(…, {only})`, kept in the grant's order) or shorter
+descriptions; Claude takes the full set.
+
+Gates (host, through `heavy.sh`, after the review fixes and a merge of
+`origin/main` at 546d95f9): `pnpm --filter recipe-editor typecheck`
+clean; `pnpm --filter recipe-website exec tsc --noEmit` clean;
+`pnpm exec vitest run` **147 files, 3,293 tests passed** (3,287 before
+the review; the 44b files hold 27). No UI file changed, so no Playwright.
+
+Roger to confirm: Eb4's rebinding gap; Eb8's local `path` / `photos` in
+the grant; SearXNG bound to 127.0.0.1 only (the editor runs on the same
+machine).
+
+For 44c: the bridge's `run` does not hand `ctx.signal` or `ctx.job` to the
+MCP handlers (they take neither): a stop lands between tool calls, and an
+import a tool started runs to its end as its own job (cancellable from
+`/jobs`), not nested under the run's. Threading them through belongs with
+the `agent` job kind.
+
+For 44c: `RECIPE_SEARCH_URL` is not yet in the CLI's `EDITOR_ENV_KEYS`
+(`cli/editorEnv.ts`), so `pnpm recipes agent` will not read it from
+`editor/.env` until 44c adds it (and the CLI help line).
+
 ### 44c — Agent jobs, the route, the CLI
 
 The `agent` job kind (`JOB_KIND_NAMES`, a handler in `kinds.ts`); a run =

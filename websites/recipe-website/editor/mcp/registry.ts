@@ -42,7 +42,7 @@
 import {
   McpServer,
   type CallToolResult,
-  type RegisteredTool,
+  type ToolAnnotations,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { CuratorBackend } from "../cli/backend/types";
@@ -350,7 +350,7 @@ const DESTRUCTIVE_WRITE = {
   destructiveHint: true,
 } as const;
 
-const INSTRUCTIONS = `Manage and search a recipe website's content.
+export const INSTRUCTIONS = `Manage and search a recipe website's content.
 
 Recipe rows from recipe_search and recipe_list are compact — {slug, name, date, tags, totalTime, image?} — to keep results small; pass \`fields\` to add description, ingredients, prepTime or cookTime, and use recipe_get for a whole recipe. Slugs are the identity of everything: recipe slugs, group slugs, and a featured entry's own slug (which is not its target's).
 
@@ -395,32 +395,57 @@ async function importPhotoPaths(
   });
 }
 
-export function createRecipeServer(
-  backend: CuratorBackend,
-  info: RecipeServerInfo = {},
-): McpServer {
-  const server = new McpServer(
-    {
-      name: info.name ?? "recipes",
-      version: info.version ?? packageJson.version,
-    },
-    { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
-  );
-
-  /*
-   * Every registration goes through here so the handles can be kept: the SDK
-   * answers `tools/list` from what is registered, so a read-only session drops
-   * its writes with `remove()` after the fact rather than branching at each of
-   * the call sites below.
+/**
+ * One tool as data (44b): what `createRecipeServer` registers, and what the
+ * editor's agent (`controller/agent/tools/bridge.ts`) offers its model — one
+ * list, so a tool cannot say one thing over MCP and another to the agent.
+ */
+export interface RecipeToolDefinition {
+  name: ToolName;
+  title: string;
+  description: string;
+  /** The zod schema the SDK validates against and lists as JSON Schema. */
+  inputSchema: z.ZodType;
+  annotations: ToolAnnotations;
+  /**
+   * The handler, given input the schema has already parsed. It never throws
+   * for a failure from below: that is a `CallToolResult` with `isError`.
    */
-  const registered: RegisteredTool[] = [];
-  const register = ((...args: unknown[]) => {
-    const tool = (server.registerTool as (...a: unknown[]) => RegisteredTool)(
-      ...args,
-    );
-    registered.push(tool);
-    return tool;
-  }) as typeof server.registerTool;
+  handler: (args: unknown) => Promise<CallToolResult>;
+}
+
+/** How each tool below is declared: typed by its own schema. */
+type RecipeToolSink = <S extends z.ZodType>(
+  name: ToolName,
+  config: {
+    title: string;
+    description: string;
+    inputSchema: S;
+    annotations: ToolAnnotations;
+  },
+  handler: (args: z.output<S>) => Promise<CallToolResult>,
+) => void;
+
+/**
+ * Every tool over `backend`, in registration order (`TOOL_NAMES`'s).
+ *
+ * Until 44b these were `server.registerTool` calls inside
+ * `createRecipeServer`; collecting them first is what lets the agent bridge
+ * reuse the same names, descriptions, schemas and handlers without an MCP
+ * client in the loop (44's trap: `@modelcontextprotocol/client` is a
+ * devDependency).
+ */
+export function recipeToolDefinitions(
+  backend: CuratorBackend,
+): RecipeToolDefinition[] {
+  const definitions: RecipeToolDefinition[] = [];
+  const register: RecipeToolSink = (name, config, handler) => {
+    definitions.push({
+      name,
+      ...config,
+      handler: handler as (args: unknown) => Promise<CallToolResult>,
+    });
+  };
 
   /* --- recipes ----------------------------------------------------------- */
 
@@ -1763,10 +1788,38 @@ export function createRecipeServer(
       read(() => backend.getJob(id, from === undefined ? {} : { from })),
   );
 
-  if (info.readOnly) {
-    for (const tool of registered) {
-      if (tool.annotations?.readOnlyHint !== true) tool.remove();
-    }
+  return definitions;
+}
+
+export function createRecipeServer(
+  backend: CuratorBackend,
+  info: RecipeServerInfo = {},
+): McpServer {
+  const server = new McpServer(
+    {
+      name: info.name ?? "recipes",
+      version: info.version ?? packageJson.version,
+    },
+    { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
+  );
+
+  /*
+   * A read-only session (27b/D6) never registers its writes: the SDK answers
+   * `tools/list` from what is registered. (Before 44b every tool was
+   * registered and the writes `remove()`d after; the list is the same.)
+   */
+  for (const tool of recipeToolDefinitions(backend)) {
+    if (info.readOnly && tool.annotations.readOnlyHint !== true) continue;
+    server.registerTool(
+      tool.name,
+      {
+        title: tool.title,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        annotations: tool.annotations,
+      },
+      (args: unknown) => tool.handler(args),
+    );
   }
 
   return server;
