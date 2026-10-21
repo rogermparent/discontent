@@ -2483,8 +2483,24 @@ dev mode: first 8 passed, 2 flaky (the first visits to `/make`
 and a recipe page compile past `toHaveURL`'s 5 s; both passed on retry),
 then with a 30 s first-visit wait on those two **10/10**. Axe (WCAG 2.2 tags) green on the palette with the
 leading and the trailing Ask row, `/search` with Ask on, and the strip on
-`/make` and at 390 px. The real-model run on the workstation is the
-orchestrator's._
+`/make` and at 390 px._
+
+**Real-model check (orchestrator, 2026-10-21).** qwen3:8b on the
+workstation GPU (parakeet paused first), `ask()` against a copy of the
+content (reindexed, no images), five questions: about 1,760 prompt tokens,
+`num_ctx` 4,096, 100% GPU. **8.0 s** for the first (the model's load), then
+**0.67–0.94 s** each. Answers: "what drinks can I make with lime" →
+`/make?q=tag:drink ingredient:lime`; "what's on the thanksgiving menu" →
+`/holidays/thanksgiving`; "quick vegetarian dinners?" →
+`/search?q=tag:vegetarian tag:quick -tag:drink`; "christmas cookies with
+molasses" → `/tags/christmas` (grounded but loose: the cookies and the
+molasses are dropped). "something slow cooked with pork shoulder" came back
+as `main-ingredient:pork-shoulder tag:project`: a field the query language
+doesn't have, which is free text, so it slipped past grounding. **Dq19:
+grounding refuses any `field:` that isn't in `FILTER_FIELDS`** (outside
+quotes), so that answer now falls back to the word search; vitest case
+added. The Claude API path is untested here (no key on the workstation);
+the Pi is Roger's to try after deploy.
 
 **Roger to confirm.** The question words and the three-word floor (Dq6);
 Tab calling the row up (Dq6); the 30 s budget, after which the word search

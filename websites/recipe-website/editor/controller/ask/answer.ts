@@ -37,6 +37,7 @@ import {
 import { featureScope } from "recipe-website-common/components/MakePage/makeMath";
 import { scopeRecipes } from "recipe-website-common/components/MakePage/scope";
 import {
+  FILTER_FIELDS,
   fieldMatches,
   filterTerms,
   fold,
@@ -197,6 +198,8 @@ function kindOf(id: AskKind | undefined): MakeKind | undefined {
   return id ? MAKE_KINDS.find((kind) => kind.id === id) : undefined;
 }
 
+const FIELD_NAMES = new Set<string>(FILTER_FIELDS);
+
 /** A term's label for a line: the record's, else the slug. */
 function termLabel(model: FacetModel, slug: string): string {
   return model.terms.get(slug)?.label ?? slug;
@@ -210,6 +213,13 @@ function termLabel(model: FacetModel, slug: string): string {
 function ungroundedTerms(q: string, vocabulary: AskVocabulary): string[] {
   const { filter } = parseQuery(q);
   const missing: string[] = [];
+  /* A `field:` the query language doesn't know (`main-ingredient:pork`, the
+     real-model check) is free text, a search for the literal word: refuse
+     it. Quoted phrases may hold a colon. */
+  const unquoted = q.replace(/"[^"]*"/g, " ");
+  for (const [, field] of unquoted.matchAll(/(?:^|\s)-?([a-z][\w-]*):\S/gi)) {
+    if (!FIELD_NAMES.has(field.toLowerCase())) missing.push(`${field}:`);
+  }
   for (const term of filterTerms(filter)) {
     const { node } = term;
     if (node.type !== "text") continue;

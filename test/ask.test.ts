@@ -386,6 +386,28 @@ describe("groundAnswer", () => {
     ).toMatchObject({ ok: false, refusal: { code: "ungrounded" } });
   });
 
+  it("refuses a field the query language doesn't have", () => {
+    /* The real-model check (qwen3:8b): "something slow cooked with pork
+       shoulder" came back as `main-ingredient:pork-shoulder`. */
+    expect(
+      groundAnswer(
+        { page: "search", q: "main-ingredient:pork-shoulder tag:drink" },
+        vocabulary,
+        "pork shoulder",
+      ),
+    ).toEqual({
+      ok: false,
+      refusal: { code: "ungrounded", detail: "no such main-ingredient:" },
+    });
+    expect(
+      groundAnswer(
+        { page: "make", q: "-cuisine:mexican", kind: "drinks" },
+        vocabulary,
+        "not mexican",
+      ),
+    ).toMatchObject({ ok: false, refusal: { code: "ungrounded" } });
+  });
+
   it("accepts a tag by any spelling and opens its canonical page", () => {
     expect(
       groundAnswer({ page: "tag", slug: "Biscuits" }, vocabulary, "biscuits"),
