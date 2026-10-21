@@ -18,7 +18,16 @@ import {
   type TermPageData,
 } from "../tagVocabulary";
 import { tagBoardData, type TagBoardData } from "../tagBoardPage";
-import { carriersFromRows, facetTermsFromOptions } from "../../util/facets";
+import {
+  buildFacetModel,
+  carriersFromRows,
+  countFacets,
+  facetTermsFromOptions,
+} from "../../util/facets";
+import {
+  serializeFacetCounts,
+  type TagPickerData,
+} from "../../components/Form/Tags/tagPicker";
 
 /**
  * The reading half of the join (24c) — the cached reads, and nothing else.
@@ -138,6 +147,34 @@ export async function readTagOptions(): Promise<TagOption[]> {
     mergeTagVocabulary({ recipeTerms, groupTerms, tree }),
     tree,
   );
+}
+
+/**
+ * The edit form's tag picker (43e2): the vocabulary as facet terms (records
+ * and carried-only tags, `readTagOptions`' list) and the corpus counts —
+ * recipes and groups under each term, counted once per term over its
+ * subtree and aliases (`countFacets`). Read from the two by-term maps and
+ * the tree, as `/tags`' board is; an editor page, so nothing is exported.
+ */
+export async function readTagPicker(): Promise<TagPickerData> {
+  const [recipeTerms, groupTerms, tree, byRecipeTag, byGroupTag] =
+    await Promise.all([
+      recipeTagReads.terms.read(),
+      groupTagReads.terms.read(),
+      tagTermReads.tree.read(),
+      recipeTagReads.byTerm.read(),
+      groupTagReads.byTerm.read(),
+    ]);
+  const terms = facetTermsFromOptions(
+    tagOptions(mergeTagVocabulary({ recipeTerms, groupTerms, tree }), tree),
+  );
+  const model = buildFacetModel(terms);
+  /* A recipe and a group may share a slug; each is its own carrier. */
+  const carriers = [
+    ...carriersFromRows(byRecipeTag),
+    ...carriersFromRows(byGroupTag),
+  ];
+  return { terms, counts: serializeFacetCounts(countFacets(model, carriers)) };
 }
 
 /** One row of `/search/terms`: a term, its parent, its aliases, and how many carry it. */

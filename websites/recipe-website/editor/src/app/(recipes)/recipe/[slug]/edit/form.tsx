@@ -12,6 +12,7 @@ import { recipeToFormValues } from "recipe-website-common/components/Form/formCo
 import { Recipe } from "recipe-website-common/controller/types";
 import { RecipeFormState } from "recipe-website-common/controller/formState";
 import { StaticImageProps } from "@discontent/next-static-image/src";
+import type { TagPickerData } from "recipe-website-common/components/Form/Tags/tagPicker";
 import {
   updateRecipe,
   overwriteUpdateRecipe,
@@ -27,11 +28,14 @@ export default function EditRecipeForm({
   slug,
   defaultImage,
   allTags = [],
+  tagPicker,
 }: {
   slug: string;
   recipe: Recipe;
   defaultImage?: StaticImageProps | undefined;
   allTags?: string[];
+  /** The tag picker's vocabulary and counts (43e2). */
+  tagPicker?: TagPickerData;
 }) {
   const { date } = recipe;
   const initialState = { message: "", errors: {} } as RecipeFormState;
@@ -62,6 +66,7 @@ export default function EditRecipeForm({
         action={dispatch}
         recipe={effectiveRecipe}
         slug={effectiveSlug}
+        tagPicker={tagPicker}
         className="flex w-full flex-col gap-7"
       >
         <UpdateRecipeFields

@@ -7,13 +7,16 @@ import { SubmitButton } from "@discontent/component-library/components/SubmitBut
 import { Recipe } from "recipe-website-common/controller/types";
 import { RecipeFormState } from "recipe-website-common/controller/formState";
 import { createRecipe } from "recipe-editor/controller/actions";
+import type { TagPickerData } from "recipe-website-common/components/Form/Tags/tagPicker";
 
 export default function CopyRecipeForm({
   recipe,
   allTags = [],
+  tagPicker,
 }: {
   recipe: Recipe;
   allTags?: string[];
+  tagPicker?: TagPickerData;
 }) {
   const initialState = { message: "", errors: {} } as RecipeFormState;
   const [state, dispatch] = useActionState(createRecipe, initialState);
@@ -22,6 +25,7 @@ export default function CopyRecipeForm({
     <RecipeFormShell
       action={dispatch}
       recipe={cleanedRecipe}
+      tagPicker={tagPicker}
       className="w-full h-full flex flex-col grow"
     >
       <UpdateRecipeFields

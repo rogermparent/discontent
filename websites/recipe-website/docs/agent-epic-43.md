@@ -1318,7 +1318,196 @@ wording; Cancel on a new recipe goes to `/` without asking.
 
 #### Results (43e2)
 
-_Pending._
+**What changed.** The insides of 43e1's sections, as canvas B draws them
+(boards `B-desktop`, `B-phone`):
+
+- **Tags by facet** (`Form/Tags/`, pure rules in `tagPicker.ts`): the
+  chosen tags as chips in the section heading (each "Remove tag X", the
+  hidden `tags[i]` inputs as before); a row per facet with corpus counts —
+  food: Course, Main ingredient, Cuisine, Speed & effort, Holidays; a drink:
+  Spirit & base, Style, Strength & method and the drink's name (Families,
+  collapsed to the names it carries plus "another drink name…") — from 43f's
+  `facetGroups` (`includeEmpty`, by label). A chosen row's children open
+  after it ("Desserts › Cookies"). The import's `suggestedTags` that resolve
+  to a term or alias show dashed in a "From the import" row until accepted
+  ("Accept suggested tag X"); others are dropped. "Anything else" is the
+  `TagSearch` combobox over the whole vocabulary (trail, count, alias), named
+  "Add a tag": Enter takes the highlighted term, or adds the typed text as a
+  new tag. Tags no facet places (Df6 — none on the real site since 43k; all
+  of them in the record-less fixtures) stay one-click "Add tag X" buttons.
+  The data is `readTagPicker()` (`readTermPage.ts`: the vocabulary plus
+  `countFacets` over the recipe and group by-term maps), read by
+  `/new-recipe`, `/recipe/<slug>/edit` and `/copy`, and shared from
+  `RecipeFormShell` so the fields and the rail read one model.
+- **Ingredients as rows** (`Form/Ingredients/`, `ingredientRows.ts`):
+  index · amount column (mono, as written: "2 cups · 250g") · the line as
+  plain text with its asides muted (brackets, a dash-led tail) and its
+  inline markdown rendered · a ⋯ menu (Edit, Make it a heading / an
+  ingredient, Insert a line above, Move up/down, Remove). Headings are tape
+  rows. A click opens the row as plain text ("Ingredient N"); a row nobody
+  edits posts its stored string back byte for byte; an edited one is marked
+  up by `createIngredient` (D4) — typing it back to what it was restores the
+  stored string. **Rows | Edit as text**: the whole list as one text, live
+  (each edit is the list; a line that reads as before keeps its markup and
+  heading flag), with the paste path's Find / Replace and heading review.
+  Flags: a `*` that is not emphasis says "The * points at a note on the
+  page that did not come in…" (with Open the page), and the rail says
+  "12 · 1 check".
+- **Steps** (`Form/Instructions/`, `stepChecks.ts`): numbered in reading
+  order across groups; under each, "uses flour · baking soda" (42c1's
+  `matchStepIngredients`, confident only; the chip is the line's short name
+  from `parseIngredientLine`) and "a wait in it: chill 1 hour"
+  (`findStepTimes`); the footer "Every ingredient is named in a step." or
+  "Not named in a step: …".
+- **Drink spec** (`Form/Drink/`, `drinkMethod.ts`): first on a drink, its
+  own section and rail row. Method is a segmented control (pressing the
+  chosen one clears it) that sets its style tag; Glass and Ice are the
+  common values as chips plus a field; Garnish. Same `drink.*` names (the
+  method a hidden input).
+- **Times**: "Prep + cook is 1h 28m; the rest is the chill in step 2." —
+  said only when one step plainly names a wait, else "the other 22m is
+  waiting". **Source and address** ends with "A drink spec and timelines
+  appear when the recipe is tagged a drink or has a timeline — add a drink
+  spec · add a timeline"; timelines sit under the steps once there is one.
+  **Video** is labelled once (the legend; the file input's label is
+  `sr-only`, `FieldWrapper`/`FileInput` grew `labelClassName`).
+- **43e1's found bug fixed**: an untouched save no longer writes `"name":
+""` into every untitled step (De2-6).
+
+**Decisions.**
+
+- **De2-1 a child does not bring its parent into the stored tags.** The
+  curator skill v4's convention (the linzers carry only `linzer` and reach
+  `christmas-cookies` through the hierarchy, `examples.md` §9) and what
+  imports store (no parent added): picking Cookies stores `cookies`; the
+  Desserts row shows it is reached (outlined, "(through a chosen tag)") and
+  a click there adds `dessert` explicitly. Unpicking a term removes every
+  carried spelling of it (slug, label, alias) and nothing else. Roger to
+  confirm.
+- **De2-2 the picker's groups.** Collections (Fall Favorites, House,
+  Syrups) are not a row: canvas B's placeholder sends them to Anything else.
+  Families show only the names the drink carries. A drink is read from its
+  tags (anything under `drink`, Df4) — or, with no vocabulary loaded, the
+  literal `drink` tag.
+- **De2-3 Method → tag: shake→`shaken`, stir→`stirred`, build→`built`,
+  blend → none** (the vocabulary has no `blended` term; a one-off tag is
+  what D6 avoids — the control says so). The control only takes away the
+  tag it set: the loaded method's own tag, or one it added this visit; a tag
+  picked by hand stays when the method changes.
+- **De2-4 the amount column is the line as written**, cut with
+  `ingredientGrammar`'s quantity/unit patterns (`splitLine`), not
+  `parseAmount` → `formatAmount`: that converts units ("12 Tbsp" → "¾ cup"),
+  which an edit form must not show as if it were written.
+- **De2-5 the drink spec stays once shown**: clearing the method (and the
+  tag it set) does not pull the section away mid-edit.
+- **De2-6 an empty step name is no name**: `parseFormData`'s step `name`
+  maps `""` to `undefined` (the shape is unchanged; it is what `source` and
+  `drink` already did). A recipe saved since with `"name": ""` loses the
+  empty key on its next save. Timelines' empty names/notes are untouched.
+- **De2-7 the step name stays a field** (above the text, "Optional — most
+  steps have none"): the data model has step names and the canvas has no
+  place for them; 70 spec lookups use the field.
+- **De2-8 labels kept**: "Prep Time", "Cook Time", "Total Time" (48 spec
+  lookups by title), "Yield", "Add Instruction", "Paste Instructions" stay;
+  "Add Ingredient" became "Add ingredient", with "Add a heading" beside it.
+
+**Specs updated** (same commit): `ingredient-preview` rewritten for the
+rows; `paste-replace`/`paste-review` (Edit as text / Rows), `new-recipe`,
+`edit`, `yield`, `search-tags` (the paste steps), `recipe` (the drink spec:
+add one anyway, Method sets `shaken`, clearing takes it back), `timeline`
+("add a timeline" first). `recipe-tags-aggregate` unchanged ("Add tag X" on
+the record-less corpus).
+
+- **De2-9 an edited ingredient row marks every number, as an import
+  does.** `createIngredient` (the paste and import marker) marks each
+  number outside a per-serving line — "1 (9-inch) pie crust" stores
+  `(<Multiplyable 9/>-inch)` — and `importRecipeData` and the paste path
+  go through it too, so an edited row is marked the same way rather than
+  by a second, amount-only rule. A **heading** row is never marked: its
+  text is stored as typed (trimmed). Roger to confirm.
+- **De2-10 Backspace in an empty "Add a tag" does nothing.** A chip is
+  removed only by its own "Remove tag X" button; a stray key never takes
+  one away (and there is nothing to announce).
+
+**Review fixes** (after the review of a2d76e71):
+
+1. **The row menu no longer closes the field it opened.** The non-modal
+   Popover's `onCloseAutoFocus` handed focus back to ⋯ after `RowField`
+   mounted, so the field blurred and `onDone` ended the edit. Edit and
+   Insert a line above now prevent that and focus the field. New e2e
+   (`ingredient-preview`): keyboard ⋯ → Edit → type → Save; ⋯ → Insert a
+   line above → type.
+2. **A leading emphasis pair survives an edit.** `normalizeIngredientText`
+   strips a leading `*` as a bullet (`"*Optional:* 3 sprigs mint"` became
+   `"Optional:* …"`). `markLine` (`ingredientRows.ts`) holds a leading
+   `*…*` / `**…**` aside, marks the rest and puts it back, in a row and
+   through Edit as text. The import and paste paths still read it as a
+   bullet (`normalizeIngredientText` has six callers; not changed here —
+   backlog).
+3. **Headings are never re-marked** (De2-9); every-number marking of an
+   ingredient row kept, as the importer does it.
+4. **No stray tags.** "Add a tag" commits on Enter / comma; on blur only
+   when the text exactly names a term or alias; Escape clears the text.
+5. Edit as text matches against the list as it is and as it was when the
+   text opened (a line cut and pasted back keeps its markup; a heading
+   toggled since is kept), and a stored line's surrounding whitespace
+   survives an untouched round trip; `ChosenTags` is `role="group"`;
+   Backspace on an empty tag input does nothing (De2-10); the segmented
+   controls (Ingredients' view switch, the drink Method) use the theme's
+   `shadow-sm` instead of a raw shadow. Component tests: zero
+   ingredients, a heading-only list, Rows → Edit as text → Rows (with a
+   cut and paste back), an edited heading row, the tag input, shake →
+   stir → blend.
+
+6. **Found by the gates:** the phone edit form's axe sweep reported
+   `label-content-name-mismatch` (WCAG 2.5.3) on every ingredient row —
+   the row's name read the stored line ("2 cups (250g) flour") while the
+   row shows the amount column ("2 cups · 250g") run into the text. The
+   name is now the amount as shown plus the rest as read, and the amount
+   span ends with a space.
+
+**Gates** (on 5d65f25f, then after merging `origin/main` with 43m and
+43p2 at 0b9e01be):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: clean, before and after the merge.
+- `pnpm exec vitest run`: 142 files / 3,134 tests before the merge; after
+  it 144 / 3,182 with one timeout in `cliJson.test.ts` (a CLI subprocess
+  under load, not this phase's code) — that file alone 27/27.
+- Playwright, Docker build mode: `ingredient-preview`, `paste-replace`,
+  `paste-review`, `recipe`, `recipe-tags-aggregate`, `search-tags`,
+  `new-recipe`, `edit` 105/105; `timeline`, `yield`, `edit-form-frame`,
+  `accessibility`, `visual`, `tag-pages`, `ytdlp-import`, `theme-editor`
+  153/153 (after the 2.5.3 fix and the two baselines below; the first
+  run had 3 failures: `markdown-source-mode` and the phone edit form's
+  axe sweep, light and dark). After the main merge: `ingredient-preview`,
+  `edit-form-frame`, `paste-replace`, `visual` 50 passed, 1 flaky
+  (43m's "make page results, wide", `toHaveText`, passed on retry).
+- Dev mode (Docker): `ingredient-preview` (with the two new menu specs)
+  and `edit-form-frame` 14 passed, 2 flaky — 43e1's "the rail … counts
+  real changes" (Cancel's navigation over 5 s on a cold `next dev`
+  compile) and "an import of a link already in the collection" (the
+  imported name late), both passed on retry.
+
+**Baselines moved** (Docker, build mode, `--update-snapshots=all`; each
+opened and compared with canvas B's `B-desktop` / `B-phone` boards):
+`edit-form-frame` `new-recipe-imported-e2e` (the Tags section is only
+Anything else on the import fixture; ingredient rows with the mono amount
+column and ⋯; steps with "a wait in it" and "uses"; the Times hint; the
+"add a drink spec · add a timeline" line) and `edit-form-mobile-mobile`
+(drink spec first with the Method segments and Glass chips; facet rows
+Spirit & base / Style / Strength & method / Families; rows with the amount
+in the primary colour); `paste-replace-imported-ingredients-e2e` (now a
+row: "1 tablespoon | flour"); `ingredient-preview`
+`ingredient-row-2-cups-sugar-e2e` (new, replaces
+`ingredient-1-preview-2-cups-sugar`); `visual` `new-recipe-form`,
+`new-recipe-form-overwrite`, `edit-form-populated`, `edit-form-overwrite`
+and `markdown-source-mode` (the same form, its sections' new insides).
+
+**Roger to confirm:** De2-1 (a child reaches its parent, not stored);
+De2-3 (blend sets no tag); De2-9 (an edited row marks every number, as
+imports do; headings never); Collections only through Anything else; the
+waits rule (a waiting word before the time, or half an hour or more).
 
 ### 43n — Ingredient names: ranges, synonyms, near-duplicates (M)
 

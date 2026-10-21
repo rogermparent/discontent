@@ -114,6 +114,8 @@ describe("sectionStatuses (43e1)", () => {
       picture: "page",
     });
     expect(statuses).toEqual({
+      /* 43e2: the drink spec's row (shown only on a drink). */
+      drink: { text: "none yet" },
       recipe: { text: "from the page" },
       tags: { text: "3 chosen" },
       picture: { text: "from the page" },

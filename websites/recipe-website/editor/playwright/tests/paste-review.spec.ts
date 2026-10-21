@@ -108,10 +108,10 @@ Knead`,
     test("should demote a mis-detected heading to a flat ingredient", async ({
       page,
     }) => {
-      await page.getByText("Paste Ingredients", { exact: true }).click();
-      const scope = page
-        .getByText("Paste Ingredients")
-        .locator("xpath=ancestor::details[1]");
+      await page
+        .getByRole("button", { name: "Edit as text", exact: true })
+        .click();
+      const scope = page.getByTestId("ingredients-text");
 
       await scope.getByTitle("Ingredients Paste Area").fill(
         `SAUCE
@@ -125,7 +125,7 @@ Knead`,
 
       await line1Toggle.click();
       await expect(line1Toggle).toHaveAttribute("aria-pressed", "false");
-      await scope.getByText("Import Ingredients", { exact: true }).click();
+      await page.getByRole("button", { name: "Rows", exact: true }).click();
 
       await expect(
         page.locator('[name="ingredients[0].ingredient"]'),
@@ -140,10 +140,10 @@ Knead`,
     test("should promote a plain line to an ingredient heading", async ({
       page,
     }) => {
-      await page.getByText("Paste Ingredients", { exact: true }).click();
-      const scope = page
-        .getByText("Paste Ingredients")
-        .locator("xpath=ancestor::details[1]");
+      await page
+        .getByRole("button", { name: "Edit as text", exact: true })
+        .click();
+      const scope = page.getByTestId("ingredients-text");
 
       await scope.getByTitle("Ingredients Paste Area").fill(
         `Sugar topping
@@ -157,7 +157,7 @@ Knead`,
 
       await line1Toggle.click();
       await expect(line1Toggle).toHaveAttribute("aria-pressed", "true");
-      await scope.getByText("Import Ingredients", { exact: true }).click();
+      await page.getByRole("button", { name: "Rows", exact: true }).click();
 
       await expect(
         page.locator('[name="ingredients[0].ingredient"]'),

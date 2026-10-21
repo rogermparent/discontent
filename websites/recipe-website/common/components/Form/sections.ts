@@ -11,8 +11,13 @@ import { detectHeading } from "../../util/detectHeading";
 import { hostnameLabel } from "../../util/hostnameLabel";
 import { matchStepIngredients } from "../../util/stepIngredients";
 import { formatDurationCompact } from "../../util/formatDuration";
-import type { InstructionEntry } from "../../controller/types";
+import {
+  DRINK_METHOD_LABELS,
+  type DrinkMethod,
+  type InstructionEntry,
+} from "../../controller/types";
 import type { RecipeFormValues } from "./formContext";
+import { ingredientFlags, plainLine } from "./Ingredients/ingredientRows";
 
 /** The sections, in page order. "Start from" is the new-recipe page's own. */
 export const RECIPE_SECTIONS = [
@@ -25,7 +30,18 @@ export const RECIPE_SECTIONS = [
   { id: "source", label: "Source" },
 ] as const;
 
-export type RecipeSectionId = (typeof RECIPE_SECTIONS)[number]["id"];
+/** The drink spec's section: first, on a drink (43e2). */
+export const DRINK_SECTION = { id: "drink", label: "Drink spec" } as const;
+
+export type RecipeSectionId =
+  (typeof RECIPE_SECTIONS)[number]["id"] | (typeof DRINK_SECTION)["id"];
+
+/** The sections in page order: the drink spec leads on a drink. */
+export function recipeSections(
+  drink: boolean,
+): ReadonlyArray<{ id: RecipeSectionId; label: string }> {
+  return drink ? [DRINK_SECTION, ...RECIPE_SECTIONS] : RECIPE_SECTIONS;
+}
 
 /** The DOM id a section's heading block carries: the rail links to it. */
 export function sectionAnchor(id: RecipeSectionId | "start"): string {
@@ -60,7 +76,7 @@ const ERROR_SECTION: Record<string, RecipeSectionId> = {
   slug: "source",
   date: "source",
   source: "source",
-  drink: "source",
+  drink: "drink",
 };
 
 export function errorSections(
@@ -114,6 +130,15 @@ export function allLinesUsed(values: RecipeFormValues): boolean {
   return lines.every((line) => used.has(line));
 }
 
+/** How many ingredient lines carry a flag ("The * points at a note…"). */
+export function ingredientChecks(values: RecipeFormValues): number {
+  return values.ingredients.filter(
+    (line) =>
+      line.type !== "heading" &&
+      ingredientFlags(plainLine(line.ingredient ?? "")).length > 0,
+  ).length;
+}
+
 export interface StatusContext {
   /** "from the page" / "from the text" / "from the photo", after an import. */
   fromLabel?: string;
@@ -142,7 +167,14 @@ export function sectionStatuses(
     values.source.name.trim() ||
     (values.source.url.trim() && hostnameLabel(values.source.url.trim()));
 
+  const checks = ingredientChecks(values);
+  const method = values.drink.method as DrinkMethod | "";
   const statuses: Record<RecipeSectionId, SectionStatus> = {
+    drink: method
+      ? { text: DRINK_METHOD_LABELS[method] ?? method }
+      : Object.values(values.drink).some((part) => part.trim())
+        ? { text: "set" }
+        : { text: "none yet" },
     recipe: values.name.trim()
       ? fromPage(["name", "description", "recipeYield"])
       : { text: "needs a name", tone: "warn" },
@@ -157,7 +189,14 @@ export function sectionStatuses(
           : picture === "saved"
             ? { text: "set" }
             : { text: "none" },
-    ingredients: lines ? { text: String(lines) } : { text: "none yet" },
+    ingredients: lines
+      ? checks
+        ? {
+            text: `${lines} · ${checks} ${checks === 1 ? "check" : "checks"}`,
+            tone: "warn",
+          }
+        : { text: String(lines) }
+      : { text: "none yet" },
     steps: steps
       ? allLinesUsed(values)
         ? { text: `${steps} · all lines used`, tone: "ok" }
