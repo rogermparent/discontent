@@ -353,8 +353,11 @@ describe("parseAmount — units", () => {
   });
 
   it("is never a confident count when `and` follows the number", () => {
-    expect(parseAmount("1 & 1/2 cups flour")).toBeNull();
-    expect(parseAmount("2 & a half")).toBeNull();
+    /* `1 & 1/2` and `2 & a half` were the examples here until 43n2 read
+     * them as one number; what is left is two amounts side by side. */
+    expect(parseAmount("1 & 2 cups flour")).toBeNull();
+    expect(parseAmount("1 and 2 cups flour")).toBeNull();
+    expect(parseAmount("1/2 and 1/4 cup sugar")).toBeNull();
   });
 
   it("reads spellings the grammar's unit list lacks", () => {
@@ -709,5 +712,56 @@ describe("parseAmount — the 43n shapes", () => {
     expect(shown("150g or 3 med carrot, diced")).toBe("150 g");
     expect(shown("1lb/.5kg Frozen tater tots")).toBe("1 lb");
     expect(shown("3-4lbs/1.5-2kg Chuck roast")).toBe("4 lb");
+  });
+});
+
+describe("parseAmount — mixed numbers written with and (43n2)", () => {
+  const m = (n: string) => `<Multiplyable baseNumber="${n}" />`;
+
+  it("reads `2 and 1/4 cups` as one number, as the name does", () => {
+    expect(shown("2 and 1/4 cups all-purpose flour")).toBe("2¼ cups");
+    expect(shown(`${m("2")} and ${m("1/4")} cups all-purpose flour`)).toBe(
+      "2¼ cups",
+    );
+    expect(
+      shown(`${m("2")} and ${m("1/4")} cups (${m("281")}g) all-purpose flour`),
+    ).toBe("2¼ cups");
+    /* A list shows teaspoons to the half (`formatAmount`); the part is exact. */
+    expect(parts("2 and 1/4 teaspoons instant yeast")).toEqual([
+      { qty: 2.25, unit: "tsp", family: "us-volume" },
+    ]);
+    expect(shown("2 and ½ cups flour")).toBe("2½ cups");
+    expect(shown("2 and 1/4-cups flour")).toBe("2¼ cups");
+    expect(shown("1 and 1/2 cups plus 2 tablespoons sugar")).toBe("1⅝ cups");
+    expect(parts("2 and 1/2 lemons")).toEqual([
+      { qty: 2.5, unit: "", family: "count" },
+    ]);
+  });
+
+  it("reads `&` and the spelled-out parts too", () => {
+    /* Each was `null` (the `&`), or a count of 1 (`one-half`), before. */
+    expect(shown("2 & 1/2 cups flour")).toBe("2½ cups");
+    expect(shown("2 & ½ cups flour")).toBe("2½ cups");
+    expect(shown("1 and one-half cups milk")).toBe("1½ cups");
+    expect(shown("1 and a quarter cups sugar")).toBe("1¼ cups");
+    expect(shown("1 and three-quarters cups milk")).toBe("1¾ cups");
+    expect(shown("two and a half pounds beef")).toBe("2½ lb");
+  });
+
+  it("scales the mixed number whole", () => {
+    const flour = parseAmount("2 and 1/4 cups all-purpose flour");
+    expect(flour).not.toBeNull();
+    expect(formatAmount(scaleAmount(flour!, 2))).toBe("4½ cups");
+    expect(formatAmount(scaleAmount(flour!, new Fraction("1/2")))).toBe(
+      "1⅛ cups",
+    );
+  });
+
+  it("leaves `and` between ingredients alone", () => {
+    expect(shown("1 cup salt and 2 eggs")).toBe("1 cup");
+    expect(shown("2 tablespoons salt and pepper")).toBe("2 tbsp");
+    expect(parseAmount("salt and pepper")).toEqual(AS_NEEDED);
+    expect(shown("2 and a half cups half and half")).toBe("2½ cups");
+    expect(shown("1 cup half and half")).toBe("1 cup");
   });
 });

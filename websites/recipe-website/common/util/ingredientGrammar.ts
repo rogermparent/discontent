@@ -137,3 +137,61 @@ export const UNIT_OF_RE = new RegExp(
   String.raw`^(?:${UNIT_PATTERN})(?:e?s)?\.?\s+of\s+`,
   "i",
 );
+
+const WHOLE_WORDS: Record<string, string> = {
+  a: "1",
+  an: "1",
+  one: "1",
+  two: "2",
+  three: "3",
+  four: "4",
+  five: "5",
+  six: "6",
+  seven: "7",
+  eight: "8",
+  nine: "9",
+  ten: "10",
+  twelve: "12",
+};
+const PART_WORDS: Record<string, string> = {
+  half: "1/2",
+  third: "1/3",
+  quarter: "1/4",
+  "three quarter": "3/4",
+  "three fourth": "3/4",
+};
+const WHOLE = String.raw`(\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|twelve)`;
+/* `2 and a half`, `1 and one-half`, `1 & three-quarters`. Never `half and
+ * half`: the whole must be a number, and `half` is not one. */
+const AND_PART_RE = new RegExp(
+  String.raw`(?<![\d/.,])\b${WHOLE}\s+(?:and|&)\s+(?:(?:a|one)[\s-]+(half|third|quarter)|(three[\s-]+(?:quarter|fourth)))s?\b(?![\s-]*(?:and|&)[\s-]*half)`,
+  "gi",
+);
+/* `2 and 1/4`, `2 & 1/4` — not `1/2 and 1/4`, which is two amounts. */
+const AND_FRACTION_RE =
+  /(?<![\d/.,])\b(\d+)\s+(?:and|&)\s+(\d+\/\d+)(?![\d/])/g;
+
+/**
+ * A mixed number written with `and` or `&` — `2 and 1/4 cups`, the way
+ * Sally's recipes write them, `2 & ½`, `1 and a half`, `one and one-half`,
+ * `1 and three-quarters` — as the grammar's own `2 1/4` (43n2). Takes text
+ * `readableLine` has read (`½` is `1/2` by then). Only a whole number, then
+ * `and`, then a fraction joins: `1 cup salt and 2 eggs`, `salt and pepper`,
+ * `half and half` and `2 and 3 eggs` stay as they are. Shared by
+ * `parseIngredientLine` and `parseAmount`, so a line's name and its amount
+ * read the same number.
+ */
+export function joinMixedNumbers(text: string): string {
+  if (!/\s(?:and|&)\s/i.test(text)) return text;
+  return text
+    .replace(
+      AND_PART_RE,
+      (_match, whole: string, part?: string, three?: string) => {
+        const key = whole.toLowerCase();
+        const count = /^\d/.test(key) ? key : WHOLE_WORDS[key];
+        const words = (part ?? three ?? "").toLowerCase();
+        return `${count} ${PART_WORDS[words.replace(/[\s-]+/g, " ")]}`;
+      },
+    )
+    .replace(AND_FRACTION_RE, "$1 $2");
+}
