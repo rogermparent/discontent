@@ -181,6 +181,21 @@ survives a cleared context.
   memory instead of IndexedDB (42s), and content: holidays across the year
   and 18 bean salads (42k, 42n). The next four design canvases (42j),
   "Roger to confirm" and Roger's steps are in the Close-out.
+- `websites/recipe-website/docs/agent-epic-43.md` — epic 43: the 42j
+  variants Roger picked, built on one facet model (43f, `facets.ts`;
+  `tag:` matches a term's subtree only) — `/search` sorted by what it is
+  (43s: a Narrow column, Drinks / Food bands, a `tag:` query opening on its
+  term, ⌘K's "All N results"), `/tags` narrow it down (43t: the board with
+  Find and Combine, term pages with Narrow chips, root pages), the meal
+  plan in Plan / Cook modes with `planTimes.ts` (43p1) and C's run sheet
+  (43p2), and the edit form review-then-save (43e1: the section rail,
+  Start from, a duplicate check at Import; 43e2: tags by facet, ingredient
+  rows, step checks, the drink Method); ingredient names (43n: ranges,
+  synonyms, `canned X`; 43n2: "2 and 1/4 cups"), What can I make from an
+  empty list with pattern items (`bean*`, `/regex/`) and both switches gone
+  (43m), Ask — a question fills in a page, editor only (43q) — 42's
+  follow-ups (43a) and a tag cleanup (43k: Other tags 90 → 0). No reindex;
+  64 "Roger to confirm" items and Roger's steps are in the Close-out.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
