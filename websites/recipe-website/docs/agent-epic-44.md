@@ -182,6 +182,114 @@ signal, job?, step?})` in `controller/llm/` beside `chatJson`: a neutral
   (redirect to a private host refused, size cap, text extraction);
   `web_search` against a stub SearXNG.
 
+#### Results (44b)
+
+What changed:
+
+- **`mcp/registry.ts`: the tools are data.** `recipeToolDefinitions(backend)`
+  returns the 59 as `{name, title, description, inputSchema (zod),
+annotations, handler}` in `TOOL_NAMES` order; `createRecipeServer`
+  registers them (a read-only session skips the writes instead of
+  registering and `remove()`ing them — same `tools/list`). No tool's name,
+  description, schema, annotations or handler changed; `INSTRUCTIONS` is
+  exported for 44e. The MCP suites (`mcp`, `mcpHttp`, `mcpStdio`,
+  `curatorSkill`, 67 tests) pass unchanged.
+- **`controller/agent/tools/`** (new):
+  - `names.ts` — `AGENT_TOOL_NAMES` (the 45, spelled out) and
+    `AGENT_HELD_BACK` (the 14), both `satisfies readonly ToolName[]`;
+  - `schema.ts` — `toolInputSchema` (the SDK's own conversion: zod's
+    Standard JSON Schema `input` at draft 2020-12, `type: "object"` at the
+    root, `$schema` dropped), `parseToolInput` (safeParseAsync → the
+    `validation` error object), `toolError`;
+  - `bridge.ts` — `recipeAgentTools(backend, only?)` and
+    `agentTools(backend, {webFetch?, webSearch?, only?})`: the 45, then
+    `web_fetch`, then `web_search` when configured. `run` parses the input,
+    calls the MCP handler and returns its `structuredContent`; a throw is
+    `toErrorObject`, an aborted signal is `cancelled` — never thrown;
+  - `webFetch.ts` — `web_fetch {url, maxChars?, links?}`;
+  - `webSearch.ts` — `web_search {query, site?}` over SearXNG;
+  - `index.ts` re-exports.
+- **`controller/agent/types.ts`** created with the Interfaces block, plus
+  `import type { JobContext as JobHandle } from "../jobs/context"` — the
+  block names `JobHandle` and nothing defines it. 44a writes the same
+  file: take 44a's at merge if they differ.
+- **`editor/.env.example`** (was empty): `RECIPE_SEARCH_URL`, SearXNG's
+  `docker run` (from docs.searxng.org/admin/installation-docker.html, bound
+  to 127.0.0.1:8888) and the `settings.yml` change that enables JSON
+  (`search.formats: [html, json]`, from
+  docs.searxng.org/admin/settings/settings_search.html).
+- Tests: `test/agentTools.test.ts` (6) and `test/agentWebTools.test.ts`
+  (15).
+
+Decisions:
+
+- **Eb1 — Input checking.** The agent parses each call with the tool's
+  own zod schema, so the handler gets exactly what the SDK would hand it.
+  A refusal is `{error: {code: "validation", message: "Invalid arguments
+for <tool>: …", issues}}`, not the SDK's protocol error (T28): a model
+  reads it like any other failure.
+- **Eb2 — Schemas.** The model's `inputSchema` equals the MCP `tools/list`
+  schema minus `$schema` (a test asserts it for all 45). Strict objects
+  stay `additionalProperties: false`; descriptions stay where zod put them.
+  That suits Anthropic's `input_schema` (an object schema) as it is;
+  Ollama keeps what its tool struct knows (type, properties, required,
+  enum, description, items) and ignores the rest — fine for best-effort
+  qwen.
+- **Eb3 — Untrusted tools.** `web_fetch`, `web_search`, `page_inspect`
+  and `page_inspect_list` are `untrusted: true` (their results are a
+  site's words, E7). `recipe_import` is not: it answers a written record.
+- **Eb4 — `web_fetch`'s SSRF guard.** http(s) only (`usage` otherwise);
+  the host is checked with `isPrivateHost`, and a name with a DNS lookup
+  (`all: true`) whose every address must pass `isBlockedAddress`
+  (`isPrivateHost`'s ranges plus multicast/broadcast and IPv6 `ff…`); then
+  redirects are followed by hand (`redirect: "manual"`, at most 5), each
+  target checked the same way, another scheme there `blocked`. **Not
+  caught:** DNS rebinding between the lookup and `fetch`'s own connection —
+  closing it needs a dispatcher with a checked `lookup` (undici is not a
+  dependency; `fetch` stays, per 44's trap). Roger to confirm that is
+  acceptable on the workstation and the Pi.
+- **Eb5 — Pacing and the size of things.** One `web_fetch` is one request
+  on the first URL's site queue (`SitePacer`, the polite 403 retry, a
+  twice-refused site dropped), its redirects inside it as the importer's
+  are — so `www.` → bare domain does not wait 15 s for itself; the final
+  site's clock moves after. Body read to 2 MB (`bytesCapped`), then 36's
+  `pageTextDetail` cut from the middle to `maxChars` (default 8 000, max
+  24 000). `links: true` adds up to 50 `{text, url}` (page text drops
+  links, and a roundup or article is mostly links). Not text
+  (image, PDF…) is `fetch_failed`. 45 s for the request, a 403's gap and
+  its retry.
+- **Eb6 — `web_search`.** Absent unless `RECIPE_SEARCH_URL` (or the
+  option) is set. `GET <base>/search?q=…&format=json` (`/search` appended
+  unless the base ends so), 15 s timeout, top 8 http(s) results deduped as
+  `{title, url, snippet?}` (snippets ≤ 300 chars), `site:` appended to the
+  query, up to 5 `suggestions`. SearXNG is Roger's own service: not paced,
+  not SSRF-guarded. A 403 says `json` is missing from `search.formats`.
+- **Eb7 — Error codes** beyond the curation layer's: `blocked`,
+  `fetch_failed` (with `status`/`finalUrl` when there was an answer) and
+  `search_failed`. 44e's prompt should name them.
+- **Eb8 — Same grant, same reach.** The 45 include `recipe_set_image` /
+  `term_set_image` with a local `path` and `recipe_import` with local
+  `photos`: the agent can read image files the editor's process can, as
+  Claude Code's MCP server can. Every such write is one revertable commit.
+
+Measured: the 45 tools' JSON schemas are **17,189 characters** and their
+descriptions **23,501** — about 10k tokens, close to qwen3:8b's whole
+12,288-token context (40a). 44e must hand a local model a subset
+(`agentTools(…, {only})`, kept in the grant's order) or shorter
+descriptions; Claude takes the full set.
+
+Gates (host, through `heavy.sh`): `pnpm --filter recipe-editor typecheck`
+clean; `pnpm --filter recipe-website exec tsc --noEmit` clean;
+`pnpm exec vitest run` **147 files, 3,287 tests passed**. No UI file
+changed, so no Playwright.
+
+Roger to confirm: Eb4's rebinding gap; SearXNG bound to 127.0.0.1 only
+(the editor runs on the same machine).
+
+For 44c: `RECIPE_SEARCH_URL` is not yet in the CLI's `EDITOR_ENV_KEYS`
+(`cli/editorEnv.ts`), so `pnpm recipes agent` will not read it from
+`editor/.env` until 44c adds it (and the CLI help line).
+
 ### 44c — Agent jobs, the route, the CLI
 
 The `agent` job kind (`JOB_KIND_NAMES`, a handler in `kinds.ts`); a run =
