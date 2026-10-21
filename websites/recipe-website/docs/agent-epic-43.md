@@ -20,7 +20,8 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** wave 1 — 43a ∥ 43f ∥ 43n, and 43k's dry run (2026-10-19).
+**Now:** closed 2026-10-21 (#294–#306, main `4b2b0c7f`); see the
+[Close-out](#close-out). Next: epic 44, the curator in the editor.
 
 ## Context
 
@@ -52,21 +53,22 @@ The canvases' local copies (boards `*.dc.html`, the canvas CSS,
 
 ## Roadmap
 
-| Phase    | Size | Branch                       | Status | PR  | What                                                                                           |
-| -------- | ---- | ---------------------------- | ------ | --- | ---------------------------------------------------------------------------------------------- |
-| 43a      | S    | `agent/43a-followups`        | 🟡     | —   | Epic 42 follow-ups: guest controls hidden, /shopping optional + duplicate rows, build timeout. |
-| 43f      | S–M  | `agent/43f-facets`           | 🟡     | —   | The facet model (`common/util/facets.ts`) behind search, /tags and the tag picker.             |
-| 43n      | M    | `agent/43n-ingredient-names` | 🟡     | —   | Ingredient names: ranges, dashes, synonyms, descriptors, a near-duplicate report.              |
-| 43k      | S    | (content repo)               | 🟡     | —   | Tag cleanup: one-off drink-name tags to families or aliases, a `house` term.                   |
-| 43s      | L    | `agent/43s-search`           | 📝     | —   | /search B "Sorted by what it is": Narrow column, bands, term card, ⌘K row.                     |
-| 43t      | L    | `agent/43t-tags`             | 📝     | —   | /tags B "Narrow it down": board, Combine, term page, root pages.                               |
-| 43p1     | L    | `agent/43p1-plan`            | 📝     | —   | Meal plan B: plan mode, cook mode, `planTimes.ts`, /groups.                                    |
-| 43p2     | M    | `agent/43p2-run-sheet`       | 📝     | —   | The run sheet: C's features on the plan page.                                                  |
-| 43e1     | L    | `agent/43e1-edit-form`       | 📝     | —   | Edit form B: section rail, Start from, duplicate check, save card.                             |
-| 43e2     | M–L  | `agent/43e2-edit-fields`     | 📝     | —   | Edit form B: tags by facet, ingredient rows, steps, drink spec.                                |
-| 43m      | M–L  | `agent/43m-make`             | 📝     | —   | What can I make: start from nothing, pattern items, both switches gone.                        |
-| 43q      | L    | `agent/43q-ask`              | 📝     | —   | Ask: a question becomes a filled-in page (editor only, never writes).                          |
-| 43-close | S    | `agent/43-close`             | 📝     | —   | Close-out, CLAUDE.md bullet, backlog, memory, the morning report.                              |
+| Phase    | Size | Branch                       | Status | PR   | What                                                                                           |
+| -------- | ---- | ---------------------------- | ------ | ---- | ---------------------------------------------------------------------------------------------- |
+| 43a      | S    | `agent/43a-followups`        | ✅     | #296 | Epic 42 follow-ups: guest controls hidden, /shopping optional + duplicate rows, build timeout. |
+| 43f      | S–M  | `agent/43f-facets`           | ✅     | #295 | The facet model (`common/util/facets.ts`) behind search, /tags and the tag picker.             |
+| 43n      | M    | `agent/43n-ingredient-names` | ✅     | #297 | Ingredient names: ranges, dashes, synonyms, descriptors, a near-duplicate report.              |
+| 43n2     | S    | `agent/43n2-and-fractions`   | ✅     | #304 | Mixed numbers written with "and" ("2 and 1/4 cups"); added mid-run from 43p2's finding.        |
+| 43k      | S    | (content repo)               | ✅     | —    | Tag cleanup: one-off drink-name tags to families or aliases, a `house` term.                   |
+| 43s      | L    | `agent/43s-search`           | ✅     | #299 | /search B "Sorted by what it is": Narrow column, bands, term card, ⌘K row.                     |
+| 43t      | L    | `agent/43t-tags`             | ✅     | #301 | /tags B "Narrow it down": board, Combine, term page, root pages.                               |
+| 43p1     | L    | `agent/43p1-plan`            | ✅     | #298 | Meal plan B: plan mode, cook mode, `planTimes.ts`, /groups.                                    |
+| 43p2     | M    | `agent/43p2-run-sheet`       | ✅     | #303 | The run sheet: C's features on the plan page.                                                  |
+| 43e1     | L    | `agent/43e1-edit-form`       | ✅     | #300 | Edit form B: section rail, Start from, duplicate check, save card.                             |
+| 43e2     | M–L  | `agent/43e2-edit-fields`     | ✅     | #305 | Edit form B: tags by facet, ingredient rows, steps, drink spec.                                |
+| 43m      | M–L  | `agent/43m-make`             | ✅     | #302 | What can I make: start from nothing, pattern items, both switches gone.                        |
+| 43q      | L    | `agent/43q-ask`              | ✅     | #306 | Ask: a question becomes a filled-in page (editor only, never writes).                          |
+| 43-close | S    | `agent/43-close`             | ✅     | —    | Close-out, CLAUDE.md bullet, backlog, memory, the morning report.                              |
 
 Ordering, in waves: **1** 43a ∥ 43f ∥ 43n (43k's dry run alongside); **2**
 43s ∥ 43t ∥ 43p1 ∥ 43e1 (disjoint files; at most three queued for the heavy
@@ -323,7 +325,46 @@ Dry run → orchestrator review → apply through the CLI (D6): the ~90 one-off 
 
 #### Results (43k)
 
-_Pending._
+Applied 2026-10-19 through the CLI (`recipes term create|update --stdin`),
+one commit per op: **95 commits**, `73858003`..`95ce65f5` on the content
+repo's `uraninite` branch (not pushed by the session; the workstation's
+sync carries them). The dry run was an agent's (read-only), reviewed by the
+orchestrator, then applied. No recipe's tags were changed (D6). **Reindex:
+none** (the CLI's writes keep the indexes; `/tags` was revalidated).
+
+- **"Other tags" 90 → 0** on the live board (`/tags` after `POST
+/api/revalidate`). A tag leaves Other tags when it has a term record or
+  is an alias (`termBoard`).
+- **28 drink variants nested under their family**: `frozen-margarita`,
+  `mezcal-margarita`, `virgin-margarita` → `margarita`; `virgin-mojito`,
+  `sake-mojito`, `green-tea-mojito` → `mojito`; `chamomile-toddy`,
+  `tea-hot-toddy` → `hot-toddy`; mules, martinis, sangrias, Bloody Marys, a
+  gimlet, a daiquiri, a Paloma, a mint julep, a cosmopolitan,
+  `zero-proof-aperol-spritz`, `hibiscus-earl-grey-iced-tea` →
+  `hibiscus-tea`. Two new families: **`rickey`** (gin, lime) and
+  **`spritz`** (blood orange, St-Germain, vermouth, plus the existing
+  `aperol-spritz`, `hugo-spritz`, `limoncello-spritz` re-parented under
+  it): `tag:spritz` 0 → 10.
+- **58 one-recipe drink names got a record under `drink`** (Americano …
+  Zombie, and the three Halloween drinks), and **three syrups under
+  `syrup`** (lavender, honey, simple).
+- **`house`**: a root collection "House recipes", 18 recipes (17 drinks and
+  lavender syrup, all without a source: Roger's own).
+- **Aliases: none.** No tag was clearly the same thing as an existing term.
+
+**Decisions.**
+
+- **Dk1** — the three Halloween one-offs (`halloween-punch`, `poison-apple`,
+  `witches-brew`) became drink terms like the others (the dry run had left
+  them).
+- **Dk2** — `house` is a root collection, not under `drink`, so lavender
+  syrup doesn't join `tag:drink`.
+
+**Roger to confirm.** The two-deep nesting (Drinks › Margarita › Frozen
+Margarita); `mexican-mule` under Moscow Mule; `sake-cocktail` (Sake
+Southside) as a drink term; re-parenting the three existing spritzes; the
+House recipes description. The dry run, the ops and the apply log are in
+the orchestrator's scratch (`tmp/43/43k/`).
 
 ### 43s — /search B "Sorted by what it is" (L)
 
@@ -1922,6 +1963,13 @@ moved (above) show on no screenshot; no new spec, so no dev-mode run.
   `instant dry yeast` row never sees it (3 lines). A row that must catch
   lent tails belongs after `inheritTails`, not in `toName`.
 
+### 43n2 — Mixed numbers written with "and" (S, added mid-run)
+
+Not in the approved plan: 43p2 found that the shopping view reads "2 and
+1/4 cups all-purpose flour" as the name `cup all purpose flour` (Sally's
+recipes write amounts that way), so a small phase on 43n's files fixed it
+after 43m merged.
+
 #### Results (43n2)
 
 Branch `agent/43n2-and-fractions`. **Reindex: not needed** (as 43n: names
@@ -2483,7 +2531,7 @@ dev mode: first 8 passed, 2 flaky (the first visits to `/make`
 and a recipe page compile past `toHaveURL`'s 5 s; both passed on retry),
 then with a 30 s first-visit wait on those two **10/10**. Axe (WCAG 2.2 tags) green on the palette with the
 leading and the trailing Ask row, `/search` with Ask on, and the strip on
-`/make` and at 390 px._
+`/make` and at 390 px.
 
 **Real-model check (orchestrator, 2026-10-21).** qwen3:8b on the
 workstation GPU (parakeet paused first), `ask()` against a copy of the
@@ -2522,7 +2570,8 @@ Close-out in `agent-epic-43.md`, CLAUDE.md bullet, backlog rows, memory, the mor
 
 #### Results (43-close)
 
-_Pending._
+The [Close-out](#close-out) below; a CLAUDE.md "Durable docs" bullet;
+backlog rows (`backlog.md`, each recorded at its 43x phase). Docs only.
 
 ## Verification
 
@@ -2534,4 +2583,259 @@ _Pending._
 
 ## Close-out
 
-_Pending (43-close)._
+Closed 2026-10-21. The run started unattended on 2026-10-19, paused when
+Roger hit his limits (every agent stopped mid-gates, resumed 2026-10-20
+with fresh finishers), and was held twice more by low memory (Lessons,
+below). Every phase landed, plus one added mid-run (43n2); main is
+`4b2b0c7f`. Beside them the orchestrator applied 43k to the content repo
+(95 commits) and, at Roger's ask during the run, imported 14 pork
+shoulder recipes (825 → 839, a `pork-shoulder` term under `pork` with
+`pork-butt` / `boston-butt` aliases on 26 recipes). Nothing was deployed
+and the content repo was not pushed; the workstation's sync carries the
+content commits to the Pi.
+
+**No reindex is needed.** Every phase's Results says "Reindex needed: no"
+(or "none"), and a grep of the merged diff (`5ca3c53f..4b2b0c7f`, code
+only) finds no change to an index version, `ENGINE_INDEX_FORMAT`, a
+`specVersions` entry or a projection. Names (43n, 43n2), facets (43f) and
+the plan parser (43p1) are computed at request time or in the browser;
+43s's `/search/term-descriptions` is a new lazy document, not an index;
+43t deferred the one projection change it considered (Dt6). If a future
+phase does bump one, the index-version stamp (39b) rebuilds at start.
+
+### What landed
+
+| Phase | PR   | Merge      | What                                                                                                                                                                                                                    |
+| ----- | ---- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| plan  | #294 | `db12c934` | The skeleton: this doc's plan, decisions and roadmap.                                                                                                                                                                   |
+| 43f   | #295 | `51465477` | The facet model (`facets.ts`): food and drinks groups, counts within any set, `tag:` matching a term's subtree only (Df9).                                                                                              |
+| 43a   | #296 | `464a7235` | 42's follow-ups: write controls only with a session (recipe, group, term pages); the duplicate "gel food coloring" row; `staticPageGenerationTimeout: 180`.                                                             |
+| 43n   | #297 | `03974887` | Ingredient names: ranges and second measures, dashes, containers, a synonym and descriptor table (mayo = mayonnaise, mild feta = feta cheese), `canned X` for every can (Dn2), the near-duplicate report.               |
+| 43p1  | #298 | `e45e6f03` | The meal plan B: Plan mode (reorder + scale, one Save), Cook mode (Up next, made ticks per browser), the rail, `planTimes.ts`, `/groups` row cards.                                                                     |
+| 43s   | #299 | `fb7bc43e` | `/search` B: the Narrow column, Drinks / Food bands, a `tag:` query opening on its term with date bands, cards with the why line, counted completions, ⌘K's "All N results in search".                                  |
+| 43t   | #301 | `9c0db653` | `/tags` B: the facet board with Find a tag and Combine, term pages (count ticker, Narrow chips, holiday when card), root pages by narrower term.                                                                        |
+| 43e1  | #300 | `15ce93ec` | The edit form's frame: section rail and save card, Start from (five ways in, the job panel, a receipt), the duplicate check at Import time.                                                                             |
+| 43m   | #302 | `7dbbb797` | What can I make: Most used here from an empty list, pattern items (`bean*`, `/regex/`, "Match every line with"), both switches gone.                                                                                    |
+| 43p2  | #303 | `7db6d4cf` | The run sheet: C's hero stats, Day before / Baking day, oven bars to scale, the run-sheet table, the shopping docket.                                                                                                   |
+| 43n2  | #304 | `41383142` | "2 and 1/4 cups" (and `&`, "and a half") read as one mixed number in names and amounts.                                                                                                                                 |
+| 43e2  | #305 | `1813ae92` | The edit form's insides: tags by facet, ingredient rows with an amount column, steps with "uses" and waits, the drink spec's Method setting its style tag.                                                              |
+| 43q   | #306 | `4b2b0c7f` | Ask: a question in ⌘K or on `/search` becomes a filled-in page (`/make`, `/search`, a holiday menu, a term, a plan), grounded against the vocabulary, editor only, never writes.                                        |
+| 43k   | —    | content    | The tag cleanup: 95 commits `73858003`..`95ce65f5`; Other tags 90 → 0, 28 variants nested, `rickey` and `spritz` families, 58 drink-name records, three syrups, a `house` record. No aliases; no recipe's tags changed. |
+
+### What to look at first
+
+On the workstation, after `pnpm workstation update`:
+
+1. **`/search`** — "lime" (Drinks and Food bands, the Narrow column), then
+   `tag:christmas` (the term card and date bands), and on a phone the
+   Narrow sheet.
+2. **`/tags`** — the board: Find a tag, Combine two rows, the Holidays
+   aside, the Drinks shelf's Families.
+3. **A term page** — `/tags/christmas` (the count ticker, the when card,
+   "Narrow Christmas" chips).
+4. **`/tags/course`** — a root page: one section per course, By course /
+   Newest.
+5. **A meal plan** — a cookie plan in Plan (reorder and scale, one Save),
+   **Run sheet** and Cook (on a phone: Up next, Mark made).
+6. **`/groups`** — the row cards with their photo strips and Plan / Cook
+   buttons.
+7. **The new-recipe form** — import a link (the receipt, the duplicate
+   flag on a link already in the corpus), then **an edit form** (the rail,
+   tags by facet, ingredient rows, a drink's Method).
+8. **`/make` from an empty list** — Clear, then Most used here; add
+   `bean*` and `/may(o|onnaise)/`.
+9. **Ask** — ⌘K "what drinks can I make with lime" and the `/search` Ask
+   toggle; the "Filled in from" strip and its Undo.
+
+### Roger's steps
+
+1. **`pnpm workstation update`** (main checkout) **on a quiet machine**:
+   the update builds the editor against the real corpus, and 43a's
+   `staticPageGenerationTimeout: 180` now covers the slow `/tags/[tag]`
+   pages that failed at load ~30 (42s-T2). If it still times out, rerun
+   it when the machine is quiet.
+2. **Look at the pages** above.
+3. **`! pnpm deploy:pi`** when happy.
+4. **Reindex: none.** No phase changed an index version (above). Had one
+   done so, the index-version stamp would have rebuilt at start.
+5. **Ask** works on the workstation as soon as it is updated (qwen3:8b
+   through `RECIPE_LLM_URL`; measured 8.0 s cold, 0.67–0.94 s warm). On the
+   Pi it needs the Claude API key from 38g in `uraninite.env`; that path
+   has not been tried (no key on the workstation). With no model set up
+   Ask is hidden (Dq2).
+6. Pick the ingredient merges (item 47) and answer the list below.
+7. Docker disk: the session's `content-engine-playwright:agent-*` tags are
+   the orchestrator's to remove at close; older images and the build cache
+   are Roger's call.
+
+### Roger to confirm
+
+Each item is one line here; the reasons are in the phase's Results.
+
+**`/search` and the facet model (43s, 43f)**
+
+1. Ds4 — on a `tag:` query the desktop shows full date bands, not the
+   canvas's thumbnail rows; a phone shows two-column grids.
+2. Ds6 — the ticker keeps the query, so the phone toolbar wraps to three
+   lines.
+3. Ds9 — "All 1 dish" stays on a one-card band.
+4. Df9 — a whole term name after `tag:` no longer prefix-matches longer
+   tags (`tag:gin` is the Gin drinks, not every name starting "gin").
+5. Df2 — `stirred` and `built` are styles; only `shaken` is a method.
+
+**`/tags`, term pages and the tag cleanup (43t, 43k)**
+
+6. Dt2 — House recipes shows on both the Food and Drinks shelves.
+7. Dt5 — terms nothing carries leave the board.
+8. Dt6 — term-page cards show the date, not the time.
+9. Dt7 — Narrow chips AND together.
+10. Dt8 — `spirit` gets the root layout; collections with narrower terms
+    narrow instead.
+11. Dt9 — no six-photo strip on a plan card.
+12. 43k — two-deep drink nesting (Drinks › Margarita › Frozen Margarita).
+13. 43k — `mexican-mule` under Moscow Mule.
+14. 43k — `sake-cocktail` (Sake Southside) as a drink term.
+15. 43k — the three existing spritzes re-parented under the new `spritz`.
+16. 43k — the House recipes description.
+
+**The meal plan and `/groups` (43p1, 43p2)**
+
+17. Dp1-2 — the server renders Plan; a phone switches to Cook as it
+    hydrates (a `?mode=cook` link renders Cook from the server).
+18. Dp1-3 — "1–2 away" on the shelf's middle tile.
+19. Dp1-9 — the plan's own picture kept under the description.
+20. Dp1-11 — a Save over a plan that changed meanwhile is refused, not
+    merged.
+21. Dp1-12 — the viewport picks the default mode once per page load.
+22. Dp2-1 — the run sheet is a third mode, offered only when a recipe
+    bakes or chills, never the default.
+23. Dp2-3 — "cookies + 1 more" for the board's "cookies + sugar".
+24. Dp2-4 — "the big ones" are the most-merged rows, ticked ones left out.
+25. Dp2-8 — on a phone the keeps are said once under Day before; the rest
+    and what sets ride with the bake.
+
+**The new-recipe and edit forms (43e1, 43e2)**
+
+26. De1-4 — Start over re-opens the ways in and keeps the form.
+27. 43e1 — the receipt's wording.
+28. 43e1 — Cancel on a new recipe goes to `/` without asking.
+29. De1-9 — the duplicate check doesn't know `youtu.be/x` is
+    `youtube.com/watch?v=x`.
+30. De2-1 — a chosen child reaches its parent; the parent isn't stored.
+31. De2-2 — Collections only through "Anything else".
+32. De2-3 — Method "blend" sets no tag.
+33. De2-9 — an edited ingredient row marks every number, as imports do;
+    headings never.
+34. 43e2 — the Times hint's waits rule (a waiting word before the time, or
+    half an hour or more).
+
+**What can I make (43m)**
+
+35. Dm6 — Most used here is a tab beside Buy next; pantry staples left out.
+36. Dm6 — Clear with Count from the saved list stays on Buy next.
+37. Dm1/Dm4 — `bean*` meets green and vanilla beans (a word match;
+    `any bean` is still the family).
+38. Dm1 — a pasted footnote like `sugar*` reads as a pattern.
+39. Dm2 — regexes outside the whitelist are refused (no repeated groups, a
+    ways budget).
+40. Dm5 — a regex can't be featured.
+41. Dm7 — focus moves to the next Most used row after a tap.
+42. 43m — "With a bean swap" is gone: put `any bean` or `bean*` on the
+    list.
+
+**Ingredient names: Make, `/shopping`, step "Uses" (43n, 43n2, 43a)**
+
+43. 43n — the synonym merges, especially ground spices → the bare spice,
+    dry red/white wine → the wine, white sugar → granulated sugar.
+44. Dn2 — `canned X` for every can: "1 can black beans" and "1 cup black
+    beans" are two rows on a list.
+45. Dn2 — `canned chickpea` in the `inventory make` seat's labels (the
+    page's tapes drop it).
+46. 43n — the label rule (a label is the name unless something named
+    follows it, or it names a part of the recipe).
+47. 43n — which of the 30 near-duplicates left (43n Results §3) to merge.
+48. Dn2-1 — `&` reads as `and` in a mixed number.
+49. Dn2-2 — a line that is only "2 and a half" names nothing.
+50. Da1 — a merged row with optional and required lines shows as
+    required.
+
+**Ask (43q)**
+
+51. Dq6 — the question words and the three-word floor; Tab calls the row
+    up.
+52. Dq3 — 30 s all told, then the word search opens.
+53. Dq2 — Ask hidden on a machine with no model.
+54. Dq5 — pattern items from a question AND together.
+55. Dq8 — Undo goes back to the page the Ask came from.
+56. Dq9 — "plan" opens collections too.
+57. Dq12 — only a "?" or a question word leads; a request like "any bean
+    salad" gets the row after the results.
+58. Dq13 — a second Ask on `/make` resets only the query and scope.
+59. Dq14 — Undo with no record opens the empty search.
+60. Dq15 — Escape leaves the Ask box.
+61. Dq16 — `/api/ask` accepts a write token, as the other reads do.
+62. Dq17 — in-place `/search` answers and Dismiss's plain history state.
+63. Dq18 — marks on the highlighted palette row in the foreground colour.
+64. Dq19 — any `field:` the query language lacks is refused, so the
+    answer falls back to the word search.
+
+### Lessons and traps
+
+- **Low memory reaps the waiters.** Twice (2026-10-20 18:25 and 23:21,
+  848 MB available) Claude Code killed a PR watcher and the 43q
+  finisher's waiters; per the harness the orchestrator held until Roger
+  said restart. A detached Docker job survived (43q-pw2 finished 156/156),
+  so read the job's log before re-running it. Keep the heavy jobs capped
+  and few; a reap is a hold, not a retry.
+- **A `<q>`'s quotation marks are CSS.** `toHaveText` doesn't see them:
+  seven new `ask.spec` failures were assertions on "“…”" text. Assert the
+  words inside, or the element.
+- **Next's history state (Dq17).** Next adopts a `pushState` /
+  `replaceState` only when the state is not its own; passing
+  `window.history.state` changed the URL while `useSearchParams` never
+  followed. Pass `null`.
+- **`router.push` to the page you're on races its own URL update.** On
+  `/search` the search's `replaceState` of `?q=` won and `?ask=` was lost;
+  an in-place `pushState(null, …)` plus the page's own submit fixed it.
+- **One real-model run finds what stubs can't (Dq19).** The stubbed vitest
+  and e2e were green; the first real qwen3:8b run invented a
+  `main-ingredient:` field that grounding let through as free text. Every
+  model-facing phase gets one real check before merge.
+- **Sign-in clicks before hydration are lost** (Tp1-1, #301): a frozen
+  clock under `next dev`, and `featured-recipes`' sign-in in CI. The
+  shared `signIn` helper now waits with `expectHydrated`.
+- **A scroll container hands its min-content width to the grid track**
+  (De1-8): the phone's pill row stretched the page to ~660 px until
+  `contain: inline-size`; `sr-only` spans positioned against the page did
+  the same. Assert `scrollWidth` on phone specs.
+- **A ReDoS scan is beaten by shapes it didn't think of** (Dm2): the
+  nested-repeat check fell three ways in review; a whitelist parser with a
+  ways budget and a time-bound fuzz test replaced it.
+- **Shortening a name can cost step matches** (Tn1), **stored overrides are
+  keyed by the old name** (Tn2), **`inheritTails` runs after the table**
+  (Tn3).
+- **axe samples mid-transition** (43m): a tab trigger's colour fade read as
+  a contrast failure; `transition-none` on it.
+- **The review agent paid again.** Blockers on 43m (the ReDoS scan) and
+  43e2 (the row menu closing its field), real findings on every M/L phase.
+  Eight workers crossed ~400k tokens and handed their gates to fresh
+  finishers, which worked; after the pause, each finisher resumed from a
+  written brief and the branch's git state.
+- **`cliJson` "keeps the inventory…" times out at 30 s under load** (43n,
+  43n2, 43p1, 43q); green alone every time. Backlog.
+
+### Backlog
+
+Rows added in `backlog.md`, each "Recorded at" its 43x phase: the
+`cliJson` timeout under load; `search-query-chips`' two tickers while
+loading; Ask's loose answers; Ask over the Claude API untried; no `korean`
+/ `filipino` cuisine terms; the 30 ingredient near-duplicates; the
+duplicate check's YouTube links; a time on term-page cards (a projection
+change); the plan card's photo strip. The `command-palette.spec:151` row
+gained 43s's sighting.
+
+### Next
+
+Epic 44, the curator in the editor (an in-editor agent with web tools:
+SearXNG, Claude first with qwen best-effort, the same 45-tool grant as the
+skill), is planned next.
