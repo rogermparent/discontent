@@ -160,6 +160,218 @@ signal, job?, step?})` in `controller/llm/` beside `chatJson`: a neutral
   over a scripted model (budgets, cancel, a tool that throws, trimming).
   Never a real model in tests.
 
+#### Results (44a)
+
+**What changed.**
+
+- `controller/llm/tools.ts` (new): `chatTools(request)` — one model turn
+  over the neutral conversation, mapped to the Claude API, Ollama and
+  OpenAI-compatible wire formats; answers the assistant message (text,
+  `toolCalls[]`, Claude's `serverToolUses[]`, and for Claude the `raw`
+  content blocks), a normalised `stop` (`end` · `tool_use` · `max_tokens`
+  · `refusal` · `pause` · `other`, plus the API's own `apiStop`), and the
+  turn's `usage`. Also `emptyUsage` / `addUsage` / `totalInputTokens`,
+  `readArguments`, `trimmedStub` / `toolResultText`, and the wire mappers
+  (`claudeMessages`, `claudeTools`, `claudeToolsBody`, `ollamaMessages`,
+  `openAiMessages`, `localToolsBody`, `readClaudeContent`) exported for
+  tests and 44c.
+- `controller/llm/cost.ts` (new): `CLAUDE_PRICE_ESTIMATE_USD_PER_MTOK`
+  (16 models, per MTok: input, output, 5-minute cache write, cache read),
+  `WEB_SEARCH_PRICE_ESTIMATE_USD` ($0.01), `claudeCostEstimate`,
+  `modelPriceKey` (a dated id priced by its family).
+- `controller/llm/client.ts`, refactored, no behaviour change for
+  `chatJson` / `chatText`: the shared pieces are now exported functions —
+  `postClaude` (the Messages API request with Dg5's retry, Dg13's
+  wording), `postLocal` (an Ollama / OpenAI-style request and its
+  failures, with an opt-in retry, Ea2), `onGpuLine` (the `gpu` line with
+  D6's reload and 38e's unload, formerly the body of `chat()`),
+  `recordLocalCall` (step numbers, the full-context warning, placement),
+  `assertSecureClaude` (Dg12), `requestHeaders`, `endpoint`,
+  `readResponse`; `LlmError.retryAfterMs`. `chat()` and `callClaude` call
+  them; the 38g / 40a / 38e suites pass unchanged.
+- `controller/agent/types.ts` (new): the Interfaces block as written, and
+  after it (additive, Ea1) `JobHandle`, `ToolSpec`, the neutral messages
+  (`AgentMessage` = `AgentUserMessage` | `AgentAssistantMessage` |
+  `AgentToolResultMessage`), `AgentToolCall`, `ServerToolUse`,
+  `AgentUsage`, `AgentBudgets`, `AgentStopReason`, `AgentEvent`,
+  `AgentResult`.
+- `controller/agent/loop.ts` (new): `runAgent(options)` →
+  `AgentResult {text, stopReason, error?, usage, turns, toolCalls,
+trimmed, durationMs, transcript}`; `checkInput`, `trimToFit`,
+  `estimatePrompt`, `wrapUntrusted`, `capResult`; the constants
+  `DEFAULT_AGENT_BUDGETS`, `CLAUDE_AGENT_CONTEXT_TOKENS`, `TRIM_AT_SHARE`,
+  `ANSWER_RESERVE_TOKENS`, `TOOL_RESULT_SHARE`, `TOOL_RESULT_MIN_CHARS`,
+  `TOOL_ERROR_MAX_CHARS`, `UNTRUSTED_TAG`.
+- Tests: `test/llmTools.test.ts` (27) and `test/agentLoop.test.ts` (24).
+
+**For 44b and 44c.** `runAgent({system, prompt, history?, tools,
+serverTools?, budgets?, signal?, onEvent?, config?, numCtx?,
+contextTokens?, think?, effort?, job?, model?})`. A tool's `run` result
+is sent as it is when a string, else as compact `JSON.stringify` — so the
+bridge should return the MCP server's compact JSON object (or its text).
+`history` is a previous `AgentResult.transcript`; `prompt` is appended
+to it. With `job`, steps are made by the loop (Ea10) — 44c passes the
+job and maps `onEvent` to the transcript file, not to steps. `signal`
+defaults to the job's.
+
+**Decisions.**
+
+- **Ea1 — Types additive, `JobHandle` = `JobRun`.** The Interfaces block
+  is copied verbatim; it names a `JobHandle` that did not exist, so
+  `types.ts` defines it as epic 37's `JobRun` (`{log, signal, tier,
+jobId…}`, all optional). The neutral conversation lives in
+  `agent/types.ts` (types only), and `llm/tools.ts` imports it.
+- **Ea2 — The retry is shared, and an OpenAI-style server gets it.**
+  `postClaude` is 38g's request loop lifted out of `callClaude`; `postLocal`
+  takes `retry`, which `chatTools` sets for `RECIPE_LLM_API=openai` (one
+  retry after 429/529/5xx, `retry-after` capped at 30 s — a hosted server
+  rate-limits, llama.cpp answers 503 while loading). Never for Ollama: its
+  5xx with an error body is a runner failure that 38-Te5 unloads.
+  `chatJson` passes no `retry`, so its behaviour is unchanged.
+- **Ea3 — Claude's server tools: the basic versions, no beta header.**
+  `ANTHROPIC_WEB_SEARCH_TOOL_TYPE = "web_search_20250305"`,
+  `ANTHROPIC_WEB_FETCH_TOOL_TYPE = "web_fetch_20250910"`. The newer
+  versions (`_20260209`, `_20260318`, and `web_fetch_20260309`) add
+  dynamic filtering, which runs the tool from inside code execution
+  (`allowed_callers` defaults to `["code_execution_20260120"]`): the
+  response then carries code-execution blocks and a `container` id this
+  client does not handle, and they are not ZDR-eligible. The basic ones are
+  called directly and work on every model that has the tools. A client
+  tool with a server tool's name (44b's SearXNG `web_search`) is not sent
+  beside the server tool (the API would refuse two of one name).
+- **Ea4 — Claude's content kept raw.** An assistant turn from the Claude
+  API keeps its blocks exactly (`raw`), and they are replayed unchanged:
+  the docs require web search results' `encrypted_content` and citations'
+  `encrypted_index` back unmodified (a 400 otherwise), and Sonnet 5
+  thinks by default (38-Tg4), whose thinking blocks carry signatures. Any
+  other assistant turn (a transcript that moves from qwen to Claude) is
+  rebuilt as text + `tool_use` blocks; Ollama gets made-up ids
+  (`call_<12 hex>_<n>`) that the Claude API also takes.
+- **Ea5 — Prompt caching on.** The system prompt is sent as one text
+  block with `cache_control: {type: "ephemeral"}` (caching the tools and
+  the system prompt — the ~17k-token skill, E4 — across turns), and the
+  newest user block carries a second breakpoint (the conversation so far).
+  Two of the four breakpoints; a prompt below the model's minimum is simply
+  not cached. Cache reads and writes are counted (`cacheReadTokens`,
+  `cacheWriteTokens`) and priced.
+- **Ea6 — Trimming (the rule).** Before each model call the prompt is
+  estimated with 40a's `estimateTokens` (system + tool specs + messages;
+  Claude's opaque `encrypted_*` and `signature` fields not counted). The
+  context is `numCtx` (default `LLM_NUM_CTX`, 12,288) for a local model —
+  fixed for the run, since a change reloads the model — and
+  `CLAUDE_AGENT_CONTEXT_TOKENS` (150,000) for Claude; `contextTokens`
+  overrides. When the estimate passes `TRIM_AT_SHARE` (0.85) of the
+  context less `ANSWER_RESERVE_TOKENS` (2,048), tool results the model has
+  already seen (those before the last assistant message) are replaced by a
+  stub — `[<tool> result trimmed to save context (N characters); call the
+tool again if you still need it]` — oldest first, until it fits; a result
+  the model has not seen yet is never trimmed. The transcript keeps each
+  trimmed result whole with `trimmed: true` (the stub is made when the
+  wire messages are built), a `trim` event and an `agent.trim` note say
+  how many. Separately, one result is capped at `TOOL_RESULT_SHARE` (0.4)
+  of the context in characters (≥ 2,000), with a "[… cut: N more
+  characters]" note. Whether qwen needs a 16k step is 44e's to measure.
+- **Ea7 — Cost is an estimate, by name.** `claudeCostEstimate` prices
+  uncached input, output, 5-minute cache writes and cache reads from
+  `CLAUDE_PRICE_ESTIMATE_USD_PER_MTOK` (platform.claude.com pricing,
+  read 2026-10-21), plus $0.01 per web search; web fetch costs only its
+  tokens. Claude Haiku 5.5's lower tier (prompts ≤ 100k) is the one
+  listed. An unlisted model gets no estimate (`costEstimateUsd` absent),
+  never a guess. Local models: tokens only.
+- **Ea8 — A failed call is a result.** Arguments that are not a JSON
+  object (`malformed`), an unknown tool name, an input that fails
+  `checkInput` (type, `required`, `properties`, `items`, `enum`, `const`,
+  `anyOf`/`oneOf` — not formats, lengths or unknown keys, which the tool's
+  own zod parse handles), and a tool that throws each go back as
+  `{"error": "…"}` with `isError` (capped at 1,000 characters). The model
+  is told the tool names for an unknown one.
+- **Ea9 — Budgets, and when they are checked.** Defaults
+  (`DEFAULT_AGENT_BUDGETS`): 40 turns (E3), 80 tool calls, 20 minutes,
+  2,000,000 input tokens (cache included), 200,000 output tokens. Turns
+  and tokens are checked before each model call (so the last allowed
+  turn's tool calls still run), tool calls before each call, and wall time
+  throughout: its timer aborts the model call or the tool in flight. A
+  stop answers every call it left with `{"error": "not run: …"}` (or
+  "stopped while running"), so a transcript can always be continued; a
+  `history` with an open call is closed the same way. Stop reasons:
+  `done`, `budget:turns`, `budget:tool_calls`, `budget:wall_time`,
+  `budget:tokens`, `cancelled`, `error` (a failed model call, a turn cut
+  off at its output limit, a refusal, a turn still paused).
+- **Ea10 — Steps in a job.** With `job`, each model call runs in an
+  `agent.turn` step (`chatTools` puts its tokens, rate and GPU share
+  there) and each tool call in a step named by the tool (an import inside
+  nests, 37); a tool error fails its step. Tools are handed `{signal,
+job}`. Calls run one at a time; Claude's `pause_turn` is continued
+  inside `chatTools` (≤ `CLAUDE_PAUSE_CONTINUATIONS` = 4, `llm.pause`
+  notes), so one turn is one step.
+- **Ea11 — `think` and `effort` are options, off by default.** Ollama
+  gets `think: false` unless asked (44e measures it); Claude gets
+  `output_config.effort` only when asked and only for a model in
+  `EFFORT_MODELS` — its own default otherwise (an import's `low` is not an
+  agent's).
+
+**Wire-format findings** (checked 2026-10-21 against
+platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool,
+…/web-fetch-tool, …/server-tools and …/tool-reference; Ollama:
+docs.ollama.com/capabilities/tool-calling):
+
+- Web search: `web_search_20250305` (basic), `_20260209` (dynamic
+  filtering), `_20260318` (+ `response_inclusion`); web fetch:
+  `web_fetch_20250910`, `_20260209`, `_20260309` (+ `use_cache`),
+  `_20260318`. All GA: the tool reference lists **no beta header** for
+  either. Options: `max_uses`, `allowed_domains` or `blocked_domains` (not
+  both), `user_location` (search), `citations`, `max_content_tokens`,
+  `url_sources` (fetch), `allowed_callers`.
+- A server call is a `server_tool_use` block (`srvtoolu_…` id) followed by
+  its `web_search_tool_result` / `web_fetch_tool_result` in the same turn;
+  an error is a 200 with `content: {type: "…_tool_result_error",
+error_code}` (search: `too_many_requests`, `invalid_tool_input`,
+  `max_uses_exceeded`, `query_too_long`, `request_too_large`,
+  `unavailable`; fetch adds `url_too_long`, `url_not_allowed`,
+  `url_not_in_prior_context`, `url_not_accessible`,
+  `unsupported_content_type`). Usage: `usage.server_tool_use.
+web_search_requests` / `web_fetch_requests`. Search costs $10 / 1,000;
+  fetch only its tokens.
+- Results go back on later turns by sending the assistant's blocks back
+  **exactly** (`encrypted_content`, `encrypted_index`) — a 400 if missing
+  or modified. No `tool_result` is sent for a server tool.
+- `pause_turn`: the API paused its server-side loop; continue by sending
+  the paused assistant content back as-is with the **same tools**; it may
+  pause again — cap the continuations.
+- Mixed turn: when Claude calls a server tool and one of ours together,
+  `stop_reason` is `tool_use` and the `server_tool_use` has no result yet;
+  the follow-up user message must hold **only** `tool_result` blocks (text
+  after them closes the turn and 400s on the unresolved server call); the
+  next response begins with the deferred result block.
+- Web fetch only fetches URLs already in the conversation (user messages,
+  our tool results, earlier search / fetch results) — not ones only in
+  Claude's own output or the system prompt — and Anthropic applies its
+  own restrictions (private addresses, robots.txt). It does **not** go
+  through our `SitePacer` (30-D5's 15 s gap) or our 403 rule. Whether
+  Claude gets the server `web_fetch` or 44b's is E6's call (44b/44c).
+- Ollama: `tools` as `{type: "function", function: {name, description,
+parameters}}`; `message.tool_calls[].function.{index, name, arguments}`
+  with `arguments` an object and **no id**; a result is `{role: "tool",
+tool_name, content}`.
+
+**Gates** (2026-10-21, through `heavy.sh`): `pnpm --filter recipe-editor
+typecheck` clean; `pnpm --filter recipe-website exec tsc --noEmit` clean;
+`pnpm exec vitest run` 147 files, 3,317 tests passed (the new
+`llmTools.test.ts` 27 and `agentLoop.test.ts` 24 among them; the 38g,
+40a and 38e suites unchanged and green over the `client.ts` refactor). No
+Playwright: no UI file touched. No real model anywhere: `fetch` stubbed
+per wire format, the loop over a scripted model.
+
+**Roger to confirm.**
+
+- Ea3: the basic server-tool versions (no dynamic filtering). The newer
+  ones cut tokens on search-heavy runs but need code-execution handling.
+- Ea5: prompt caching on by default (cheaper from the second turn; the
+  first turn pays the 1.25× cache write).
+- Ea9's defaults beyond E3's 40 turns (80 tool calls, 20 minutes, 2M
+  input / 200k output tokens — at most about $6 on Sonnet 5 before cache
+  discounts).
+
 ### 44b — The tool bridge, `web_fetch`, `web_search`
 
 - **The bridge:** the registry's 59 definitions collected once (a

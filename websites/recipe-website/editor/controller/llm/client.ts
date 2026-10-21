@@ -272,6 +272,17 @@ function secureClaudeUrl(url: string, testMode: boolean): boolean {
   }
 }
 
+/**
+ * Dg12, for a config not built by `llmConfig`: never the key in clear —
+ * throws `unconfigured` for a Claude URL that is not `https:` (or TEST_MODE's
+ * loopback stand-in). `chat()` and `chatTools` (44a) call it first.
+ */
+export function assertSecureClaude(config: LlmConfig): void {
+  if (!secureClaudeUrl(claudeBaseUrl(config.url), !!process.env.TEST_MODE)) {
+    throw new LlmError("unconfigured", claudeInsecureMessage(config.url));
+  }
+}
+
 function claudeInsecureMessage(url: string): string {
   return `the Claude API is off: RECIPE_LLM_URL (${displayUrl(url)}) is not an https:// address, and the API key is never sent in clear — unset it for https://api.anthropic.com`;
 }
@@ -316,8 +327,11 @@ export function modelLabel(config: LlmConfig): string {
   return `the local model at ${displayUrl(config.url)}`;
 }
 
-/** A request's headers: the key as its API takes it, when there is one. */
-function requestHeaders(
+/**
+ * A request's headers: the key as its API takes it, when there is one.
+ * Shared with `chatTools` (44a), which sends the same headers.
+ */
+export function requestHeaders(
   config: LlmConfig,
   { json = true }: { json?: boolean } = {},
 ): Record<string, string> {
@@ -514,6 +528,8 @@ export class LlmError extends Error {
    * model is unloaded, so `chat()` unloads it before this is reported.
    */
   runnerFailed?: boolean;
+  /** An HTTP failure's `retry-after`, as `retryDelayMs` reads it (44a's local retry). */
+  retryAfterMs?: number;
 
   constructor(
     readonly kind: LlmErrorKind,
@@ -613,7 +629,8 @@ export interface ChatJsonResult {
   evalMs?: number;
 }
 
-function endpoint(config: LlmConfig): string {
+/** The chat endpoint of a local style: Ollama's `/api/chat`, else `/v1/chat/completions`. */
+export function endpoint(config: LlmConfig): string {
   const url = config.url.replace(/\/+$/, "");
   if (config.api === "ollama") return `${url}/api/chat`;
   return /\/v1$/.test(url)
@@ -714,8 +731,8 @@ function count(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
-/** What the response says, by API shape. */
-function readResponse(
+/** What the response says, by API shape (token counts and Ollama's timings shared with `chatTools`). */
+export function readResponse(
   body: Record<string, unknown>,
   api: LlmApi,
 ): Omit<ChatJsonResult, "durationMs" | "model"> & { content: unknown } {
@@ -823,31 +840,62 @@ async function chat(
   /* 38g (Dg3): a hosted API holds no `gpu` slot, and has no placement to
    * read nor a model to unload or reload. */
   if (config.api === "anthropic") {
-    /* Dg12, for a config not built by `llmConfig`: never the key in clear. */
-    if (!secureClaudeUrl(claudeBaseUrl(config.url), !!process.env.TEST_MODE)) {
-      throw new LlmError("unconfigured", claudeInsecureMessage(config.url));
-    }
+    assertSecureClaude(config);
     return callClaude(request, config, signal);
   }
+  return onGpuLine(
+    config,
+    {
+      job,
+      signal,
+      step: request.step,
+      unload: request.unload,
+      unloadOnError: request.unloadOnError,
+    },
+    (surface) => callModel(request, config, signal, surface),
+  );
+}
+
+/**
+ * A local model call on the machine's `gpu` line (37b), with D6's reload
+ * and 38e's unload — `chat()`'s machinery, shared with `chatTools` (44a).
+ * `call` makes one request; `surface` is whether its placement reading is
+ * the one to surface (false when a reload may follow). It answers the
+ * request's result and, in a job, the model's GPU share.
+ */
+export async function onGpuLine<T>(
+  config: LlmConfig,
+  {
+    job,
+    signal,
+    step,
+    unload,
+    unloadOnError,
+  }: {
+    job: ReturnType<typeof jobContext>;
+    signal: AbortSignal | undefined;
+    step?: StepHandle;
+    unload?: boolean;
+    unloadOnError?: boolean;
+  },
+  call: (surface: boolean) => Promise<{ result: T; gpu?: number }>,
+): Promise<T> {
   /* 40a (Da5): Ollama behind its `/v1` runs none of the native machinery. */
-  if (config.api === "openai" && request.step?.log.live) {
-    await warnOllamaBehindV1(config, request.step.log, signal);
+  if (config.api === "openai" && step?.log.live) {
+    await warnOllamaBehindV1(config, step.log, signal);
   }
   return withResource(
     "gpu",
     { ...job, ...(signal ? { signal } : {}) },
     async (grant) => {
-      const step = request.step;
       const reloadable =
         grant.hookRan && config.api === "ollama" && !!step?.log.live;
       /* Why the model is unloaded at the end, if it is. */
-      let unloadReason: string | undefined = request.unload
-        ? "done"
-        : undefined;
+      let unloadReason: string | undefined = unload ? "done" : undefined;
       try {
         let reading: number;
         try {
-          const first = await callModel(request, config, signal, !reloadable);
+          const first = await call(!reloadable);
           if (!reloadable || first.gpu === undefined || first.gpu >= 100) {
             return first.result;
           }
@@ -865,11 +913,11 @@ async function chat(
           reading = error.gpu;
         }
         await reloadModel(config, step!, reading, signal);
-        return (await callModel(request, config, signal, true)).result;
+        return (await call(true)).result;
       } catch (error) {
         if (error instanceof LlmError && error.runnerFailed) {
           unloadReason = "runner failed";
-        } else if (request.unload || request.unloadOnError) {
+        } else if (unload || unloadOnError) {
           unloadReason = signal?.aborted ? "cancelled" : "failed";
         }
         throw error;
@@ -939,13 +987,132 @@ async function callModel(
   result: Omit<ChatJsonResult, "data"> & { content: string };
   gpu?: number;
 }> {
-  const timeoutMs = request.timeoutMs ?? LLM_TIMEOUT_MS;
+  const started = Date.now();
+  const numCtx = sentNumCtx(request);
+  const body = await postLocal(
+    config,
+    JSON.stringify(requestBody(request, config)),
+    {
+      timeoutMs: request.timeoutMs ?? LLM_TIMEOUT_MS,
+      signal: callerSignal,
+      step: request.step,
+      numCtx,
+      surface,
+    },
+  );
+  const { content, data: _unparsed, ...stats } = readResponse(body, config.api);
+  void _unparsed;
+  const durationMs = Date.now() - started;
+  const gpu = await recordLocalCall(
+    config,
+    request.step,
+    { ...stats, durationMs, model: config.model },
+    { numCtx, surface },
+  );
+  if (typeof content !== "string") {
+    throw new LlmError(
+      "bad_json",
+      "the local model's response carries no message content",
+    );
+  }
+  return {
+    result: {
+      ...stats,
+      content,
+      model: config.model,
+      durationMs,
+    },
+    ...(gpu !== undefined ? { gpu } : {}),
+  };
+}
+
+/**
+ * A local call's numbers on its step (epic 37, 40a) — the token counts,
+ * the context asked for, the full-context warning — and, for Ollama in a
+ * job, where the model sat (`checkPlacement`). Shared with `chatTools`.
+ */
+export async function recordLocalCall(
+  config: LlmConfig,
+  step: StepHandle | undefined,
+  stats: Omit<ChatJsonResult, "data">,
+  { numCtx, surface }: { numCtx: number; surface: boolean },
+): Promise<number | undefined> {
+  if (!step) return undefined;
+  step.set({
+    ...callStats(stats),
+    /* 40a: the context this call asked for, beside its numbers. */
+    ...(config.api === "ollama" ? { numCtx } : {}),
+  });
+  if (config.api !== "ollama") return undefined;
+  warnFullContext(step.log, config, stats, numCtx);
+  return step.log.live
+    ? checkPlacement(config, step, { surface, numCtx })
+    : undefined;
+}
+
+/**
+ * One request to a local model server (Ollama or OpenAI-style): the parsed
+ * body, or an `LlmError` — `http` (Ollama's runner failure marked, 38-Te5),
+ * `timeout` (with the placement reading in a job, 36-T58), `bad_json`,
+ * `unreachable`, or a failure answered as a body. The caller's own abort is
+ * rethrown as it is. Shared with `chatTools` (44a).
+ */
+export async function postLocal(
+  config: LlmConfig,
+  payload: string,
+  options: PostLocalOptions & {
+    /**
+     * 44a: one retry after a 429/529/5xx, as Dg5's for Claude — for an
+     * OpenAI-style server only (a hosted one rate-limits; llama.cpp answers
+     * 503 while it loads). Never for Ollama, whose 5xx is a runner failure
+     * to unload (38-Te5), not a reason to ask again. `chatJson` passes none.
+     */
+    retry?: boolean;
+  },
+): Promise<Record<string, unknown>> {
+  try {
+    return await postLocalOnce(config, payload, options);
+  } catch (error) {
+    if (
+      !options.retry ||
+      config.api === "ollama" ||
+      options.signal?.aborted ||
+      !(error instanceof LlmError) ||
+      error.kind !== "http" ||
+      error.status === undefined ||
+      !retryable(error.status)
+    ) {
+      throw error;
+    }
+    const waitMs = error.retryAfterMs ?? CLAUDE_RETRY_DEFAULT_MS;
+    options.step?.log.info(
+      "llm.retry",
+      `${modelLabel(config)} answered ${error.status} — asking once more in ${Math.round(waitMs / 1000)} s`,
+      { status: error.status, waitMs },
+    );
+    await pause(waitMs, options.signal);
+    return postLocalOnce(config, payload, options);
+  }
+}
+
+interface PostLocalOptions {
+  timeoutMs: number;
+  signal: AbortSignal | undefined;
+  step?: StepHandle;
+  numCtx: number;
+  surface: boolean;
+}
+
+async function postLocalOnce(
+  config: LlmConfig,
+  payload: string,
+  { timeoutMs, signal: callerSignal, step, numCtx, surface }: PostLocalOptions,
+): Promise<Record<string, unknown>> {
   const timeout = AbortSignal.timeout(timeoutMs);
   const signal = callerSignal
     ? AbortSignal.any([callerSignal, timeout])
     : timeout;
-  const started = Date.now();
-  const placed = !!request.step?.log.live && config.api === "ollama";
+  const placed = !!step?.log.live && config.api === "ollama";
 
   let response: Response;
   let body: Record<string, unknown>;
@@ -953,7 +1120,7 @@ async function callModel(
     response = await fetch(endpoint(config), {
       method: "POST",
       headers: requestHeaders(config),
-      body: JSON.stringify(requestBody(request, config)),
+      body: payload,
       signal,
     });
     if (!response.ok) {
@@ -965,6 +1132,7 @@ async function callModel(
         `${modelLabel(config)} answered ${response.status}${detail ? `: ${capped(withoutKey(detail, config))}` : ""}`,
         response.status,
       );
+      failed.retryAfterMs = retryDelayMs(response.headers.get("retry-after"));
       /* Ollama answers 500 `{"error": …}` when the model's runner died
        * (38-Te5); a proxy's own 5xx page is not that. */
       if (config.api === "ollama" && response.status >= 500 && said) {
@@ -987,10 +1155,7 @@ async function callModel(
     if (isTimeout(error) || timeout.aborted) {
       /* A timeout is when a CPU-resident model shows (36-T58): say so. */
       const gpu = placed
-        ? await checkPlacement(config, request.step!, {
-            surface,
-            numCtx: sentNumCtx(request),
-          })
+        ? await checkPlacement(config, step!, { surface, numCtx })
         : undefined;
       const timedOut = new LlmError(
         "timeout",
@@ -1014,41 +1179,7 @@ async function callModel(
   /* 38-Te5: a failure answered as a body — never "the model read nothing". */
   const failure = answeredFailure(body, config);
   if (failure) throw failure;
-  const { content, data: _unparsed, ...stats } = readResponse(body, config.api);
-  void _unparsed;
-  const durationMs = Date.now() - started;
-  let gpu: number | undefined;
-  if (request.step) {
-    request.step.set({
-      ...callStats({ ...stats, durationMs, model: config.model }),
-      /* 40a: the context this call asked for, beside its numbers. */
-      ...(config.api === "ollama" ? { numCtx: sentNumCtx(request) } : {}),
-    });
-    if (config.api === "ollama") {
-      warnFullContext(request.step.log, config, stats, sentNumCtx(request));
-    }
-    if (placed) {
-      gpu = await checkPlacement(config, request.step, {
-        surface,
-        numCtx: sentNumCtx(request),
-      });
-    }
-  }
-  if (typeof content !== "string") {
-    throw new LlmError(
-      "bad_json",
-      "the local model's response carries no message content",
-    );
-  }
-  return {
-    result: {
-      ...stats,
-      content,
-      model: config.model,
-      durationMs,
-    },
-    ...(gpu !== undefined ? { gpu } : {}),
-  };
+  return body;
 }
 
 /** The share of `num_ctx` a call may fill before it is a warning (40a). */
@@ -1247,10 +1378,72 @@ async function callClaude(
   callerSignal: AbortSignal | undefined,
 ): Promise<Omit<ChatJsonResult, "data"> & { content: string }> {
   const who = modelLabel(config);
-  const url = `${claudeBaseUrl(config.url)}/v1/messages`;
-  const payload = JSON.stringify(claudeRequestBody(request, config));
-  const timeoutMs = request.timeoutMs ?? ANTHROPIC_TIMEOUT_MS;
   const started = Date.now();
+  const body = await postClaude(
+    config,
+    JSON.stringify(claudeRequestBody(request, config)),
+    {
+      timeoutMs: request.timeoutMs ?? ANTHROPIC_TIMEOUT_MS,
+      signal: callerSignal,
+      step: request.step,
+    },
+  );
+  const usage = body.usage as
+    { input_tokens?: unknown; output_tokens?: unknown } | undefined;
+  const stats = {
+    promptTokens: count(usage?.input_tokens),
+    outputTokens: count(usage?.output_tokens),
+  };
+  const durationMs = Date.now() - started;
+  request.step?.set(callStats({ ...stats, durationMs, model: config.model }));
+  const stop = body.stop_reason;
+  if (stop === "max_tokens") {
+    throw new LlmError(
+      "model",
+      `${who}'s answer was cut off: it reached max_tokens (${ANTHROPIC_MAX_TOKENS}) before it finished`,
+    );
+  }
+  if (stop === "refusal") {
+    throw new LlmError("model", `${who} declined to answer (a refusal)`);
+  }
+  const blocks = Array.isArray(body.content)
+    ? (body.content as { type?: unknown; text?: unknown }[])
+    : [];
+  const content = blocks
+    .filter((block) => block?.type === "text" && typeof block.text === "string")
+    .map((block) => block.text as string)
+    .join("");
+  if (!content.trim()) {
+    throw new LlmError(
+      "bad_json",
+      `${who}'s response carries no text${typeof stop === "string" ? ` (stop_reason: ${stop})` : ""}`,
+    );
+  }
+  return { ...stats, content, model: config.model, durationMs };
+}
+
+/**
+ * One Messages API request (38g), shared with `chatTools` (44a): `POST
+ * {url}/v1/messages` with Dg5's one retry after a 429/529/5xx (an
+ * `llm.retry` note), Dg13's 401/403 wording, the key never in a message
+ * (Dg6). Answers the parsed body; an `{type: "error"}` body is a `model`
+ * failure. `timeoutMs` is per attempt. The caller's abort is rethrown as is.
+ */
+export async function postClaude(
+  config: LlmConfig,
+  payload: string,
+  {
+    timeoutMs,
+    signal: callerSignal,
+    step,
+  }: {
+    timeoutMs: number;
+    signal: AbortSignal | undefined;
+    step?: StepHandle;
+  },
+): Promise<Record<string, unknown>> {
+  const who = modelLabel(config);
+  const url = `${claudeBaseUrl(config.url)}/v1/messages`;
   let body: Record<string, unknown> | undefined;
   for (let attempt = 1; !body; attempt++) {
     const timeout = AbortSignal.timeout(timeoutMs);
@@ -1270,7 +1463,7 @@ async function callClaude(
         const said = serverError(raw);
         if (attempt === 1 && retryable(response.status)) {
           const waitMs = retryDelayMs(response.headers.get("retry-after"));
-          request.step?.log.info(
+          step?.log.info(
             "llm.retry",
             `${who} answered ${response.status} — asking once more in ${Math.round(waitMs / 1000)} s`,
             { status: response.status, waitMs },
@@ -1337,38 +1530,7 @@ async function callClaude(
       `${who} failed: ${capped(withoutKey(said, config))}`,
     );
   }
-  const usage = body.usage as
-    { input_tokens?: unknown; output_tokens?: unknown } | undefined;
-  const stats = {
-    promptTokens: count(usage?.input_tokens),
-    outputTokens: count(usage?.output_tokens),
-  };
-  const durationMs = Date.now() - started;
-  request.step?.set(callStats({ ...stats, durationMs, model: config.model }));
-  const stop = body.stop_reason;
-  if (stop === "max_tokens") {
-    throw new LlmError(
-      "model",
-      `${who}'s answer was cut off: it reached max_tokens (${ANTHROPIC_MAX_TOKENS}) before it finished`,
-    );
-  }
-  if (stop === "refusal") {
-    throw new LlmError("model", `${who} declined to answer (a refusal)`);
-  }
-  const blocks = Array.isArray(body.content)
-    ? (body.content as { type?: unknown; text?: unknown }[])
-    : [];
-  const content = blocks
-    .filter((block) => block?.type === "text" && typeof block.text === "string")
-    .map((block) => block.text as string)
-    .join("");
-  if (!content.trim()) {
-    throw new LlmError(
-      "bad_json",
-      `${who}'s response carries no text${typeof stop === "string" ? ` (stop_reason: ${stop})` : ""}`,
-    );
-  }
-  return { ...stats, content, model: config.model, durationMs };
+  return body;
 }
 
 /** A server's text in a message: capped, as 37-D2 caps an excerpt. */
