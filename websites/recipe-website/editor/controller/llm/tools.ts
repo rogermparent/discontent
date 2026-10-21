@@ -327,7 +327,51 @@ export function claudeMessages(messages: AgentMessage[]): WireMessage[] {
       ]);
     }
   }
-  return out;
+  return withoutAbandonedServerCalls(out);
+}
+
+/**
+ * Ea13: a mixed turn — a server tool deferred beside our calls — that a
+ * stop ended is followed, on a later run, by our results **and** the
+ * person's next words in one user message. The API reads text after the
+ * results as the turn's end, and a `server_tool_use` with no result block
+ * then fails the request (400). Such an abandoned server call — no result
+ * block in this turn or any later one, and the next user message holding
+ * more than `tool_result`s — is left out of what is sent (the transcript
+ * keeps it). A deferred call whose turn goes on (results only) is kept, so
+ * the API runs it.
+ */
+function withoutAbandonedServerCalls(messages: WireMessage[]): WireMessage[] {
+  const resolved = new Set<string>();
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    for (const block of message.content) {
+      if (typeof block.tool_use_id === "string")
+        resolved.add(block.tool_use_id);
+    }
+  }
+  return messages.map((message, index) => {
+    if (message.role !== "assistant") return message;
+    const next = messages[index + 1];
+    const closedByText =
+      next?.role === "user" &&
+      next.content.some((block) => block.type !== "tool_result");
+    if (!closedByText) return message;
+    const content = message.content.filter(
+      (block) =>
+        block.type !== "server_tool_use" ||
+        resolved.has(String(block.id ?? "")),
+    );
+    if (content.length === message.content.length) return message;
+    /* Never an empty assistant turn: the API refuses one. */
+    return {
+      ...message,
+      content:
+        content.length > 0
+          ? content
+          : [{ type: "text", text: "(the turn stopped here)" }],
+    };
+  });
 }
 
 /** Claude's `tools`: ours with `input_schema`, then the server tools (E6). */

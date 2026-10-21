@@ -632,8 +632,67 @@ describe("chatTools — the Claude API", () => {
     expect(result.stop).toBe("pause");
   });
 
+  it("leaves out a server call a stop abandoned, so a follow-up's words do not 400 (Ea13)", async () => {
+    const calls = stubApi([
+      json(claudeMessage([{ type: "text", text: "ok" }])),
+    ]);
+    const serverUse = {
+      type: "server_tool_use",
+      id: "srvtoolu_09",
+      name: "web_fetch",
+      input: { url: "https://example.com/a" },
+    };
+    const toolUse = {
+      type: "tool_use",
+      id: "toolu_09",
+      name: "recipe_search",
+      input: { query: "a" },
+    };
+    const abandoned: AgentMessage = {
+      role: "assistant",
+      text: "",
+      toolCalls: [
+        { id: "toolu_09", name: "recipe_search", input: { query: "a" } },
+      ],
+      serverToolUses: [{ id: "srvtoolu_09", name: "web_fetch", input: {} }],
+      raw: { api: "anthropic", content: [serverUse, toolUse] },
+    };
+    await chatTools({
+      system: "s",
+      messages: [
+        ...ASK,
+        abandoned,
+        /* The budget's "not run" answer, then the person's follow-up. */
+        {
+          role: "tool",
+          toolCallId: "toolu_09",
+          name: "recipe_search",
+          content: '{"error":"not run: the turn budget ended"}',
+          isError: true,
+        },
+        { role: "user", text: "try again" },
+      ],
+      tools: [SEARCH],
+      serverTools: [{ kind: "web_fetch" }],
+      config: CLAUDE,
+    });
+    const sent = calls[0].body!.messages as {
+      role: string;
+      content: Record<string, unknown>[];
+    }[];
+    expect(sent[1]).toEqual({ role: "assistant", content: [toolUse] });
+    expect(sent[2].content.map((block) => block.type)).toEqual([
+      "tool_result",
+      "text",
+    ]);
+    /* The transcript still has it. */
+    expect(
+      (abandoned as { raw: { content: unknown[] } }).raw.content,
+    ).toHaveLength(2);
+  });
+
   it("pairs a deferred server call's result that arrives in the next response", async () => {
-    stubApi([
+    const deferredCalls = stubApi([
       json(
         claudeMessage(
           [
@@ -699,6 +758,18 @@ describe("chatTools — the Claude API", () => {
       serverTools: [{ kind: "web_fetch" }],
       config: CLAUDE,
     });
+    /* A deferred call whose turn goes on (results only) is kept, so the API runs it. */
+    const resumed = deferredCalls[1].body!.messages as {
+      role: string;
+      content: Record<string, unknown>[];
+    }[];
+    expect(resumed[1].content.map((block) => block.type)).toEqual([
+      "server_tool_use",
+      "tool_use",
+    ]);
+    expect(resumed[2].content.map((block) => block.type)).toEqual([
+      "tool_result",
+    ]);
     expect(second.message.serverToolUses).toEqual([
       {
         id: "srvtoolu_04",

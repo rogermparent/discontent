@@ -202,11 +202,12 @@ trimmed, durationMs, transcript}`; `checkInput`, `trimToFit`,
   `DEFAULT_AGENT_BUDGETS`, `CLAUDE_AGENT_CONTEXT_TOKENS`, `TRIM_AT_SHARE`,
   `ANSWER_RESERVE_TOKENS`, `TOOL_RESULT_SHARE`, `TOOL_RESULT_MIN_CHARS`,
   `TOOL_ERROR_MAX_CHARS`, `UNTRUSTED_TAG`.
-- Tests: `test/llmTools.test.ts` (27) and `test/agentLoop.test.ts` (24).
+- Tests: `test/llmTools.test.ts` (28) and `test/agentLoop.test.ts` (31),
+  the review's fixes included.
 
 **For 44b and 44c.** `runAgent({system, prompt, history?, tools,
 serverTools?, budgets?, signal?, onEvent?, config?, numCtx?,
-contextTokens?, think?, effort?, job?, model?})`. A tool's `run` result
+contextTokens?, think?, effort?, job?, toolSettleMs?, model?})`. A tool's `run` result
 is sent as it is when a string, else as compact `JSON.stringify` — so the
 bridge should return the MCP server's compact JSON object (or its text).
 `history` is a previous `AgentResult.transcript`; `prompt` is appended
@@ -216,10 +217,12 @@ defaults to the job's.
 
 **Decisions.**
 
-- **Ea1 — Types additive, `JobHandle` = `JobRun`.** The Interfaces block
-  is copied verbatim; it names a `JobHandle` that did not exist, so
-  `types.ts` defines it as epic 37's `JobRun` (`{log, signal, tier,
-jobId…}`, all optional). The neutral conversation lives in
+- **Ea1 — Types additive, `JobHandle` = `JobContext`.** The Interfaces
+  block is copied verbatim; it names a `JobHandle` that did not exist, so
+  `types.ts` defines it as epic 37's `JobContext` (`{log, signal?, tier,
+jobId?…}`) — the same definition as 44b's, so the branches agree (review;
+  first written as `JobRun`). `runAgent`'s own `job` option still takes a
+  `JobRun` and resolves it. The neutral conversation lives in
   `agent/types.ts` (types only), and `llm/tools.ts` imports it.
 - **Ea2 — The retry is shared, and an OpenAI-style server gets it.**
   `postClaude` is 38g's request loop lifted out of `callClaude`; `postLocal`
@@ -238,7 +241,12 @@ jobId…}`, all optional). The neutral conversation lives in
   client does not handle, and they are not ZDR-eligible. The basic ones are
   called directly and work on every model that has the tools. A client
   tool with a server tool's name (44b's SearXNG `web_search`) is not sent
-  beside the server tool (the API would refuse two of one name).
+  beside the server tool (the API would refuse two of one name). **E7 does
+  not reach a server tool's results:** Claude's `web_search` /
+  `web_fetch` results arrive inside the API's own blocks, encrypted, and
+  go back unchanged (Ea4) — the loop cannot wrap them as it wraps our
+  `untrusted` tools' text. There E7 rests on the system prompt alone (44e
+  writes it), and on E1 (the held-back tools are never offered).
 - **Ea4 — Claude's content kept raw.** An assistant turn from the Claude
   API keeps its blocks exactly (`raw`), and they are replayed unchanged:
   the docs require web search results' `encrypted_content` and citations'
@@ -268,9 +276,18 @@ tool again if you still need it]` — oldest first, until it fits; a result
   the model has not seen yet is never trimmed. The transcript keeps each
   trimmed result whole with `trimmed: true` (the stub is made when the
   wire messages are built), a `trim` event and an `agent.trim` note say
-  how many. Separately, one result is capped at `TOOL_RESULT_SHARE` (0.4)
-  of the context in characters (≥ 2,000), with a "[… cut: N more
-  characters]" note. Whether qwen needs a 16k step is 44e's to measure.
+  how many. **A prompt still over the line after trimming is never sent**
+  (review: Ollama would silently cut its head, the system prompt): the
+  run stops `budget:context`, "stopped: the model's context (N tokens; the
+  prompt is ~M with every old result trimmed) ended". **A turn's new
+  results share the room** (review: two `web_fetch` pages in one turn
+  overflowed qwen's 12k, and new results cannot be trimmed until seen):
+  each is capped (`resultCapFor`) to the room left under the line once
+  every seen result is a stub, divided by the calls left in the turn, less
+  `RESULT_OVERHEAD_TOKENS` (64) for the cut note and E7's wrapper — never
+  above `TOOL_RESULT_SHARE` (0.4) of the context in characters (≥ 2,000),
+  never below `TOOL_RESULT_FLOOR_CHARS` (300); a cut result ends "[… cut: N
+  more characters]". Whether qwen needs a 16k step is 44e's to measure.
 - **Ea7 — Cost is an estimate, by name.** `claudeCostEstimate` prices
   uncached input, output, 5-minute cache writes and cache reads from
   `CLAUDE_PRICE_ESTIMATE_USD_PER_MTOK` (platform.claude.com pricing,
@@ -282,25 +299,34 @@ tool again if you still need it]` — oldest first, until it fits; a result
   object (`malformed`), an unknown tool name, an input that fails
   `checkInput` (type, `required`, `properties`, `items`, `enum`, `const`,
   `anyOf`/`oneOf` — not formats, lengths or unknown keys, which the tool's
-  own zod parse handles), and a tool that throws each go back as
+  own zod parse handles), a tool that throws, and a result that cannot be
+  serialized (a `BigInt`, a cycle — review: it used to throw past the
+  loop's guard and be reported as the wall-time budget) each go back as
   `{"error": "…"}` with `isError` (capped at 1,000 characters). The model
-  is told the tool names for an unknown one.
+  is told the tool names for an unknown one. E7's wrapper defuses its own
+  tag inside page text in any case and spacing, opening and closing
+  (`<\s*/?\s*untrusted_page_text`, case-insensitive → `&lt;…`; review).
 - **Ea9 — Budgets, and when they are checked.** Defaults
   (`DEFAULT_AGENT_BUDGETS`): 40 turns (E3), 80 tool calls, 20 minutes,
   2,000,000 input tokens (cache included), 200,000 output tokens. Turns
   and tokens are checked before each model call (so the last allowed
   turn's tool calls still run), tool calls before each call, and wall time
   throughout: its timer aborts the model call or the tool in flight. A
-  stop answers every call it left with `{"error": "not run: …"}` (or
-  "stopped while running"), so a transcript can always be continued; a
-  `history` with an open call is closed the same way. Stop reasons:
-  `done`, `budget:turns`, `budget:tool_calls`, `budget:wall_time`,
-  `budget:tokens`, `cancelled`, `error` (a failed model call, a turn cut
-  off at its output limit, a refusal, a turn still paused).
+  stop answers every call it left with `{"error": "not run: …"}` (a call
+  in flight: Ea12), so a transcript can always be continued; a `history`
+  with an open call is closed the same way. Stop reasons: `done`,
+  `budget:turns`, `budget:tool_calls`, `budget:wall_time`,
+  `budget:tokens`, `budget:context` (Ea6), `cancelled`, `error` (a failed
+  model call, a turn cut off at its output limit, a refusal, a turn still
+  paused, or any stop reason the loop does not know — Claude's
+  `model_context_window_exceeded` or a new one — named in the error,
+  never taken as done; review).
 - **Ea10 — Steps in a job.** With `job`, each model call runs in an
   `agent.turn` step (`chatTools` puts its tokens, rate and GPU share
   there) and each tool call in a step named by the tool (an import inside
-  nests, 37); a tool error fails its step. Tools are handed `{signal,
+  nests, 37); a name the model made up is never a step name — it runs as
+  `agent.tool` with the name (cut to 60 characters) in the step's data
+  (review). A tool error fails its step. Tools are handed `{signal,
 job}`. Calls run one at a time; Claude's `pause_turn` is continued
   inside `chatTools` (≤ `CLAUDE_PAUSE_CONTINUATIONS` = 4, `llm.pause`
   notes), so one turn is one step.
@@ -309,6 +335,25 @@ job}`. Calls run one at a time; Claude's `pause_turn` is continued
   `output_config.effort` only when asked and only for a model in
   `EFFORT_MODELS` — its own default otherwise (an import's `low` is not an
   agent's).
+- **Ea12 — A tool still running at a stop gets a grace** (review). A
+  cancel or the wall-time budget aborts the tool's signal, but a seat
+  that ignores it may be finishing a write. The loop waits up to
+  `TOOL_SETTLE_GRACE_MS` (5 s; `toolSettleMs` overrides) for it to
+  settle and records what really happened — its result, or its error. If
+  it does not settle, the call is answered `UNKNOWN_OUTCOME`: "stopped
+  while running: the outcome is unknown — it may have written; check
+  (recipe_get / git_log) before redoing it". The calls after it are "not
+  run".
+- **Ea13 — An abandoned server call is left off the wire** (review). A
+  mixed turn (Claude's server tool deferred beside our calls) that a stop
+  ended gets our "not run" results; a follow-up then puts the person's
+  words in the same user message, which the API reads as the turn's end —
+  and an unresolved `server_tool_use` makes that a 400 (the wire
+  findings). `claudeMessages` leaves out such a call: a `server_tool_use`
+  with no result block in its turn or any later one, whose next user
+  message holds more than `tool_result`s. A deferred call whose turn goes
+  on (results only) is kept, so the API runs it. The transcript keeps the
+  raw blocks; only what is sent changes.
 
 **Wire-format findings** (checked 2026-10-21 against
 platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool,
@@ -356,8 +401,9 @@ tool_name, content}`.
 
 **Gates** (2026-10-21, through `heavy.sh`): `pnpm --filter recipe-editor
 typecheck` clean; `pnpm --filter recipe-website exec tsc --noEmit` clean;
-`pnpm exec vitest run` 147 files, 3,317 tests passed (the new
-`llmTools.test.ts` 27 and `agentLoop.test.ts` 24 among them; the 38g,
+`pnpm exec vitest run` 147 files, 3,317 tests passed at the first commit,
+and 3,325 after the review's fixes (`llmTools.test.ts` 28 and
+`agentLoop.test.ts` 31 among them; the 38g,
 40a and 38e suites unchanged and green over the `client.ts` refactor). No
 Playwright: no UI file touched. No real model anywhere: `fetch` stubbed
 per wire format, the loop over a scripted model.

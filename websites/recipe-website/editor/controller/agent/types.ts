@@ -9,15 +9,16 @@
  * Types only: no runtime code, so the model layer (`controller/llm/`) and
  * the tools (`controller/agent/tools/`) can both import it freely.
  */
-import type { JobRun } from "../jobs/context";
+import type { JobContext } from "../jobs/context";
 import type { LlmApi } from "../llm/client";
 
 /**
- * The run's job as a tool sees it (Ea1): the epic 37 `JobRun` — the log for
- * nested steps, the signal, the tier. The doc's Interfaces block names it
- * `JobHandle`; there was no such type before 44a.
+ * The run's job as a tool sees it (Ea1): the epic 37 `JobContext` — the
+ * log for nested steps, the signal, the tier — as 44b defines it too. The
+ * doc's Interfaces block names it `JobHandle`; there was no such type
+ * before epic 44.
  */
-export type JobHandle = JobRun;
+export type JobHandle = JobContext;
 
 /* ------------------------------------------------------------------ */
 /* The Interfaces block (agent-epic-44.md)                              */
@@ -163,8 +164,13 @@ export interface AgentBudgets {
   maxOutputTokens?: number;
 }
 
-/** Which budget ended a run. */
-export type AgentBudgetName = "turns" | "tool_calls" | "wall_time" | "tokens";
+/**
+ * Which budget ended a run. `context` is not a cap the caller sets: the
+ * prompt would not fit the model's context even with every old result
+ * trimmed (Ea6).
+ */
+export type AgentBudgetName =
+  "turns" | "tool_calls" | "wall_time" | "tokens" | "context";
 
 export type AgentStopReason =
   "done" | `budget:${AgentBudgetName}` | "cancelled" | "error";
