@@ -137,6 +137,12 @@ export default defineConfig({
        * every other fixture uses, is never paced.
        */
       RECIPE_POLITE_GAP_MS: "0",
+      /*
+       * 44d: nor a search service — the curator's head says whether web
+       * search is on, and its baselines must not depend on `editor/.env`;
+       * no spec ever reaches a real SearXNG.
+       */
+      RECIPE_SEARCH_URL: "",
     },
   },
 });

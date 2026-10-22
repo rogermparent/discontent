@@ -43,6 +43,7 @@ import {
   ConversationTooLongError,
   startAgentRun,
 } from "recipe-editor/controller/agent/runs";
+import { listCuratorRuns } from "recipe-editor/controller/agent/curator";
 
 const AgentRequestSchema = z.strictObject({
   prompt: z.string(),
@@ -54,6 +55,32 @@ const AgentRequestSchema = z.strictObject({
     .max(DEFAULT_AGENT_BUDGETS.maxTurns)
     .optional(),
 });
+
+/**
+ * `GET /api/agent?limit=` — the recent conversations, newest first (44d,
+ * the curator page's list): each the newest run of a conversation (a run
+ * another continues is left out, Ec3), `{id, ask, asks, status,
+ * stopReason?, queuedAt, endedAt?, changes}`. `limit` 1–100, default 20.
+ * Curation auth, read scope (E5: a read token may read runs).
+ */
+export async function GET(request: Request) {
+  try {
+    await requireCurationContext(request, { need: "read" });
+    const raw = new URL(request.url).searchParams.get("limit");
+    const limit = raw === null || raw === "" ? 20 : Number(raw);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new ValidationError(
+        `limit is a whole number from 1 to 100 — not "${raw}".`,
+      );
+    }
+    return Response.json(
+      { runs: await listCuratorRuns({ limit }) },
+      { headers: { "cache-control": "no-store" } },
+    );
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
 
 export async function POST(request: Request) {
   try {

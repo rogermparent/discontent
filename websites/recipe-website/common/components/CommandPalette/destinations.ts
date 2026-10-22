@@ -18,6 +18,7 @@ import {
   FilePlus,
   CookingPot,
   ShoppingCart,
+  Bot,
 } from "lucide-react";
 
 export type DestinationGroup = "Browse" | "Setup" | "Content" | "System";
@@ -185,3 +186,18 @@ export const NAV_DESTINATIONS: NavDestination[] = [
     keywords: ["settings", "database", "reindex"],
   },
 ];
+
+/**
+ * The curator (44d): the editor's, signed in, with a model set up — so not
+ * in the static list above, whose owner rows show whenever the owner is
+ * signed in. The palette adds it after New Recipe once the editor's Ask
+ * slot registers a curator hand-off (`PaletteAskHandler.curator`).
+ */
+export const CURATOR_DESTINATION: NavDestination = {
+  name: "Curator",
+  href: "/curator",
+  icon: Bot,
+  group: "Content",
+  ownerOnly: true,
+  keywords: ["agent", "assistant", "fetch", "import"],
+};

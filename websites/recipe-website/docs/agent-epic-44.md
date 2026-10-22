@@ -868,6 +868,142 @@ questions to it. Built from the site's components and tokens; axe WCAG 2.2;
 first baselines. Design: no canvas round unless Roger asks (D1 of 43:
 conservative, recorded under "Roger to confirm").
 
+#### Results (44d)
+
+**What changed.**
+
+- **`/curator`** (`src/app/(editor)/curator/page.tsx`, the client in
+  `src/curator/`): h1 "Curator"; the head says what it is ("Finds, fetches
+  and imports recipes with the same tools Claude Code uses"), what runs it
+  ("qwen3:8b on this machine", "Claude Sonnet 5 through the API") and
+  whether web search is on; the ask box (labelled textarea, Ctrl/⌘+Enter,
+  Start, a counter from 3,500 of 44c's 4,000 characters, three example
+  asks that fill the box); an open run as a conversation; the recent runs
+  beside it (below it on a phone). Signed out → sign-in (as `/shopping`
+  and `/jobs`); no model → 404 (Ec9's rule, 43-Dq2).
+- **The run** (`RunView`, polling 44c's `GET /api/agent/<id>?from=&
+transcriptFrom=` every second, `useAgentRun`): each ask; each model turn's
+  words as Markdown (`CuratorMarkdown`); each tool call as a compact row —
+  a phrase (`toolPhrase`: "Searched your recipes for “pork”", "Fetched
+  sallysbakingaddiction.com", "Imported braise from example.com", "Tagged 4
+  recipes korean"; unknown names fall back to the name), its status
+  (spinner, waiting, done, error, not run), its duration, and a disclosure
+  with the input and the result pretty-printed, cut at 6,000 characters,
+  monospace, scrolling inside a focusable `<pre>`; Claude's server-side
+  searches as rows of their own; an earlier run's end as a one-line summary.
+  The footer: a polite status line (`role="status"`, one sentence per turn,
+  not per call), "3 of 40 turns · 2 tool calls · 12 s · 4.2k tokens in, 310
+  out · about $0.42", **Stop** (the jobs cancel route) while live, then the
+  stop reason in words (`stopWords`) and a **Follow up** box on the same
+  run. "Job details" links `/jobs/<id>` for the step log.
+- **What changed** (`ChangesCard`, from `GET /api/agent/<id>/changes`, new):
+  recipes created / imported / updated as the site's cards
+  (`ClientListItem`), terms and plans as chips (`/tags/<slug>`,
+  `/group/<slug>`), the homepage strip / what's on hand / the shopping list
+  as chips, and "N commits — see Git" (`/git`). Derived from the
+  transcript's tool results by `controller/agent/changes.ts` (Ed4), the
+  cards read from the content.
+- **Recent runs** (`GET /api/agent`, new beside 44c's `POST`; the page
+  renders them server-side and refreshes when a run ends): conversations,
+  newest first (Ed3), each its first ask's line, when, how it stands, how
+  many asks and changes; a row opens `?run=<id>`.
+- **⌘K** (`askSlot.ts`'s optional `curator` on the Ask handler,
+  `controller/agent/handoff.ts`): an input that reads like a fetch request
+  gets "Ask the curator: “…”", which opens `/curator?prompt=…` filled in,
+  not started (Ed6); "Curator" joins Go to after New Recipe. Both only
+  where the editor's Ask slot registers (signed in, a model set up).
+- **The footer's Manage column** lists Curator after New Recipe, signed in
+  with a model set up.
+- Server helpers in `controller/agent/curator.ts` (`curatorSetup`,
+  `listCuratorRuns`, `curatorRunChanges`); pure, browser-safe ones in
+  `controller/agent/conversation.ts` (`buildConversation`, `toolPhrase`,
+  `serverToolPhrase`, `stopWords`, `modelWords`, `claudeModelName`,
+  `tokenText`, `costText`) and `changes.ts` (`runChanges`, `changeCount`,
+  `parseToolResult`, `callsWithResults`) — 44e's harness can read "what was
+  written" with `runChanges` too.
+- `playwright.config.ts` pins `RECIPE_SEARCH_URL` empty (Ed9).
+- Tests: `test/curatorPage.test.ts` (14); `playwright/tests/curator.spec.ts`
+  (5) against a stand-in Ollama that scripts tool calls across turns
+  (`recipe_search` → `recipe_create` → text; a follow-up's `term_assign`; a
+  "slowly" ask whose first turn never answers, for Stop).
+- **First baselines** (Docker, build mode, `__screenshots__/curator.spec.ts/`):
+  `curator-idle`, `curator-finished` (with What changed) and
+  `curator-phone` (390 px) — the main column only (the recent runs depend
+  on what ran before), times and durations masked, sticky chrome released
+  for the capture. **No masthead or footer baseline moves:** the Curator
+  link shows only with a model, and the suite pins the model off (T18).
+
+**Trap (44d).** A locator taller than the viewport is captured with the
+pinned masthead, the phone's tab bar and the run's own sticky footer drawn
+over it: `curator.spec`'s `snapshotMain` sets `data-sticky-chrome="off"`
+(the reader's own setting) for the capture.
+
+**Decisions.**
+
+- **Ed1 — Name and place.** `/curator`, "Curator" (D1: conservative).
+  Linked from the footer's Manage column and ⌘K's Go to — not the masthead,
+  which has no Manage area and whose every change moves every full-page
+  baseline. The link shows only where the page does (signed in, a model).
+- **Ed2 — The conversation is the transcript.** Rows, statuses and
+  durations come from the transcript's records and their times (a call's
+  duration runs from its turn's record, or the call before's result, to its
+  result's), never from the step log, whose lines the poll skips. While a
+  run is live the footer shows turns, tool calls and time; tokens and the
+  cost appear with the run's `end` record (the step log's per-turn tokens
+  are not summed).
+- **Ed3 — Recent runs are conversations.** A run another run continues is
+  left out (the newest holds all of it, Ec3); a row is named by the
+  conversation's first ask and opens its newest run. Branches (two
+  follow-ups of one run) show as two rows. A transcript's summary is cached
+  per id and size (an ended run's never changes); 20 rows.
+- **Ed4 — What changed, by rule** (`changes.ts`): a write counts when its
+  result is an object without `error`, not a `dryRun`, and not `changed:
+false`; one commit per write call, except a several-recipe import (one per
+  recipe imported) and a roundup import (one per recipe, one for its term);
+  a recipe keeps its strongest change (created > imported > updated);
+  `term_assign` lists the term and the recipes (or plans) it wrote. The
+  commit count is the curation layer's rule, read from the results — a
+  content directory that is not a git repository would show commits that
+  never happened (the editor's always is). Cards for at most 48 recipes are
+  read; a recipe no longer there is listed as such.
+- **Ed5 — History.** A new run pushes `?run=<id>` (Back returns to the
+  empty ask); a follow-up **replaces** it (the same conversation, a new job
+  per turn, Ec3), and the conversation stays on screen until the new run's
+  first read (`carryFrom`), so nothing blinks.
+- **Ed6 — ⌘K's hand-off fills, never starts.** "find", "grab", "get me",
+  "import", "fetch", "look up" with a word after, or "add … recipes"; never
+  query syntax or the verb alone. The row sits right after Ask's place and
+  never takes the highlight, so 43q's Enter rules stand (Ask's own
+  functions are untouched; the vitest pins that "find three pork shoulder
+  braises" is still an offered, unhighlighted Ask). A request that is both
+  shows both rows.
+- **Ed7 — Words from a model, safely.** Markdown with raw HTML off; images
+  not loaded (their alt text shows); headings drawn as strong lines (the
+  page keeps its outline); a link to this site (`/…`, or this origin) opens
+  in the app, an `http(s)` one in a new tab (`noopener noreferrer
+nofollow`), anything else is text. Tool inputs and results are only ever
+  text in a `<pre>` (E7's page text included).
+- **Ed8 — `GET /api/agent`** lists conversations, read scope, `limit`
+  1–100 (default 20). `GET /api/agent/<id>/changes` is read scope too.
+- **Ed9 — The suite pins `RECIPE_SEARCH_URL` empty**, as it pins the
+  model (T18): the head's "Web search is …" must not follow `editor/.env`,
+  and no spec reaches a real SearXNG.
+- **Ed10 — Phone.** One column; the run's footer (status, Stop or the
+  follow-up box) rides above the tab bar (`sticky-chrome`, `/shopping`'s
+  plan bar pattern), static from `sm` up; recent runs below the run.
+- **Ed11 — The examples** fill the box only: "Find three pork shoulder
+  braises I don't have yet", "Import this recipe and tag it by course and
+  cuisine: https://" (the caret at the end, for a URL), "Which of my
+  recipes use gochujang? Tag the Korean ones korean".
+
+**Roger to confirm.**
+
+- Ed1: the name "Curator", and footer + ⌘K only (no masthead link).
+- Ed6: ⌘K fills the ask and does not start it.
+- Ed5: a follow-up replaces the history entry rather than adding one.
+- Ed3: recent runs grouped by conversation.
+- Ed2: no live token count while a run is going.
+
 ### 44e — The prompts; qwen measured
 
 `skill-local.md` (the condensed curator for qwen: the workflow, the reject
