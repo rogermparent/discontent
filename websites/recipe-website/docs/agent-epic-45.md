@@ -254,6 +254,84 @@ Decisions (Fb-n):
 - **Fb6 — the estimate runs only with something to read**: no ingredients
   and no steps after the fill → no call, a warning.
 
+Review fixes (the review of `25a3c8d6`, no blockers):
+
+- **A fill or Undo after a failed Save wins.** The form used to key and
+  fill on `state.formData` while a refused save's state stood, so an Undo
+  said "Undone" over the filled values and a fresh Fill never remounted.
+  The edit form now records the save state a fill or Undo came after
+  (`passedState`): while that state stands, the fill (or the stored recipe)
+  is what the form holds, and the refused save's message, errors and
+  Overwrite go too; the next save's answer is a new state and wins again.
+- **Picture and video edits survive a fill (F1, Fb2).** Only TanStack's
+  values survived the remount; the picture and video inputs are
+  uncontrolled. `common/components/Form/pictureCarry.ts` reads them off the
+  form before the remount (`readPictureInputs`: the image file, the typed
+  image URL, Remove Image, the video's mode, URL, file and Remove Video);
+  `pictureTouched` says which of the picture and the video the person set
+  (a video URL counts when it is not the saved one), and those are passed
+  to `fillGaps` as `keep` — never filled — and carried back as the inputs'
+  starting state (`ImageInput` `initialFile`/`initialUrl`/`initialClear`,
+  `VideoInput` `initial`). A carried input counts as one change in the
+  rail and its Picture status reads "new".
+- **`?fill=<job>` checks the job.** The page applies only a `fill` job's
+  result (`meta.kind`), and `isFillResult` (a slug and a `source` object)
+  guards both the panel's result and `fillResultAction`'s; anything else
+  says "That link isn't a fill for this recipe." (it said `That fill was
+for "<slug>"` before, for another recipe's fill).
+- **The form holds an estimate to the total rule.** `totalTimeProblem`
+  (`fillGaps.ts`, browser-safe) is the rule `checkEstimate` throws on;
+  `applyEstimate` now runs it over the form's values after laying the
+  estimate, drops an estimated total shorter than a typed cook or prep time
+  (or an estimated cook/prep longer than a total that is there) and answers
+  a warning — "The estimated total time was dropped: the total (60 min) is
+  shorter than the cook time (120 min)." — shown in the strip's notes. This
+  is per field, unlike Fb5's all-or-nothing on the model's answer: the
+  answer passed, and only the person's later value conflicts with it.
+- **Heading marks follow edits.** A section heading's "from the source" /
+  "estimated" now goes once the section differs from what the fill left
+  (`fillKept`, the rail's rule, shared); the picture section holds files,
+  not values, so it stays marked until Undo, as its rail row does.
+- **Fb1 amended — a quiet line when nothing is empty.** When none of the
+  fields the strip names is empty, it is one line: a ghost "Fill gaps from
+  the source" button (36 px) and "Nothing looks empty." — a fill can still
+  bring a video or a drink spec. The estimated tape keeps its height (a
+  label, not a control).
+- The "no model" vitest stubbed nothing and reached the stand-in when
+  `RECIPE_LLM_URL` was exported; it now clears the `RECIPE_LLM_*`
+  environment with `vi.stubEnv`. MCP `job_list`'s description names every
+  kind (reindex, git-sync, agent, fill were missing); no test pins it.
+- Backlog: the importer's missing private-host (SSRF) guard, the Pi as the
+  exposure (predates 45b; not fixed here).
+
+- The first gate runs found three faults in `fill-gaps.spec` itself and
+  one in the vitest suite, none in the feature: the picker offers an
+  import suggestion only for a tag with a term record (the spec now creates
+  a "Breakfast" term first); a rail link's accessible name has no leading
+  number (`/^Ingredients/`, not `/^4Ingredients/`); the edit page's own h1
+  contains "Hour Bagels", so the post-Save wait is on the address (15 s,
+  dev mode was slow) and the heading is matched exactly; and
+  `fillGaps.ts`'s import of `Form/fillMarks` was off curation's D8
+  allow-list (`test/curation.test.ts`; added — constants and pure
+  functions, one type-only import).
+
+Gates (after merging `origin/main` d5c37ef5):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: clean.
+- `pnpm exec vitest run`: 156 files, 3,454 tests passed (`fillGaps.test.ts`
+  28, also green with `RECIPE_LLM_URL` exported).
+- Playwright, Docker build mode: fill-gaps, edit, edit-form-frame,
+  edit-duplicate-slug, jobs, new-recipe, photo-import, ytdlp-import,
+  youtube-video and accessibility — 178 passed, the one failure the spec
+  faults above; then fill-gaps, visual, recipe and ingredient-preview
+  (every snapshot spec that opens an edit page) — 106 passed; fill-gaps
+  again after the last spec edit — 6 passed. No baseline moved, none
+  regenerated (the fixture recipes the snapshots open have no source link,
+  so no strip).
+- `fill-gaps.spec` in dev mode (Docker): 6 passed (an earlier dev run was
+  flaky on the post-Save wait, fixed above).
+
 ### 45c — Close-out
 
 Doc, CLAUDE.md bullet, backlog, memory; the orchestrator's real check on

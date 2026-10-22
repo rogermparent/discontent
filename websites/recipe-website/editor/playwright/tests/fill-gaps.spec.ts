@@ -126,7 +126,14 @@ test.describe("Fill gaps from the source (45b)", () => {
     createApiToken,
   }) => {
     await useModel(request, modelUrl);
-    await writeBagels(request, await createApiToken(), baseURL!);
+    const token = await createApiToken();
+    await writeBagels(request, token, baseURL!);
+    /* The picker offers a suggestion only for a tag with a term record. */
+    const term = await request.post("/api/taxonomies/tag", {
+      headers: { authorization: `Bearer ${token}` },
+      data: { label: "Breakfast" },
+    });
+    expect(term.status()).toBe(201);
     await openEdit(page);
     const strip = page.getByTestId("fill-from-source");
     await expect(strip).toContainText("fills only what is empty");
@@ -194,15 +201,15 @@ test.describe("Fill gaps from the source (45b)", () => {
     );
     /* The source's tags are suggestions, never added (43e2). */
     await expect(
-      page.getByRole("button", { name: "Accept suggested tag breakfast" }),
+      page.getByRole("button", { name: "Accept suggested tag Breakfast" }),
     ).toBeVisible();
 
     /* The rail counts the fills against the stored recipe, and marks them. */
     const rail = page.getByRole("navigation", { name: "Parts of this recipe" });
-    await expect(rail.getByRole("link", { name: /^4Ingredients/ })).toHaveText(
+    await expect(rail.getByRole("link", { name: /^Ingredients/ })).toHaveText(
       "4Ingredients: 4 · filled",
     );
-    await expect(rail.getByRole("link", { name: /^6Times/ })).toHaveText(
+    await expect(rail.getByRole("link", { name: /^Times/ })).toHaveText(
       "6Times: 1h 15m · est.",
     );
     await expect(page.getByTestId("recipe-form-changes")).toHaveText(
@@ -218,10 +225,13 @@ test.describe("Fill gaps from the source (45b)", () => {
     await axeClean(page);
 
     await page.getByRole("button", { name: "Save", exact: true }).click();
+    /* The edit page's own h1 says "Hour Bagels" too: wait for the address. */
+    await expect(page).toHaveURL(new RegExp(`/recipe/${SLUG}$`), {
+      timeout: 15_000,
+    });
     await expect(
-      page.getByRole("heading", { level: 1, name: "Hour Bagels" }),
-    ).toBeVisible({ timeout: 15_000 });
-    await expect(page).toHaveURL(new RegExp(`/recipe/${SLUG}$`));
+      page.getByRole("heading", { level: 1, name: "Hour Bagels", exact: true }),
+    ).toBeVisible();
     const stored = await (await request.get(`/api/recipe/${SLUG}`)).json();
     expect(stored).toMatchObject({
       name: "Hour Bagels",
@@ -355,7 +365,9 @@ test.describe("Fill gaps from the source (45b)", () => {
     await expect(form.locator('input[name="videoUrl"]')).toHaveValue(video);
 
     await page.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`/recipe/${SLUG}$`));
+    await expect(page).toHaveURL(new RegExp(`/recipe/${SLUG}$`), {
+      timeout: 15_000,
+    });
     const stored = await (await request.get(`/api/recipe/${SLUG}`)).json();
     expect(stored).toMatchObject({ cookTime: 30, video, totalTime: 75 });
   });
