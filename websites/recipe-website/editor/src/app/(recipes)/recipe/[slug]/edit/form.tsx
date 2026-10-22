@@ -22,6 +22,12 @@ import {
   type RecipeFormValues,
 } from "recipe-website-common/components/Form/formContext";
 import type { FillMarks } from "recipe-website-common/components/Form/fillMarks";
+import {
+  pictureCarry,
+  pictureTouched,
+  readPictureInputs,
+  type PictureInputs,
+} from "recipe-website-common/components/Form/pictureCarry";
 import { Recipe } from "recipe-website-common/controller/types";
 import { RecipeFormState } from "recipe-website-common/controller/formState";
 import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
@@ -43,24 +49,42 @@ interface AppliedFill {
   key: string;
   recipe: Partial<ImportedRecipe>;
   marks: FillMarks;
-  /** A picture or video waiting as an import URL: changes the values miss. */
+  /**
+   * Changes the form's values miss: a picture or video waiting as an import
+   * URL, and the picture inputs carried over the remount.
+   */
   extraChanges: number;
+  /** The picture and video inputs the person had set, carried (F1). */
+  pictures?: PictureInputs;
+}
+
+/** What the form holds now: its values, and its uncontrolled picture inputs. */
+interface FormReading {
+  values: RecipeFormValues;
+  pictures: PictureInputs;
 }
 
 /**
  * Hands the parent a way to read the form's current values: the fill
  * strip sits outside the form (its state outlives a remount), and fills
- * over what the person has typed, not over the stored recipe (F1).
+ * over what the person has typed, not over the stored recipe (F1) — the
+ * picture and video inputs included, which the form instance does not hold.
  */
 function ValuesProbe({
-  valuesRef,
+  readRef,
 }: {
-  valuesRef: RefObject<(() => RecipeFormValues) | undefined>;
+  readRef: RefObject<(() => FormReading) | undefined>;
 }) {
   const form = useRecipeForm();
   useEffect(() => {
-    valuesRef.current = () => form.state.values;
-  }, [form, valuesRef]);
+    readRef.current = () => {
+      const element = document.getElementById("recipe-form");
+      return {
+        values: form.state.values,
+        pictures: element ? readPictureInputs(element) : {},
+      };
+    };
+  }, [form, readRef]);
   return null;
 }
 
@@ -131,15 +155,29 @@ export default function EditRecipeForm({
   /* Remounts the form: a fill, then an Undo, each a fresh instance. */
   const [undoKey, setUndoKey] = useState<string>();
   const remounts = useRef(0);
-  const readValues = useRef<(() => RecipeFormValues) | undefined>(undefined);
+  const readForm = useRef<(() => FormReading) | undefined>(undefined);
+  /*
+   * The save state a fill or an Undo came after (45b review): a failed
+   * save remounts the form with what was sent, but a fill or Undo after it
+   * wins — until the next save answers a new state.
+   */
+  const [passedState, setPassedState] = useState<RecipeFormState>();
+  const stateNow = useRef(state);
+  useEffect(() => {
+    stateNow.current = state;
+  }, [state]);
+  const passed = passedState !== undefined && state === passedState;
+  const failed = state.formData && !passed ? state : undefined;
+  /* What the save said, unless a fill or Undo came after it. */
+  const shown = passed ? initialState : state;
   /* After a failed save the form holds what was sent: no fill marks then. */
-  const fill = state.formData ? undefined : applied;
-  const effectiveRecipe = state.formData
-    ? { ...recipe, ...state.formData }
+  const fill = failed ? undefined : applied;
+  const effectiveRecipe = failed
+    ? { ...recipe, ...failed.formData }
     : (fill?.recipe ?? recipe);
   /* A fill keeps a slug typed before it (the form's values carry it). */
   const effectiveSlug =
-    state.formData?.slug ||
+    failed?.formData?.slug ||
     (typeof fill?.recipe.slug === "string" ? fill.recipe.slug : "") ||
     slug;
   const baseline = useMemo(
@@ -149,18 +187,30 @@ export default function EditRecipeForm({
 
   const onApply = useCallback(
     (result: FillResult): FillOutcome => {
-      const current = valuesAsRecipe(recipe, readValues.current?.());
+      const reading = readForm.current?.();
+      const current = valuesAsRecipe(recipe, reading?.values);
+      /* A picture or video the person set is theirs: not filled, carried. */
+      const inputs = reading?.pictures ?? {};
+      const touched = pictureTouched(inputs, recipe);
       const { recipe: filled, filled: fields } = fillGaps(
         current,
         result.source,
+        {
+          keep: [
+            ...(touched.image ? (["image"] as const) : []),
+            ...(touched.video ? (["video"] as const) : []),
+          ],
+        },
       );
-      const { recipe: merged, estimated } = applyEstimate(
-        filled,
-        result.estimated?.values,
-      );
+      const {
+        recipe: merged,
+        estimated,
+        warnings,
+      } = applyEstimate(filled, result.estimated?.values);
       if (fields.length === 0 && estimated.length === 0) {
-        return { nothing: true };
+        return { nothing: true, warnings };
       }
+      const pictures = pictureCarry(inputs, touched);
       const marks: FillMarks = {
         filled: fields,
         estimated,
@@ -175,9 +225,12 @@ export default function EditRecipeForm({
         marks,
         extraChanges:
           (fields.includes("image") ? 1 : 0) +
-          (fields.includes("video") ? 1 : 0),
+          (fields.includes("video") ? 1 : 0) +
+          (pictures ? 1 : 0),
+        ...(pictures ? { pictures } : {}),
       });
-      return { marks };
+      setPassedState(stateNow.current);
+      return { marks, warnings };
     },
     [recipe],
   );
@@ -186,6 +239,7 @@ export default function EditRecipeForm({
     remounts.current += 1;
     setApplied(null);
     setUndoKey(`undo-${remounts.current}`);
+    setPassedState(stateNow.current);
   }, []);
 
   return (
@@ -210,38 +264,42 @@ export default function EditRecipeForm({
         />
       ) : null}
       <RecipeFormShell
-        key={state.formData ? state.message : (fill?.key ?? undoKey)}
+        key={failed ? failed.message : (fill?.key ?? undoKey)}
         action={dispatch}
         recipe={effectiveRecipe}
         slug={effectiveSlug}
         tagPicker={tagPicker}
         className="flex w-full flex-col gap-7"
       >
-        <ValuesProbe valuesRef={readValues} />
+        <ValuesProbe readRef={readForm} />
         <UpdateRecipeFields
           recipe={effectiveRecipe}
           slug={effectiveSlug}
-          state={withSlugConflict(state)}
+          state={withSlugConflict(shown)}
           defaultImage={defaultImage}
           allTags={allTags}
           fill={fill?.marks}
+          pictures={fill?.pictures}
         />
         {/* Last: on a phone its save bar ends the form, sticky above the tab bar. */}
         <RecipeFormRail
           mode="edit"
           eyebrow="Editing"
           picture={
-            fill?.recipe.imageImportUrl && fill.marks.filled.includes("image")
-              ? "page"
-              : defaultImage
-                ? "saved"
-                : "none"
+            fill?.pictures
+              ? "new"
+              : fill?.recipe.imageImportUrl &&
+                  fill.marks.filled.includes("image")
+                ? "page"
+                : defaultImage
+                  ? "saved"
+                  : "none"
           }
-          errors={withSlugConflict(state).errors}
+          errors={withSlugConflict(shown).errors}
           saveLabel="Save"
           cancelHref={`/recipe/${slug}`}
-          message={state.message || undefined}
-          overwrite={state.slugConflict ? overwriteDispatch : undefined}
+          message={shown.message || undefined}
+          overwrite={shown.slugConflict ? overwriteDispatch : undefined}
           baseline={baseline}
           fill={fill?.marks}
           extraChanges={fill?.extraChanges}

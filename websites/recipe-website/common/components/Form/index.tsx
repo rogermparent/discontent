@@ -35,10 +35,11 @@ import { useCurrentTimezone } from "@discontent/cms/hooks/useCurrentTimezone";
 
 import { yieldToolbarItems } from "./RecipeMarkdown/lexicalToolbar";
 import { FormSection } from "./RecipeFormFrame";
-import { stepCount } from "./sections";
+import { fillKept, stepCount, type RecipeSectionId } from "./sections";
 import { DrinkSpecSection } from "./Drink";
 import { useDrinkShown, useRevealDrink } from "./drinkShown";
 import { timesHint } from "./Instructions/stepChecks";
+import type { PictureInputs } from "./pictureCarry";
 import {
   FILL_FIELD_LABELS,
   fillSections,
@@ -238,6 +239,7 @@ export default function RecipeFields({
   imageFile,
   fromLabel,
   fill,
+  pictures,
 }: {
   recipe?: Partial<ImportedRecipe>;
   slug?: string;
@@ -258,6 +260,11 @@ export default function RecipeFields({
    * estimate's basis.
    */
   fill?: FillMarks;
+  /**
+   * The picture and video inputs as they were before a remount (45b): a
+   * fill remounts the form, and these uncontrolled inputs start from here.
+   */
+  pictures?: PictureInputs;
 }) {
   const form = useRecipeForm();
   // Read the live name reactively (drives the slug placeholder) without nesting
@@ -274,10 +281,25 @@ export default function RecipeFields({
 
   const currentTimezone = useCurrentTimezone();
   const imported = (has: unknown) => (fromLabel && has ? fromLabel : undefined);
-  /* 45b: what a fill did to each section, said where the import's would be. */
+  /*
+   * 45b: what a fill did to each section, said where the import's would be
+   * — while the section holds what the fill left (an edit there drops the
+   * mark, as the rail's and the estimate tapes go). The selector answers a
+   * string, so a keystroke re-renders the fields only when a mark goes.
+   */
   const filledSections = fillSections(fill);
-  const filled = (section: keyof typeof filledSections) =>
-    sectionFillLabel(filledSections[section]);
+  const fillDefaults = form.options.defaultValues;
+  const keptSections = useStore(form.store, (state) =>
+    fillDefaults
+      ? (Object.keys(filledSections) as RecipeSectionId[])
+          .filter((section) => fillKept(section, state.values, fillDefaults))
+          .join(",")
+      : "",
+  );
+  const filled = (section: RecipeSectionId) =>
+    keptSections.split(",").includes(section)
+      ? sectionFillLabel(filledSections[section])
+      : undefined;
 
   return (
     <VideoPlayerProvider>
@@ -367,19 +389,31 @@ export default function RecipeFields({
            * photo" box ticked or unticked after an import) starts the field
            * over — holding it, with its preview, or empty — since a file
            * input cannot be told to drop just the file a script gave it. */
-          key={fileKey(imageFile)}
+          key={fileKey(imageFile ?? pictures?.imageFile)}
           defaultImage={defaultImage}
           errors={state?.errors?.image}
           imageToImport={imageImportUrl}
           candidates={images}
           allowUrl
-          initialFile={imageFile}
+          initialFile={imageFile ?? pictures?.imageFile}
+          initialUrl={pictures?.imageUrl}
+          initialClear={pictures?.clearImage}
         />
         <VideoInput
           label="Video"
           name="video"
           defaultVideo={resolveRecipeVideoSrc(slug, video)}
           videoToImport={videoImportUrl}
+          initial={
+            pictures
+              ? {
+                  mode: pictures.videoMode,
+                  url: pictures.videoUrl,
+                  file: pictures.videoFile,
+                  clear: pictures.clearVideo,
+                }
+              : undefined
+          }
         />
       </FormSection>
       <IngredientsWithSource

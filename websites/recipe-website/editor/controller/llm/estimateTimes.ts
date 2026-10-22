@@ -44,6 +44,7 @@ import {
 import { readerLabel } from "./readerLabel";
 import {
   ESTIMATE_FIELDS,
+  totalTimeProblem,
   type EstimateField,
   type EstimateValues,
 } from "../curation/fillGaps";
@@ -287,20 +288,13 @@ export function checkEstimate(
   }
   if (fields.length === 0) throw new Error("the answer estimated nothing");
   const at = (field: "prepTime" | "cookTime" | "totalTime") =>
-    values[field] ?? (recipe[field] && recipe[field] > 0 ? recipe[field] : 0);
-  const total = at("totalTime");
-  if (total) {
-    if (total < at("cookTime")) {
-      throw new Error(
-        `the total (${total} min) is shorter than the cook time (${at("cookTime")} min)`,
-      );
-    }
-    if (total < at("prepTime")) {
-      throw new Error(
-        `the total (${total} min) is shorter than the prep time (${at("prepTime")} min)`,
-      );
-    }
-  }
+    values[field] ?? recipe[field];
+  const problem = totalTimeProblem({
+    prepTime: at("prepTime"),
+    cookTime: at("cookTime"),
+    totalTime: at("totalTime"),
+  });
+  if (problem) throw new Error(problem);
   const basis =
     answer.basis.length > ESTIMATE_BASIS_MAX
       ? `${answer.basis.slice(0, ESTIMATE_BASIS_MAX - 1).trimEnd()}…`

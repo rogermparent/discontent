@@ -189,6 +189,7 @@ export async function fillRecipe(
       warnings.push(...result.warnings);
       if (result.estimate) {
         const applied = applyEstimate(filledRecipe, result.estimate.values);
+        warnings.push(...applied.warnings);
         recipe = applied.recipe;
         estimated = {
           fields: applied.estimated,

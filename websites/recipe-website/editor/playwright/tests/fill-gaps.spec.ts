@@ -279,6 +279,87 @@ test.describe("Fill gaps from the source (45b)", () => {
     await expect(form.getByTitle("Cook Time Minutes")).toHaveValue("17");
   });
 
+  test("a fill or Undo after a failed Save wins: Undo restores, Fill again remounts", async ({
+    page,
+    request,
+    baseURL,
+    createApiToken,
+  }) => {
+    await useModel(request, modelUrl);
+    const token = await createApiToken();
+    await writeBagels(request, token, baseURL!);
+    const other = await request.post("/api/recipes", {
+      headers: { authorization: `Bearer ${token}` },
+      data: { name: "Other Bagels", slug: "other-bagels" },
+    });
+    expect(other.status()).toBe(201);
+    await openEdit(page);
+    await fill(page);
+    const form = page.locator("#recipe-form");
+    await expect(form.getByTitle("Cook Time Minutes")).toHaveValue("17");
+
+    /* A Save refused (the slug is taken): the form holds what was sent. */
+    await page.getByLabel("Slug").fill("other-bagels");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByText(/already exists/i)).toBeVisible();
+
+    await page
+      .getByTestId("fill-summary")
+      .getByRole("button", { name: "Undo", exact: true })
+      .click();
+    await expect(page.getByTestId("fill-undone")).toBeVisible();
+    await expect(form.getByTitle("Cook Time Minutes")).toHaveValue("");
+    await expect(page.getByLabel("Slug")).toHaveValue(SLUG);
+    await expect(
+      form.locator('[name="ingredients[0].ingredient"]'),
+    ).toHaveCount(0);
+    await expect(page.getByText(/already exists/i)).toHaveCount(0);
+    await expect(page.getByTestId("recipe-form-changes")).toHaveText(
+      "No changes",
+    );
+
+    await fill(page);
+    await expect(form.getByTitle("Cook Time Minutes")).toHaveValue("17");
+    await expect(
+      form.locator('[name="ingredients[0].ingredient"]'),
+    ).toHaveCount(1);
+  });
+
+  test("a cook time and a video URL typed before Fill both survive it", async ({
+    page,
+    request,
+    baseURL,
+    createApiToken,
+  }) => {
+    await useModel(request, modelUrl);
+    await writeBagels(request, await createApiToken(), baseURL!);
+    await openEdit(page);
+    const form = page.locator("#recipe-form");
+    await form.getByTitle("Cook Time Minutes").fill("30");
+    const video = new URL("/uploads/fill-bagels.mp4", baseURL).href;
+    await page.getByLabel("Enter URL").check();
+    await page.getByLabel("Video URL").fill(video);
+    await page.getByLabel("Video URL").blur();
+
+    await fill(page);
+    const summary = page.getByTestId("fill-summary");
+    await expect(summary).toContainText(
+      "Filled from the source: picture, ingredients and steps.",
+    );
+    /* The typed cook time stands; only the empty times are estimated. */
+    await expect(summary).toContainText(
+      "Estimated by local model qwen3:8b: prep time, total time and yield",
+    );
+    await expect(form.getByTitle("Cook Time Minutes")).toHaveValue("30");
+    await expect(page.getByLabel("Video URL")).toHaveValue(video);
+    await expect(form.locator('input[name="videoUrl"]')).toHaveValue(video);
+
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/recipe/${SLUG}$`));
+    const stored = await (await request.get(`/api/recipe/${SLUG}`)).json();
+    expect(stored).toMatchObject({ cookTime: 30, video, totalTime: 75 });
+  });
+
   test("with no model, fills from the source alone and says the estimate was skipped", async ({
     page,
     request,
@@ -325,6 +406,10 @@ test.describe("Fill gaps from the source (45b)", () => {
       ).href,
     });
     await openEdit(page);
+    /* Nothing the hint names is empty: one quiet line, the button in it. */
+    await expect(page.getByTestId("fill-from-source")).toHaveText(
+      /^Fill gaps from the source\s*Nothing looks empty\.$/,
+    );
     await fill(page);
     await expect(page.getByTestId("fill-summary")).toHaveText(
       "Nothing new from the source: every field it has is already filled.",

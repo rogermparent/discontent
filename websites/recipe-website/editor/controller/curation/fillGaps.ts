@@ -21,6 +21,7 @@ import type { DrinkSpec, Recipe } from "recipe-website-common/controller/types";
 import { videoHostName } from "recipe-website-common/util/videoUrl";
 import {
   ESTIMATE_FIELDS,
+  FILL_FIELD_LABELS,
   type EstimateField,
   type FillField,
 } from "recipe-website-common/components/Form/fillMarks";
@@ -165,6 +166,16 @@ export interface FillGapsResult {
 export function fillGaps(
   stored: FillableRecipe,
   draft: Partial<ImportedRecipe>,
+  {
+    keep = [],
+  }: {
+    /**
+     * Fields to treat as filled whatever `stored` says (45b review): the
+     * edit form's picture and video inputs, which a person can set without
+     * the form's values seeing it — a typed video URL is not overwritten.
+     */
+    keep?: readonly FillField[];
+  } = {},
 ): FillGapsResult {
   const recipe: Partial<ImportedRecipe> = {
     ...(stored as Partial<ImportedRecipe>),
@@ -172,7 +183,7 @@ export function fillGaps(
   delete recipe.partial;
   const filled: FillField[] = [];
   for (const field of ORDER) {
-    if (!isEmptyField(stored, field)) continue;
+    if (keep.includes(field) || !isEmptyField(stored, field)) continue;
     const value = offered(draft, field);
     if (!value) continue;
     Object.assign(recipe, value);
@@ -193,23 +204,90 @@ export function estimateWanted(recipe: FillableRecipe): EstimateField[] {
 }
 
 /**
+ * Why a recipe's times do not add up (F4's total rule), or `undefined`: a
+ * total shorter than the cook or the prep time. A `0` or absent time is not
+ * compared. `checkEstimate` refuses a model's answer with it; `applyEstimate`
+ * holds the form's values to it as well.
+ */
+export function totalTimeProblem(
+  times: Pick<EstimateValues, "prepTime" | "cookTime" | "totalTime">,
+): string | undefined {
+  const at = (field: "prepTime" | "cookTime" | "totalTime") => {
+    const value = times[field];
+    return typeof value === "number" && value > 0 ? value : 0;
+  };
+  const total = at("totalTime");
+  if (!total) return undefined;
+  if (total < at("cookTime")) {
+    return `the total (${total} min) is shorter than the cook time (${at("cookTime")} min)`;
+  }
+  if (total < at("prepTime")) {
+    return `the total (${total} min) is shorter than the prep time (${at("prepTime")} min)`;
+  }
+  return undefined;
+}
+
+/**
  * `estimate`'s values on the fields still empty in `recipe` (F4: an
- * estimate never replaces a value, the source's or the person's).
+ * estimate never replaces a value, the source's or the person's). The
+ * result is held to the total rule (`totalTimeProblem`) against what
+ * `recipe` already holds — the edit form's values may have changed since
+ * the job checked the estimate against the stored recipe (45b review): an
+ * estimated total shorter than a typed cook time is dropped, and so is an
+ * estimated prep or cook time longer than a total that is there, each with
+ * a warning.
  */
 export function applyEstimate(
   recipe: Partial<ImportedRecipe>,
   estimate: EstimateValues | undefined,
-): { recipe: Partial<ImportedRecipe>; estimated: EstimateField[] } {
+): {
+  recipe: Partial<ImportedRecipe>;
+  estimated: EstimateField[];
+  warnings: string[];
+} {
   const out: Partial<ImportedRecipe> = { ...recipe };
-  const estimated: EstimateField[] = [];
-  if (!estimate) return { recipe: out, estimated };
+  const warnings: string[] = [];
+  if (!estimate) return { recipe: out, estimated: [], warnings };
+  let estimated: EstimateField[] = [];
   for (const field of ESTIMATE_FIELDS) {
     const value = estimate[field];
     if (value === undefined || !isEmptyField(recipe, field)) continue;
     (out as Record<string, unknown>)[field] = value;
     estimated.push(field);
   }
-  return { recipe: out, estimated };
+  const drop = (field: "prepTime" | "cookTime" | "totalTime") => {
+    const why = totalTimeProblem(out);
+    (out as Record<string, unknown>)[field] = recipe[field];
+    estimated = estimated.filter((one) => one !== field);
+    warnings.push(
+      `The estimated ${FILL_FIELD_LABELS[field]} was dropped: ${why}.`,
+    );
+  };
+  if (totalTimeProblem(out)) {
+    if (estimated.includes("totalTime")) drop("totalTime");
+    for (const field of ["cookTime", "prepTime"] as const) {
+      if (totalTimeProblem(out) && estimated.includes(field)) drop(field);
+    }
+  }
+  return { recipe: out, estimated, warnings };
+}
+
+/**
+ * Whether a job's result is a fill's (45b review): `?fill=<job>` may name any
+ * job, and an import's result has a `slug` too — only a `fill` job's has
+ * the source's reading to fill from.
+ */
+export function isFillResult(
+  value: unknown,
+): value is { slug: string; source: Partial<ImportedRecipe> } {
+  if (!value || typeof value !== "object") return false;
+  const { slug, source } = value as { slug?: unknown; source?: unknown };
+  return (
+    typeof slug === "string" &&
+    !!source &&
+    typeof source === "object" &&
+    !Array.isArray(source)
+  );
 }
 
 /**

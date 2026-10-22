@@ -171,6 +171,20 @@ const SECTION_KEYS: Record<RecipeSectionId, (keyof RecipeFormValues)[]> = {
   source: [],
 };
 
+/**
+ * Whether `section` still holds what a fill left in it (45b): its marks —
+ * the heading's "from the source", the rail's "filled" — go once an edit
+ * changes it. A section of files (the picture) holds no values, so it stays
+ * marked until Undo.
+ */
+export function fillKept(
+  section: RecipeSectionId,
+  values: RecipeFormValues,
+  filled: RecipeFormValues,
+): boolean {
+  return SECTION_KEYS[section].every((key) => same(values[key], filled[key]));
+}
+
 /** The rail's word for a fill (45b): "filled", "est.", or both. */
 const FILL_WORD: Record<SectionFill, string> = {
   source: "filled",
@@ -243,10 +257,7 @@ export function sectionStatuses(
     RecipeSectionId,
     SectionFill,
   ][]) {
-    const kept = SECTION_KEYS[section].every((key) =>
-      same(values[key], fill!.values[key]),
-    );
-    if (!kept) continue;
+    if (!fillKept(section, values, fill!.values)) continue;
     /* A count or a time stays ("12 · filled"); words give way. */
     const { text: base, tone } = statuses[section];
     statuses[section] = {

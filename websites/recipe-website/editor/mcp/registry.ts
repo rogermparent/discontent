@@ -1770,8 +1770,9 @@ export function recipeToolDefinitions(
         "startedAt?, endedAt?, durationMs?, error?, waiting?, retryOf?}], total, more}. " +
         "`status` filters by queued, running, done, failed, cancelled, interrupted, or " +
         "`live` (queued and running); `kind` by import-url, import-text, inspect, " +
-        "inspect-list, import-list, import-photo, form-url, form-text, form-photo or " +
-        "form-batch. A `waiting` " +
+        "inspect-list, import-list, import-photo, form-url, form-text, form-photo, " +
+        "form-batch, reindex, git-sync, agent or fill (a recipe's gaps read from its " +
+        "source, written nowhere). A `waiting` " +
         "job is in the queue for the GPU, yt-dlp or a site.",
       inputSchema: z.strictObject({
         status: z.enum(JOB_STATUS_FILTERS).optional(),

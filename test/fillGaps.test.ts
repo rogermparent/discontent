@@ -12,6 +12,8 @@ import {
   fillGaps,
   fillSourceUrl,
   isEmptyField,
+  isFillResult,
+  totalTimeProblem,
 } from "../websites/recipe-website/editor/controller/curation/fillGaps";
 import { fillPatch } from "../websites/recipe-website/editor/controller/curation/fillRecipe";
 import type { LlmConfig } from "../websites/recipe-website/editor/controller/llm/client";
@@ -27,7 +29,14 @@ import {
   fillSections,
   sectionFillLabel,
 } from "../websites/recipe-website/common/components/Form/fillMarks";
-import { sectionStatuses } from "../websites/recipe-website/common/components/Form/sections";
+import {
+  fillKept,
+  sectionStatuses,
+} from "../websites/recipe-website/common/components/Form/sections";
+import {
+  pictureCarry,
+  pictureTouched,
+} from "../websites/recipe-website/common/components/Form/pictureCarry";
 import { recipeToFormValues } from "../websites/recipe-website/common/components/Form/formContext";
 import { stepTitle } from "../websites/recipe-website/editor/controller/jobs/timeline";
 import { estimateAnswer } from "../websites/recipe-website/editor/playwright/fixtures/llm/standInModel";
@@ -154,6 +163,57 @@ describe("fillGaps (F1/F3)", () => {
     };
     expect(fillGaps(full, DRAFT).filled).toEqual([]);
   });
+
+  it("leaves a picture or video the person set alone (`keep`)", () => {
+    const { recipe, filled } = fillGaps(BAGELS, DRAFT, {
+      keep: ["image", "video"],
+    });
+    expect(filled).toEqual(["description", "recipeYield", "prepTime"]);
+    expect(recipe.imageImportUrl).toBeUndefined();
+    expect(recipe.videoImportUrl).toBeUndefined();
+  });
+});
+
+describe("pictureTouched and pictureCarry (the form's uncontrolled inputs)", () => {
+  it("sees a typed URL, a picked file or a ticked box, and not the saved video", () => {
+    const saved = { video: "https://www.youtube.com/watch?v=SAVED" };
+    expect(pictureTouched({}, {})).toEqual({ image: false, video: false });
+    expect(
+      pictureTouched({ videoMode: "url", videoUrl: saved.video }, saved),
+    ).toEqual({ image: false, video: false });
+    expect(
+      pictureTouched(
+        { videoMode: "url", videoUrl: "https://vimeo.com/1" },
+        saved,
+      ),
+    ).toEqual({ image: false, video: true });
+    expect(
+      pictureTouched({ videoMode: "url", videoUrl: "https://vimeo.com/1" }, {}),
+    ).toEqual({ image: false, video: true });
+    /* URL mode left empty on a recipe with no video: no change. */
+    expect(pictureTouched({ videoMode: "url", videoUrl: "" }, {})).toEqual({
+      image: false,
+      video: false,
+    });
+    expect(
+      pictureTouched({ imageUrl: "https://example.com/a.jpg" }, {}).image,
+    ).toBe(true);
+    expect(pictureTouched({ clearImage: true }, {}).image).toBe(true);
+  });
+
+  it("carries only what was touched", () => {
+    const inputs = {
+      imageUrl: "https://example.com/a.jpg",
+      videoMode: "url" as const,
+      videoUrl: "",
+    };
+    expect(pictureCarry(inputs, { image: true, video: false })).toEqual({
+      imageUrl: "https://example.com/a.jpg",
+    });
+    expect(
+      pictureCarry(inputs, { image: false, video: false }),
+    ).toBeUndefined();
+  });
 });
 
 describe("applyEstimate and estimateWanted (F4)", () => {
@@ -175,6 +235,62 @@ describe("applyEstimate and estimateWanted (F4)", () => {
       cookTime: 17,
       totalTime: 75,
     });
+    expect(applied.warnings).toEqual([]);
+  });
+
+  it("holds the form's own values to the total rule: a short total is dropped", () => {
+    /* The person typed cook 120 after the job checked the estimate. */
+    const typed = { ...BAGELS, cookTime: 120 };
+    const applied = applyEstimate(typed, {
+      prepTime: 20,
+      totalTime: 60,
+      recipeYield: "8 bagels",
+    });
+    expect(applied.estimated).toEqual(["prepTime", "recipeYield"]);
+    expect(applied.recipe).toMatchObject({
+      prepTime: 20,
+      cookTime: 120,
+      totalTime: 0,
+      recipeYield: "8 bagels",
+    });
+    expect(applied.warnings).toEqual([
+      "The estimated total time was dropped: the total (60 min) is shorter than the cook time (120 min).",
+    ]);
+  });
+
+  it("drops an estimated cook or prep time longer than a total that is there", () => {
+    const typed = { ...BAGELS, totalTime: 30 };
+    const applied = applyEstimate(typed, { prepTime: 10, cookTime: 45 });
+    expect(applied.estimated).toEqual(["prepTime"]);
+    expect(applied.recipe).toMatchObject({
+      prepTime: 10,
+      cookTime: 0,
+      totalTime: 30,
+    });
+    expect(applied.warnings).toEqual([
+      "The estimated cook time was dropped: the total (30 min) is shorter than the cook time (45 min).",
+    ]);
+  });
+
+  it("totalTimeProblem compares only the times that are there", () => {
+    expect(totalTimeProblem({ cookTime: 40 })).toBeUndefined();
+    expect(totalTimeProblem({ totalTime: 30, cookTime: 0 })).toBeUndefined();
+    expect(totalTimeProblem({ totalTime: 30, prepTime: 45 })).toBe(
+      "the total (30 min) is shorter than the prep time (45 min)",
+    );
+  });
+});
+
+describe("isFillResult (`?fill=<job>`)", () => {
+  it("takes a fill's result, not an import's that has a slug too", () => {
+    expect(isFillResult({ slug: "bagels", url: "https://x", source: {} })).toBe(
+      true,
+    );
+    expect(isFillResult({ slug: "bagels", recipe: {} })).toBe(false);
+    expect(isFillResult({ slug: "bagels", source: [] })).toBe(false);
+    expect(isFillResult({ source: {} })).toBe(false);
+    expect(isFillResult(undefined)).toBe(false);
+    expect(isFillResult("bagels")).toBe(false);
   });
 });
 
@@ -323,6 +439,7 @@ function stubModel(answer: unknown) {
 describe("estimateTimes (F4/F5, a stubbed model)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("asks once with its own prompt and schema, and answers the checked values", async () => {
@@ -373,6 +490,15 @@ describe("estimateTimes (F4/F5, a stubbed model)", () => {
   it("with no model configured, asks nothing and says the estimate was skipped", async () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
+    /* `config: undefined` reads the environment: none of it configured. */
+    for (const key of [
+      "RECIPE_LLM_URL",
+      "RECIPE_LLM_API",
+      "RECIPE_LLM_API_KEY",
+      "RECIPE_LLM_MODEL",
+    ]) {
+      vi.stubEnv(key, "");
+    }
     const result = await estimateTimes(BAGELS, { config: undefined });
     expect(fetch).not.toHaveBeenCalled();
     expect(result.estimate).toBeUndefined();
@@ -459,6 +585,12 @@ describe("the marks (fillMarks, the rail)", () => {
     /* An edited section is the person's now: no mark. */
     const edited = sectionStatuses({ ...filled, totalTime: 80 }, context);
     expect(edited.times).toEqual({ text: "1h 20m" });
+    /* The heading's mark follows the same rule (`fillKept`). */
+    expect(fillKept("times", filled, filled)).toBe(true);
+    expect(fillKept("times", { ...filled, totalTime: 80 }, filled)).toBe(false);
+    expect(fillKept("picture", { ...filled, totalTime: 80 }, filled)).toBe(
+      true,
+    );
   });
 
   it("names the estimate's step in the live panel", () => {

@@ -11,6 +11,7 @@ import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { curationContextFor } from "recipe-editor/controller/apiContext";
 import { authenticateUser } from "recipe-editor/controller/actions/shared";
 import type { FillResult } from "recipe-editor/controller/curation/fillRecipe";
+import { isFillResult } from "recipe-editor/controller/curation/fillGaps";
 import { corpusOf, startSpec } from "recipe-editor/controller/jobs/kinds";
 import {
   keepUnstored,
@@ -67,7 +68,11 @@ export async function fillResultAction(job: string): Promise<FillOutcome> {
     case "pending":
       return { pending: true };
     case "done":
-      return { result: answer.value };
+      /* A recordless job of another kind (an import's result has a slug
+       * too): never handed to the form as a fill (45b review). */
+      return isFillResult(answer.value)
+        ? { result: answer.value }
+        : { message: "That link isn't a fill for this recipe." };
     default: {
       const { error } = answer;
       const cancelled =
