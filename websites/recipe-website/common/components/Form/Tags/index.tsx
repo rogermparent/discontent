@@ -321,11 +321,10 @@ export function TagField({
                 id={optionId(position)}
                 role="option"
                 aria-selected={selected}
-                aria-label={
-                  option.kind === "term"
-                    ? `Add tag ${option.match.label}`
-                    : `New tag ${option.value}`
-                }
+                /* The name comes from the content ("Add tag Gin", "New tag
+                 * x" — sr-only verbs), never an aria-label: the visible
+                 * text must stay part of the name (WCAG 2.5.3). The facet,
+                 * count, alias and "through" are the description. */
                 aria-describedby={
                   option.kind === "term"
                     ? `${optionId(position)}-about`
@@ -353,9 +352,11 @@ export function TagField({
                   />
                 ) : (
                   <span className="min-w-0">
-                    <span aria-hidden>+ </span>
-                    New tag{" "}
-                    <span className="font-medium">“{option.value}”</span>
+                    <span className="sr-only">New tag {option.value}</span>
+                    <span aria-hidden>
+                      + New tag{" "}
+                      <span className="font-medium">“{option.value}”</span>
+                    </span>
                   </span>
                 )}
               </li>
@@ -422,14 +423,22 @@ function TermOption({
   return (
     <>
       <span className="min-w-0">
+        {/* One text node for the name, so every accname reads it alike. */}
+        <span className="sr-only">Add tag {match.label}</span>
         <span aria-hidden>+ </span>
-        <span className="font-medium">{match.label}</span>
+        <span aria-hidden className="font-medium">
+          {match.label}
+        </span>
         {match.alias ? (
-          <span className="text-muted-foreground"> (“{match.alias}”)</span>
+          <span aria-hidden className="text-muted-foreground">
+            {" "}
+            (“{match.alias}”)
+          </span>
         ) : null}
         {match.through ? (
           /* F1: the recipe reaches it already, through a chosen child. */
           <span
+            aria-hidden
             className="text-muted-foreground"
             title="Already reached: a child brings its parent"
           >
@@ -438,10 +447,15 @@ function TermOption({
           </span>
         ) : null}
       </span>
+      {/* Hidden from the name, read as the option's description. */}
       <span
         id={aboutId}
+        aria-hidden
         className="flex shrink-0 items-baseline gap-1.5 text-xs whitespace-nowrap text-muted-foreground"
       >
+        {match.alias ? (
+          <span className="sr-only">Matched “{match.alias}”, </span>
+        ) : null}
         {match.through ? (
           <span className="sr-only">
             Already reached through {match.through.join(", ")} (a child brings
