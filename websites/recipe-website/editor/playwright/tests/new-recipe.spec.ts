@@ -592,7 +592,7 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
           "Couldn't save: 1 problem — Steps.",
         );
         await expect(page.getByTestId("section-errors-steps")).toHaveText(
-          "Group 1 needs a name",
+          "The group starting “This is the first instruction” needs a name",
         );
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),

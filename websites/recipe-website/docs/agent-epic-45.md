@@ -206,17 +206,24 @@ URL takes the import action like any other link.
   (D4's round trip; 43e2's De2-6 empty step name is still no name).
 - **Every refusal says where it is** (`controller/recipeFormErrors.ts`):
   the steps are checked by hand so the message names the step as the form
-  numbers it (reading order across groups) — "Step 4 has no text", "Group
-  1 needs a name", "Group 2 has no steps" — and "Name is required", "Video
-  link isn't a URL", "Source link isn't a URL"; any other field's zod
-  message is prefixed with what it is about ("Prep time: Invalid number",
-  "Timeline 2: …"). Filed under the top-level key the fields and the
-  rail's markers already read. The message names the sections in page
-  order: **"Couldn't save: 2 problems — Picture, Steps."**
+  numbers it (reading order across groups) — "Step 4 has no text"; a
+  group shows no number, so it is named by its first step, its place or
+  its name — "The group starting “Divide cold dough into…” needs a name",
+  "The group after step 4 needs a name", "Group “Topping” has no steps",
+  "… has only empty steps" — and "Name is required", "Video link isn't a
+  URL", "Source link isn't a URL"; any other field's zod message is
+  prefixed with what it is about ("Prep time: Invalid number", "Timeline
+  1, event 2: …"). Filed under the top-level key the fields and the rail's
+  markers already read (`videoImportUrl` / `imageImportUrl` mark Picture;
+  a key no section holds is "Other"). The message counts every problem and
+  names the sections in page order: **"Couldn't save: 2 problems —
+  Picture, Steps."**
 - **Shown where they belong**: `FormSection` takes `errors` and lists them
   under the heading (`data-testid="section-errors-<id>"`) for the problems
   no single field shows — Ingredients, Steps (steps and timelines),
   Picture and video (the video link) — beside the rail's "check" (43e1).
+  The list is the section heading's description (`aria-describedby`), not
+  a live region: the save's message is the one that announces.
   `mergeFieldErrors` de-duplicates (the server's and the field's "Name is
   required").
 - **A video description's own lists, without the model**
@@ -225,8 +232,14 @@ URL takes the import action like any other link.
   `∙ • · ● ▪ ◦` / `- ` / `* ` lines are ingredients (through
   `createIngredient`, as imports mark them), `1.` / `1)` lines steps, and a
   short line before a list a heading (an ingredient part, or a step group:
-  "Large Loaf", "Baguettes"…). A link, a timestamp or prose ends the block;
-  it counts with two ingredient lines or more. Brian Lagerstrom's
+  "Large Loaf", "Baguettes"…). A link (also a bare domain like
+  `geni.us/abc` or `example.shop`, or an `@handle`), a timestamp, prose,
+  or a heading about gear, tools, a kit, a code, a sponsor, a shop or an
+  affiliate ends the block; it counts with two ingredient lines **and** a
+  step, and only when the description has one recipe heading (two —
+  "RECIPE 1: Pancakes … RECIPE 2: Waffles" — are the model's to split,
+  36e). A body read here clears `partial`, except after a forced or failed
+  model call. Brian Lagerstrom's
   description reads as 6 ingredients, 4 steps and five groups (Large Loaf
   4, Baguettes 3, Pizza 2, Bagels 4, Soft Pretzels 4); the gear list, the
   "WATCH NEXT" links and the chapters are left alone.
@@ -251,7 +264,8 @@ URL takes the import action like any other link.
 - **Dd3 no old prefix**: "Error parsing recipe" is gone; the three
   `new-recipe.spec` cases that expected it now expect the save (a blank
   ingredient row, a blank step) or the new message ("Couldn't save: 1
-  problem — Steps." and "Group 1 needs a name").
+  problem — Steps." and "The group starting “This is the first
+  instruction” needs a name").
 - **Dd4 the description reader is a fallback, never a mapper.** Putting it
   in `ytdlpToRecipe` would have given every such video a body, and `auto`
   would have stopped asking the model (`autoWantsModel`), losing the
@@ -267,13 +281,25 @@ dropped; the refusals' sentences and the summary), `descriptionRecipe`
 (the Everything Dough description from the e2e fixture; negatives: a gear
 list of links, bulleted links under a recipe heading, chapter lists
 numbered or not, timestamps after the steps, lists with no recipe heading,
-one ingredient, emphasis lines; the model's reading, a batch and a
-followed page never replaced). Playwright: new `import-errors.spec` (the
+one ingredient, emphasis lines, and the review's probe — gear behind bare
+domains, tools with no links, a sponsor's code, handles, a list with no
+steps, prose under the heading, two recipes together or apart; the model's
+reading, a batch and a followed page never replaced; `partial` kept after a
+forced or failed model). Playwright: new `import-errors.spec` (the
 fixture page `uploads/everything-dough.html` imports and saves with the
 blank step gone; the yt-dlp fixture `everything-dough.json` fills the form
 with no model and saves; a refused save shows the message, the section
 errors and the rail's "check", then saves once fixed), and the three
 `new-recipe.spec` cases above.
+
+**Review fixes** (after the review of 151406cf): the description reader's
+false positives (bare domains and handles are links; gear/tool/kit/code/
+sponsor/shop/affiliate headings never start or continue a block; a step is
+required; two recipe headings are left to the model; `partial` kept after
+a forced or failed model); groups named by first step, place or name;
+timeline events by number; every problem counted; the section list
+described by its heading rather than a live region; `videoImportUrl` /
+`imageImportUrl` mark Picture and unknown keys say "Other".
 
 **Gates.** _(filled in after the gates)_
 

@@ -48,9 +48,12 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 function fieldLabel(path: readonly PropertyKey[]): string {
-  const [key, index] = path;
+  const [key, index, part, event] = path;
   if (key === "timelines") {
-    return typeof index === "number" ? `Timeline ${index + 1}` : "Timelines";
+    if (typeof index !== "number") return "Timelines";
+    return part === "events" && typeof event === "number"
+      ? `Timeline ${index + 1}, event ${event + 1}`
+      : `Timeline ${index + 1}`;
   }
   return FIELD_LABELS[String(key)] ?? String(key);
 }
@@ -71,14 +74,14 @@ export function recipeFormFailure(error: ZodError): {
   message: string;
 } {
   const errors: RecipeFormErrors = {};
-  let count = 0;
+  /* Every problem counts, even two that read alike; each sentence is
+   * listed once under its field. */
+  const count = error.issues.length;
   for (const issue of error.issues) {
     const key = String(issue.path[0] ?? "form");
     const sentence = describeIssue(issue);
     const list = (errors[key] ??= []);
-    if (list.includes(sentence)) continue;
-    list.push(sentence);
-    count += 1;
+    if (!list.includes(sentence)) list.push(sentence);
   }
   const where = errorSectionLabels(errors);
   const problems = count === 1 ? "1 problem" : `${count} problems`;

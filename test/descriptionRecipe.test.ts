@@ -163,6 +163,7 @@ describe("descriptionRecipe — what is not a recipe", () => {
         "Ingredients:",
         "* 2 eggs",
         "* 1 cup milk",
+        "1. Whisk together.",
         "**As an Amazon Associate I earn from qualifying purchases**",
         "* 1 cup gear",
       ].join("\n"),
@@ -171,6 +172,119 @@ describe("descriptionRecipe — what is not a recipe", () => {
       "2 eggs",
       "1 cup milk",
     ]);
+  });
+
+  /* The 45d review's probe: gear, tools, a deal, handles, two recipes. */
+  it.each([
+    [
+      "gear behind bare domains",
+      [
+        "GEAR I USE IN THIS RECIPE:",
+        "• Half sheet pan: geni.us/abc123",
+        "• Dutch oven: geni.us/xyz789",
+        "• Scale: geni.us/scale1",
+        "1. Buy them.",
+      ],
+    ],
+    [
+      "tools with no links",
+      [
+        "Tools for this recipe",
+        "- Lodge dutch oven",
+        "- Escali kitchen scale",
+        "- Bench scraper",
+      ],
+    ],
+    [
+      "a sponsor's code",
+      [
+        "Get the recipe kit",
+        "• Use code CHEF50 for 50% off",
+        "• Free shipping on your first box",
+        "1. Order today.",
+      ],
+    ],
+    [
+      "social handles",
+      [
+        "More recipe ideas",
+        "• Instagram: @chefjohn",
+        "• TikTok: @chefjohn",
+        "1. Follow along.",
+      ],
+    ],
+    [
+      "a bare domain with no path",
+      [
+        "Recipe ingredients",
+        "• Flour from kingarthur.com",
+        "• Salt from example.shop",
+        "1. Mix.",
+      ],
+    ],
+    [
+      "a list with no steps",
+      ["Recipe ingredients", "• 2 eggs", "• 1 cup milk", "• 1 cup flour"],
+    ],
+    [
+      "prose under the heading",
+      [
+        "The recipe",
+        "I make this every week with my kids and it's great.",
+        "• 2 eggs",
+        "• 1 cup milk",
+        "1. Mix.",
+      ],
+    ],
+    ["chapters under a recipe heading", ["Recipe", "0:00 Intro", "1:23 Dough"]],
+    [
+      "two recipes, the model's to split",
+      [
+        "RECIPE 1: Pancakes",
+        "• 200 g flour",
+        "• 2 eggs",
+        "1. Mix.",
+        "2. Cook.",
+        "RECIPE 2: Waffles",
+        "• 300 g flour",
+        "• 3 eggs",
+        "1. Mix waffles.",
+        "2. Iron.",
+      ],
+    ],
+    [
+      "two recipes in blocks apart",
+      [
+        "Pancake recipe:",
+        "• 200 g flour",
+        "• 2 eggs",
+        "1. Mix.",
+        "",
+        "Some chat about breakfast.",
+        "",
+        "Waffle recipe:",
+        "• 300 g flour",
+        "• 3 eggs",
+        "1. Iron.",
+      ],
+    ],
+  ])("%s", (_name, lines) => {
+    expect(descriptionRecipe(lines.join("\n"))).toBeUndefined();
+  });
+
+  it('an "Ingredients:" label under the recipe heading is not a second recipe', () => {
+    const read = descriptionRecipe(
+      [
+        "THE RECIPE:",
+        "Ingredients:",
+        "• 2 eggs",
+        "• 1 cup milk",
+        "Instructions:",
+        "1. Whisk.",
+      ].join("\n"),
+    );
+    expect(read?.instructions).toEqual([{ text: "Whisk." }]);
+    expect(read?.ingredients).toHaveLength(2);
   });
 
   it("an ingredient part's heading before its bullets", () => {
@@ -241,6 +355,33 @@ describe("withDescriptionRecipe — the model's reading wins", () => {
     expect(withDescriptionRecipe(followed, EVERYTHING_DOUGH, NO_JOB)).toBe(
       followed,
     );
+  });
+
+  it("is no longer partial — unless the model was forced or failed", () => {
+    const partial = { ...video, partial: true };
+    expect(
+      withDescriptionRecipe(
+        { recipe: partial, warnings: [] },
+        EVERYTHING_DOUGH,
+        NO_JOB,
+      ).recipe?.partial,
+    ).toBeUndefined();
+    const forced: ApplyLlmResult = {
+      recipe: partial,
+      llm: { model: "m", mode: "force", found: false },
+      warnings: [],
+    };
+    expect(
+      withDescriptionRecipe(forced, EVERYTHING_DOUGH, NO_JOB).recipe?.partial,
+    ).toBe(true);
+    const failed: ApplyLlmResult = {
+      recipe: partial,
+      llm: { model: "m", mode: "auto", found: false, error: "timed out" },
+      warnings: [],
+    };
+    expect(
+      withDescriptionRecipe(failed, EVERYTHING_DOUGH, NO_JOB).recipe?.partial,
+    ).toBe(true);
   });
 
   it("leaves an import alone when the description lists no recipe", () => {

@@ -166,15 +166,52 @@ describe("recipeFormFailure — every problem says where it is (45d)", () => {
     expect(message).toBe("Couldn't save: 1 problem — Steps.");
   });
 
-  it("a group with steps and no name, and a named group with no steps", () => {
-    const { errors } = refusal({
+  it("a group shows no number: it is named by its first step, its place or its name", () => {
+    const { errors, message } = refusal({
       "instructions[0].name": "",
-      "instructions[0].instructions[0].text": "Knead.",
+      "instructions[0].instructions[0].text":
+        "Divide cold dough into four 300 g pieces.",
       "instructions[1].name": "Topping",
+      "instructions[2].name": "Glaze",
+      "instructions[2].instructions[0].name": "",
+      "instructions[2].instructions[0].text": "",
+      "instructions[3].name": "",
+      "instructions[3].instructions[0].name": "Brush",
+      "instructions[3].instructions[0].text": "",
     });
     expect(errors).toEqual({
-      instructions: ["Group 1 needs a name", "Group 2 has no steps"],
+      instructions: [
+        "The group starting “Divide cold dough into four…” needs a name",
+        "Group “Topping” has no steps",
+        "Group “Glaze” has only empty steps",
+        "Step 3 has no text",
+        "The group after step 2 needs a name",
+      ],
     });
+    expect(message).toBe("Couldn't save: 5 problems — Steps.");
+  });
+
+  it("the first group with nothing before it, and a timeline event by number", () => {
+    const { errors } = refusal({
+      "instructions[0].name": "",
+      "instructions[0].instructions[0].name": "Shape",
+      "instructions[0].instructions[0].text": "",
+      "timelines[0].events[0].defaultLength.minutes": "5",
+      "timelines[0].events[1].defaultLength.minutes": "soon",
+    });
+    expect(errors).toEqual({
+      instructions: ["Step 1 has no text", "The first group needs a name"],
+      timelines: ["Timeline 1, event 2: Invalid number"],
+    });
+  });
+
+  it("counts every problem, even two that read alike", () => {
+    const { errors, message } = refusal({
+      "prepTime.hours": "x",
+      "prepTime.minutes": "y",
+    });
+    expect(errors).toEqual({ prepTime: ["Prep time: Invalid number"] });
+    expect(message).toBe("Couldn't save: 2 problems — Times.");
   });
 
   it("a video link that is not a URL, a missing name, and a bad time", () => {

@@ -16,7 +16,6 @@ import { SubmitButton } from "@discontent/component-library/components/SubmitBut
 import { Button } from "@discontent/component-library/components/ui/button";
 import { buttonVariants } from "@discontent/component-library/components/ui/button";
 import { cn } from "@discontent/component-library/lib/utils";
-import { Errors } from "@discontent/component-library/components/Form";
 import { useRecipeForm, type RecipeFormValues } from "./formContext";
 import { useDrinkShown } from "./drinkShown";
 import {
@@ -147,10 +146,13 @@ export function FormSection({
   /**
    * A refused save's problems no single field shows (45d): "Step 6 has no
    * text", "Video link isn't a URL" — under the heading, beside the rail's
-   * "check".
+   * "check". Not a live region: the save's message announces the refusal
+   * and names the sections; the list is the heading's description.
    */
   errors?: string[];
 }) {
+  const errorsId = `section-errors-${id}`;
+  const hasErrors = !!errors?.length;
   return (
     <section
       id={sectionAnchor(id)}
@@ -160,7 +162,10 @@ export function FormSection({
       )}
     >
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b border-border pb-2">
-        <h2 className="flex-1 font-display text-xl leading-7 font-semibold tracking-[-0.025em]">
+        <h2
+          className="flex-1 font-display text-xl leading-7 font-semibold tracking-[-0.025em]"
+          aria-describedby={hasErrors ? errorsId : undefined}
+        >
           {title}
         </h2>
         {aside}
@@ -170,10 +175,16 @@ export function FormSection({
           </span>
         ) : null}
       </div>
-      {errors?.length ? (
-        <div data-testid={`section-errors-${id}`}>
-          <Errors errors={errors} />
-        </div>
+      {hasErrors ? (
+        <ul
+          id={errorsId}
+          data-testid={errorsId}
+          className="flex flex-col gap-1 text-sm text-destructive"
+        >
+          {(errors ?? []).map((error) => (
+            <li key={error}>{error}</li>
+          ))}
+        </ul>
       ) : null}
       {children}
     </section>

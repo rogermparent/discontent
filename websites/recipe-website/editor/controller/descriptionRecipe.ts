@@ -19,7 +19,11 @@
  *   "Instructions:" are labels, not headings.
  * - Anything else ends it: a link (gear lists, "HALF SHEET PAN:
  *   https://amzn.to/…"), a timestamp (chapters), a line of prose.
- * - It counts only with at least two ingredient lines.
+ * - Gear, tools, kits, codes, sponsors, shops and affiliates are never a
+ *   heading, and a link is also a bare domain ("geni.us/abc") or a handle.
+ * - It counts only with at least two ingredient lines and a step, and only
+ *   when the description has one recipe heading: two recipes are the
+ *   model's to split (36e).
  *
  * Conservative by design: a line that does not plainly belong is where the
  * block stops, and nothing outside it is read. When a model reads the
@@ -38,12 +42,20 @@ import type { JobContext } from "./jobs/context";
 
 const BULLET = /^(?:[∙•·●▪◦]\s*|[-*]\s+)(.*)$/;
 const NUMBERED = /^(\d{1,2})[.)]\s+(.+)$/;
-const LINK = /https?:\/\/|www\.|\b[\w-]+\.(?:com|co|to|ly|me|net|org)\//i;
+/**
+ * A link, a handle or a bare domain ("geni.us/abc", "geni.us",
+ * "@chefjohn"): a gear list, never an ingredient.
+ */
+const LINK =
+  /https?:\/\/|www\.|@\w|\b[\w-]+\.[a-z]{2,}\/|\b[a-z][\w-]*\.(?:com|net|org|us|io|co|me|ly|to|shop|store|gg|link|ca|uk|tv|app|be|it)\b/i;
 const TIMESTAMP = /^\(?\d{1,2}:\d{2}/;
 const RECIPE_HEADING = /\b(?:recipe|ingredients?)\b/i;
 const LABEL =
   /^(?:ingredients?|instructions?|directions?|method|steps|recipe)\s*:?$/i;
 const HEADING_MAX = 40;
+/** A heading that names gear, a shop or a deal — never a recipe's part. */
+const NOT_RECIPE =
+  /\b(?:gear|tools?|kits?|equipment|codes?|sponsor\w*|shop\w*|affiliate\w*|discounts?|merch)\b/i;
 
 type Line =
   | { kind: "blank" }
@@ -85,12 +97,14 @@ function nextFilled(lines: readonly Line[], from: number): Line | undefined {
 
 /**
  * A short line that names what follows it: no link, not a sentence, not
- * emphasis ("**As an Amazon Associate…**").
+ * emphasis ("**As an Amazon Associate…**"), not gear or a deal ("GEAR I
+ * USE IN THIS RECIPE:", "Get the recipe kit").
  */
 function isHeadingText(text: string): boolean {
   return (
     text.length <= HEADING_MAX &&
     !text.startsWith("*") &&
+    !NOT_RECIPE.test(text) &&
     !LINK.test(text) &&
     !TIMESTAMP.test(text) &&
     !/[.!?]$/.test(text)
@@ -127,14 +141,24 @@ export function descriptionRecipe(
 ): DescriptionRecipe | undefined {
   if (!description) return undefined;
   const lines = description.split(/\r?\n/).map(classify);
-  const start = lines.findIndex(
-    (line, index) =>
-      line.kind === "other" &&
-      RECIPE_HEADING.test(line.text) &&
-      isHeadingText(line.text) &&
-      leadsToItems(lines, index),
+  const starts = lines.flatMap((line, index) =>
+    line.kind === "other" &&
+    RECIPE_HEADING.test(line.text) &&
+    isHeadingText(line.text) &&
+    leadsToItems(lines, index)
+      ? [index]
+      : [],
   );
-  if (start === -1) return undefined;
+  /* Two recipes ("RECIPE 1: Pancakes" … "RECIPE 2: Waffles") are the
+   * model's to split (36e), never one recipe read from here. An
+   * "Ingredients:" label under the heading is not a second recipe. */
+  const recipes = starts.filter((index) => {
+    const line = lines[index];
+    return line.kind === "other" && !LABEL.test(line.text);
+  });
+  if (recipes.length > 1) return undefined;
+  const start = starts[0];
+  if (start === undefined) return undefined;
 
   const ingredients: Ingredient[] = [];
   const instructions: InstructionEntry[] = [];
@@ -174,7 +198,8 @@ export function descriptionRecipe(
   const lineCount = ingredients.filter(
     (line) => line.type !== "heading",
   ).length;
-  if (lineCount < 2) return undefined;
+  /* A recipe has both: a list alone is as often gear or links. */
+  if (lineCount < 2 || instructions.length === 0) return undefined;
   return { ingredients, instructions };
 }
 
@@ -213,10 +238,17 @@ export function withDescriptionRecipe(
     `the description lists the recipe — ${lines} ingredients and ${steps} steps read without a model`,
     { ingredients: lines, steps },
   );
-  const { partial: _partial, ...recipe } = applied.recipe;
-  void _partial;
+  /* A body is no longer partial — unless the model was asked for and
+   * failed (`force`, or an error): then the reading stays one to check. */
+  const keepPartial =
+    !!applied.llm && (applied.llm.mode === "force" || !!applied.llm.error);
+  const { partial, ...recipe } = applied.recipe;
   return {
     ...applied,
-    recipe: { ...recipe, ...read },
+    recipe: {
+      ...recipe,
+      ...read,
+      ...(keepPartial && partial ? { partial } : {}),
+    },
   };
 }

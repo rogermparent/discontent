@@ -173,16 +173,36 @@ const ingredientsSchema = z
     return kept.length ? kept : undefined;
   });
 
+/** A line's start, for a message: "Divide cold dough into four…". */
+function excerpt(text: string, max = 30): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  if (line.length <= max) return line;
+  const cut = line.slice(0, max);
+  const word = cut.lastIndexOf(" ");
+  return `${(word > 0 ? cut.slice(0, word) : cut).trimEnd()}…`;
+}
+
+/** A nameless group, by its first step or its place (it shows no number). */
+function groupPlace(firstStep: string | undefined, stepsBefore: number) {
+  if (firstStep) return `The group starting “${excerpt(firstStep)}”`;
+  return stepsBefore
+    ? `The group after step ${stepsBefore}`
+    : "The first group";
+}
+
 /**
  * The steps (45d), checked by hand so each refusal names the step as the
  * form numbers it: in reading order across groups, a group's steps counted
  * and the group itself not (`InstructionsListInput`'s numbers).
  *
  * Dropped: a step with no name and no text, and a group with no name whose
- * steps are all blank. Refused, each saying where: a named step with no
- * text ("Step 4 has no text"), a group with steps and no name ("Group 1
- * needs a name"), a named group with no steps ("Group 2 has no steps"). A
- * step always posts its text (the markdown field's hidden input), so an
+ * steps are all blank. Refused, each saying where — a group shows no number,
+ * so it is named by its name, its first step or its place: a named step
+ * with no text ("Step 4 has no text"), a group with steps and no name
+ * ("The group starting “Divide cold dough…” needs a name", "The group
+ * after step 4 needs a name"), a named group with no steps ("Group
+ * “Topping” has no steps") or only blank ones ("… has only empty steps").
+ * A step always posts its text (the markdown field's hidden input), so an
  * entry with neither text nor steps is a group whose steps were removed.
  *
  * A step's empty name is no name (43e2, De2-6): an untitled step posts
@@ -195,7 +215,6 @@ const instructionsSchema = z
     if (!entries) return undefined;
     const kept: InstructionEntry[] = [];
     let step = 0;
-    let group = 0;
     entries.forEach((value: unknown, index) => {
       const entry = rowOf(value);
       if (!entry) return;
@@ -218,7 +237,7 @@ const instructionsSchema = z
         kept.push({ name: name || undefined, text });
         return;
       }
-      group += 1;
+      const before = step;
       const steps: Instruction[] = [];
       let refused = false;
       const children = Array.isArray(entry.instructions)
@@ -248,7 +267,7 @@ const instructionsSchema = z
         ctx.addIssue({
           code: "custom",
           path: [index, "name"],
-          message: `Group ${group} needs a name`,
+          message: `${groupPlace(steps[0]?.text, before)} needs a name`,
         });
         return;
       }
@@ -257,7 +276,9 @@ const instructionsSchema = z
           ctx.addIssue({
             code: "custom",
             path: [index, "instructions"],
-            message: `Group ${group} has no steps`,
+            message: `Group “${excerpt(name)}” has ${
+              children.length ? "only empty steps" : "no steps"
+            }`,
           });
         }
         return;
