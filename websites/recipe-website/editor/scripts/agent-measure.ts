@@ -39,7 +39,7 @@
  * shows. Lines go to stdout and, with `--out`, are appended to the file.
  */
 import { execFile } from "node:child_process";
-import { appendFile, mkdir, readFile, realpath } from "node:fs/promises";
+import { appendFile, mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -76,6 +76,8 @@ import {
   checkImport,
   checkSallysList,
   checkTahini,
+  contentDirectoryRefusal,
+  positiveInt,
   slugsFromPaths,
   urlKey,
   writesOf,
@@ -108,49 +110,65 @@ function fail(message: string): never {
 /* Never the real repository                                            */
 /* ------------------------------------------------------------------ */
 
-/**
- * The `editor/content` symlinks this could be pointed at by mistake —
- * this checkout's and the main checkout's (a worktree has none of its
- * own) — resolved to the repositories they name.
- */
-async function liveContentDirectories(): Promise<string[]> {
-  const candidates = [path.join(EDITOR, "content")];
+/** `git rev-parse <args>` in `cwd`, resolved through symlinks; nothing when it fails. */
+async function gitPath(
+  cwd: string,
+  args: string[],
+): Promise<string | undefined> {
   try {
-    const { stdout } = await run(
-      "git",
-      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-      { cwd: EDITOR },
-    );
-    candidates.push(
-      path.join(
-        path.dirname(stdout.trim()),
-        "websites/recipe-website/editor/content",
-      ),
-    );
+    const { stdout } = await run("git", ["rev-parse", ...args], { cwd });
+    return await realpath(path.resolve(cwd, stdout.trim()));
   } catch {
-    /* Not a git checkout: this checkout's link is the only one. */
+    return undefined;
   }
-  const resolved = await Promise.all(
-    candidates.map((candidate) => realpath(candidate).catch(() => undefined)),
-  );
-  return [...new Set(resolved.filter((dir): dir is string => !!dir))];
 }
 
+const commonDirOf = (cwd: string) =>
+  gitPath(cwd, ["--path-format=absolute", "--git-common-dir"]);
+
+/**
+ * The facts `contentDirectoryRefusal` judges (review of 44e): the clone's
+ * own repository, and the repositories it must never be — this code
+ * checkout's (any worktree of it, the main checkout) and the real content
+ * repository behind `editor/content` (this checkout's link and the main
+ * checkout's; a worktree has none of its own), each by its git common dir,
+ * so a `git worktree add` of either is caught too.
+ */
 async function checkedContentDirectory(given: string): Promise<string> {
   const directory = await realpath(path.resolve(given)).catch(() =>
     fail(`no such content directory: ${given}`),
   );
-  for (const live of await liveContentDirectories()) {
-    if (
-      directory === live ||
-      directory.startsWith(`${live}${path.sep}`) ||
-      live.startsWith(`${directory}${path.sep}`)
-    ) {
-      fail(
-        `refusing ${directory}: it is the editor's own content repository (editor/content). Clone it to scratch and pass the clone.`,
-      );
-    }
+  const monorepoCommon = await commonDirOf(EDITOR);
+  const links = [path.join(EDITOR, "content")];
+  if (monorepoCommon) {
+    links.push(
+      path.join(
+        path.dirname(monorepoCommon),
+        "websites/recipe-website/editor/content",
+      ),
+    );
   }
+  const liveDirectories = (
+    await Promise.all(
+      links.map((link) => realpath(link).catch(() => undefined)),
+    )
+  ).filter((dir): dir is string => !!dir);
+  const liveCommons = await Promise.all(liveDirectories.map(commonDirOf));
+  const forbiddenCommonDirs = [monorepoCommon, ...liveCommons].filter(
+    (dir): dir is string => !!dir,
+  );
+  const recipes = await stat(path.join(directory, "recipes")).catch(
+    () => undefined,
+  );
+  const refusal = contentDirectoryRefusal({
+    directory,
+    toplevel: await gitPath(directory, ["--show-toplevel"]),
+    commonDir: await commonDirOf(directory),
+    hasRecipes: !!recipes?.isDirectory(),
+    liveDirectories: [...new Set(liveDirectories)],
+    forbiddenCommonDirs: [...new Set(forbiddenCommonDirs)],
+  });
+  if (refusal) fail(`refusing ${directory}: ${refusal}`);
   return directory;
 }
 
@@ -339,7 +357,7 @@ async function measure(
   const facts = await gitFacts(ctx.contentDirectory, settings.start);
   const text = outcome?.result.text ?? "";
 
-  let check: CheckResult;
+  let check: CheckResult & { checkedTerm?: boolean };
   if (ask === "a") {
     check = checkGochujang({ expected, text, commits: facts.commits });
   } else if (ask === "b") {
@@ -352,6 +370,7 @@ async function measure(
       changed: facts.changed,
       text,
       commits: facts.commits,
+      calls,
     });
   } else if (ask === "c") {
     const imported: ImportedRecipe[] = [];
@@ -390,12 +409,15 @@ async function measure(
   const toolErrors = calls.filter(
     (call) => call.outcome === "tool_error",
   ).length;
+  const api = result?.api ?? llmConfig()?.api;
+  /* `num_ctx` and `think` are a local model's (Ee4/Ee5): null for Claude. */
+  const local = api !== "anthropic";
   const line = {
     at: new Date().toISOString(),
     model: result?.model ?? llmConfig()?.model,
-    api: result?.api ?? llmConfig()?.api,
-    think: process.env.RECIPE_AGENT_THINK === "1",
-    numCtx: Number(process.env.RECIPE_AGENT_NUM_CTX),
+    api,
+    think: local ? process.env.RECIPE_AGENT_THINK === "1" : null,
+    numCtx: local ? Number(process.env.RECIPE_AGENT_NUM_CTX) : null,
     ask,
     run: index + 1,
     job: outcome?.job,
@@ -431,6 +453,9 @@ async function measure(
     commits: facts.commits,
     changed: facts.changed,
     ...(facts.dirty ? { dirty: true } : {}),
+    ...(check.checkedTerm !== undefined
+      ? { checkedTerm: check.checkedTerm }
+      : {}),
     matched: check.matched,
     notes: check.notes,
     text: text.length > 2_000 ? `${text.slice(0, 2_000)}…` : text,
@@ -452,8 +477,6 @@ async function main() {
   }
   const contentDirectory = await checkedContentDirectory(given);
   const git = simpleGit({ baseDir: contentDirectory });
-  if (!(await git.checkIsRepo()))
-    fail(`${contentDirectory} is not a git repository`);
   if (!(await git.status()).isClean()) {
     fail(
       `${contentDirectory} has uncommitted changes: the harness resets it between runs`,
@@ -492,8 +515,15 @@ async function main() {
   for (const id of asks) {
     if (!ASK_IDS.includes(id)) fail(`unknown ask ${id} (a, b, c or d)`);
   }
-  const repeat = Math.max(1, Number(flag("repeat") ?? 1));
-  const maxTurns = flag("max-turns") ? Number(flag("max-turns")) : undefined;
+  const repeat = positiveInt(flag("repeat") ?? "1", 100);
+  if (repeat === undefined) fail("--repeat takes a whole number from 1 to 100");
+  const maxTurnsText = flag("max-turns");
+  /* Ec7: a caller may lower E3's 40 turns, never raise them. */
+  const maxTurns =
+    maxTurnsText === undefined ? undefined : positiveInt(maxTurnsText, 40);
+  if (maxTurnsText !== undefined && maxTurns === undefined) {
+    fail("--max-turns takes a whole number from 1 to 40");
+  }
   const out = flag("out") ? path.resolve(flag("out")!) : undefined;
   if (out) await mkdir(path.dirname(out), { recursive: true });
 

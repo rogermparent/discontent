@@ -4,8 +4,12 @@
 // Pinned: how a transcript's calls are read (answered, refused by the tool,
 // or malformed by the model — the loop's Ea8 errors and the bridge's zod
 // refusal), what counts as a write, and each ask's checker. No model here:
-// the harness itself runs only on the workstation, by hand.
+// the harness itself runs only on the workstation, by hand — except its
+// refusals, which a spawned harness answers before any model or reset.
 
+import { execFile } from "node:child_process";
+import { resolve } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -16,6 +20,11 @@ import {
   checkImport,
   checkSallysList,
   checkTahini,
+  checkedTheTerm,
+  contentDirectoryRefusal,
+  positiveInt,
+  type CallRecord,
+  type ContentDirectoryFacts,
   classifyResult,
   isWriteCall,
   recipeLinks,
@@ -181,7 +190,15 @@ describe("the checkers", () => {
   });
 
   it("(b) tagged exactly the tahini recipes, or said the term is missing", () => {
-    const base = { expected: ["a", "b"], text: "Done.", commits: 1 };
+    const looked: CallRecord[] = [
+      { name: "term_get", input: { slug: "middle-eastern" }, outcome: "ok" },
+    ];
+    const base = {
+      expected: ["a", "b"],
+      text: "Done.",
+      commits: 1,
+      calls: looked,
+    };
     expect(
       checkTahini({
         ...base,
@@ -217,6 +234,52 @@ describe("the checkers", () => {
         text: "Tagged them.",
       }).notes,
     ).toHaveLength(2);
+  });
+
+  it("(b) says whether the run looked the term up, without failing it", () => {
+    const facts = {
+      termExists: true,
+      expected: ["a"],
+      tagsAfter: { a: ["middle-eastern"] },
+      changed: ["a"],
+      text: "Done.",
+      commits: 1,
+    };
+    expect(
+      checkTahini({
+        ...facts,
+        calls: [
+          { name: "recipe_search", input: {}, outcome: "ok" },
+          { name: "term_assign", input: {}, outcome: "ok" },
+        ],
+      }),
+    ).toEqual({
+      matched: true,
+      checkedTerm: false,
+      notes: ["never looked the term up (term_get / term_list)"],
+    });
+    expect(
+      checkTahini({
+        ...facts,
+        calls: [{ name: "term_list", input: {}, outcome: "ok" }],
+      }),
+    ).toEqual({ matched: true, checkedTerm: true, notes: [] });
+    expect(
+      checkedTheTerm([
+        { name: "term_get", input: { slug: "cuisine" }, outcome: "ok" },
+        { name: "term_list", input: {}, outcome: "malformed" },
+      ]),
+    ).toBe(false);
+    expect(
+      checkedTheTerm([
+        {
+          name: "term_get",
+          input: { slug: "middle-eastern" },
+          outcome: "tool_error",
+          code: "not_found",
+        },
+      ]),
+    ).toBe(true);
   });
 
   const vocabulary = {
@@ -299,5 +362,98 @@ describe("the checkers", () => {
       "already on the site: sallysbakingaddiction.com/chewy-chocolate-chip-cookies",
       "0 new Sally's URLs listed (wanted 2)",
     ]);
+  });
+});
+
+describe("which directory the harness may reset (review of 44e)", () => {
+  const MONOREPO = "/code/.git";
+  const REAL = "/recipe-content/.git";
+  const facts = (
+    directory: string,
+    more: Partial<ContentDirectoryFacts> = {},
+  ): ContentDirectoryFacts => ({
+    directory,
+    toplevel: directory,
+    commonDir: `${directory}/.git`,
+    hasRecipes: true,
+    liveDirectories: ["/recipe-content"],
+    forbiddenCommonDirs: [MONOREPO, REAL],
+    ...more,
+  });
+
+  it("takes a clean clone's root, and nothing else", () => {
+    expect(contentDirectoryRefusal(facts("/scratch/clone"))).toBeUndefined();
+    /* `.` from the editor, `../../..`, the main checkout, a code worktree. */
+    for (const [directory, toplevel] of [
+      ["/code/websites/recipe-website/editor", "/code"],
+      ["/code", "/code"],
+      ["/code/.claude/worktrees/w", "/code/.claude/worktrees/w"],
+    ]) {
+      expect(
+        contentDirectoryRefusal(
+          facts(directory, { toplevel, commonDir: MONOREPO }),
+        ),
+      ).toMatch(/shares its git repository/);
+    }
+    /* A `git worktree add` of the real content repository. */
+    expect(
+      contentDirectoryRefusal(facts("/scratch/wt", { commonDir: REAL })),
+    ).toMatch(/shares its git repository/);
+    /* The real repository, inside it, or around it. */
+    for (const directory of [
+      "/recipe-content",
+      "/recipe-content/recipes",
+      "/",
+    ]) {
+      expect(contentDirectoryRefusal(facts(directory))).toMatch(
+        /editor's own content repository/,
+      );
+    }
+    expect(
+      contentDirectoryRefusal(
+        facts("/scratch/clone/recipes", { toplevel: "/scratch/clone" }),
+      ),
+    ).toMatch(/not the top of its git repository/);
+    expect(
+      contentDirectoryRefusal(
+        facts("/scratch/plain", { toplevel: undefined, commonDir: undefined }),
+      ),
+    ).toMatch(/not a git repository/);
+    expect(
+      contentDirectoryRefusal(facts("/scratch/other", { hasRecipes: false })),
+    ).toMatch(/no recipes\//);
+  });
+
+  it("refuses this checkout before any model or reset", async () => {
+    const editor = resolve(__dirname, "../websites/recipe-website/editor");
+    const tsx = resolve(editor, "node_modules/.bin/tsx");
+    for (const given of [editor, resolve(editor, "../../..")]) {
+      const failed = await promisify(execFile)(
+        tsx,
+        ["scripts/agent-measure.ts", "--content-dir", given, "--model", "none"],
+        {
+          cwd: editor,
+          timeout: 60_000,
+          env: {
+            ...process.env,
+            RECIPE_LLM_URL: "",
+            RECIPE_ENV_FILE: "/nonexistent.env",
+          },
+        },
+      ).then(
+        () => undefined,
+        (error: { code?: number; stderr?: string }) => error,
+      );
+      expect(failed?.code, given).toBe(2);
+      expect(failed?.stderr).toMatch(/refusing .*shares its git repository/);
+    }
+  }, 120_000);
+
+  it("takes positive whole numbers for --repeat and --max-turns", () => {
+    expect(positiveInt("3", 40)).toBe(3);
+    expect(positiveInt(" 40 ", 40)).toBe(40);
+    for (const bad of ["0", "-1", "1.5", "abc", "", "41", "1e2"]) {
+      expect(positiveInt(bad, 40), bad).toBeUndefined();
+    }
   });
 });

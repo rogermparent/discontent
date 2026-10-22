@@ -18,7 +18,9 @@
  *   (`additionalProperties: false`, `minLength: 1`, the ±2^53−1 bounds zod
  *   writes for `.int()`) removed. A left-out argument is still parsed if a
  *   model sends it — the schema the model sees is advice, the zod schema is
- *   the rule;
+ *   the rule — except a left-out flag that widens a write (`refuse`:
+ *   `overwrite`, `force`, `allowPartial`, `term_assign`'s `type`), which is
+ *   refused `forbidden` before the tool runs;
  * - **a smaller answer** for the two tools whose answer is mostly a copy
  *   (`localResult`): `page_inspect` without the mapped `recipe` (the draft
  *   says it again), the raw JSON-LD and the page's metadata, three images;
@@ -33,6 +35,12 @@ export interface LocalToolText {
   description: string;
   /** Property paths left out of the schema the model sees (`recipe.timelines`). */
   omit?: readonly string[];
+  /**
+   * Left-out arguments that widen a write (review of 44e): sent anyway with
+   * a truthy value — other than `allowed`, the argument's harmless value —
+   * the call is refused `forbidden` before the tool runs, nothing written.
+   */
+  refuse?: readonly { arg: string; allowed?: unknown }[];
 }
 
 /** What a local model reads about each tool it may be offered. */
@@ -63,11 +71,14 @@ export const LOCAL_TOOL_TEXT: Partial<Record<LocalToolName, LocalToolText>> = {
       "fresh",
       "image",
     ],
+    /* `photos` is Ec10's refusal already, in the bridge. */
+    refuse: [{ arg: "overwrite" }, { arg: "allowPartial" }],
   },
   recipe_create: {
     description:
       "Write a new recipe: {slug, url}. `dryRun: true` checks it and writes nothing ({slug, conflict}). Ingredients and instructions are lists of strings; keep `source` as the draft has it.",
     omit: ["overwrite", "recipe.timelines", "recipe.date", "recipe.videoUrl"],
+    refuse: [{ arg: "overwrite" }],
   },
   tag_list: {
     description: "Every tag in use, sorted: {tags}.",
@@ -84,6 +95,8 @@ export const LOCAL_TOOL_TEXT: Partial<Record<LocalToolName, LocalToolText>> = {
     description:
       "Put a term on the recipes in `add` (take it off those in `remove`), one commit: {slug, tag, updated, unchanged, missing}. A slug that is no recipe is refused (unknown_recipe), nothing written.",
     omit: ["force", "type"],
+    /* `type: "group"` would tag groups, which a local run has no tools for. */
+    refuse: [{ arg: "force" }, { arg: "type", allowed: "recipe" }],
   },
   job_get: {
     description:
@@ -98,6 +111,22 @@ export const LOCAL_TOOL_TEXT: Partial<Record<LocalToolName, LocalToolText>> = {
       "Search the web: {results: [{title, url, snippet}]}, at most 8. `site` keeps to one site (e.g. sallysbakingaddiction.com).",
   },
 };
+
+/**
+ * The left-out write argument a local call sends anyway (`refuse` above),
+ * or nothing: the first one with a truthy value other than its `allowed`.
+ */
+export function refusedLocalArg(
+  name: string,
+  input: unknown,
+): string | undefined {
+  const text = LOCAL_TOOL_TEXT[name as LocalToolName];
+  if (!text?.refuse || !isObject(input)) return undefined;
+  return text.refuse.find(
+    ({ arg, allowed }) =>
+      !!input[arg] && (allowed === undefined || input[arg] !== allowed),
+  )?.arg;
+}
 
 /** zod's bounds for `.int()` (±2^53−1): no information for a model. */
 const SAFE_BOUND = Number.MAX_SAFE_INTEGER;

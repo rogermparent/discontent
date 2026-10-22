@@ -359,6 +359,11 @@ describe("RECIPE_AGENT_NUM_CTX and RECIPE_AGENT_THINK", () => {
       expect(messages[0].content).toBe(
         agentSystemPrompt("ollama", { now: new Date(), search: true }),
       );
+      /* The budget, on what is on the wire: Ollama's function wrappers too. */
+      const wire =
+        estimateTokens(messages[0].content) +
+        estimateTokens(JSON.stringify(bodies[0].tools));
+      expect(wire).toBeLessThanOrEqual(LOCAL_PROMPT_BUDGET_TOKENS);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -444,5 +449,79 @@ describe("the harness's SSRF allowance (Ee6)", () => {
     expect(handler?.[1].replace(/\s+/g, " ").trim()).toBe(
       "ctx: contextFor(spec, ctx), job, dir: dir ?? jobsDirectory(),",
     );
+  });
+});
+
+describe("a left-out write flag (review of 44e)", () => {
+  const recipe = {
+    name: "Toast",
+    ingredients: ["1 slice bread"],
+    instructions: ["Toast it."],
+  };
+  const tools = (local: boolean) =>
+    agentTools(createLocalBackend({ ...ctx, inProcess: true }), {
+      only: LOCAL_AGENT_TOOLS,
+      local,
+      webFetch: false,
+      webSearch: false,
+    });
+
+  it("is refused through the local view, nothing written", async () => {
+    const local = tools(true);
+    const cases: [string, Record<string, unknown>, string][] = [
+      ["recipe_create", { recipe, overwrite: true }, "overwrite"],
+      [
+        "recipe_import",
+        { url: "https://x.test/", overwrite: true },
+        "overwrite",
+      ],
+      [
+        "recipe_import",
+        { url: "https://x.test/", allowPartial: 1 },
+        "allowPartial",
+      ],
+      ["term_assign", { slug: "main", add: ["toast"], force: true }, "force"],
+      ["term_assign", { slug: "main", add: ["toast"], type: "group" }, "type"],
+    ];
+    for (const [name, input, arg] of cases) {
+      expect(
+        await byName(local, name).run(input, { signal: signal() }),
+      ).toEqual({
+        error: {
+          code: "forbidden",
+          message: expect.stringContaining(`\`${arg}\``),
+        },
+      });
+    }
+    const backend = createLocalBackend({ ...ctx, inProcess: true });
+    expect((await backend.listRecipes()).total).toBe(0);
+    /* Its harmless value goes through to the tool. */
+    expect(
+      await byName(local, "recipe_create").run(
+        { recipe, overwrite: false, dryRun: true },
+        { signal: signal() },
+      ),
+    ).toMatchObject({ dryRun: true, slug: "toast" });
+    expect(
+      await byName(local, "term_assign").run(
+        { slug: "main", add: ["toast"], type: "recipe" },
+        { signal: signal() },
+      ),
+    ).toMatchObject({ error: { code: "unknown_recipe" } });
+    /* Claude's view (the MCP one) is unchanged. */
+    expect(
+      await byName(tools(false), "recipe_create").run(
+        { recipe, overwrite: true, dryRun: true },
+        { signal: signal() },
+      ),
+    ).toMatchObject({ dryRun: true, slug: "toast" });
+  });
+
+  it("is always one the local view leaves out", () => {
+    for (const [name, text] of Object.entries(LOCAL_TOOL_TEXT)) {
+      for (const { arg } of text.refuse ?? []) {
+        expect(text.omit ?? [], `${name}: ${arg}`).toContain(arg);
+      }
+    }
   });
 });

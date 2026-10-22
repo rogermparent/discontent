@@ -11,6 +11,7 @@ export {
   LOCAL_TOOL_TEXT,
   localResult,
   localSchema,
+  refusedLocalArg,
   type LocalToolName,
   type LocalToolText,
 } from "./local";

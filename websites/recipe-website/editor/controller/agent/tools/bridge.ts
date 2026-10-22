@@ -28,7 +28,12 @@ import {
   toolInputSchema,
   type ToolErrorObject,
 } from "./schema";
-import { LOCAL_TOOL_TEXT, localResult, localSchema } from "./local";
+import {
+  LOCAL_TOOL_TEXT,
+  localResult,
+  localSchema,
+  refusedLocalArg,
+} from "./local";
 import { urlRefusal, type UrlGuardOptions } from "./urlGuard";
 import { webFetchTool, type WebFetchOptions } from "./webFetch";
 import { webSearchTool, type WebSearchOptions } from "./webSearch";
@@ -194,6 +199,14 @@ function localized(tool: AgentTool): AgentTool {
     description: text?.description ?? tool.description,
     inputSchema: localSchema(tool.inputSchema, text?.omit),
     async run(input, ctx) {
+      /* A left-out flag that widens a write is refused, not just unshown. */
+      const refused = refusedLocalArg(tool.name, input);
+      if (refused) {
+        return toolError(
+          "forbidden",
+          `\`${refused}\` isn't available to the curator here; leave it out`,
+        );
+      }
       return localResult(tool.name, await tool.run(input, ctx));
     },
   };

@@ -5,6 +5,7 @@
  * filesystem, no network here — `agent-measure.ts` gathers the facts and
  * these judge them, so `test/agentMeasure.test.ts` can pin every rule.
  */
+import path from "node:path";
 import type { AgentMessage, AgentToolCall } from "../controller/agent/types";
 
 export type AskId = "a" | "b" | "c" | "d";
@@ -37,6 +38,72 @@ export function askPrompt(id: AskId, fixtureUrl: string): string {
     case "d":
       return "Find two Sally's Baking Addiction cookie recipes I don't have yet. Don't import them; list them.";
   }
+}
+
+/** A flag's whole number from 1 to `max`, or nothing (a usage error). */
+export function positiveInt(text: string, max: number): number | undefined {
+  if (!/^\d+$/.test(text.trim())) return undefined;
+  const value = Number(text);
+  return value >= 1 && value <= max ? value : undefined;
+}
+
+/* ------------------------------------------------------------------ */
+/* Which directory the harness may reset                                */
+/* ------------------------------------------------------------------ */
+
+/** What `contentDirectoryRefusal` judges; every path resolved through symlinks. */
+export interface ContentDirectoryFacts {
+  directory: string;
+  /** `git rev-parse --show-toplevel` in it; absent when it is no repository. */
+  toplevel?: string;
+  /** `git rev-parse --git-common-dir` in it: worktrees of one repository share it. */
+  commonDir?: string;
+  /** Whether it has a `recipes/` directory. */
+  hasRecipes: boolean;
+  /** Where `editor/content` points, this checkout's and the main checkout's. */
+  liveDirectories: string[];
+  /** The code repository's common dir, and the real content repository's. */
+  forbiddenCommonDirs: string[];
+}
+
+/** Whether `child` is `parent` or under it (both absolute). */
+function inside(child: string, parent: string): boolean {
+  const relative = path.relative(parent, child);
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+}
+
+/**
+ * Why the harness must not run against (and `git reset --hard`) this
+ * directory, or nothing. Refused: the real content repository or anything
+ * around or inside it; a directory of the code repository or of the real
+ * content repository, a worktree of either included (the same git common
+ * dir); a directory that is not the top of its own repository (`.`, a
+ * subfolder); one with no `recipes/`.
+ */
+export function contentDirectoryRefusal(
+  facts: ContentDirectoryFacts,
+): string | undefined {
+  for (const live of facts.liveDirectories) {
+    if (inside(facts.directory, live) || inside(live, facts.directory)) {
+      return "it is the editor's own content repository (editor/content), or holds it. Clone it to scratch and pass the clone.";
+    }
+  }
+  if (!facts.toplevel || !facts.commonDir) {
+    return "it is not a git repository (the harness resets the clone between runs)";
+  }
+  if (facts.forbiddenCommonDirs.includes(facts.commonDir)) {
+    return "it shares its git repository with the code checkout or the real content repository (a worktree of one of them). Clone the content repository to scratch instead.";
+  }
+  if (facts.toplevel !== facts.directory) {
+    return `it is not the top of its git repository (${facts.toplevel}): pass the clone's root`;
+  }
+  if (!facts.hasRecipes) {
+    return "it has no recipes/ directory: not a content repository";
+  }
+  return undefined;
 }
 
 /* ------------------------------------------------------------------ */
@@ -306,14 +373,25 @@ export function checkTahini(facts: {
   changed: string[];
   text: string;
   commits: number;
-}): CheckResult {
+  /** The run's calls: whether it looked the term up (review of 44e). */
+  calls: CallRecord[];
+}): CheckResult & { checkedTerm: boolean } {
   const notes: string[] = [];
+  const checkedTerm = checkedTheTerm(facts.calls);
+  const done = () => {
+    const matched = notes.length === 0;
+    /* Noted, not failed: the guide lists the vocabulary inline (Ee1). */
+    if (!checkedTerm) {
+      notes.push("never looked the term up (term_get / term_list)");
+    }
+    return { matched, notes, checkedTerm };
+  };
   if (!facts.termExists) {
     if (facts.commits > 0)
       notes.push(`${facts.commits} commits, but the term does not exist`);
     if (!NO_TERM.test(facts.text))
       notes.push("the reply did not say the term does not exist");
-    return result(notes);
+    return done();
   }
   const untagged = facts.expected.filter(
     (slug) => !(facts.tagsAfter[slug] ?? []).includes(TAHINI_TERM),
@@ -322,7 +400,22 @@ export function checkTahini(facts: {
   const others = facts.changed.filter((slug) => !facts.expected.includes(slug));
   if (others.length)
     notes.push(`changed beyond the tahini recipes: ${others.join(", ")}`);
-  return result(notes);
+  return done();
+}
+
+/**
+ * Whether a run looked `TAHINI_TERM` up before acting: a `term_get` of it,
+ * or a `term_list` (which lists it if it is there), answered or refused.
+ */
+export function checkedTheTerm(calls: CallRecord[]): boolean {
+  return calls.some(
+    (call) =>
+      call.outcome !== "malformed" &&
+      (call.name === "term_list" ||
+        (call.name === "term_get" &&
+          (call.input as { slug?: unknown } | undefined)?.slug ===
+            TAHINI_TERM)),
+  );
 }
 
 export interface ImportedRecipe {
