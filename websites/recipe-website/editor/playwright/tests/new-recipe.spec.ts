@@ -384,7 +384,7 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
         await expect(page.getByText("My Ingredient Heading")).toBeVisible();
       });
 
-      test("should not create a recipe with an empty ingredient", async ({
+      test("drops a blank ingredient row rather than refusing the recipe (45d)", async ({
         page,
       }) => {
         await expect(
@@ -408,10 +408,13 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
           .getByRole("button", { name: "Create recipe", exact: true })
           .click();
 
-        await expect(page.getByText("Error parsing recipe")).toBeVisible();
+        /* A blank row carries nothing: it is dropped, and the recipe saves. */
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
-        ).toHaveCount(0);
+        ).toBeVisible();
+        await expect(page).toHaveURL(
+          /\/recipe\/my-new-recipe-with-ingredient$/,
+        );
       });
 
       test("should be able to add a new instruction", async ({ page }) => {
@@ -507,7 +510,7 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
         ).toBeVisible();
       });
 
-      test("should not create a recipe with an empty instruction", async ({
+      test("drops a blank step rather than refusing the recipe (45d)", async ({
         page,
       }) => {
         await expect(
@@ -535,10 +538,12 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
           .getByRole("button", { name: "Create recipe", exact: true })
           .click();
 
-        await expect(page.getByText("Error parsing recipe")).toBeVisible();
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
-        ).toHaveCount(0);
+        ).toBeVisible();
+        await expect(page).toHaveURL(
+          /\/recipe\/my-new-recipe-with-instruction$/,
+        );
       });
 
       test("should not create an instruction group without a name", async ({
@@ -582,7 +587,13 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
           .getByRole("button", { name: "Create recipe", exact: true })
           .click();
 
-        await expect(page.getByText("Error parsing recipe")).toBeVisible();
+        /* 45d: the message names the section, and the section says what. */
+        await expect(page.getByTestId("recipe-form-message")).toHaveText(
+          "Couldn't save: 1 problem — Steps.",
+        );
+        await expect(page.getByTestId("section-errors-steps")).toHaveText(
+          "Group 1 needs a name",
+        );
         await expect(
           page.getByRole("heading", { name: newRecipeTitle }),
         ).toHaveCount(0);

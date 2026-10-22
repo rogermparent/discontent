@@ -47,6 +47,7 @@ import {
   type YtdlpMetadata,
 } from "../ytdlp";
 import { ImportError } from "./errors";
+import { withDescriptionRecipe } from "../descriptionRecipe";
 import { pacedRequest } from "./sitePacing";
 import { resolveCreateSlug } from "./recipes";
 import type { RecipeInput } from "./schema";
@@ -258,14 +259,18 @@ export async function inspectUrl(
       });
       /* 38c: no recipe in the description, one recipe link — follow it. */
       const { followRecipeLink } = await import("./videoFollow");
-      const applied =
+      /* 45d: the description's own lists when nothing read a recipe. */
+      const applied = withDescriptionRecipe(
         (await followRecipeLink({
           url,
           metadata: result.metadata,
           applied: read,
           mode,
           job,
-        })) ?? read;
+        })) ?? read,
+        result.metadata.description,
+        job,
+      );
       /* `ytdlpToRecipe` always names the video, so a recipe comes back. The
        * video's tags (36d) are top-level here, as a page's keywords are; a
        * followed page's pictures lead the video's (38c). */

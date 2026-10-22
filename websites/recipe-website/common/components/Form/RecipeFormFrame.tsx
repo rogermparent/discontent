@@ -16,6 +16,7 @@ import { SubmitButton } from "@discontent/component-library/components/SubmitBut
 import { Button } from "@discontent/component-library/components/ui/button";
 import { buttonVariants } from "@discontent/component-library/components/ui/button";
 import { cn } from "@discontent/component-library/lib/utils";
+import { Errors } from "@discontent/component-library/components/Form";
 import { useRecipeForm, type RecipeFormValues } from "./formContext";
 import { useDrinkShown } from "./drinkShown";
 import {
@@ -135,6 +136,7 @@ export function FormSection({
   aside,
   children,
   className,
+  errors,
 }: {
   id: Parameters<typeof sectionAnchor>[0];
   title: string;
@@ -142,6 +144,12 @@ export function FormSection({
   aside?: ReactNode;
   children: ReactNode;
   className?: string;
+  /**
+   * A refused save's problems no single field shows (45d): "Step 6 has no
+   * text", "Video link isn't a URL" — under the heading, beside the rail's
+   * "check".
+   */
+  errors?: string[];
 }) {
   return (
     <section
@@ -162,6 +170,11 @@ export function FormSection({
           </span>
         ) : null}
       </div>
+      {errors?.length ? (
+        <div data-testid={`section-errors-${id}`}>
+          <Errors errors={errors} />
+        </div>
+      ) : null}
       {children}
     </section>
   );
