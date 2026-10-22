@@ -3,8 +3,9 @@
 // 44d: the curator page's logic — what a run changed (from its tool
 // results), the conversation fold (rows, statuses, durations, segments),
 // the phrases and words, ⌘K's hand-off rule, the links that stay in the
-// app, and the server's list of conversations and a run's changes over a
-// temp job store and content directory. Never a model.
+// app, a write the loop cut still counted (its summary), and the
+// server's list of conversations and a run's changes over a temp job store
+// and content directory. Never a model.
 
 import { mkdtemp, rm, writeFile } from "fs-extra";
 import { tmpdir } from "os";
@@ -16,8 +17,10 @@ import { processIdentity } from "@discontent/cms/git/fileLock";
 import { ulid } from "@discontent/cms/util/ulid";
 
 import {
+  WRITE_SUMMARY_MAX_ITEMS,
   changeCount,
   runChanges,
+  writeSummary,
 } from "../websites/recipe-website/editor/controller/agent/changes";
 import {
   buildConversation,
@@ -38,11 +41,19 @@ import {
   curatorHref,
   curatorOffers,
 } from "../websites/recipe-website/editor/controller/agent/handoff";
+import { runAgent } from "../websites/recipe-website/editor/controller/agent/loop";
 import type { TranscriptRecord } from "../websites/recipe-website/editor/controller/agent/transcript";
 import type {
   AgentMessage,
+  AgentTool,
   AgentUsage,
 } from "../websites/recipe-website/editor/controller/agent/types";
+import {
+  emptyUsage,
+  ollamaMessages,
+  type ChatToolsRequest,
+  type ChatToolsResult,
+} from "../websites/recipe-website/editor/controller/llm/tools";
 import {
   askOffers,
   readsLikeQuestion,
@@ -320,6 +331,139 @@ describe("runChanges", () => {
       { slug: "a", name: "A", change: "created" },
     ]);
     expect(runChanges(messages).commits).toBe(3);
+  });
+
+  it("still counts a write whose result the loop cut for the model (its summary)", async () => {
+    /* A batch import whose `recipes` comes after a long `found`, and a late
+     * shopping_add: both results are cut to a small context's share. */
+    const found = Array.from({ length: 400 }, (_, index) => ({
+      name: `Candidate recipe number ${index}`,
+      url: `https://example.com/recipes/${index}`,
+    }));
+    const writes: AgentTool[] = [
+      {
+        name: "recipe_import",
+        description: "Import.",
+        inputSchema: { type: "object", properties: {} },
+        run: async () => ({
+          batch: true,
+          found,
+          recipes: [
+            { status: "imported", slug: "braise-a", name: "Braise A" },
+            { status: "skipped", slug: "braise-b" },
+            { status: "imported", slug: "braise-c", name: "Braise C" },
+          ],
+        }),
+      },
+      {
+        name: "shopping_add",
+        description: "Add.",
+        inputSchema: { type: "object", properties: {} },
+        run: async () => ({ changed: true, items: found }),
+      },
+    ];
+    const replies: ChatToolsResult[] = [
+      {
+        message: {
+          role: "assistant",
+          text: "",
+          toolCalls: [
+            { id: "i1", name: "recipe_import", input: {} },
+            { id: "s1", name: "shopping_add", input: {} },
+          ],
+        },
+        stop: "tool_use",
+        usage: emptyUsage(),
+        model: "scripted",
+        api: "ollama",
+        durationMs: 1,
+      },
+      {
+        message: { role: "assistant", text: "done", toolCalls: [] },
+        stop: "end",
+        usage: emptyUsage(),
+        model: "scripted",
+        api: "ollama",
+        durationMs: 1,
+      },
+    ];
+    const sent: ChatToolsRequest[] = [];
+    const result = await runAgent({
+      system: "s",
+      prompt: "import braises and list them",
+      tools: writes,
+      config: { url: "http://localhost:11434", model: "m", api: "ollama" },
+      model: async (request) => {
+        sent.push(request);
+        return replies[sent.length - 1];
+      },
+      numCtx: 4096,
+    });
+    expect(result.stopReason).toBe("done");
+    const results = result.transcript.filter(
+      (m): m is Extract<AgentMessage, { role: "tool" }> => m.role === "tool",
+    );
+    for (const message of results) {
+      expect(message.content).toMatch(/\[… cut: \d+ more characters\]$/);
+    }
+    expect(results.map((message) => message.summary)).toEqual([
+      {
+        commits: 2,
+        recipes: [
+          { slug: "braise-a", name: "Braise A", change: "imported" },
+          { slug: "braise-c", name: "Braise C", change: "imported" },
+        ],
+      },
+      { commits: 1, places: ["shopping"] },
+    ]);
+    const changes = runChanges(result.transcript);
+    expect(changes.commits).toBe(3);
+    expect(changes.recipes.map((recipe) => recipe.slug)).toEqual([
+      "braise-a",
+      "braise-c",
+    ]);
+    expect(changes.places).toEqual(["shopping"]);
+    /* Without the summary the cut content counts nothing (the old bug). */
+    expect(
+      runChanges(
+        result.transcript.map((message) =>
+          message.role === "tool"
+            ? { ...message, summary: undefined }
+            : message,
+        ),
+      ).commits,
+    ).toBe(0);
+    /* The summary is never sent to the model. */
+    const wire = JSON.stringify(
+      ollamaMessages(sent[1].system, sent[1].messages),
+    );
+    expect(wire).not.toContain("summary");
+    expect(wire).not.toContain('"commits"');
+  });
+
+  it("summarizes only writes that wrote, with capped lists", () => {
+    expect(writeSummary("recipe_search", {}, { recipes: [] })).toBeUndefined();
+    expect(
+      writeSummary("recipe_create", { dryRun: true }, { slug: "x" }),
+    ).toBeUndefined();
+    expect(
+      writeSummary("shopping_add", {}, { changed: false }),
+    ).toBeUndefined();
+    expect(
+      writeSummary("recipe_update", {}, { error: { code: "not_found" } }),
+    ).toBeUndefined();
+    expect(
+      writeSummary("recipe_update", { slug: "a" }, '{"slug":"a"}'),
+    ).toEqual({ commits: 1, recipes: [{ slug: "a", change: "updated" }] });
+    const updated = Array.from({ length: 100 }, (_, index) => `r-${index}`);
+    const big = writeSummary(
+      "term_assign",
+      { slug: "korean" },
+      { slug: "korean", updated },
+    );
+    expect(big?.commits).toBe(1);
+    expect(big?.terms).toEqual(["korean"]);
+    expect(big?.recipes).toHaveLength(WRITE_SUMMARY_MAX_ITEMS);
   });
 });
 

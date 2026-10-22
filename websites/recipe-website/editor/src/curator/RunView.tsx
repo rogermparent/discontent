@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { cn } from "@discontent/component-library/lib/utils";
 import {
@@ -133,6 +133,13 @@ function useRunChanges(
  * links to this site's pages kept in the app) and its tool calls as rows,
  * what changed, and the footer — the numbers, the status line, Stop while
  * it runs, then how it ended and a follow-up box on the same run.
+ *
+ * Focus (44d review): `focusOnOpen` moves it to the run's heading (a run
+ * just started: the ask box it was in is gone) or its status line (a
+ * follow-up just sent: the box it was in goes when the new run reads
+ * live). When a run ends while focus is nowhere — Stop, which had it,
+ * unmounts — or still where this view put it, it moves to the follow-up
+ * box. Never taken from anything else the reader is on.
  */
 export function RunView({
   id,
@@ -143,8 +150,11 @@ export function RunView({
   followError,
   following,
   carryFrom,
+  focusOnOpen,
 }: {
   id: string;
+  /** Where focus goes when this run opens (a run or follow-up just started here). */
+  focusOnOpen?: "heading" | "status";
   poll: AgentRunPoll;
   /** The run this one follows up, just started: its view stays meanwhile. */
   carryFrom?: string;
@@ -163,6 +173,17 @@ export function RunView({
   const [stopping, setStopping] = useState(false);
   const [stopError, setStopError] = useState<string>();
   const [followDraft, setFollowDraft] = useState("");
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const statusRef = useRef<HTMLParagraphElement>(null);
+  const footerRef = useRef<HTMLDivElement>(null);
+  const followUpRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (focusOnOpen === "heading") headingRef.current?.focus();
+    else if (focusOnOpen === "status") {
+      statusRef.current?.focus({ preventScroll: true });
+    }
+  }, [focusOnOpen, id]);
 
   useEffect(() => {
     if (!live) return;
@@ -178,7 +199,10 @@ export function RunView({
     setStopError(undefined);
   }
 
-  const written = runChanges(conversation.messages);
+  const written = useMemo(
+    () => runChanges(conversation.messages),
+    [conversation.messages],
+  );
   const writtenKey = `${written.commits}:${changeCount(written)}:${live}`;
   const changes = useRunChanges(
     poll.shown === id ? id : undefined,
@@ -205,6 +229,30 @@ export function RunView({
   });
   const status = statusLine(poll, conversation, meta);
   const ended = loaded && !live;
+
+  /* The run ended under the reader — or, started here, had ended by its
+   * first read: the follow-up box takes focus if nothing else has it (Stop,
+   * which did, is gone) or this view put it. */
+  const seen = useRef<{ id: string; running: boolean; loaded: boolean }>({
+    id,
+    running: false,
+    loaded: false,
+  });
+  useEffect(() => {
+    const before = seen.current;
+    seen.current = { id, running: loaded && live, loaded };
+    if (before.id !== id || !ended) return;
+    if (!before.running && (before.loaded || !focusOnOpen)) return;
+    const active = document.activeElement;
+    if (
+      !active ||
+      active === document.body ||
+      active === headingRef.current ||
+      footerRef.current?.contains(active)
+    ) {
+      followUpRef.current?.focus();
+    }
+  }, [id, loaded, live, ended, focusOnOpen]);
   let lastAssistant = -1;
   conversation.items.forEach((item, index) => {
     if (item.kind === "assistant") lastAssistant = index;
@@ -219,7 +267,12 @@ export function RunView({
   if (poll.error && records.length === 0) {
     return (
       <section aria-labelledby="curator-run-heading">
-        <h2 id="curator-run-heading" className="sr-only">
+        <h2
+          id="curator-run-heading"
+          ref={headingRef}
+          tabIndex={-1}
+          className="sr-only"
+        >
           This run
         </h2>
         <p role="alert" className="border-l-2 border-destructive pl-2 text-sm">
@@ -237,7 +290,12 @@ export function RunView({
       data-live={String(live)}
       className="flex min-w-0 flex-col gap-4"
     >
-      <h2 id="curator-run-heading" className="sr-only">
+      <h2
+        id="curator-run-heading"
+        ref={headingRef}
+        tabIndex={-1}
+        className="sr-only"
+      >
         This run
       </h2>
       <ol
@@ -305,6 +363,7 @@ export function RunView({
       ) : null}
 
       <div
+        ref={footerRef}
         data-testid="curator-footer"
         className={cn(
           "flex flex-col gap-2",
@@ -315,6 +374,8 @@ export function RunView({
       >
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <p
+            ref={statusRef}
+            tabIndex={-1}
             role="status"
             data-testid="curator-status"
             className="text-sm font-semibold"
@@ -347,6 +408,15 @@ export function RunView({
             </Link>
           </span>
         </div>
+        {poll.error && records.length > 0 && (
+          <p
+            role="alert"
+            data-testid="curator-poll-error"
+            className="border-l-2 border-destructive pl-2 text-sm"
+          >
+            Can&apos;t read this run right now: {poll.error}
+          </p>
+        )}
         {stopError && (
           <p className="border-l-2 border-destructive pl-2 text-sm">
             {stopError}
@@ -367,6 +437,7 @@ export function RunView({
             busyLabel="Sending…"
             busy={following}
             max={maxPrompt}
+            inputRef={followUpRef}
             rows={2}
             placeholder="And two more like that"
             {...(followError ? { error: followError } : {})}

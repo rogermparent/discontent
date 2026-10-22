@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSyncExternalStore } from "react";
 import { cn } from "@discontent/component-library/lib/utils";
 import type { CuratorRunRow } from "recipe-editor/controller/agent/curator";
 
@@ -28,14 +29,42 @@ export function runStateWords(
   }
 }
 
-/** "Oct 21, 14:05", in the reader's zone. */
-function whenText(epoch: number): string {
-  return new Date(epoch).toLocaleString(undefined, {
+const noSubscription = () => () => {};
+
+/** False on the server and while hydrating, true once React owns the page. */
+function useHydrated(): boolean {
+  return useSyncExternalStore(
+    noSubscription,
+    () => true,
+    () => false,
+  );
+}
+
+/**
+ * When a run was asked. The server (the Pi, whose zone is not the
+ * reader's) and the first client render say it the same fixed way, in UTC
+ * ("Oct 21, 14:05 UTC"), so hydration matches; once mounted it is redrawn
+ * in the reader's own zone and locale — the homepage's server-day-then-
+ * browser-day order (42f).
+ */
+function whenText(epoch: number, local: boolean): string {
+  const date = new Date(epoch);
+  if (local) {
+    return date.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+  return `${date.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  });
+    hourCycle: "h23",
+    timeZone: "UTC",
+  })} UTC`;
 }
 
 /**
@@ -50,6 +79,7 @@ export function RecentRuns({
   runs: CuratorRunRow[];
   current?: string;
 }) {
+  const local = useHydrated();
   return (
     <section aria-labelledby="curator-recent-heading" className="min-w-0">
       <h2
@@ -80,12 +110,9 @@ export function RecentRuns({
                     {row.ask || "(no words)"}
                   </span>
                   <span className="flex flex-wrap gap-x-2 font-mono text-xs">
-                    {/* The server's zone may not be the reader's. */}
-                    <time
-                      dateTime={new Date(row.queuedAt).toISOString()}
-                      suppressHydrationWarning
-                    >
-                      {whenText(row.queuedAt)}
+                    {/* UTC from the server, the reader's zone once mounted. */}
+                    <time dateTime={new Date(row.queuedAt).toISOString()}>
+                      {whenText(row.queuedAt, local)}
                     </time>
                     <span>{runStateWords(row)}</span>
                     {row.asks > 1 && <span>{row.asks} asks</span>}

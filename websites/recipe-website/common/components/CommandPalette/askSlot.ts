@@ -39,8 +39,9 @@ export interface PaletteAskHandler {
   /**
    * The curator hand-off (44d), the editor's too: a fetch request ("find
    * …", "import …") gets a row after Ask's that opens the curator with the
-   * words filled in — never highlighted, so Enter keeps 43q's rules — and
-   * "Curator" joins Go to. Absent, neither shows.
+   * words filled in — never snapped to, so Enter keeps 43q's rules (cmdk
+   * highlights it only when it is the one row) — and "Curator" joins Go
+   * to. Absent, neither shows.
    */
   curator?: PaletteCuratorHandler;
 }

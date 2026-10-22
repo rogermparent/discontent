@@ -11,8 +11,9 @@ export const COUNTER_FROM = 500;
 
 /**
  * An ask's box (44d): a labelled textarea, Ctrl/⌘+Enter sends, the submit
- * button, a character counter near the cap (44c's 4,000, Ec7) and the
- * failure, if the editor refused it. The start box and the follow-up box
+ * button, a character counter near the cap (44c's 4,000, Ec7) — announced
+ * only when the ask goes over it — and the failure, if the editor refused
+ * it. The start box and the follow-up box
  * are both this.
  */
 export function PromptForm({
@@ -108,7 +109,6 @@ export function PromptForm({
           <span
             id={`${id}-count`}
             data-testid={`${testId}-count`}
-            aria-live="polite"
             className={cn(
               "font-mono text-xs tabular-nums",
               over ? "font-semibold text-foreground" : "text-muted-foreground",
@@ -118,6 +118,17 @@ export function PromptForm({
             characters{over ? " — shorten it" : ""}
           </span>
         )}
+        {/* The counter is read with the box (aria-describedby), never
+         * announced per keystroke; this says once that the ask went over. */}
+        <span
+          className="sr-only"
+          aria-live="polite"
+          data-testid={`${testId}-over`}
+        >
+          {over
+            ? `Over the ${max.toLocaleString("en-US")}-character limit — shorten it`
+            : ""}
+        </span>
       </div>
       {children}
       {error && (

@@ -769,8 +769,11 @@ export function CommandPalette({
 
   /*
    * The curator hand-off (44d): a fetch request ("find …", "import …")
-   * gets a row right after Ask's place — never the highlight, so Enter
-   * keeps 43q's rules — that opens the curator with the words filled in.
+   * gets a row right after Ask's place that opens the curator with the
+   * words filled in (never started). The snap above never moves the
+   * highlight onto it, so wherever another row would take Enter, 43q's
+   * rules stand; only when it is the one row does cmdk's own first-row
+   * highlight land on it, and Enter opens the curator.
    */
   const curator = askHandler?.curator;
   const curatorGroup =

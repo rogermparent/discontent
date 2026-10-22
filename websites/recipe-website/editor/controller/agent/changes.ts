@@ -20,6 +20,11 @@
  * - terms and plans touched are listed by slug; the homepage strip, what's
  *   on hand and the shopping list as places.
  *
+ * The loop applies these rules to each write's **uncut** result as it runs
+ * (`writeSummary`) and keeps the answer on the tool-result message as its
+ * `summary`: the content the transcript keeps may be cut for the model's
+ * context (Ea6) and no longer parse, which would drop a write that landed.
+ *
  * Pure and dependency-free (type imports only): it runs in the browser too.
  */
 import type {
@@ -27,9 +32,11 @@ import type {
   AgentMessage,
   AgentToolCall,
   AgentToolResultMessage,
+  AgentWriteRecipe,
+  AgentWriteSummary,
 } from "./types";
 
-export type RecipeChange = "created" | "imported" | "updated";
+export type RecipeChange = AgentWriteRecipe["change"];
 
 export interface ChangedRecipe {
   slug: string;
@@ -47,7 +54,7 @@ export interface ChangedGroup {
 }
 
 /** A write that is not a recipe, a term or a plan: where it landed. */
-export type ChangedPlace = "featured" | "inventory" | "shopping";
+export type ChangedPlace = NonNullable<AgentWriteSummary["places"]>[number];
 
 export interface RunChanges {
   recipes: ChangedRecipe[];
@@ -111,6 +118,12 @@ export function callsWithResults(
     );
 }
 
+/** At most this many recipes, terms or plans in one call's summary. */
+export const WRITE_SUMMARY_MAX_ITEMS = 48;
+
+/** A recipe name in a summary is cut to this. */
+const SUMMARY_NAME_MAX = 120;
+
 class Collector {
   private readonly recipes = new Map<string, ChangedRecipe>();
   private readonly terms = new Set<string>();
@@ -141,6 +154,17 @@ class Collector {
     this.places.add(place);
   }
 
+  /** One call's summary folded in. */
+  add(summary: AgentWriteSummary) {
+    for (const recipe of summary.recipes ?? []) {
+      this.recipe(recipe.slug, recipe.change, recipe.name);
+    }
+    for (const slug of summary.terms ?? []) this.term(slug);
+    for (const slug of summary.groups ?? []) this.group(slug);
+    for (const place of summary.places ?? []) this.place(place);
+    this.commits += summary.commits;
+  }
+
   done(): RunChanges {
     return {
       recipes: [...this.recipes.values()],
@@ -148,6 +172,33 @@ class Collector {
       groups: [...this.groups].map((slug) => ({ slug })),
       places: [...this.places],
       commits: this.commits,
+    };
+  }
+
+  /** One call's changes as its summary: lists capped, empty ones left out. */
+  summary(): AgentWriteSummary | undefined {
+    const done = this.done();
+    if (
+      done.commits === 0 &&
+      done.recipes.length + done.terms.length + done.groups.length === 0 &&
+      done.places.length === 0
+    ) {
+      return undefined;
+    }
+    const capped = <T>(items: T[]) => items.slice(0, WRITE_SUMMARY_MAX_ITEMS);
+    const recipes = capped(done.recipes).map((recipe) =>
+      recipe.name && recipe.name.length > SUMMARY_NAME_MAX
+        ? { ...recipe, name: `${recipe.name.slice(0, SUMMARY_NAME_MAX)}…` }
+        : recipe,
+    );
+    const terms = capped(done.terms.map(({ slug }) => slug));
+    const groups = capped(done.groups.map(({ slug }) => slug));
+    return {
+      commits: done.commits,
+      ...(recipes.length ? { recipes } : {}),
+      ...(terms.length ? { terms } : {}),
+      ...(groups.length ? { groups } : {}),
+      ...(done.places.length ? { places: done.places } : {}),
     };
   }
 }
@@ -263,11 +314,45 @@ function collect(
   }
 }
 
-/** What the conversation's tool calls wrote (the rules above). */
+/**
+ * What one call wrote, from its **uncut** result (the loop's, before Ea6's
+ * cut): the summary the loop stores on the tool-result message, or
+ * `undefined` when the call wrote nothing (a read, an error, a dry run,
+ * `changed: false`). A string result is read as JSON when it is.
+ */
+export function writeSummary(
+  name: string,
+  input: unknown,
+  result: unknown,
+): AgentWriteSummary | undefined {
+  let value = result;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!isObject(value) || "error" in value) return undefined;
+  const into = new Collector();
+  collect(into, name, isObject(input) ? input : {}, value);
+  return into.summary();
+}
+
+/**
+ * What the conversation's tool calls wrote (the rules above). A result's
+ * `summary` (the loop's, from the uncut result) is read first; a result
+ * without one — older transcripts, a test's — is parsed from its content,
+ * which a cut result fails (and counts nothing).
+ */
 export function runChanges(messages: readonly AgentMessage[]): RunChanges {
   const into = new Collector();
   for (const { call, result } of callsWithResults(messages)) {
-    if (!result) continue;
+    if (!result || result.isError) continue;
+    if (result.summary) {
+      into.add(result.summary);
+      continue;
+    }
     const parsed = parseToolResult(result);
     if (!parsed) continue;
     collect(into, call.name, isObject(call.input) ? call.input : {}, parsed);

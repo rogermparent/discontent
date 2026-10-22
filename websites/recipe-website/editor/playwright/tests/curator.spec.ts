@@ -161,6 +161,8 @@ const askBox = (page: Page) =>
   page.getByLabel("What should the curator do?", { exact: true });
 const followBox = (page: Page) => page.getByLabel("Follow up", { exact: true });
 const status = (page: Page) => page.getByTestId("curator-status");
+const runHeading = (page: Page) =>
+  page.getByRole("heading", { level: 2, name: "This run", exact: true });
 const tools = (page: Page) => page.getByTestId("curator-tool");
 
 function runIdOf(page: Page): string {
@@ -185,7 +187,9 @@ async function start(page: Page, prompt: string) {
  * footer would be drawn over it.
  */
 async function snapshotMain(page: Page, name: string) {
+  /* Focus (the follow-up box takes it when a run ends) is not layout. */
   await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
     document.documentElement.dataset.stickyChrome = "off";
   });
   await snapshotLocator(page.getByTestId("curator-main"), name, {
@@ -228,6 +232,8 @@ test.describe("Curator", () => {
     await start(page, "Find a pork shoulder braise I don't have yet");
     const first = runIdOf(page);
     await expect(status(page)).toHaveText("Finished", { timeout: RUN });
+    /* Focus went to the run as it opened, then to the follow-up box. */
+    await expect(followBox(page)).toBeFocused();
     await expect(tools(page)).toHaveCount(2);
     await expect(tools(page).nth(0)).toContainText(
       "Searched your recipes for “pork shoulder braise”",
@@ -279,6 +285,8 @@ test.describe("Curator", () => {
       .not.toBe(first);
     const second = runIdOf(page);
     await expect(status(page)).toHaveText("Finished", { timeout: RUN });
+    /* The box it was typed in went while the run was live: back to it. */
+    await expect(followBox(page)).toBeFocused();
     await expect(page.getByTestId("curator-ask")).toHaveCount(2);
     await expect(page.getByTestId("curator-segment-end")).toHaveCount(1);
     await expect(tools(page).last()).toContainText("Tagged 1 recipe braises");
@@ -301,6 +309,19 @@ test.describe("Curator", () => {
     await expect(row.getByRole("link")).toHaveAttribute("aria-current", "page");
     await expect(recent.locator(`[data-run="${first}"]`)).toHaveCount(0);
 
+    /* Its time: a fixed UTC form from the server, the reader's zone once
+     * hydrated (the server's zone is not the reader's). */
+    const html = await (await page.request.get("/curator")).text();
+    expect(html).toMatch(/[A-Z][a-z]{2} \d{1,2}, \d{2}:\d{2} UTC<\/time>/);
+    const time = row.locator("time");
+    const local = await time.evaluate((element) =>
+      new Date(element.getAttribute("datetime") ?? "").toLocaleString(
+        undefined,
+        { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" },
+      ),
+    );
+    await expect(time).toHaveText(local);
+
     /* `?run=` opens a run from a link, and Back comes back to it. */
     await page.goto(`/curator?run=${first}`);
     await expect(status(page)).toHaveText("Finished");
@@ -318,18 +339,40 @@ test.describe("Curator", () => {
   test("Stop ends a run held open by a slow model", async ({ page }) => {
     await signInAndOpen(page);
     await start(page, "Find something slowly");
+    /* The ask box it was started from is gone: focus is on the run. */
+    await expect(runHeading(page)).toBeFocused();
     await expect(status(page)).toHaveText("Working: the first turn…", {
       timeout: RUN,
     });
     await expect.poll(() => asked.length, { timeout: RUN }).toBe(1);
     await axeClean(page);
+
+    /* A read that keeps failing says so, under a conversation already shown. */
+    await expect(page.getByTestId("curator-ask")).toHaveCount(1);
+    const reads = /\/api\/agent\/[0-9A-Z]{26}\?/;
+    await page.route(reads, (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { message: "the editor is busy" } }),
+      }),
+    );
+    const pollError = page.getByTestId("curator-poll-error");
+    await expect(pollError).toHaveText(
+      "Can't read this run right now: the editor is busy",
+      { timeout: 15_000 },
+    );
+    await expect(page.getByTestId("curator-ask")).toHaveCount(1);
+    await page.unroute(reads);
+    await expect(pollError).toHaveCount(0, { timeout: 15_000 });
     const stop = page.getByRole("button", { name: "Stop", exact: true });
     await expectHydrated(stop);
     await stop.click();
     await expect(status(page)).toHaveText("Stopped by you", { timeout: RUN });
     await expect(stop).toHaveCount(0);
-    /* Ended: the follow-up box takes Stop's place. */
+    /* Ended: the follow-up box takes Stop's place, and its focus. */
     await expect(followBox(page)).toBeVisible();
+    await expect(followBox(page)).toBeFocused();
     const row = page
       .getByTestId("curator-recent")
       .locator(`[data-run="${runIdOf(page)}"]`);
@@ -365,6 +408,33 @@ test.describe("Curator", () => {
     await expect(
       page.getByRole("option", { name: "Curator", exact: true }),
     ).toBeVisible();
+  });
+
+  test("the counter shows near the cap and speaks only once the ask is over it", async ({
+    page,
+  }) => {
+    await signInAndOpen(page);
+    await expectHydrated(askBox(page));
+    const count = page.getByTestId("curator-ask-form-count");
+    const over = page.getByTestId("curator-ask-form-over");
+    await askBox(page).fill("a".repeat(3_600));
+    await expect(count).toHaveText("3,600 of 4,000 characters");
+    await expect(count).not.toHaveAttribute("aria-live", /.+/);
+    const describedBy = (await askBox(page).getAttribute("aria-describedby"))
+      ?.split(" ")
+      .filter(Boolean);
+    expect(describedBy).toContain(await count.getAttribute("id"));
+    await expect(over).toHaveAttribute("aria-live", "polite");
+    await expect(over).toHaveText("");
+    await askBox(page).fill("a".repeat(4_001));
+    await expect(count).toHaveText("4,001 of 4,000 characters — shorten it");
+    await expect(over).toHaveText(
+      "Over the 4,000-character limit — shorten it",
+    );
+    await expect(
+      page.getByRole("button", { name: "Start", exact: true }),
+    ).toBeDisabled();
+    await axeClean(page);
   });
 
   test("fits a phone: no sideways scroll, the box above the tab bar, targets at least 24 px", async ({

@@ -973,10 +973,15 @@ false`; one commit per write call, except a several-recipe import (one per
 - **Ed6 — ⌘K's hand-off fills, never starts.** "find", "grab", "get me",
   "import", "fetch", "look up" with a word after, or "add … recipes"; never
   query syntax or the verb alone. The row sits right after Ask's place and
-  never takes the highlight, so 43q's Enter rules stand (Ask's own
-  functions are untouched; the vitest pins that "find three pork shoulder
-  braises" is still an offered, unhighlighted Ask). A request that is both
-  shows both rows.
+  the palette's snap never moves the highlight onto it, so 43q's Enter
+  rules stand (Ask's own functions are untouched; the vitest pins that
+  "find three pork shoulder braises" is still an offered, unhighlighted
+  Ask). A request that is both shows both rows. **Amended in review
+  (Ed6-1):** when the hand-off is the only row, cmdk's own first-row
+  highlight lands on it and Enter opens the curator, filled in and not
+  started (`command-palette.spec` pins it) — keeping it unhighlighted
+  would mean fighting cmdk's controlled value for a row that only fills a
+  box.
 - **Ed7 — Words from a model, safely.** Markdown with raw HTML off; images
   not loaded (their alt text shows); headings drawn as strong lines (the
   page keeps its outline); a link to this site (`/…`, or this origin) opens
@@ -995,6 +1000,56 @@ nofollow`), anything else is text. Tool inputs and results are only ever
   braises I don't have yet", "Import this recipe and tag it by course and
   cuisine: https://" (the caret at the end, for a URL), "Which of my
   recipes use gochujang? Tag the Korean ones korean".
+
+**Review fixes** (after the read-only review of 78b31762):
+
+- **A cut write still counts** (Ed12). A write's result is cut for the
+  model's context (Ea6) before the transcript keeps it, so a late
+  `shopping_add`, or a batch `recipe_import` whose `recipes` came after
+  `found`, no longer parsed and dropped out of What changed, the commit
+  count and the recent-runs count. Now the loop (`runCall`'s `present`)
+  applies `changes.ts`'s rules to the **uncut** result
+  (`writeSummary`) and keeps the answer on the tool-result message as
+  `summary` — `{commits, recipes?, terms?, groups?, places?}`, the lists
+  capped at 48 and names at 120 characters, only on a write that wrote
+  (also on a write that settled in a stop's grace, Ea12). `runChanges`
+  reads `summary` first and parses `content` only without one (older
+  transcripts). The wire mappers (`anthropicMessages`, `ollamaMessages`,
+  `openAiMessages`) pick their fields, so the model never sees it.
+- **Recent runs' times** (`RecentRuns.tsx`): the server and the first
+  client render say a fixed UTC form ("Oct 21, 14:05 UTC") — the Pi's zone
+  is not the reader's, and `suppressHydrationWarning` kept the server's —
+  and once hydrated (`useSyncExternalStore`) the reader's zone and locale.
+- **The counter is quiet** (`PromptForm.tsx`): no `aria-live` on it (it is
+  read with the box through `aria-describedby`); a hidden polite region
+  says "Over the 4,000-character limit — shorten it" once, when the ask
+  goes over.
+- **Focus** (`CuratorApp`, `RunView`): Start → the run's heading
+  (`tabIndex=-1`; the ask box it was in is gone); a follow-up sent → the
+  run's status line (its box goes while the new run is live); a run that
+  ends while focus is nowhere (Stop, which had it, unmounted), on the
+  heading or in the run's footer → the follow-up box. A run started here
+  that had ended by its first read moves it too; a run opened from the
+  list does not, and focus elsewhere is never taken.
+- **A failing read shows** under a conversation already on screen ("Can't
+  read this run right now: …", `role="alert"`, in the footer); it clears on
+  the next good read.
+- **⌘K** — Ed6-1 above (the comments in `index.tsx`, `askSlot.ts` and
+  `handoff.ts` say so).
+- `runChanges` in `RunView` is memoized on the conversation's messages.
+- Tests: `curatorPage.test.ts` +2 (a run through `runAgent` with a 4,096
+  context whose batch import and late `shopping_add` are both cut: both
+  counted from `summary`, nothing without it, and no `summary` or
+  `commits` on the wire; `writeSummary`'s rules and caps);
+  `agentLoop.test.ts`'s grace-write case now expects the summary.
+  `curator.spec`: focus after Start (heading), after a run ends (the
+  follow-up box, both runs of the first test and after Stop); a failing
+  read routed to 500 shows and clears; the recent row's `<time>` is UTC in
+  the server's HTML and the browser's own format once hydrated; a new
+  counter case (3,600 shown, not live, described-by; 4,001 announced,
+  Start disabled; axe). `command-palette.spec`: a new describe with a
+  model-list stand-in — "import https://example.com/x" is the one row,
+  highlighted, and Enter opens `/curator?prompt=…` filled, no run, no chat.
 
 **Roger to confirm.**
 

@@ -81,6 +81,11 @@ export function CuratorApp({
   const [followError, setFollowError] = useState<string>();
   /* A follow-up just started from this run: keep it on screen meanwhile. */
   const [carryFrom, setCarryFrom] = useState<string>();
+  /* A run started here takes focus when it opens (the box it was in is gone). */
+  const [focusFor, setFocusFor] = useState<{
+    id: string;
+    where: "heading" | "status";
+  }>();
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   /* ⌘K's hand-off on this very page: a new `?prompt=` fills the box. */
@@ -112,6 +117,7 @@ export function CuratorApp({
       return;
     }
     setDraft("");
+    setFocusFor({ id: answer.job, where: "heading" });
     router.push(`/curator?run=${answer.job}`);
   };
 
@@ -126,6 +132,7 @@ export function CuratorApp({
       return false;
     }
     setCarryFrom(run);
+    setFocusFor({ id: answer.job, where: "status" });
     /* The same conversation: the new run holds all of it (Ec3). */
     router.replace(`/curator?run=${answer.job}`);
     return true;
@@ -178,6 +185,7 @@ export function CuratorApp({
               onFollowUp={followUp}
               following={following}
               {...(carryFrom ? { carryFrom } : {})}
+              {...(focusFor?.id === run ? { focusOnOpen: focusFor.where } : {})}
               {...(followError ? { followError } : {})}
             />
           </>

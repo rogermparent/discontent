@@ -3,8 +3,9 @@
  * a fetch request — "find …", "grab …", "get me …", "import …", "fetch
  * …", "look up …", "add … recipes"? Then the palette offers a row "Ask the
  * curator: “…”" that opens `/curator` with the ask filled in, never
- * started (Ed6). Ask (43q) keeps questions: this row never takes the
- * highlight, so its Enter rules (`question.ts`) stand as they are.
+ * started (Ed6). Ask (43q) keeps questions: the palette never snaps the
+ * highlight to this row, so its Enter rules (`question.ts`) stand; only a
+ * lone hand-off row gets cmdk's first-row highlight, and Enter opens it.
  *
  * A search stays a search: query syntax (`tag:`, `-word`, `( )`) is never
  * a request, nor is the verb alone ("import", "find").
