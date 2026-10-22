@@ -16,7 +16,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** wave 1 — 44a ∥ 44b (2026-10-21).
+**Now:** closed 2026-10-22 — every phase merged (main b68c3435); see Close-out.
 
 ## Context
 
@@ -121,12 +121,12 @@ definitions feed both the MCP server and the agent.
 
 | Phase | What                                             | Size | Status |
 | ----- | ------------------------------------------------ | ---- | ------ |
-| 44a   | Tool calling in the model layer + the agent loop | M–L  | 🟡     |
-| 44b   | The tool bridge, `web_fetch`, `web_search`       | M    | 🟡     |
-| 44c   | Agent jobs, `/api/agent`, `pnpm recipes agent`   | M    | 📝     |
-| 44d   | The curator page                                 | L    | 📝     |
-| 44e   | The prompts; qwen measured                       | M    | 📝     |
-| 44f   | Close-out                                        | S    | 📝     |
+| 44a   | Tool calling in the model layer + the agent loop | M–L  | ✅     |
+| 44b   | The tool bridge, `web_fetch`, `web_search`       | M    | ✅     |
+| 44c   | Agent jobs, `/api/agent`, `pnpm recipes agent`   | M    | ✅     |
+| 44d   | The curator page                                 | L    | ✅     |
+| 44e   | The prompts; qwen measured                       | M    | ✅     |
+| 44f   | Close-out                                        | S    | ✅     |
 
 ### 44a — Tool calling in the model layer, and the loop
 
