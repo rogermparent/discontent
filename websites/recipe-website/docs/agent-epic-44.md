@@ -1051,6 +1051,20 @@ nofollow`), anything else is text. Tool inputs and results are only ever
   model-list stand-in — "import https://example.com/x" is the one row,
   highlighted, and Enter opens `/curator?prompt=…` filled, no run, no chat.
 
+**Gates** (2026-10-21, after the review fixes; origin/main unchanged at
+895ff9fa, nothing to merge): `pnpm --filter recipe-editor typecheck` and
+`pnpm --filter recipe-website exec tsc --noEmit` clean (host, `heavy.sh`);
+`pnpm exec vitest run` **153 files, 3,394 of 3,395** — the one failure was
+`agentLoop.test.ts`'s grace-write case, which now (rightly) carries the
+summary; updated, it and `curatorPage.test.ts` pass, **47 of 47**.
+Playwright in Docker, build mode: `curator.spec command-palette.spec
+accessibility.spec visual.spec mobile.spec ask.spec` **163 passed**, no
+baseline moved (the snapshot blurs focus first, so the follow-up box's new
+focus is not in `curator-finished` / `curator-phone`). The dev-mode run of
+`curator.spec` + `command-palette.spec` (Docker, `next dev`) waited
+behind other sessions' heavy jobs for over 50 minutes; see the PR for its
+result, or CI's Recipe shards (dev mode).
+
 **Roger to confirm.**
 
 - Ed1: the name "Curator", and footer + ⌘K only (no masthead link).
