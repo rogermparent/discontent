@@ -1061,9 +1061,13 @@ Playwright in Docker, build mode: `curator.spec command-palette.spec
 accessibility.spec visual.spec mobile.spec ask.spec` **163 passed**, no
 baseline moved (the snapshot blurs focus first, so the follow-up box's new
 focus is not in `curator-finished` / `curator-phone`). The dev-mode run of
-`curator.spec` + `command-palette.spec` (Docker, `next dev`) waited
-behind other sessions' heavy jobs for over 50 minutes; see the PR for its
-result, or CI's Recipe shards (dev mode).
+`curator.spec` + `command-palette.spec` (Docker, `next dev`, after a
+52-minute wait for the slot): **43 passed, 3 flaky** (passed on retry).
+`curator.spec`'s first test waited the default 5 s for What changed while
+`next dev` compiled the changes route on its first request — both of its
+first-read waits now take `FIRST_VISIT`. The other two are older
+`command-palette.spec` cases (Enter on a recipe or group row left the page
+on `/`, dev-only); the new hand-off case passed first time.
 
 **Roger to confirm.**
 

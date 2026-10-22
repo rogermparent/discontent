@@ -263,7 +263,8 @@ test.describe("Curator", () => {
 
     /* What changed: the new recipe's card, and its commit. */
     const changes = page.getByTestId("curator-changes");
-    await expect(changes).toBeVisible();
+    /* Its route's first request compiles it in `next dev` (past 5 s). */
+    await expect(changes).toBeVisible({ timeout: FIRST_VISIT });
     await expect(
       changes.getByRole("link", { name: /Curator Pork Braise/ }).first(),
     ).toHaveAttribute("href", `/recipe/${SLUG}`);
@@ -459,7 +460,9 @@ test.describe("Curator", () => {
 
     await start(page, "Find a pork shoulder braise I don't have yet");
     await expect(status(page)).toHaveText("Finished", { timeout: RUN });
-    await expect(page.getByTestId("curator-changes")).toBeVisible();
+    await expect(page.getByTestId("curator-changes")).toBeVisible({
+      timeout: FIRST_VISIT,
+    });
     expect(await overflow()).toBeLessThanOrEqual(0);
     /* The follow-up box rides above the tab bar. */
     const footer = await page.getByTestId("curator-footer").boundingBox();
