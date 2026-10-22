@@ -123,6 +123,32 @@ export interface AgentToolResultMessage {
    * `content`, which stays here whole for the transcript.
    */
   trimmed?: boolean;
+  /**
+   * What a write call wrote (44d), taken by the loop from the **uncut**
+   * result — `content` may be cut (Ea6) and no longer parse — so the
+   * curator's "What changed" never loses a write. Only on a write that
+   * wrote; never sent to the model (the wire mappers pick their fields).
+   */
+  summary?: AgentWriteSummary;
+}
+
+/** A recipe a write touched, and how (44d, `changes.ts`). */
+export interface AgentWriteRecipe {
+  slug: string;
+  name?: string;
+  change: "created" | "imported" | "updated";
+}
+
+/**
+ * One write call's changes (44d): its commits (exact), and what it touched —
+ * each list capped (`WRITE_SUMMARY_MAX_ITEMS`), empty lists left out.
+ */
+export interface AgentWriteSummary {
+  commits: number;
+  recipes?: AgentWriteRecipe[];
+  terms?: string[];
+  groups?: string[];
+  places?: ("featured" | "inventory" | "shopping")[];
 }
 
 export type AgentMessage =

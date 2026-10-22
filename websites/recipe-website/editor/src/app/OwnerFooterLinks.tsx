@@ -6,12 +6,15 @@ import {
   footerColumnHeadingClass,
   footerLinkClass,
 } from "recipe-website-common/components/AppLayout/nav";
+import { askAvailable } from "recipe-editor/controller/ask/available";
 
 const manageLinks = [
   { name: "New Recipe", href: "/new-recipe" },
   { name: "Settings", href: "/settings" },
   { name: "Content Sync", href: "/git" },
 ];
+
+const curatorLink = { name: "Curator", href: "/curator" };
 
 /**
  * The editor-only "Manage" footer column: owner destinations plus the Sign
@@ -22,11 +25,19 @@ const manageLinks = [
  */
 export async function OwnerFooterLinks() {
   const session = await auth();
+  /* 44d: the curator, beside New Recipe — signed in, with a model set up
+   * (the rule Ask's row follows, 43-Dq2: the same model runs both). */
+  const links =
+    session && askAvailable()
+      ? manageLinks.flatMap((item) =>
+          item.href === "/new-recipe" ? [item, curatorLink] : [item],
+        )
+      : manageLinks;
   return (
     <div>
       <h2 className={footerColumnHeadingClass}>Manage</h2>
       <div className="flex flex-col gap-2">
-        {manageLinks.map((item) => (
+        {links.map((item) => (
           <FooterLink key={item.href} item={item} className={footerLinkClass} />
         ))}
         <form

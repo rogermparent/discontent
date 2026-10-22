@@ -48,6 +48,7 @@ import {
   type ChatToolsResult,
 } from "../llm/tools";
 import { jobContext, type JobContext, type JobRun } from "../jobs/context";
+import { writeSummary } from "./changes";
 import type {
   AgentBudgetName,
   AgentBudgets,
@@ -59,9 +60,17 @@ import type {
   AgentToolCall,
   AgentToolResultMessage,
   AgentUsage,
+  AgentWriteSummary,
   ServerTool,
   ToolSpec,
 } from "./types";
+
+/** One call's answer: what the model reads, and a write's summary (44d). */
+interface CallOutcome {
+  content: string;
+  isError: boolean;
+  summary?: AgentWriteSummary;
+}
 
 /** E3's defaults: 40 turns; the others generous enough not to bind a sensible run (Ea9). */
 export const DEFAULT_AGENT_BUDGETS: Readonly<Required<AgentBudgets>> = {
@@ -471,7 +480,7 @@ const BUDGET_WORDS: Record<AgentBudgetName, string> = {
 
 /** A tool still running when the run stopped: what became of it (Ea12). */
 class StoppedWhileRunning extends Error {
-  constructor(readonly outcome: { content: string; isError: boolean }) {
+  constructor(readonly outcome: CallOutcome) {
     super("stopped while a tool was running");
     this.name = "StoppedWhileRunning";
   }
@@ -724,7 +733,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
         resultCap,
       );
       const stepName = toolStepName(call, toolsByName);
-      let outcome: { content: string; isError: boolean };
+      let outcome: CallOutcome;
       try {
         outcome = await log.step(
           stepName.name,
@@ -750,7 +759,12 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
             ...(error instanceof StoppedWhileRunning
               ? error.outcome.isError
                 ? { content: error.outcome.content, isError: true }
-                : { content: error.outcome.content }
+                : {
+                    content: error.outcome.content,
+                    ...(error.outcome.summary
+                      ? { summary: error.outcome.summary }
+                      : {}),
+                  }
               : { content: errorContent(UNKNOWN_OUTCOME), isError: true }),
           });
           const { stopReason, error: why } = abortedStop();
@@ -770,6 +784,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
         name: call.name,
         content: outcome.content,
         ...(outcome.isError ? { isError: true } : {}),
+        ...(outcome.summary ? { summary: outcome.summary } : {}),
       });
       emit({
         type: "tool.end",
@@ -832,8 +847,8 @@ async function runCall(
     resultCap,
     settleMs,
   }: { job: JobContext | undefined; resultCap: number; settleMs: number },
-): Promise<{ content: string; isError: boolean }> {
-  const fail = (message: string) => ({
+): Promise<CallOutcome> {
+  const fail = (message: string): CallOutcome => ({
     content: errorContent(message),
     isError: true,
   });
@@ -854,8 +869,11 @@ async function runCall(
       `invalid input for ${tool.name}: ${issues.slice(0, 8).join("; ")}`,
     );
   }
-  /** The result as the model reads it: serialized, capped, wrapped (E7). */
-  const present = (result: unknown) => {
+  /**
+   * The result as the model reads it: serialized, capped, wrapped (E7) —
+   * and, for a write that wrote, its summary from the uncut result (44d).
+   */
+  const present = (result: unknown): CallOutcome => {
     let serialized: string;
     try {
       serialized = serialize(result);
@@ -865,9 +883,13 @@ async function runCall(
       );
     }
     const text = capResult(serialized, resultCap);
+    const summary = tool.untrusted
+      ? undefined
+      : writeSummary(tool.name, call.input, result);
     return {
       content: tool.untrusted ? wrapUntrusted(tool.name, text) : text,
       isError: false,
+      ...(summary ? { summary } : {}),
     };
   };
   const failed = (error: unknown) =>

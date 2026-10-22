@@ -669,6 +669,11 @@ describe("runAgent — budgets and cancel", () => {
       toolCallId: expect.any(String),
       name: "recipe_create",
       content: '{"slug":"texas-chili","committed":true}',
+      /* 44d: the write it made, for the curator's "What changed". */
+      summary: {
+        commits: 1,
+        recipes: [{ slug: "texas-chili", change: "created" }],
+      },
     });
   });
 
