@@ -36,10 +36,18 @@ export function dropBlankIngredients(
   );
 }
 
+/** A step with text: an `Instruction`, or a caller's prose step. */
+function hasText(step: unknown): boolean {
+  return typeof step === "string"
+    ? !isBlank(step)
+    : !!step && !isBlank((step as Instruction).text);
+}
+
 /**
  * The steps with text. A group keeps its steps that have text and is
  * dropped when none is left; a group with steps and no name gives its
- * steps to the list (a nameless section is no section).
+ * steps to the list (a nameless section is no section). A prose step (the
+ * curation input takes strings too) is a step with text unless blank.
  */
 export function dropBlankSteps(
   entries: readonly InstructionEntry[],
@@ -47,15 +55,17 @@ export function dropBlankSteps(
   const kept: InstructionEntry[] = [];
   for (const entry of entries) {
     if (!entry) continue;
+    if (typeof entry !== "object") {
+      if (hasText(entry)) kept.push(entry);
+      continue;
+    }
     if ("instructions" in entry && Array.isArray(entry.instructions)) {
-      const steps = entry.instructions.filter(
-        (step): step is Instruction => !!step && !isBlank(step.text),
-      );
+      const steps = entry.instructions.filter(hasText);
       if (steps.length === 0) continue;
       if (isBlank(entry.name)) kept.push(...steps);
       else if (steps.length === entry.instructions.length) kept.push(entry);
       else kept.push({ ...entry, instructions: steps });
-    } else if (!isBlank((entry as Instruction).text)) {
+    } else if (hasText(entry)) {
       kept.push(entry);
     }
   }
