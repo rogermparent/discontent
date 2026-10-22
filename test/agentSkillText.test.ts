@@ -23,11 +23,11 @@ import {
 } from "../websites/recipe-website/editor/controller/agent/skillText";
 import {
   CURATOR_EXAMPLES_TEXT,
+  CURATOR_LOCAL_SKILL_TEXT,
   CURATOR_SKILL_TEXT,
 } from "../websites/recipe-website/editor/controller/agent/skillText.generated";
 import {
   LOCAL_AGENT_TOOLS,
-  LOCAL_WORKFLOW,
   agentPreamble,
   agentToday,
   claudeSystemPrompt,
@@ -43,17 +43,24 @@ const EDITOR = join(ROOT, "websites/recipe-website/editor");
 
 describe("the generated skill text", () => {
   it("is up to date with SKILL.md and examples.md", async () => {
-    const [skill, examples, generated] = await Promise.all([
+    const [skill, examples, local, generated] = await Promise.all([
       readFile(join(ROOT, SKILL_FILES.skill), "utf8"),
       readFile(join(ROOT, SKILL_FILES.examples), "utf8"),
+      readFile(join(ROOT, SKILL_FILES.local), "utf8"),
       readFile(join(EDITOR, SKILL_MODULE), "utf8"),
     ]);
     expect(
       generated,
       "skillText.generated.ts is stale: run `pnpm --filter recipe-editor generate-skill-text`",
-    ).toBe(renderSkillModule(skill, examples));
+    ).toBe(renderSkillModule(skill, examples, local));
     expect(CURATOR_SKILL_TEXT).toBe(agentSkillText(skill));
     expect(CURATOR_EXAMPLES_TEXT).toBe(agentSkillText(examples));
+    /* 44e: the condensed curator, its editing note cut. */
+    expect(CURATOR_LOCAL_SKILL_TEXT).toBe(agentSkillText(local));
+    expect(CURATOR_LOCAL_SKILL_TEXT.startsWith("# Recipe curator\n")).toBe(
+      true,
+    );
+    expect(CURATOR_LOCAL_SKILL_TEXT).not.toContain("generate-skill-text");
   });
 
   it("cuts the frontmatter and every claude-code-only part", () => {
@@ -112,10 +119,15 @@ describe("the agent's prompts", () => {
     expect(agentToday(now)).toBe("2026-10-21 (Wednesday)");
   });
 
-  it("give a local model the server's instructions, the workflow, no skill", () => {
+  it("give a local model the short preamble and skill-local.md, not the skill", () => {
     const withSearch = localSystemPrompt({ now, search: true });
     expect(withSearch).toContain("`web_search` searches the web");
+    expect(withSearch).toContain("Today is 2026-10-21 (Wednesday).");
+    expect(withSearch).toContain(CURATOR_LOCAL_SKILL_TEXT.trim());
     expect(withSearch).not.toContain("## 6b. A roundup");
+    /* E7 and the write rules are in it, said once. */
+    expect(withSearch).toContain("<untrusted_page_text>");
+    expect(withSearch).toContain("Never pass `overwrite` or `force`");
     expect(localSystemPrompt({ now, search: false })).toContain(
       "There is no web search here",
     );
@@ -130,9 +142,8 @@ describe("the agent's prompts", () => {
     );
   });
 
-  it("never name a held-back tool in the preamble or the workflow", () => {
-    /* The server's own instructions name the deletes as not undoable: not checked. */
-    const preambleAndWorkflow = `${agentPreamble({ now, search: true })}\n${LOCAL_WORKFLOW}`;
+  it("never name a held-back tool in the preambles or the local prompt", () => {
+    const preambleAndWorkflow = `${agentPreamble({ now, search: true })}\n${localSystemPrompt({ now, search: true })}`;
     for (const name of AGENT_HELD_BACK) {
       /* As a name, not inside a word ("reindexing" is prose). */
       const named = new RegExp(`\\b${name}\\b`);

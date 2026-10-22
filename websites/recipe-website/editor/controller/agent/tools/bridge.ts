@@ -28,6 +28,7 @@ import {
   toolInputSchema,
   type ToolErrorObject,
 } from "./schema";
+import { LOCAL_TOOL_TEXT, localResult, localSchema } from "./local";
 import { urlRefusal, type UrlGuardOptions } from "./urlGuard";
 import { webFetchTool, type WebFetchOptions } from "./webFetch";
 import { webSearchTool, type WebSearchOptions } from "./webSearch";
@@ -65,6 +66,12 @@ export interface AgentToolsOptions {
    * tools' URL arguments; `web_fetch` takes its own in `webFetch`.
    */
   guard?: UrlGuardOptions;
+  /**
+   * The local model's view (44e, `local.ts`): short descriptions, lighter
+   * schemas, a smaller `page_inspect` answer. Same names, same handlers,
+   * same zod parse.
+   */
+  local?: boolean;
 }
 
 type Args = Record<string, unknown>;
@@ -176,18 +183,36 @@ function seatRun(ctx: AgentToolContext): SeatRun {
 export interface RecipeAgentToolsOptions {
   only?: readonly AgentToolName[];
   guard?: UrlGuardOptions;
+  local?: boolean;
+}
+
+/** A tool as a local model sees it (44e): its `LOCAL_TOOL_TEXT`, if any. */
+function localized(tool: AgentTool): AgentTool {
+  const text = LOCAL_TOOL_TEXT[tool.name as keyof typeof LOCAL_TOOL_TEXT];
+  return {
+    ...tool,
+    description: text?.description ?? tool.description,
+    inputSchema: localSchema(tool.inputSchema, text?.omit),
+    async run(input, ctx) {
+      return localResult(tool.name, await tool.run(input, ctx));
+    },
+  };
 }
 
 /** The 45 recipes tools of E1 (or `only`), in `AGENT_TOOL_NAMES`' order. */
 export function recipeAgentTools(
   backend: CuratorBackend,
-  { only = AGENT_TOOL_NAMES, guard = {} }: RecipeAgentToolsOptions = {},
+  {
+    only = AGENT_TOOL_NAMES,
+    guard = {},
+    local = false,
+  }: RecipeAgentToolsOptions = {},
 ): AgentTool[] {
   const byName = new Map(
     recipeToolDefinitions(backend).map((tool) => [tool.name, tool] as const),
   );
   const names = AGENT_TOOL_NAMES.filter((name) => only.includes(name));
-  return names.map((name) => {
+  const tools = names.map((name) => {
     const tool = byName.get(name);
     if (!tool) throw new Error(`No recipes tool named ${name}`);
     const fetched = FETCHED_URLS[name];
@@ -229,6 +254,7 @@ export function recipeAgentTools(
       },
     } satisfies AgentTool;
   });
+  return local ? tools.map(localized) : tools;
 }
 
 /**
@@ -242,13 +268,15 @@ export function agentTools(
   const tools = recipeAgentTools(backend, {
     only: options.only,
     guard: options.guard,
+    local: options.local,
   });
+  const web: AgentTool[] = [];
   if (options.webFetch !== false) {
-    tools.push(webFetchTool(options.webFetch ?? {}));
+    web.push(webFetchTool(options.webFetch ?? {}));
   }
   if (options.webSearch !== false) {
     const search = webSearchTool(options.webSearch ?? {});
-    if (search) tools.push(search);
+    if (search) web.push(search);
   }
-  return tools;
+  return [...tools, ...(options.local ? web.map(localized) : web)];
 }

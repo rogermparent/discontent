@@ -357,9 +357,18 @@ describe("the agent job kind", () => {
     expect(names).toEqual([...LOCAL_AGENT_TOOLS, "web_fetch", "web_search"]);
     for (const held of AGENT_HELD_BACK) expect(names).not.toContain(held);
     const system = bodies[0].messages[0].content;
-    expect(system).toContain("Manage and search a recipe website's content.");
-    expect(system).toContain("How to work:");
+    /* 44e: the condensed curator, not the server's instructions or the skill. */
+    expect(system).toContain("## Workflow");
+    expect(system).toContain("**Search the site first**");
+    expect(system).not.toContain(
+      "Manage and search a recipe website's content.",
+    );
     expect(system).not.toContain("## 6b. A roundup");
+    /* The tools' local view: short descriptions (44e). */
+    const imports = bodies[0].tools.find(
+      (tool) => tool.function.name === "recipe_import",
+    ) as unknown as { function: { description: string } };
+    expect(imports.function.description.length).toBeLessThan(400);
 
     vi.stubEnv("RECIPE_SEARCH_URL", "");
     bodies.length = 0;

@@ -1,4 +1,4 @@
-/** The agent's tools (epic 44, 44b). */
+/** The agent's tools (epic 44, 44b; the local view, 44e). */
 export {
   LOCAL_FILE_REFUSAL,
   agentTools,
@@ -7,6 +7,13 @@ export {
   type RecipeAgentToolsOptions,
 } from "./bridge";
 export { isBlockedAddress, urlRefusal, type UrlGuardOptions } from "./urlGuard";
+export {
+  LOCAL_TOOL_TEXT,
+  localResult,
+  localSchema,
+  type LocalToolName,
+  type LocalToolText,
+} from "./local";
 export {
   AGENT_HELD_BACK,
   AGENT_TOOL_NAMES,

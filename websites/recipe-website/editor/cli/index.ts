@@ -250,8 +250,9 @@ Environment:
   RECIPE_EDITOR_URL    Same as --editor-url
   RECIPE_ENV_FILE      The file RECIPE_API_TOKEN, RECIPE_EDITOR_URL, the
                        RECIPE_LLM_* variables (the vision model's too),
-                       RECIPE_SEARCH_URL, RECIPE_JOBS_DIR,
-                       RECIPE_QUEUE_DIR and the RECIPE_GPU_* hooks are read
+                       RECIPE_SEARCH_URL, the RECIPE_AGENT_* settings,
+                       RECIPE_JOBS_DIR, RECIPE_QUEUE_DIR and the
+                       RECIPE_GPU_* hooks are read
                        from when the environment lacks them (default
                        websites/recipe-website/editor/.env; nothing else in
                        it is read)
@@ -275,7 +276,11 @@ Environment:
                        a web_search with a local model; unset, a local
                        model has none (the Claude API brings its own).
                        Read from editor/.env too
-  RECIPE_AUTHOR        "Name <email>" for local commits; same as --author
+  RECIPE_AGENT_NUM_CTX The context a local model's \`agent\` run asks for:
+                       12288 (default) or 16384; read from editor/.env too
+  RECIPE_AGENT_THINK   1 to let a local model think in \`agent\` runs
+                       (default 0); read from editor/.env too
+  RECIPE_AUTHOR       "Name <email>" for local commits; same as --author
   CONTENT_DIRECTORY    Local content directory; same as --content-dir
   YTDLP_PATH           yt-dlp binary for video imports (else the Settings
                        page's path, else \`yt-dlp\` on the PATH)
