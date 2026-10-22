@@ -184,6 +184,12 @@ export interface TagOptionMatch {
   count: number;
   /** The spelling that matched, when it is an alias. */
   alias?: string;
+  /**
+   * The recipe already reaches this term through a chosen child (F1, "a
+   * child brings its parent"): those children's labels, nearest first.
+   * Choosing it still adds it — the label tells the author it is redundant.
+   */
+  through?: string[];
 }
 
 function fold(text: string): string {
@@ -225,8 +231,10 @@ export const MATCH_LIMIT = 12;
 
 /**
  * Terms whose label, slug or alias has a word starting with what was typed,
- * an exact spelling first, then the most carried, then by label. Terms the
- * recipe carries are left out; an alias resolves to its term.
+ * an exact spelling first, then the terms the recipe does not reach yet,
+ * then the most carried, then by label. Terms the recipe carries are left
+ * out; one it reaches through a chosen child is kept but marked `through`
+ * and ranked after the rest. An alias resolves to its term.
  */
 export function searchPickerTerms(
   picker: TagPicker,
@@ -237,7 +245,7 @@ export function searchPickerTerms(
   const query = fold(text);
   if (!query) return [];
   const { model, counts } = picker;
-  const { chosen } = tagSelection(model, tags);
+  const { chosen, implied } = tagSelection(model, tags);
   const matches: (TagOptionMatch & { exact: boolean })[] = [];
   for (const term of model.terms.values()) {
     if (chosen.has(term.slug)) continue;
@@ -271,12 +279,20 @@ export function searchPickerTerms(
       ...(facet !== undefined ? { facet } : {}),
       count: counts.get(term.slug) ?? 0,
       ...(alias ? { alias } : {}),
+      ...(implied.has(term.slug)
+        ? {
+            through: implied
+              .get(term.slug)!
+              .map((slug) => model.terms.get(slug)?.label ?? slug),
+          }
+        : {}),
       exact,
     });
   }
   matches.sort(
     (a, b) =>
       Number(b.exact) - Number(a.exact) ||
+      Number(a.through !== undefined) - Number(b.through !== undefined) ||
       b.count - a.count ||
       a.label.localeCompare(b.label),
   );

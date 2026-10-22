@@ -131,6 +131,23 @@ describe("searchPickerTerms", () => {
     expect(searchPickerTerms(picker, "mex", ["tex-mex"])).toEqual([]);
   });
 
+  it("marks a parent reached through a chosen child, and ranks it last (F1)", () => {
+    const found = searchPickerTerms(picker, "c", ["cookies"]);
+    /* Course carries the most, but Cookies already reaches it. */
+    expect(found.map((match) => [match.slug, match.through])).toEqual([
+      ["cuisine", undefined],
+      ["course", ["Cookies"]],
+    ]);
+    expect(searchPickerTerms(picker, "dess", ["cookies"])[0]).toMatchObject({
+      slug: "dessert",
+      through: ["Cookies"],
+    });
+    /* Exact still leads: Enter on "Course" takes it. */
+    expect(searchPickerTerms(picker, "course", ["cookies"])[0].slug).toBe(
+      "course",
+    );
+  });
+
   it("caps the list", () => {
     const many: FacetTerm[] = Array.from({ length: 20 }, (_, index) => ({
       slug: `bean-${index}`,

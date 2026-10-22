@@ -188,6 +188,7 @@ export default function GroupFields({
           <div className="flex flex-col gap-2">
             <TagChips
               tags={tagValues}
+              fieldId="group-form-tags"
               onRemove={(index) =>
                 setTagValues((current) => current.filter((_, i) => i !== index))
               }

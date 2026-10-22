@@ -106,6 +106,15 @@ test.describe("Tag picker: a field and suggestions (45a)", () => {
     await field(page).fill("Gin");
     await expect(gin).toHaveCount(0);
 
+    /* A parent the chosen child already reaches is offered, marked (F1). */
+    await field(page).fill("spi");
+    await expect(
+      listbox(page).getByRole("option", {
+        name: "Add tag Spirit & base",
+        exact: true,
+      }),
+    ).toContainText("through Gin");
+
     /* An alias finds its term. */
     await field(page).fill("daiquiris");
     await expect(
@@ -126,10 +135,10 @@ test.describe("Tag picker: a field and suggestions (45a)", () => {
     await expect(chip(page, "porch season")).toBeVisible();
     await expect(field(page)).toBeFocused();
 
-    /* Typed again, it is already on the recipe. */
+    /* Typed again, it is already chosen. */
     await field(page).fill("porch season");
     await expect(section(page)).toContainText(
-      "“porch season” is already on this recipe.",
+      "“porch season” is already chosen.",
     );
     await expect(
       listbox(page).getByRole("option", { name: /^New tag/ }),
@@ -149,9 +158,12 @@ test.describe("Tag picker: a field and suggestions (45a)", () => {
     await expect(chip(page, "vodka")).toBeVisible();
     await expect(field(page)).toBeFocused();
 
-    /* A chip's own button removes it. */
-    await chip(page, "gin").click();
+    /* A chip's own button removes it; by keyboard, focus moves to the
+     * next chip, and to the field once none are left. */
+    await chip(page, "gin").focus();
+    await page.keyboard.press("Enter");
     await expect(chip(page, "gin")).toHaveCount(0);
+    await expect(chip(page, "porch season")).toBeFocused();
     await expect(chip(page, "vodka")).toBeVisible();
 
     /* What is submitted: the chosen tags, as carried. */
@@ -225,6 +237,14 @@ test.describe("Tag picker: a field and suggestions (45a)", () => {
     await expect(section(page).locator("[aria-live=polite]")).toHaveText(
       "Added Pork",
     );
+
+    /* The last chip removed by keyboard hands focus back to the field, and
+     * the suggestion waits again. */
+    await chip(page, "pork").focus();
+    await page.keyboard.press("Enter");
+    await expect(chip(page, "pork")).toHaveCount(0);
+    await expect(field(page)).toBeFocused();
+    await expect(accept).toBeVisible();
   });
 
   test("on a phone, chips wrap and every target is at least 24 px", async ({

@@ -3,6 +3,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -74,18 +75,36 @@ const CHIP_SUGGESTED = "border-dashed border-[1.5px]";
 /**
  * Chosen tags as chips, each with its remove button and the hidden input
  * that submits it (`tags[i]`). Chips wrap; the remove target is 24 px.
+ * After a removal, focus moves to the chip that took its place (or the one
+ * before it), or to the field (`fieldId`) when none are left — never to the
+ * page.
  */
 export function TagChips({
   tags,
   onRemove,
   testId,
+  fieldId,
 }: {
   tags: readonly string[];
   onRemove: (index: number) => void;
   testId?: string;
+  /** The tag field's id: where focus goes once the last chip is removed. */
+  fieldId?: string;
 }) {
+  const group = useRef<HTMLDivElement>(null);
+  const refocus = useRef<number | null>(null);
+  useEffect(() => {
+    const at = refocus.current;
+    if (at === null) return;
+    refocus.current = null;
+    const buttons = group.current?.querySelectorAll("button");
+    const next = buttons?.[Math.min(at, buttons.length - 1)];
+    if (next) next.focus();
+    else if (fieldId) document.getElementById(fieldId)?.focus();
+  }, [tags, fieldId]);
   return (
     <div
+      ref={group}
       role="group"
       className="flex min-w-0 flex-wrap items-center gap-1.5"
       aria-label="Selected tags"
@@ -100,7 +119,10 @@ export function TagChips({
           {tag}
           <button
             type="button"
-            onClick={() => onRemove(index)}
+            onClick={() => {
+              refocus.current = index;
+              onRemove(index);
+            }}
             aria-label={`Remove tag ${tag}`}
             className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm outline-none hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring/50"
           >
@@ -112,6 +134,9 @@ export function TagChips({
   );
 }
 
+/** The recipe form's tag field's id. */
+const RECIPE_TAG_FIELD = "recipe-form-tags";
+
 /** The recipe form's chosen tags, for the section heading. */
 export function ChosenTags() {
   const form = useRecipeForm();
@@ -120,6 +145,7 @@ export function ChosenTags() {
     <TagChips
       tags={tags}
       testId="recipe-form-chosen-tags"
+      fieldId={RECIPE_TAG_FIELD}
       onRemove={(index) =>
         form.setFieldValue(
           "tags",
@@ -167,7 +193,9 @@ export function TagField({
   const optionId = (position: number) => `${baseId}-${position}`;
   const [text, setText] = useState("");
   const [active, setActive] = useState(-1);
-  const [said, setSaid] = useState("");
+  /* What the live region says; `n` remounts it, so a repeated "Added X"
+   * is announced again. */
+  const [said, setSaid] = useState({ text: "", n: 0 });
 
   const suggestions = useMemo(
     () => tagSuggestions(picker.model, suggestedTags, tags),
@@ -197,7 +225,7 @@ export function TagField({
     onChange(next);
     setText("");
     setActive(-1);
-    setSaid(`Added ${label}`);
+    setSaid((current) => ({ text: `Added ${label}`, n: current.n + 1 }));
     if (refocus) inputRef.current?.focus();
   };
   const pickTerm = (slug: string, refocus = true) => {
@@ -216,7 +244,11 @@ export function TagField({
     } else if (event.key === "ArrowUp" && expanded) {
       event.preventDefault();
       setActive((current) => (current <= 0 ? options.length - 1 : current - 1));
-    } else if (event.key === "Enter" || event.key === ",") {
+    } else if (
+      (event.key === "Enter" || event.key === ",") &&
+      /* An IME's Enter confirms a composition; it adds nothing. */
+      !event.nativeEvent.isComposing
+    ) {
       event.preventDefault();
       const highlighted = expanded && active >= 0 ? options[active] : undefined;
       const exact = field.exact >= 0 ? options[field.exact] : undefined;
@@ -267,10 +299,7 @@ export function TagField({
         className="flex min-w-0 flex-col gap-1.5"
         data-testid="tag-suggestions"
       >
-        <span
-          id={`${baseId}-heading`}
-          className="font-mono text-[0.6875rem] leading-none font-medium tracking-[0.05em] text-muted-foreground uppercase"
-        >
+        <span className="font-mono text-[0.6875rem] leading-none font-medium tracking-[0.05em] text-muted-foreground uppercase">
           Suggestions
         </span>
         <ul
@@ -336,7 +365,7 @@ export function TagField({
         {typing ? (
           field.already !== undefined ? (
             <p className="text-sm text-muted-foreground">
-              “{field.already}” is already on this recipe.
+              “{field.already}” is already chosen.
             </p>
           ) : null
         ) : suggestions.length ? (
@@ -373,7 +402,7 @@ export function TagField({
         )}
       </div>
       <div aria-live="polite" className="sr-only">
-        {said}
+        <span key={said.n}>{said.text}</span>
       </div>
     </div>
   );
@@ -398,11 +427,27 @@ function TermOption({
         {match.alias ? (
           <span className="text-muted-foreground"> (“{match.alias}”)</span>
         ) : null}
+        {match.through ? (
+          /* F1: the recipe reaches it already, through a chosen child. */
+          <span
+            className="text-muted-foreground"
+            title="Already reached: a child brings its parent"
+          >
+            {" "}
+            · through {match.through.join(", ")}
+          </span>
+        ) : null}
       </span>
       <span
         id={aboutId}
         className="flex shrink-0 items-baseline gap-1.5 text-xs whitespace-nowrap text-muted-foreground"
       >
+        {match.through ? (
+          <span className="sr-only">
+            Already reached through {match.through.join(", ")} (a child brings
+            its parent),{" "}
+          </span>
+        ) : null}
         {where ? <span>{where}</span> : null}
         <span className="font-mono">
           <span className="sr-only">, </span>
@@ -428,7 +473,7 @@ export function RecipeTagField({
   const tags = useFormTags();
   return (
     <TagField
-      id="recipe-form-tags"
+      id={RECIPE_TAG_FIELD}
       tags={tags}
       onChange={(next) => form.setFieldValue("tags", next)}
       suggestedTags={suggestedTags}
