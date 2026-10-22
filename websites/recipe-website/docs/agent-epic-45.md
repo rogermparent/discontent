@@ -215,7 +215,40 @@ removed hands focus to the field; phone targets and wrap). Updated
 `recipe-tags-aggregate.spec`, `search-tags.spec` (type, then the option)
 and the comment in `groups.spec`.
 
-**Gates.** _(filled in after review)_
+**Gates** (after merging `origin/main` d5c37ef5).
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean.
+- `pnpm exec vitest run`: 156 files, 3446 tests passed. After the last
+  markup fix, the three picker files were run again: 61/61.
+- Playwright in Docker, production build, with `tag-picker`,
+  `recipe-tags-aggregate`, `search-tags`, `recipe`, `groups`,
+  `edit-form-frame`, `tag-pages`, `new-recipe`, `visual` and `mobile`:
+  169 passed, 1 failed, 1 flaky.
+  - The failure was `tag-picker`'s axe check: `label-content-name-mismatch`
+    on the options' `aria-label` (Ta1). It is fixed.
+  - The flaky test was `visual` "make page starting from nothing": a
+    `make-ticker` strict-mode hit, unrelated to 45a, which passed on retry.
+- Rerun after the fix (Docker, production build), with `tag-picker`,
+  `recipe-tags-aggregate`, `search-tags`, `groups` and `visual`: 74/74.
+- `tag-picker.spec` in dev mode (Docker): 3/3.
+- Baselines regenerated in Docker, all form views with the Tags section at
+  rest (now the field, "Suggestions" and the hint), and each one opened:
+  `edit-form-populated`, `edit-form-overwrite`, `markdown-source-mode`,
+  `new-recipe-form`, `new-recipe-form-overwrite`, `new-recipe-imported` and
+  `edit-form-mobile`.
+
+#### 45a Traps
+
+- **Ta1 an option's name must contain its visible text.** An `aria-label`
+  like "Add tag Gin" on an option whose content also shows the facet and
+  count fails axe's `label-content-name-mismatch` (WCAG 2.5.3). The fix:
+  - Put the name in one sr-only text node ("Add tag Gin").
+  - Mark the visible label `aria-hidden`, and make the facet, count, alias
+    and "through" the option's description.
+  - Keep the name in one text node. A name split across an sr-only "Add
+    tag " and a visible label came out differently in jsdom
+    (testing-library could not find "Add tag Desserts").
 
 ### 45b — Fill gaps from the source, with marked estimates
 
