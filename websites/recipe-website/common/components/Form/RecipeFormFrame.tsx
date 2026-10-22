@@ -18,6 +18,7 @@ import { buttonVariants } from "@discontent/component-library/components/ui/butt
 import { cn } from "@discontent/component-library/lib/utils";
 import { useRecipeForm, type RecipeFormValues } from "./formContext";
 import { useDrinkShown } from "./drinkShown";
+import { fillSections, type FillMarks } from "./fillMarks";
 import {
   recipeSections,
   changeText,
@@ -292,6 +293,16 @@ export interface RecipeFormRailProps {
    * reloads the form with what was sent, which is still not saved.
    */
   baseline?: RecipeFormValues;
+  /**
+   * A fill from the source (45b, the edit page): the sections it filled are
+   * marked while they hold what it left (the form's own default values).
+   */
+  fill?: FillMarks;
+  /**
+   * Changes the form's values cannot see (45b): a filled picture or video
+   * waits as an import URL, not a value, and still counts as a change.
+   */
+  extraChanges?: number;
 }
 
 /**
@@ -315,14 +326,22 @@ export function RecipeFormRail(props: RecipeFormRailProps) {
     overwrite,
     notice,
     baseline,
+    fill,
+    extraChanges = 0,
   } = props;
   const slot = useContext(RailSlot);
   const wide = useWideRail();
   const form = useRecipeForm();
-  const loaded = baseline ?? form.options.defaultValues!;
+  const defaults = form.options.defaultValues!;
+  const loaded = baseline ?? defaults;
   const values = useStore(form.store, (state) => state.values);
   const pictureTouched = usePictureTouched("recipe-form");
   const drinkShown = useDrinkShown();
+  const filled = useMemo(
+    () =>
+      fill ? { sections: fillSections(fill), values: defaults } : undefined,
+    [fill, defaults],
+  );
 
   const statuses = useMemo(
     () =>
@@ -331,11 +350,12 @@ export function RecipeFormRail(props: RecipeFormRailProps) {
         loaded,
         picture: pictureTouched ? "new" : picture,
         errors,
+        fill: filled,
       }),
-    [values, fromLabel, loaded, picture, pictureTouched, errors],
+    [values, fromLabel, loaded, picture, pictureTouched, errors, filled],
   );
   const changes =
-    changedFields(loaded, values).length + (pictureTouched ? 1 : 0);
+    changedFields(loaded, values).length + (pictureTouched ? 1 : extraChanges);
   const { count, rest } = changeText(changes);
 
   const rows = [

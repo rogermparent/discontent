@@ -34,6 +34,28 @@ export interface StandInOptions {
    * directory of them).
    */
   transcripts?: Record<string, string>;
+  /**
+   * The estimate's answer (45b) in place of the stand-in's own — a bad one,
+   * to see it dropped.
+   */
+  estimate?: Record<string, unknown>;
+}
+
+/**
+ * The estimate (45b, `ESTIMATE_SYSTEM_PROMPT`): the fields the prompt asks
+ * for ("Estimate these fields:"), each with a fixed value — 20 min prep,
+ * 17 min cook, 75 min total, "8 bagels" — and a basis. Never a real model.
+ */
+export function estimateAnswer(user: string): Record<string, unknown> {
+  const asked = /Estimate these fields:\n([\s\S]*)$/.exec(user)?.[1] ?? "";
+  const wants = (field: string) => asked.includes(`"${field}"`);
+  return {
+    ...(wants("prepTime") ? { prepTime: 20 } : {}),
+    ...(wants("cookTime") ? { cookTime: 17 } : {}),
+    ...(wants("totalTime") ? { totalTime: 75 } : {}),
+    ...(wants("recipeYield") ? { recipeYield: "8 bagels" } : {}),
+    basis: "25 min rise + 20 min proof + 17 min bake + ~10 min shaping",
+  };
 }
 
 function textBlock(user: string): string {
@@ -172,6 +194,18 @@ export function standInChat(
         ),
       },
       done: true,
+    };
+  }
+  if (system.startsWith("You estimate a recipe's times")) {
+    return {
+      model: body.model ?? "qwen3:8b",
+      message: {
+        role: "assistant",
+        content: JSON.stringify(options.estimate ?? estimateAnswer(user)),
+      },
+      done: true,
+      prompt_eval_count: 300,
+      eval_count: 40,
     };
   }
   const text = textBlock(user);

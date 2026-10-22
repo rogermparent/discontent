@@ -47,6 +47,10 @@ import type {
   ImportResult,
 } from "../../controller/curation/importRecipe";
 import type { InspectResult } from "../../controller/curation/inspect";
+import type {
+  FillOptions,
+  FillResult,
+} from "../../controller/curation/fillRecipe";
 import type { JobContext } from "../../controller/jobs/context";
 import type {
   AgentRunInput,
@@ -109,6 +113,8 @@ import type {
 
 export type {
   DiffResult,
+  FillOptions,
+  FillResult,
   HolidayGetResult,
   HolidayListResult,
   HolidayOptions,
@@ -315,6 +321,16 @@ export interface CuratorBackend {
     raw: unknown,
     options?: { dryRun?: boolean },
   ): Promise<RecipeWriteResult | RecipeDryRunResult>;
+  /**
+   * A recipe's gaps filled from its source, written nowhere (45b): what the
+   * source fills, what the model estimates, and the patch `updateRecipe`
+   * takes. `usage` when the recipe has no source link or video.
+   */
+  fillRecipe(
+    slug: string,
+    options?: Pick<FillOptions, "estimate">,
+    run?: SeatRun,
+  ): Promise<FillResult>;
   /** Set (from a URL or a `File`) or clear one recipe's image, one commit (26b). */
   setRecipeImage(
     slug: string,

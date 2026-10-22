@@ -40,6 +40,7 @@ import {
   featureCommand,
   unfeatureCommand,
 } from "./commands/featured";
+import { fillCommand } from "./commands/fill";
 import { gitCommands } from "./commands/git";
 import { groupCommands } from "./commands/group";
 import { holidaysCommand } from "./commands/holidays";
@@ -89,6 +90,8 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
   "import-list": importListCommand,
   create: createCommand,
   update: updateCommand,
+  /* A recipe's gaps from its source, written nowhere (45b). */
+  fill: fillCommand,
   image: imageCommand,
   show: showCommand,
   list: listCommand,
@@ -166,6 +169,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   jobs retry <id> [--fresh]
   create (--file recipe.json | --stdin) [--overwrite] [--dry-run]
   update <slug> (--file patch.json | --stdin) [--dry-run]
+  fill <slug> [--no-estimate] [--out patch.json] [--verbose]
   image <slug> (--url <image-url> | --file <path> | --clear)
   show <slug>
   list [--tag t] [--limit 20] [--offset 0]
@@ -348,6 +352,18 @@ Content directory: --content-dir > CONTENT_DIRECTORY > ./content.
 The tweak loop: \`inspect <url> --out d.json\` (or \`import <url> --dry-run --out
 d.json\`), edit d.json, \`create --file d.json --dry-run\`, then \`create --file
 d.json\`. Fix a picture later with \`image <slug> --url|--file|--clear\`.
+
+Filling gaps: \`fill <slug>\` reads the recipe's source link (or its video) as
+\`import --dry-run\` would and fills only what is empty — the description,
+times, yield, ingredients and steps when there are none, the picture, video
+and drink spec when absent; never the name, slug or tags (the source's tags
+come back as suggestions). The times and yield the source doesn't state are
+estimated by the configured model (RECIPE_LLM_*), one call, marked as
+estimated with its one-sentence basis; --no-estimate skips it, and with no
+model configured the fill is the source's alone. Nothing is written: it
+prints the patch (--out patch.json writes it) for \`update <slug> --file
+patch.json\`. The editor's edit page has the same as "Fill gaps from the
+source", reviewed in the form before Save.
 
 A roundup ("40+ Thanksgiving Pies"): \`inspect-list <url>\` lists its recipes,
 \`existing\` marked; \`import-list <url> --pick 1,3 [--term <slug>]\` imports

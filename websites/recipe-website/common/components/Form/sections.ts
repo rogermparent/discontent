@@ -17,6 +17,7 @@ import {
   type InstructionEntry,
 } from "../../controller/types";
 import type { RecipeFormValues } from "./formContext";
+import type { SectionFill } from "./fillMarks";
 import { ingredientFlags, plainLine } from "./Ingredients/ingredientRows";
 
 /** The sections, in page order. "Start from" is the new-recipe page's own. */
@@ -147,12 +148,40 @@ export interface StatusContext {
   /** What the picture field holds: the page's image, one already saved, a new file, or none. */
   picture: "page" | "saved" | "new" | "none";
   errors?: Record<string, string[] | undefined>;
+  /**
+   * A fill from the source (45b): the sections it touched, and the values
+   * it left in the form — a section is marked while it still holds them.
+   */
+  fill?: {
+    sections: Partial<Record<RecipeSectionId, SectionFill>>;
+    values: RecipeFormValues;
+  };
 }
+
+/** The form values each section holds, for "still as the fill left it". */
+const SECTION_KEYS: Record<RecipeSectionId, (keyof RecipeFormValues)[]> = {
+  drink: ["drink"],
+  recipe: ["description", "recipeYield"],
+  tags: [],
+  /* Files, not values: a filled picture stays marked until Undo. */
+  picture: [],
+  ingredients: ["ingredients"],
+  steps: ["instructions"],
+  times: ["prepTime", "cookTime", "totalTime"],
+  source: [],
+};
+
+/** The rail's word for a fill (45b): "filled", "est.", or both. */
+const FILL_WORD: Record<SectionFill, string> = {
+  source: "filled",
+  estimated: "est.",
+  both: "filled · est.",
+};
 
 /** The rail's status for each section. */
 export function sectionStatuses(
   values: RecipeFormValues,
-  { fromLabel, loaded, picture, errors }: StatusContext,
+  { fromLabel, loaded, picture, errors, fill }: StatusContext,
 ): Record<RecipeSectionId, SectionStatus> {
   const unchanged = (keys: (keyof RecipeFormValues)[]) =>
     keys.every((key) => same(values[key], loaded[key]));
@@ -205,6 +234,30 @@ export function sectionStatuses(
     times: total ? { text: formatDurationCompact(total) } : {},
     source: site ? { text: site } : {},
   };
+  /*
+   * 45b: a section the fill touched says so while it holds what the fill
+   * left — an estimate in the warning tone (it wants a look), a fill from
+   * the source in the active one — after its own count or time.
+   */
+  for (const [section, how] of Object.entries(fill?.sections ?? {}) as [
+    RecipeSectionId,
+    SectionFill,
+  ][]) {
+    const kept = SECTION_KEYS[section].every((key) =>
+      same(values[key], fill!.values[key]),
+    );
+    if (!kept) continue;
+    /* A count or a time stays ("12 · filled"); words give way. */
+    const { text: base, tone } = statuses[section];
+    statuses[section] = {
+      text:
+        base && /^\d/.test(base)
+          ? `${base} · ${FILL_WORD[how]}`
+          : FILL_WORD[how],
+      /* A flag the section already raised ("2 checks") keeps its tone. */
+      tone: tone === "warn" || how !== "source" ? "warn" : "active",
+    };
+  }
   for (const section of errorSections(errors)) {
     statuses[section] = { text: "check", tone: "error" };
   }
