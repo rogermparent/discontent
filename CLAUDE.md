@@ -40,8 +40,8 @@ set it writes — and commits — to the real content repo through that symlink.
 The editor's `/curator` page (and `pnpm recipes agent`) runs the same 45
 tools in-process on the configured model — the Claude API with all 45 (plus
 `web_fetch` and Anthropic's `web_search`), or a local qwen with a condensed
-8-tool view; both refuse a local `path` / `photos` argument. See
-`agent-epic-44.md`.
+view of 8 of them plus `web_fetch` and SearXNG's `web_search`; both
+refuse a local `path` / `photos` argument. See `agent-epic-44.md`.
 
 The same operations exist as a CLI fallback, `pnpm --silent recipes <command>
 … --json` from the repo root (`--silent` keeps pnpm's banner out of the JSON).
