@@ -180,6 +180,22 @@ export function redactUrlText(
   return scrub(text, secretValues(env));
 }
 
+/**
+ * Only the secret-looking environment values out — a URL's text is left as
+ * it is (44c: a transcript line, whose Claude blocks must replay unchanged
+ * unless a secret really is in them).
+ */
+export function scrubSecretValues(
+  text: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  let out = text;
+  for (const secret of secretValues(env)) {
+    if (out.includes(secret)) out = out.split(secret).join("[redacted]");
+  }
+  return out;
+}
+
 function cut(text: string): string {
   return text.length > LOG_TEXT_MAX_CHARS
     ? `${text.slice(0, LOG_TEXT_MAX_CHARS - 1)}…`

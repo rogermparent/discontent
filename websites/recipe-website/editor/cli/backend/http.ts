@@ -37,6 +37,10 @@ import {
 } from "../../controller/curation/errors";
 import { absoluteLink } from "./link";
 import type {
+  AgentRunView,
+  AgentStartResult,
+} from "../../controller/agent/follow";
+import type {
   CuratorBackend,
   DeleteResult,
   DiffResult,
@@ -783,6 +787,40 @@ export function createHttpBackend({
         `/api/jobs/${encodeURIComponent(id)}/retry`,
         /* 39a: no body is a plain retry, as before. */
         fresh ? { body: { fresh: true } } : {},
+      );
+    },
+
+    /*
+     * The editor's agent (44c): the editor runs it (`POST /api/agent`) and
+     * this follows `GET /api/agent/<id>`. A Ctrl-C ends the follow at once
+     * (`cliSignal`), as `jobs log --follow` does: the run goes on in the
+     * editor — `jobs cancel <id>` stops it.
+     */
+    async runAgent(input, { onProgress, pollMs } = {}) {
+      const [{ followAgentRun, agentFollowMs }, { interruptibleSleep }] =
+        await Promise.all([
+          import("../../controller/agent/follow"),
+          import("../interrupt"),
+        ]);
+      const started = await call<AgentStartResult>("POST", "/api/agent", {
+        body: {
+          prompt: input.prompt,
+          ...(input.runId ? { runId: input.runId } : {}),
+          ...(input.maxTurns ? { maxTurns: input.maxTurns } : {}),
+        },
+      });
+      const every = pollMs ?? agentFollowMs();
+      return followAgentRun(
+        (from, transcriptFrom) =>
+          call<AgentRunView>(
+            "GET",
+            `/api/agent/${encodeURIComponent(started.job)}`,
+            { query: { from, transcriptFrom } },
+          ),
+        {
+          ...(onProgress ? { onProgress } : {}),
+          wait: () => interruptibleSleep(every),
+        },
       );
     },
 

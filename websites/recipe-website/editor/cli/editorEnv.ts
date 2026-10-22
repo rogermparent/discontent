@@ -27,6 +27,9 @@
  *   with, and `RECIPE_LLM_API_KEY` (38g), the Claude API's key (or an
  *   OpenAI-style server's bearer) — a secret like `RECIPE_API_TOKEN`, which
  *   the job log's redaction already scrubs by its name (37-D2);
+ * - `RECIPE_SEARCH_URL` — the SearXNG server a local model's `web_search`
+ *   asks (epic 44, E6), so `recipes agent` searches as the editor's agent
+ *   does: how to reach a service, like the model's URL;
  * - `RECIPE_JOBS_DIR` — where import jobs keep their records (epic 37, D1),
  *   so a CLI import and the editor share one job store when the editor's is
  *   set somewhere other than the default;
@@ -93,6 +96,7 @@ export const EDITOR_ENV_KEYS = [
   "RECIPE_LLM_API",
   "RECIPE_LLM_API_KEY",
   "RECIPE_LLM_VISION_MODEL",
+  "RECIPE_SEARCH_URL",
   "RECIPE_JOBS_DIR",
   "RECIPE_QUEUE_DIR",
   "RECIPE_GPU_ACQUIRE_CMD",

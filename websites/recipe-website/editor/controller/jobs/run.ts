@@ -60,6 +60,7 @@ import {
   readCancelRequest,
   readJobMeta,
   sweepJobs,
+  transcriptPath,
   updateJobMeta,
   writeCancelRequest,
   writeJobMeta,
@@ -504,6 +505,7 @@ export async function startJob<T>(
           rm(metaPath(dir, id), { force: true }),
           rm(logPath(dir, id), { force: true }),
           rm(cancelPath(dir, id), { force: true }),
+          rm(transcriptPath(dir, id), { force: true }),
         ]).catch(() => undefined);
         return { job: id, result };
       }

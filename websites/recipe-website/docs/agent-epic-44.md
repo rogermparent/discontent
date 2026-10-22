@@ -610,6 +610,252 @@ the jobs route. `pnpm recipes agent "<ask>" [--json]` on the CLI; no MCP
 tool (an MCP client is an agent already). Tests:
 the kind with a scripted model, the route's auth (E5), the CLI.
 
+#### Results (44c)
+
+**What changed.**
+
+- **The `agent` job kind** (`controller/jobs/kinds.ts`, `listing.ts`):
+  spec `{kind: "agent", contentDirectory, author?, prompt, continues?,
+maxTurns?}`; label `ask: "…"` / `follow-up: "…"` (80 characters, the
+  log's redaction on it); resources `gpu`, `ytdlp`, `site`; tier
+  `interactive`; `specWrites` true; **not retried** (`NOT_RETRIED_KINDS`,
+  Ec8); `JOB_FAILURES.agent` marks a run that stopped on `error`
+  `failed` (`agent_failed`) — a budget's end is `done`, a cancel
+  `cancelled`. `/jobs` lists it under its kind; `timeline.ts` titles
+  `agent.turn` ("Model turn N", with tokens and Claude's cost) and
+  `agent.tool` ("Unknown tool “x”").
+- **`controller/agent/job.ts`** — `runAgentJob(spec, {ctx, job, dir})`:
+  the configured model (`llmConfig()`, else `usage`), `runAgent` with the
+  job, Ea's budgets (`maxTurns` may only lower E3's 40), the transcript
+  written from the loop's events, a small result (`text`, `stopReason`,
+  `error?`, `usage`, `turns`, `toolCalls`, `trimmed`, `durationMs`,
+  `model`, `api`, `continues?`). `agentToolset` is E6's split (Ec6);
+  `agentAvailable`, `checkAgentPrompt`, `AGENT_PROMPT_MAX` (4,000).
+- **`controller/agent/transcript.ts`** — `<id>.transcript.jsonl`
+  (`transcriptPath` in `store.ts`): `start` (model, api, tool names,
+  server tools, `continues?`), one `message` per neutral message as it is
+  added, `end` (`stop`, `error?`, `usage`, `costEstimate?`, `model`,
+  `api`, counts). Appended synchronously line by line; each line has the
+  environment's secret values scrubbed (`scrubSecretValues`, new in
+  `log.ts`); pruned with its job (`pruneJobs`, an orphan too, and
+  `discardIf`'s delete).
+- **The loop reports every message** (`loop.ts`, additive to 44a): a new
+  `AgentEvent` `{type: "message", message}` for each message the run adds
+  — the prompt, each assistant turn (with Claude's `raw`), each tool
+  result, the "not run" answers a stop leaves — in transcript order (Ec2).
+- **The bridge passes `signal` and `job`** (`bridge.ts` → `registry.ts`
+  handlers → `CuratorBackend` seats, Ec1): `RecipeToolDefinition.handler`
+  takes an optional `run: SeatRun {signal?, job?}`; `page_inspect`,
+  `recipe_import` (url, text, photos), `page_inspect_list` and
+  `recipe_import_list` hand it to their seats; the local backend runs the
+  seat **inside** the run's job (`runSpecInline` in `kinds.ts`) when it
+  has one, else as its own job cancelled by the signal. The MCP server
+  still calls `handler(args)`: nothing changes there.
+- **The prompts** (`controller/agent/prompt.ts`, Ec5/Ec6): Claude's =
+  the editor preamble (what the person sees and how to ask, no shell,
+  WebSearch/WebFetch → `web_search`/`web_fetch`, E7's rule, today's date,
+  the write rules, Eb7's codes, Markdown links) + `<curator_guide>`
+  SKILL.md + `<worked_transcripts>` examples.md; a local model's = the
+  same preamble + the MCP `INSTRUCTIONS` + a seven-line workflow.
+- **The skill as code**: `controller/agent/skillText.ts` (the strip rule),
+  `skillText.generated.ts` (committed, in `.prettierignore`),
+  `scripts/generate-skill-text.ts` (`pnpm --filter recipe-editor
+generate-skill-text`). SKILL.md gains three `<!-- claude-code-only -->`
+  … `<!-- /claude-code-only -->` sections: `$ARGUMENTS`, the stdio/HTTP
+  server paragraph, and the whole Fallback (CLI).
+- **`POST /api/agent`** and **`GET /api/agent/<id>`**
+  (`src/app/api/agent/`), over `controller/agent/runs.ts`
+  (`startAgentRun`, `getAgentRunView`); the shared follow loop and types in
+  `controller/agent/follow.ts` (light, for the HTTP backend).
+- **`pnpm recipes agent "<ask>" [--run <id>] [--max-turns N] [--verbose]
+[--json]`** (`cli/commands/agent.ts`): `CuratorBackend.runAgent` —
+  local runs in-process (committer preflighted) and follows its own
+  files; `--remote` posts to the editor and follows `GET /api/agent/<id>`
+  (a Ctrl-C stops following, not the run). Plain prints `> ask`, the
+  model's words, `→ tool {input}` and `← tool: ok (N chars)` / `error
+(code): …`, then `done` / `stopped: <reason>`, the usage line and the
+  follow-up hint; `--json` prints one `AgentRunOutcome`. Exit 1 on
+  `error` / failed, 130 on cancelled. `RECIPE_SEARCH_URL` joins
+  `EDITOR_ENV_KEYS` and the help's environment list.
+- Tests: `test/agentJobs.test.ts` (10), `test/agentRoute.test.ts` (5),
+  `test/agentSkillText.test.ts` (6); `agentLoop.test.ts`'s event-order
+  case now lists the `message` events and checks they equal the
+  transcript; `jobs.test.ts`'s registry case names the new kind, its
+  labels and tier.
+
+**Decisions.**
+
+- **Ec1 — A tool's import runs inside the run's job.** With a `job` the
+  local backend's import/inspect seats call `runSpecInline`: the kind's
+  handler with the run's `JobContext` (its log, tier, queue `waiting`,
+  and the tool call's signal — the run's cancel and its wall-time budget
+  together — but never `beyondCancel`: a seat must not seal the run). So
+  the fetch, yt-dlp, the model reading and the write nest under the tool's
+  step (the log's async context), and a cancel aborts the fetch in flight
+  (tested). No separate job record: the result's `job` is the run's id, so
+  `job_get` on it shows the run. Failures are rethrown as `runJob` would
+  (a cancel as `cancelled`, the surfaced warnings and the id attached).
+  The HTTP backend ignores `run` (the agent always runs in-process).
+- **Ec2 — The transcript is written from a `message` event**, not
+  rebuilt from `turn.end` / `tool.end`: those carry no `raw` (Claude's
+  encrypted blocks a follow-up must replay, Ea4), and the "not run"
+  answers a stop or a crashed history's close-out adds emit no tool event.
+  The trim (Ea6) is not written: the transcript keeps results whole.
+- **Ec3 — A follow-up is a new job whose transcript is whole.** `runId`
+  starts a new `agent` job (`spec.continues`) that copies the earlier
+  transcript verbatim (its records keep their own `job`), then writes its
+  own `start`/`message`/`end`. History = every `message` record in order.
+  So the newest run of a conversation is self-contained: pruning an older
+  run never breaks it, and 44d reads one id. A continue is refused
+  (`job_live`, 409, naming the live job) while the run — or another
+  follow-up of it — is live, and `usage` for a job that is not an agent
+  run or has no transcript. Branching (two follow-ups of one ended run, one
+  after the other) is allowed.
+- **Ec4 — `GET /api/agent/<id>` takes two offsets**: `from` (the step
+  log, as `/api/jobs/<id>`) and `transcriptFrom` (the transcript), and
+  answers `next` and `transcriptNext`. Its transcript records leave out
+  Claude's `raw` blocks (encrypted search results and signatures — kept on
+  disk for replay, of no use to read); the text, tool calls and
+  server-tool uses are beside them. Read scope (E5).
+- **Ec5 — The skill ships as generated code.** The editor's Docker build
+  context drops `**/*.md` (`.dockerignore`) and `.claude/` is not the
+  editor's, so the Pi image could not read SKILL.md. The generated module
+  is committed; `agentSkillText.test.ts` fails when it differs from what
+  the files make now. The strip rule is markers, not headings: an opening
+  marker with no close throws (a typo must not drop half the skill).
+  Prettier leaves SKILL.md's markers as they are.
+- **Ec6 — Tools per model.** Claude: the 45 + **our `web_fetch`** (paced,
+  the 403 rule, SSRF-guarded — never Anthropic's server fetch) +
+  Anthropic's server `web_search` (`web_search_20250305`, `max_uses` 5 per
+  call, `AGENT_WEB_SEARCH_MAX_USES`); SearXNG's `web_search` is never
+  offered beside it. A local model: `LOCAL_AGENT_TOOLS` = `recipe_search`,
+  `recipe_get`, `page_inspect`, `recipe_import`, `recipe_create`,
+  `tag_list`, `term_list`, `term_assign`, `job_get`, + `web_fetch`, +
+  SearXNG's `web_search` when `RECIPE_SEARCH_URL` is set (the preamble
+  says "no web search here" otherwise).
+- **Ec7 — Caps.** The ask: 4,000 characters (`AGENT_PROMPT_MAX`) — the
+  route answers 413 `validation` over it, the CLI and `startAgentRun`
+  `usage`. `maxTurns` (API) / `--max-turns` (CLI) is 1–40: a caller may
+  lower E3's budget, never raise it. POST answers **202** (as Retry: the
+  run goes on), not 200.
+- **Ec8 — A run is never retried** from `/jobs` or `jobs retry`: its tools
+  may have written already. Ask again, or follow up.
+- **Ec9 — No model, no run.** `startAgentRun` checks `llmConfig()` first:
+  the route's 400 `usage` ("No model is configured for the agent: …"), the
+  CLI's exit 1 — before a job exists. The handler checks again (a config
+  that vanished between).
+
+**Measured** (`estimateTokens`, 40a's over-count; 2026-10-21):
+
+| What                                                         | Characters | ~Tokens |
+| ------------------------------------------------------------ | ---------- | ------- |
+| Claude's system prompt (preamble + skill + examples)         | 64,037     | 21,559  |
+| Claude's tools (45 + `web_fetch`; schemas + descr.)          | 41,915     | 14,907  |
+| The local system prompt (preamble + INSTRUCTIONS + workflow) | 6,490      | 2,172   |
+| The local tools (9 + `web_fetch` + `web_search`)             | 13,639     | 4,770   |
+
+The local prompt and tools come to ~6.9k of qwen3:8b's 12,288 (the trim
+line is 8,704, Ea6), leaving ~1.8k for the conversation — tight:
+`recipe_import`'s description alone is ~4k characters. **For 44e:**
+`skill-local.md` and the local tool descriptions (or the 16k step) decide
+this; Claude's ~36k of prompt and tools is cached after the first turn
+(Ea5).
+
+**Gates** (2026-10-21, host, through `heavy.sh`, at 4c5c1608 before the
+review): `pnpm --filter recipe-editor typecheck` clean; `pnpm --filter
+recipe-website exec tsc --noEmit` clean; `pnpm exec vitest run` **152
+files, 3,373 tests passed** (the 44c files hold 21). **After the review
+fixes** (origin/main unchanged at b0537a2f, nothing to merge): both
+typechecks clean; `pnpm exec vitest run` **152 files, 3,379 tests
+passed**. No UI file changed,
+so no Playwright. No real model anywhere: the Claude API and the
+OpenAI-style server are `fetch` stubbed per turn.
+
+**Review fixes** (after the read-only review of 10b2ab86):
+
+- **One follow-up per run, however asked** (`runs.ts`). `startAgentRun`
+  resolved the run, checked it across awaits, then marked it — so two
+  follow-ups of one run (a double-click, or the CLI beside the editor)
+  could both pass the checks and both start. Now the run id is resolved
+  (`requireJob`) and marked in this process's set **before** any check,
+  then the run's **continue lock** is taken — `<run>.continue.lock` in the
+  job store, epic 37's `fileLock` (`acquireLock`, waiting up to
+  `CONTINUE_LOCK_WAIT_MS`, 10 s, for another process's start; stale after
+  60 s or a dead holder) — and only then are the live / live-follow-up /
+  directory / transcript checks run and the job started. Both marks are
+  held until `startSpec` answers, which is after the new job's meta is
+  written, so any later check sees it as a live follow-up. A lock held past
+  the wait is `job_live` ("being continued by another process"). The key is
+  the run being continued (its resolved id), the thing the checks judge.
+- **Ec10 — No local files through the agent** (Eb8's question, answered
+  conservatively). The bridge refuses `recipe_set_image` /
+  `term_set_image` with a local `path` and `recipe_import` with `photos`
+  before the handler: `{error: {code: "forbidden", message: "local files
+aren't available to the curator; give a URL"}}`, nothing read or written.
+  URLs work as before (Eb9 guards them); the tools' schemas and
+  descriptions are unchanged (they stay the MCP server's, Eb2), and the
+  preamble tells the model a local file is refused. The MCP server is
+  unchanged: Claude Code keeps `path` and `photos`.
+- **Credentials out of git remotes** (`curation/git.ts`,
+  `redactRemoteUrl`): `gitStatus` strips `user:pass@` from every remote URL
+  and a token-only `user@` from http(s) ones, so the MCP result, the
+  agent's transcript, the model and the `/git` page never carry a remote's
+  secret. `ssh://git@host/…` keeps its user; scp-like `git@host:path` and
+  local paths are not URLs and are kept as they are. `RemoteSummary` has
+  only `fetchUrl` (there is no `pushUrl` field to strip).
+- **Transcript reads from the offset** (`transcript.ts`): `readTranscript`
+  opens the file and reads from `transcriptFrom` (`open` + `read` at the
+  offset), at most `TRANSCRIPT_READ_MAX_BYTES` (1 MB) a read — a line
+  longer than that is read whole (the read doubles until it holds a line
+  end) — instead of reading the whole file every poll. A cut read answers
+  `more`; `GET /api/agent/<id>` passes it on as `transcriptMore: true`, and
+  `followAgentRun` (the CLI) reads again at once before waiting or
+  finishing, so a long run's end is never missed.
+- **Ec11 — A conversation has a ceiling.** A follow-up is refused when the
+  run's transcript (the whole conversation, Ec3) is over
+  `AGENT_TRANSCRIPT_MAX_BYTES` (2 MB): `ConversationTooLongError`, code
+  `validation`, "This conversation is long (… KB, over 2 MB) — start a new
+  one."; **413** from `POST /api/agent` (the route maps the class, as it
+  maps an over-long ask; a new error code would have meant a new exit code
+  and HTTP rehydration for one case). The size is a `stat`, not a read.
+- **A follow-up stays in its content directory.** `continuable` refuses
+  (`usage`) a run recorded against another content directory than the
+  caller's (both resolved through symlinks, `resolvedDirectory`, now
+  exported from `kinds.ts`) — as Retry does (37c) — so a CLI run against a
+  scratch clone is never continued against the real repo, or the reverse.
+- Tests (+6, and one route case extended): `agentJobs.test.ts` — two
+  follow-ups under `Promise.allSettled` start exactly one, the other
+  `job_live`, and a third while it runs is refused naming it (the "already
+  being continued by" branch), no lock left behind; a continue lock held by
+  another live process (pid 1) is waited for and refused past a 150 ms wait,
+  then the follow-up starts once it is gone; another content directory and
+  a transcript over 2 MB refused; `readTranscript` from an offset, a partial
+  last line, a cap smaller than a line, `more`. `agentTools.test.ts` — the
+  three local-file refusals, nothing written, a URL still reaching the
+  handler. `curationGit.test.ts` — remote URLs redacted (https user:pass,
+  token, ssh user:pass; ssh user, scp-like, plain, local kept).
+  `agentRoute.test.ts` — the 413. The `Promise.all` case also passed on the
+  old code (in-process timing); the lock case is the one that fails
+  without the fix.
+
+**Trap (44c).** The generated skill module must be in **both**
+`.prettierignore`s: lint-staged runs prettier with `cwd=editor/`, where
+only `editor/.prettierignore` is read (prettier would rewrite its JSON
+strings and the freshness test would fail).
+
+**Roger to confirm.**
+
+- Ec1: an import a tool starts is part of the run's job (no own row on
+  `/jobs`), so `/jobs` shows one agent row with the imports' steps inside.
+- Ec3: a follow-up is a new job (a new id per turn of the conversation on
+  `/jobs`), each holding the whole conversation.
+- Ec6: the local tool subset, and Claude's 5 searches per model call.
+- Ec7: the 4,000-character ask, and 202 for a started run.
+- Ec10: no local `path` / `photos` through the agent (Eb8 closed
+  conservatively); lifting it is one entry in the bridge's
+  `LOCAL_FILE_ARGS`.
+- Ec11: the 2 MB conversation ceiling for a follow-up.
+
 ### 44d — The curator page
 
 `/curator` (name to confirm) in the editor, signed in, when a model is

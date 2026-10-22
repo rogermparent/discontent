@@ -200,6 +200,39 @@ describe("gitStatus", () => {
     expect(typeof status.branch).toBe("string");
   });
 
+  it("names remotes without their credentials (44c review)", async () => {
+    await git.addRemote(
+      "pi",
+      "https://roger:s3cret-pass@pi.example.test/recipes.git",
+    );
+    await git.addRemote(
+      "hub",
+      "https://ghp_000000notarealtoken@github.example.test/r/c.git",
+    );
+    await git.addRemote("box", "ssh://git:hunter2@box.example.test/srv/c.git");
+    await git.addRemote("scp", "git@github.example.test:r/c.git");
+    await git.addRemote("sshuser", "ssh://git@box.example.test/srv/c.git");
+    await git.addRemote("plain", "https://pi.example.test/recipes.git");
+    await git.addRemote("local", "/srv/mirror/recipes.git");
+    const status = await gitStatus(ctx);
+    const urls = Object.fromEntries(
+      status.remotes.map((remote) => [remote.name, remote.fetchUrl]),
+    );
+    expect(urls).toEqual({
+      pi: "https://pi.example.test/recipes.git",
+      hub: "https://github.example.test/r/c.git",
+      box: "ssh://box.example.test/srv/c.git",
+      scp: "git@github.example.test:r/c.git",
+      sshuser: "ssh://git@box.example.test/srv/c.git",
+      plain: "https://pi.example.test/recipes.git",
+      local: "/srv/mirror/recipes.git",
+    });
+    const text = JSON.stringify(status);
+    expect(text).not.toContain("s3cret");
+    expect(text).not.toContain("ghp_");
+    expect(text).not.toContain("hunter2");
+  });
+
   it("counts a write's commit and stays clean afterwards", async () => {
     await createRecipe(ctx, { name: "Naan" });
     const status = await gitStatus(ctx);

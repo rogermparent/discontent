@@ -17,10 +17,10 @@
  * true})` (44c), as MCP over HTTP uses — so writes commit one per call
  * exactly as Claude Code's do, and the Git page can revert any of them.
  */
-import type { CuratorBackend } from "../../../cli/backend/types";
+import type { CuratorBackend, SeatRun } from "../../../cli/backend/types";
 import { recipeToolDefinitions } from "../../../mcp/registry";
 import { toErrorObject } from "../../curation/errors";
-import type { AgentTool } from "../types";
+import type { AgentTool, AgentToolContext } from "../types";
 import { AGENT_TOOL_NAMES, type AgentToolName } from "./names";
 import {
   parseToolInput,
@@ -100,6 +100,24 @@ const FETCHED_URLS: Partial<Record<AgentToolName, (args: Args) => unknown[]>> =
     term_update: (args) => [field(args.patch, "imageImportUrl")],
   };
 
+/**
+ * The arguments that read a file on the editor's machine (Eb8 → Ec10): an
+ * image's local `path` and an import's local `photos`. The MCP server takes
+ * them (Claude Code's grant, a person at the keyboard); the editor's agent
+ * does not — a page could ask for `~/.ssh/id_rsa` as a recipe image and
+ * commit it into the content repo. Refused before the handler, nothing
+ * written; a URL works as it always did (Eb9 guards it). Roger to confirm.
+ */
+const LOCAL_FILE_ARGS: Partial<Record<AgentToolName, readonly string[]>> = {
+  recipe_set_image: ["path"],
+  term_set_image: ["path"],
+  recipe_import: ["photos"],
+};
+
+/** What a refused local-file argument answers (Ec10). */
+export const LOCAL_FILE_REFUSAL =
+  "local files aren't available to the curator; give a URL";
+
 /** Schemes a downloader might honour that are never the web's. */
 const OTHER_SCHEME = /^(file|ftp|data|gopher|dict|ldap|smb|wss?):/i;
 
@@ -133,6 +151,28 @@ async function urlsRefusal(
   return undefined;
 }
 
+/**
+ * What a handler's job-running seat is handed (44c, Ec1): the call's
+ * signal — the run's cancel and its wall-time budget together — and the
+ * run's job with that signal, so an import the tool starts runs inside the
+ * run's job (its steps nest under this call's step) and stops when the run
+ * does. Without `beyondCancel`: a seat must never seal the whole run.
+ */
+function seatRun(ctx: AgentToolContext): SeatRun {
+  if (!ctx.job) return { signal: ctx.signal };
+  const { log, tier, jobId, waiting } = ctx.job;
+  return {
+    signal: ctx.signal,
+    job: {
+      log,
+      tier,
+      signal: ctx.signal,
+      ...(jobId ? { jobId } : {}),
+      ...(waiting ? { waiting } : {}),
+    },
+  };
+}
+
 export interface RecipeAgentToolsOptions {
   only?: readonly AgentToolName[];
   guard?: UrlGuardOptions;
@@ -151,6 +191,7 @@ export function recipeAgentTools(
     const tool = byName.get(name);
     if (!tool) throw new Error(`No recipes tool named ${name}`);
     const fetched = FETCHED_URLS[name];
+    const localFiles = LOCAL_FILE_ARGS[name];
     return {
       name,
       description: tool.description,
@@ -162,6 +203,11 @@ export function recipeAgentTools(
         }
         const parsed = await parseToolInput(name, tool.inputSchema, input);
         if (!parsed.ok) return parsed.error;
+        if (
+          localFiles?.some((key) => (parsed.data as Args)[key] !== undefined)
+        ) {
+          return toolError("forbidden", LOCAL_FILE_REFUSAL);
+        }
         if (fetched) {
           const refused = await urlsRefusal(
             fetched(parsed.data as Args),
@@ -170,7 +216,7 @@ export function recipeAgentTools(
           if (refused) return refused;
         }
         try {
-          const result = await tool.handler(parsed.data);
+          const result = await tool.handler(parsed.data, seatRun(ctx));
           if (result.structuredContent !== undefined) {
             return result.structuredContent;
           }

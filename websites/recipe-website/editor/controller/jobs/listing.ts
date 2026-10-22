@@ -32,6 +32,8 @@ export const JOB_KIND_NAMES = [
   /* 39b (epic 39 D2): the repository's own long operations. */
   "reindex",
   "git-sync",
+  /* 44c (epic 44, E2): a run of the editor's agent. */
+  "agent",
 ] as const;
 
 /**
@@ -48,7 +50,7 @@ export const KEPT_READING_KINDS: readonly string[] = [
  * The kinds Retry refuses (39b review, L6; `kinds.ts`'s `retrySpecFor` says
  * why): the job page shows no Retry for them.
  */
-export const NOT_RETRIED_KINDS = ["reindex", "git-sync"] as const;
+export const NOT_RETRIED_KINDS = ["reindex", "git-sync", "agent"] as const;
 
 /** `GET /api/jobs`, `recipes jobs list`, MCP `job_list`: at most this many rows. */
 export const JOB_LIST_MAX_LIMIT = 300;

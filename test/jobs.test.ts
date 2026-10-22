@@ -546,8 +546,31 @@ describe("the registry", () => {
         /* 39b (epic 39 D2): the repository's own long operations. */
         "reindex",
         "git-sync",
+        /* 44c: a run of the editor's agent. */
+        "agent",
       ].sort(),
     );
+    /* One line, cut at 80 characters. */
+    const asked = jobLabel({
+      kind: "agent",
+      contentDirectory: "/c",
+      prompt: `find  three\nvegetarian dinners ${"and more ".repeat(10)}`,
+    });
+    expect(asked).toMatch(
+      /^ask: "find three vegetarian dinners and more .*…"$/,
+    );
+    expect(asked).toHaveLength('ask: "'.length + 80 + 1);
+    expect(
+      jobLabel({
+        kind: "agent",
+        contentDirectory: "/c",
+        prompt: "two more",
+        continues: "01J",
+      }),
+    ).toBe('follow-up: "two more"');
+    expect(
+      jobTier({ kind: "agent", contentDirectory: "/c", prompt: "x" }),
+    ).toBe("interactive");
     expect(
       jobLabel({
         kind: "reindex",

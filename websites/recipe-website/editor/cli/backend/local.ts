@@ -31,7 +31,8 @@ import { listTags, searchRecipes } from "../../controller/curation/search";
 import * as terms from "../../controller/curation/terms";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 import { absoluteLink } from "./link";
-import type { CuratorBackend } from "./types";
+import type { JobSpec } from "../../controller/jobs/kinds";
+import type { CuratorBackend, SeatRun } from "./types";
 
 /**
  * A CLI write and a running `next dev` are two processes over one directory,
@@ -144,6 +145,31 @@ export function createLocalBackend({
   /* The editor a link is made absolute on (41i, Di5). */
   const editorUrl = () => notify?.url ?? process.env.RECIPE_EDITOR_URL;
 
+  /**
+   * A seat's job (44c, Ec1): inside the caller's own job when it hands one
+   * (the editor's agent — the seat's steps nest under its tool call, its
+   * cancel is the run's), else a job of its own, cancelled with the caller's
+   * `signal` when it hands only that.
+   */
+  async function runSeat<S extends JobSpec>(
+    spec: S,
+    run: SeatRun | undefined,
+    { withCtx = true }: { withCtx?: boolean } = {},
+  ) {
+    const { runSpec, runSpecInline } =
+      await import("../../controller/jobs/kinds");
+    if (run?.job) {
+      return runSpecInline(spec, {
+        ...(withCtx ? { ctx } : {}),
+        job: run.signal ? { ...run.job, signal: run.signal } : run.job,
+      });
+    }
+    return runSpec(spec, {
+      ...(withCtx ? { ctx } : {}),
+      ...(run?.signal ? { signal: run.signal } : {}),
+    });
+  }
+
   return {
     kind: "local",
 
@@ -153,19 +179,19 @@ export function createLocalBackend({
      * of startup that way (35q). Each runs as a job (epic 37): the job
      * registry is loaded with it, and the result carries `job`.
      */
-    async importRecipe(url, options = {}) {
+    async importRecipe(url, options = {}, run) {
       if (!options.dryRun) await guard();
-      const { runSpec, corpusOf } = await import("../../controller/jobs/kinds");
-      return runSpec(
+      const { corpusOf } = await import("../../controller/jobs/kinds");
+      return runSeat(
         { kind: "import-url", ...corpusOf(ctx), url, options },
-        { ctx },
+        run,
       );
     },
-    async importText(text, options = {}) {
+    async importText(text, options = {}, run) {
       if (!options.dryRun) await guard();
-      const { runSpec, corpusOf } = await import("../../controller/jobs/kinds");
+      const { corpusOf } = await import("../../controller/jobs/kinds");
       const { source, ...rest } = options;
-      return runSpec(
+      return runSeat(
         {
           kind: "import-text",
           ...corpusOf(ctx),
@@ -173,7 +199,7 @@ export function createLocalBackend({
           ...(source ? { source } : {}),
           options: rest,
         },
-        { ctx },
+        run,
       );
     },
     /*
@@ -181,19 +207,19 @@ export function createLocalBackend({
      * there, so `recipes jobs retry` reads them again — after the vision
      * model is known to be configured (`usage` otherwise).
      */
-    async importPhotos(files, options = {}) {
+    async importPhotos(files, options = {}, run) {
       const { assertPhotoImport } = await import("../../controller/llm/vision");
       assertPhotoImport();
       const { checkPhotoOptions } =
         await import("../../controller/curation/importPhoto");
       checkPhotoOptions(options);
       if (!options.dryRun) await guard();
-      const { runSpec, corpusOf } = await import("../../controller/jobs/kinds");
+      const { corpusOf } = await import("../../controller/jobs/kinds");
       const { jobsDirectory } = await import("../../controller/jobs/location");
       const { storePhotos } = await import("../../controller/jobs/photos");
       const photos = await storePhotos(jobsDirectory(), files);
       const { source, ...rest } = options;
-      return runSpec(
+      return runSeat(
         {
           kind: "import-photo",
           ...corpusOf(ctx),
@@ -201,28 +227,31 @@ export function createLocalBackend({
           ...(source ? { source } : {}),
           options: rest,
         },
-        { ctx },
+        run,
       );
     },
     /* Reads a page and nothing else: no identity, no write. */
-    async inspect(url, options = {}) {
-      const { runSpec } = await import("../../controller/jobs/kinds");
-      return runSpec({
-        kind: "inspect",
-        url,
-        ...(options.llm ? { llm: options.llm } : {}),
-      });
+    async inspect(url, options = {}, run) {
+      return runSeat(
+        {
+          kind: "inspect",
+          url,
+          ...(options.llm ? { llm: options.llm } : {}),
+        },
+        run,
+        { withCtx: false },
+      );
     },
-    async inspectList(url) {
-      const { runSpec, corpusOf } = await import("../../controller/jobs/kinds");
-      return runSpec({ kind: "inspect-list", ...corpusOf(ctx), url }, { ctx });
+    async inspectList(url, run) {
+      const { corpusOf } = await import("../../controller/jobs/kinds");
+      return runSeat({ kind: "inspect-list", ...corpusOf(ctx), url }, run);
     },
-    async importList(url, options) {
+    async importList(url, options, run) {
       if (!options.dryRun) await guard();
-      const { runSpec, corpusOf } = await import("../../controller/jobs/kinds");
-      return runSpec(
+      const { corpusOf } = await import("../../controller/jobs/kinds");
+      return runSeat(
         { kind: "import-list", ...corpusOf(ctx), url, options },
-        { ctx },
+        run,
       );
     },
     async createRecipe(raw, { dryRun, ...options } = {}) {
@@ -463,6 +492,48 @@ export function createLocalBackend({
       /* A retry that writes needs a committer, as the import it replays. */
       if (specWrites(spec)) await guard();
       return retryJobById(id, ctx, { wait: !inProcess, fresh });
+    },
+
+    /*
+     * The editor's agent (44c), run here: a committer first, as any write,
+     * then the run as a job of this process's store, followed through its
+     * own files until it ends. The wait between reads also ends when the
+     * run does, so the answer is not a poll late. A Ctrl-C cancels it with
+     * the process's other jobs (`index.ts`), and the follow reads its end.
+     */
+    async runAgent(input, { onProgress, pollMs } = {}) {
+      await guard();
+      const [
+        { startAgentRun, getAgentRunView },
+        { followAgentRun, agentFollowMs },
+      ] = await Promise.all([
+        import("../../controller/agent/runs"),
+        import("../../controller/agent/follow"),
+      ]);
+      const started = await startAgentRun(ctx, input);
+      const settled = started.done.then(
+        () => undefined,
+        () => undefined,
+      );
+      const every = pollMs ?? agentFollowMs();
+      return followAgentRun(
+        (from, transcriptFrom) =>
+          getAgentRunView(started.job, { from, transcriptFrom }),
+        {
+          ...(onProgress ? { onProgress } : {}),
+          wait: async () => {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            await Promise.race([
+              settled,
+              new Promise((resolve) => {
+                timer = setTimeout(resolve, every);
+              }),
+            ]);
+            clearTimeout(timer);
+            return true;
+          },
+        },
+      );
     },
 
     /*

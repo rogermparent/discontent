@@ -620,6 +620,24 @@ async function requireCleanTree(
 /* --- reads --------------------------------------------------------------- */
 
 /**
+ * A remote's URL without its credentials (44c review): `user:pass@` goes
+ * from any URL, and on http(s) a token-only `user@` too (a token pasted as
+ * the user name is how GitHub and friends take one). An ssh URL keeps its
+ * user (`ssh://git@host/…`), and the scp-like `git@host:path` and a local
+ * path are not URLs and are kept as they are. So the `/git` page, the MCP
+ * result and the agent's transcript never carry a remote's secret.
+ */
+export function redactRemoteUrl(url: string): string {
+  if (!url || !URL.canParse(url)) return url;
+  const parsed = new URL(url);
+  const web = parsed.protocol === "http:" || parsed.protocol === "https:";
+  if (!parsed.password && !(web && parsed.username)) return url;
+  parsed.password = "";
+  parsed.username = "";
+  return parsed.href;
+}
+
+/**
  * The cheap sync status the `/git` page renders.
  *
  * The one seat that never throws: `isRepo: false` is a legitimate answer — a
@@ -646,7 +664,7 @@ export async function gitStatus(
   const remotesRaw = await git.getRemotes(true);
   const remotes = remotesRaw.map((remote) => ({
     name: remote.name,
-    fetchUrl: remote.refs.fetch,
+    fetchUrl: redactRemoteUrl(remote.refs.fetch),
   }));
   const branchSummary = await git.branchLocal();
   const branches = Object.values(branchSummary.branches).map((branch) => ({

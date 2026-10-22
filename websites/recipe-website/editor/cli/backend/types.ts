@@ -47,6 +47,12 @@ import type {
   ImportResult,
 } from "../../controller/curation/importRecipe";
 import type { InspectResult } from "../../controller/curation/inspect";
+import type { JobContext } from "../../controller/jobs/context";
+import type {
+  AgentRunInput,
+  AgentRunOutcome,
+  AgentRunView,
+} from "../../controller/agent/follow";
 import type { LlmMode } from "../../controller/llm/mode";
 import type {
   ImportListOptions,
@@ -225,15 +231,45 @@ export interface InspectOptions {
   llm?: LlmMode;
 }
 
+/**
+ * Who a job-running seat runs for (44c, Ec1): the editor's agent hands the
+ * run's `signal` and `job` to the import and inspect seats, so a cancel stops
+ * an import in flight and the import's steps nest under the tool call's step
+ * in the run's own log. With `job`, the local backend runs the seat **inside
+ * that job** (`runSpecInline`) instead of starting one of its own; with only
+ * `signal`, its own job is cancelled when the signal aborts. The HTTP
+ * backend ignores it (the agent runs in-process). Never part of a spec:
+ * a signal and a job are not JSON.
+ */
+export interface SeatRun {
+  signal?: AbortSignal;
+  job?: JobContext;
+}
+
+/** How `runAgent` follows its run. */
+export interface AgentRunOptions {
+  onProgress?: (view: AgentRunView) => void;
+  /** Between reads; default `agentFollowMs()`. */
+  pollMs?: number;
+}
+
 export interface CuratorBackend {
   kind: "local" | "http";
 
-  importRecipe(url: string, options?: ImportOptions): Promise<ImportResult>;
+  importRecipe(
+    url: string,
+    options?: ImportOptions,
+    run?: SeatRun,
+  ): Promise<ImportResult>;
   /**
    * A pasted recipe, read by the local model (36c, D8): `import_failed` with
    * no model configured, or when it finds no recipe in the text.
    */
-  importText(text: string, options?: ImportTextOptions): Promise<ImportResult>;
+  importText(
+    text: string,
+    options?: ImportTextOptions,
+    run?: SeatRun,
+  ): Promise<ImportResult>;
   /**
    * Photos of a recipe — a card, a cookbook page — the pages in order (38e):
    * transcribed by the vision model, then read as pasted text is. `usage`
@@ -243,18 +279,23 @@ export interface CuratorBackend {
   importPhotos(
     photos: File[],
     options?: ImportPhotoOptions,
+    run?: SeatRun,
   ): Promise<ImportResult>;
   /**
    * A page, read and not written (26b): the mapped import, a create-ready
    * draft, the raw JSON-LD, its SEO metadata, ranked images and — for a video
    * host — yt-dlp's metadata.
    */
-  inspect(url: string, options?: InspectOptions): Promise<InspectResult>;
+  inspect(
+    url: string,
+    options?: InspectOptions,
+    run?: SeatRun,
+  ): Promise<InspectResult>;
   /**
    * A roundup page's recipes, `existing` marked (34f, D11). One request,
    * nothing written.
    */
-  inspectList(url: string): Promise<InspectListResult>;
+  inspectList(url: string, run?: SeatRun): Promise<InspectListResult>;
   /**
    * Import a roundup's picks one commit each, paced 15 s per site, at most
    * `limit` per call — the rest come back as `remaining` (34f, D11).
@@ -262,6 +303,7 @@ export interface CuratorBackend {
   importList(
     url: string,
     options: ImportListOptions,
+    run?: SeatRun,
   ): Promise<ImportListResult>;
   /** `dryRun` validates and resolves without writing (26b). */
   createRecipe(
@@ -478,6 +520,20 @@ export interface CuratorBackend {
    * directory is `usage`. `fresh` (39a): an import skips its kept reading.
    */
   retryJob(id: string, options?: { fresh?: boolean }): Promise<JobRetryResult>;
+
+  /**
+   * Run the editor's agent (epic 44, 44c) — or follow up on a run
+   * (`runId`) — and follow it to its end, `onProgress` hearing each new
+   * read (step lines, transcript records). Locally it runs **in this
+   * process** against this content directory, a committer preflighted; with
+   * `--remote` the editor runs it (`POST /api/agent`) and this follows
+   * `GET /api/agent/<id>` — a Ctrl-C stops following, not the run.
+   * `usage` when no model is configured where it runs.
+   */
+  runAgent(
+    input: AgentRunInput,
+    options?: AgentRunOptions,
+  ): Promise<AgentRunOutcome>;
 
   /**
    * Run after a command whose `write` flag is set; the string it resolves to is

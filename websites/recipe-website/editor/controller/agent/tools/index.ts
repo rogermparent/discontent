@@ -1,5 +1,6 @@
 /** The agent's tools (epic 44, 44b). */
 export {
+  LOCAL_FILE_REFUSAL,
   agentTools,
   recipeAgentTools,
   type AgentToolsOptions,

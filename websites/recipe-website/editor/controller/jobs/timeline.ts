@@ -210,6 +210,12 @@ export function stepTitle(node: Pick<StepNode, "step" | "data">): string {
     /* 39b: the repository's jobs. */
     case "sync":
       return `Sync${typeof data.remote === "string" ? ` with ${data.remote}` : ""}`;
+    /* 44c: the agent's steps — a model turn, and a tool the model made up
+     * (a real tool's step is named by the tool). */
+    case "agent.turn":
+      return `Model turn${typeof data.turn === "number" ? ` ${data.turn}` : ""}`;
+    case "agent.tool":
+      return `Unknown tool${typeof data.tool === "string" ? ` “${data.tool}”` : ""}`;
     default:
       if (step.startsWith("reindex.")) {
         return `Rebuild ${step.slice("reindex.".length)}`;
@@ -228,7 +234,11 @@ function secondsText(ms: number): string {
 export function stepDetail(node: Pick<StepNode, "step" | "data">): string[] {
   const { step, data } = node;
   const parts: (string | undefined)[] = [];
-  if (step.startsWith("llm.") || step.startsWith("vision.")) {
+  if (
+    step.startsWith("llm.") ||
+    step.startsWith("vision.") ||
+    step === "agent.turn"
+  ) {
     /* 38e: what the vision model read. */
     if (step.startsWith("vision.") && typeof data.chars === "number") {
       parts.push(`${data.chars} chars read`);
@@ -248,6 +258,10 @@ export function stepDetail(node: Pick<StepNode, "step" | "data">): string[] {
     }
     if (typeof data.gpu === "number") {
       parts.push(data.gpu >= 100 ? "GPU" : `${data.gpu}% GPU`);
+    }
+    /* 44c: a Claude turn's estimated cost (Ea7). */
+    if (typeof data.costEstimateUsd === "number") {
+      parts.push(`~$${data.costEstimateUsd.toFixed(3)}`);
     }
   } else if (step === "fetch" || step === "image") {
     if (typeof data.status === "number") parts.push(String(data.status));
