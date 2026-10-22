@@ -16,7 +16,9 @@
  *   403-polite, SSRF-guarded — never Anthropic's server fetch, which
  *   bypasses all three: 44a's finding) and Anthropic's server-side
  *   `web_search`. A local model gets `LOCAL_AGENT_TOOLS`, `web_fetch`, and
- *   SearXNG's `web_search` when `RECIPE_SEARCH_URL` is set.
+ *   SearXNG's `web_search` when `RECIPE_SEARCH_URL` is set, all in their
+ *   local view (44e), and runs at `RECIPE_AGENT_NUM_CTX` with
+ *   `RECIPE_AGENT_THINK` (`agentLocalOptions`).
  *
  * What the job answers (its meta's `result`) is small — the final text, how
  * it stopped, the usage and counts — never the transcript.
@@ -25,7 +27,7 @@ import { createLocalBackend } from "../../cli/backend/local";
 import type { CurationContext } from "../curation/context";
 import { UsageError } from "../curation/errors";
 import type { JobContext } from "../jobs/context";
-import { llmConfig, type LlmApi } from "../llm/client";
+import { LLM_NUM_CTX, llmConfig, type LlmApi } from "../llm/client";
 import { AGENT_PROMPT_MAX } from "./follow";
 import { runAgent } from "./loop";
 import {
@@ -103,31 +105,143 @@ export function checkAgentPrompt(prompt: unknown): string {
 }
 
 /**
+ * The contexts a local agent run may ask for (44e, Ee4): 40a's largest
+ * step, the default, and one more for a run whose conversation outgrows it.
+ * One per run — `num_ctx` is fixed for the run, since a change reloads the
+ * model (40a) — chosen by `RECIPE_AGENT_NUM_CTX`.
+ */
+export const AGENT_CONTEXT_STEPS: readonly number[] = [LLM_NUM_CTX, 16_384];
+
+/** What a local agent run asks of the model (44e, Ee4/Ee5). */
+export interface AgentLocalOptions {
+  /** Ollama's `num_ctx` for every turn of the run. */
+  numCtx: number;
+  /** Ollama's `think` (off unless `RECIPE_AGENT_THINK=1`, Ea11). */
+  think: boolean;
+  /** A setting that was not understood and fell back to the default. */
+  ignored: string[];
+}
+
+/**
+ * `RECIPE_AGENT_NUM_CTX` (one of `AGENT_CONTEXT_STEPS`, default 12,288) and
+ * `RECIPE_AGENT_THINK` (`1`/`true`/`on` or `0`/`false`/`off`, default off).
+ * A value it does not take is ignored — the run goes on at the default and
+ * its log says so — rather than refused: a typo in `.env` must not stop
+ * the curator.
+ */
+export function agentLocalOptions(
+  env: NodeJS.ProcessEnv = process.env,
+): AgentLocalOptions {
+  const ignored: string[] = [];
+  let numCtx = LLM_NUM_CTX;
+  const ctxText = env.RECIPE_AGENT_NUM_CTX?.trim();
+  if (ctxText) {
+    const value = Number(ctxText);
+    if (AGENT_CONTEXT_STEPS.includes(value)) numCtx = value;
+    else {
+      ignored.push(
+        `RECIPE_AGENT_NUM_CTX=${ctxText.slice(0, 20)} (takes ${AGENT_CONTEXT_STEPS.join(" or ")})`,
+      );
+    }
+  }
+  let think = false;
+  const thinkText = env.RECIPE_AGENT_THINK?.trim().toLowerCase();
+  if (thinkText) {
+    if (["1", "true", "on", "yes"].includes(thinkText)) think = true;
+    else if (!["0", "false", "off", "no"].includes(thinkText)) {
+      ignored.push(
+        `RECIPE_AGENT_THINK=${thinkText.slice(0, 20)} (takes 0 or 1)`,
+      );
+    }
+  }
+  return { numCtx, think, ignored };
+}
+
+/**
+ * **Test and measurement only** (44e, Ee6): host names the SSRF guard lets
+ * through — the measurement harness's fixture server on 127.0.0.1. Nothing
+ * in the editor sets it: no environment variable, no spec field, no route
+ * or CLI argument; `runAgentJob` never passes it, so a run the route or
+ * `pnpm recipes agent` starts refuses a private address as before.
+ */
+export interface AgentToolsetTesting {
+  allowHosts: readonly string[];
+}
+
+/**
  * The tools a run offers its model, and Claude's server tools: E6's split
- * (above). `RECIPE_SEARCH_URL` decides a local model's `web_search`.
+ * (above). `RECIPE_SEARCH_URL` decides a local model's `web_search`. A
+ * local model gets its tools' local view (44e, `tools/local.ts`).
  */
 export function agentToolset(
   ctx: CurationContext,
   api: LlmApi,
+  testing?: AgentToolsetTesting,
 ): { tools: ReturnType<typeof agentTools>; serverTools: ServerTool[] } {
   /* In-process, as MCP over HTTP (23e/D25): no stale hint, no close. */
   const backend = createLocalBackend({ ...ctx, inProcess: true });
+  const allowed = testing ? { allowHosts: [...testing.allowHosts] } : {};
   if (api === "anthropic") {
     return {
-      tools: agentTools(backend, { webSearch: false }),
+      tools: agentTools(backend, {
+        webSearch: false,
+        ...(testing ? { guard: allowed, webFetch: allowed } : {}),
+      }),
       serverTools: [{ kind: "web_search", maxUses: AGENT_WEB_SEARCH_MAX_USES }],
     };
   }
   return {
-    tools: agentTools(backend, { only: LOCAL_AGENT_TOOLS }),
+    tools: agentTools(backend, {
+      only: LOCAL_AGENT_TOOLS,
+      local: true,
+      ...(testing ? { guard: allowed, webFetch: allowed } : {}),
+    }),
     serverTools: [],
   };
+}
+
+/** The system prompt a run's model gets (E4): Claude's whole skill, or the local one. */
+export function agentSystemPrompt(
+  api: LlmApi,
+  { now, search }: { now: Date; search: boolean },
+): string {
+  return api === "anthropic"
+    ? claudeSystemPrompt({ now, search })
+    : localSystemPrompt({ now, search });
+}
+
+/** Whether a toolset gives its model a web search (Claude's server one, or SearXNG's). */
+export function toolsetSearches({
+  tools,
+  serverTools,
+}: {
+  tools: { name: string }[];
+  serverTools: ServerTool[];
+}): boolean {
+  return (
+    serverTools.some((tool) => tool.kind === "web_search") ||
+    tools.some((tool) => tool.name === "web_search")
+  );
 }
 
 /** Run one agent job. Never throws for the model's failure: the result says how it ended. */
 export async function runAgentJob(
   spec: AgentJobSpec,
-  { ctx, job, dir }: { ctx: CurationContext; job: JobContext; dir: string },
+  {
+    ctx,
+    job,
+    dir,
+    testing,
+  }: {
+    ctx: CurationContext;
+    job: JobContext;
+    dir: string;
+    /**
+     * The measurement harness's fixture host (Ee6), never the editor's:
+     * the `agent` kind's handler passes `{ctx, job, dir}` and nothing more.
+     */
+    testing?: AgentToolsetTesting;
+  },
 ): Promise<AgentJobResult> {
   const config = llmConfig();
   if (!config) throw new UsageError(agentUnavailableMessage());
@@ -148,15 +262,10 @@ export async function runAgentJob(
     writer.copy(earlier);
   }
 
-  const { tools, serverTools } = agentToolset(ctx, config.api);
-  const search =
-    serverTools.some((tool) => tool.kind === "web_search") ||
-    tools.some((tool) => tool.name === "web_search");
-  const now = new Date();
-  const system =
-    config.api === "anthropic"
-      ? claudeSystemPrompt({ now, search })
-      : localSystemPrompt({ now, search });
+  const { tools, serverTools } = agentToolset(ctx, config.api, testing);
+  const search = toolsetSearches({ tools, serverTools });
+  const system = agentSystemPrompt(config.api, { now: new Date(), search });
+  const local = config.api === "anthropic" ? undefined : agentLocalOptions();
 
   writer.write({
     type: "start",
@@ -176,9 +285,13 @@ export async function runAgentJob(
       model: config.model,
       api: config.api,
       tools: tools.length,
+      ...(local ? { numCtx: local.numCtx, think: local.think } : {}),
       ...(spec.continues ? { continues: spec.continues } : {}),
     },
   );
+  for (const setting of local?.ignored ?? []) {
+    job.log.warn("agent.setting", `ignored ${setting}: the default is used`);
+  }
 
   const result = await runAgent({
     system,
@@ -188,6 +301,7 @@ export async function runAgentJob(
     serverTools,
     budgets: spec.maxTurns ? { maxTurns: spec.maxTurns } : {},
     config,
+    ...(local ? { numCtx: local.numCtx, think: local.think } : {}),
     job,
     onEvent: (event) => {
       if (event.type === "message") {

@@ -12,7 +12,9 @@
  * ```
  *
  * and are cut here (`stripClaudeCodeOnly`), with the YAML frontmatter, from
- * SKILL.md and examples.md alike. No second copy of the skill.
+ * SKILL.md and examples.md alike. No second copy of the skill — except the
+ * condensed `skill-local.md` beside it (E4, 44e), a local model's whole
+ * guide, which the same rule cuts and the same module carries.
  *
  * **The Pi image carries it as code** (Ec5): the editor's Docker build
  * context leaves out every `*.md` (`.dockerignore`) and `.claude/` is not
@@ -31,6 +33,8 @@ export const CLAUDE_CODE_ONLY_CLOSE = "<!-- /claude-code-only -->";
 export const SKILL_FILES = {
   skill: ".claude/skills/recipe-curator/SKILL.md",
   examples: ".claude/skills/recipe-curator/examples.md",
+  /** The condensed curator a local model gets instead (44e). */
+  local: ".claude/skills/recipe-curator/skill-local.md",
 } as const;
 
 /** The generated module, relative to the editor package. */
@@ -82,13 +86,17 @@ export function agentSkillText(markdown: string): string {
   return stripClaudeCodeOnly(withoutFrontmatter(markdown));
 }
 
-/** The generated module's source, from the two files' contents. */
-export function renderSkillModule(skill: string, examples: string): string {
+/** The generated module's source, from the three files' contents. */
+export function renderSkillModule(
+  skill: string,
+  examples: string,
+  local: string,
+): string {
   return [
     "/*",
     " * GENERATED — do not edit. The curator skill as the editor's agent reads it",
-    ` * (epic 44, E4): ${SKILL_FILES.skill} and examples.md, frontmatter and`,
-    " * claude-code-only sections cut (`skillText.ts`). Regenerate with",
+    ` * (epic 44, E4): ${SKILL_FILES.skill}, examples.md and skill-local.md,`,
+    " * frontmatter and claude-code-only sections cut (`skillText.ts`). Regenerate with",
     " * `pnpm --filter recipe-editor generate-skill-text`;",
     " * test/agentSkillText.test.ts fails while it is out of date.",
     " */",
@@ -96,6 +104,8 @@ export function renderSkillModule(skill: string, examples: string): string {
     `export const CURATOR_SKILL_TEXT: string = ${JSON.stringify(agentSkillText(skill))};`,
     "",
     `export const CURATOR_EXAMPLES_TEXT: string = ${JSON.stringify(agentSkillText(examples))};`,
+    "",
+    `export const CURATOR_LOCAL_SKILL_TEXT: string = ${JSON.stringify(agentSkillText(local))};`,
     "",
   ].join("\n");
 }

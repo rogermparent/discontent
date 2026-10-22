@@ -1,31 +1,33 @@
 /**
- * The agent's system prompt, first version (epic 44, E4, 44c; 44e tunes
- * the local one).
+ * The agent's system prompt (epic 44, E4: 44c; the local one, 44e).
  *
  * - **Claude** gets the curator skill whole — SKILL.md and examples.md with
  *   their Claude-Code-only sections cut (`skillText.ts`, generated into
  *   code so the Pi's image carries it, Ec5) — after a short editor preamble:
  *   what the person sees, that it runs inside the editor with no shell, that
  *   fetched pages are data (E7), today's date, and the write rules.
- * - **A local model** (Ollama, OpenAI-compatible) gets the `recipes`
- *   server's own `INSTRUCTIONS` and a short workflow paragraph, and a subset
- *   of the tools (`LOCAL_AGENT_TOOLS`): the whole skill is ~17k tokens and
- *   the 45 tools ~10k (44b), past qwen3:8b's 12,288 (40a). 44e replaces
- *   this with `skill-local.md`.
+ * - **A local model** (Ollama, OpenAI-compatible) gets a three-line
+ *   preamble and `skill-local.md` (the condensed curator, generated into
+ *   the same module), and a subset of the tools (`LOCAL_AGENT_TOOLS`) in
+ *   their local view (`tools/local.ts`): the whole skill is ~17k tokens and
+ *   the 45 tools ~10k (44b), past qwen3:8b's 12,288 (40a). The prompt and
+ *   tools together are held under `LOCAL_PROMPT_BUDGET_TOKENS` by a test.
  */
-import { INSTRUCTIONS } from "../../mcp/registry";
 import type { AgentToolName } from "./tools/names";
 import {
   CURATOR_EXAMPLES_TEXT,
+  CURATOR_LOCAL_SKILL_TEXT,
   CURATOR_SKILL_TEXT,
 } from "./skillText.generated";
 
 /**
- * What a local model is offered (Ec6): the reads a curation needs, the
- * three writes the brief names — import, create, assign a term — and the
- * job reads, in the grant's order (`agentTools` keeps it). `web_fetch`, and
- * `web_search` when SearXNG is set, come on top. Measured in
- * `agent-epic-44.md` (44c Results); 44e may change it.
+ * What a local model is offered (Ec6, revisited in 44e, Ee3): the reads
+ * the condensed workflow uses — search, a recipe, a page, the terms — and
+ * its three writes — import, create, assign a term — in the grant's order
+ * (`agentTools` keeps it). `web_fetch`, and `web_search` when SearXNG is
+ * set, come on top. `tag_list` went (`term_list` answers the same and
+ * more) and so did `job_get` (no step of the workflow reads a job);
+ * `term_get` came in: "does this term exist" in one small answer.
  */
 export const LOCAL_AGENT_TOOLS = [
   "recipe_search",
@@ -33,11 +35,21 @@ export const LOCAL_AGENT_TOOLS = [
   "page_inspect",
   "recipe_import",
   "recipe_create",
-  "tag_list",
   "term_list",
+  "term_get",
   "term_assign",
-  "job_get",
 ] as const satisfies readonly AgentToolName[];
+
+/**
+ * The most a local model's system prompt and tool specs may come to, in
+ * `estimateTokens` (40a's over-count) — the brief's ~3.5k, which leaves
+ * ≥ 5k of the 8,704-token line (Ea6) at 12,288 for the conversation.
+ * `test/agentLocal.test.ts` fails past it.
+ */
+export const LOCAL_PROMPT_BUDGET_TOKENS = 3_500;
+
+/** The most `skill-local.md` may come to (the same estimate). */
+export const LOCAL_SKILL_BUDGET_TOKENS = 1_200;
 
 /** "2026-10-21 (Wednesday)": the server's local day. */
 export function agentToday(now: Date = new Date()): string {
@@ -98,21 +110,27 @@ export function claudeSystemPrompt(options: AgentPromptOptions): string {
   ].join("\n");
 }
 
-/** The short workflow a local model gets in place of the skill (44e replaces it). */
-export const LOCAL_WORKFLOW = [
-  "How to work:",
-  "1. Search the site first (`recipe_search`); prefer an existing recipe over a new import.",
-  "2. For a page: `page_inspect {url}` reads it and writes nothing; its `draft` is a ready `recipe_create` payload.",
-  "3. Reject a page with no ingredients or instructions, or one over the ask's time limit; say so.",
-  "4. Add tags from `term_list`'s children (a course such as main or dessert, a main ingredient, a cuisine, quick or easy); never invent one. Keep `source` exactly as the draft has it.",
-  "5. Write: `recipe_create {recipe}` with the edited draft (`dryRun: true` first), or `recipe_import {url}`. Put recipes in a collection with `term_assign`.",
-  "6. Reply with what you did: each recipe as /recipe/<slug>, what you skipped and why.",
-  "Call one tool at a time and read its answer before the next. Only the tools you are given exist.",
-].join("\n");
+/**
+ * A local model's preamble (44e): who it is, the date, and whether it has a
+ * web search — the rest of Claude's preamble (where the person reads, the
+ * write rules, E7) is in `skill-local.md`, said once and shorter.
+ */
+export function localPreamble({
+  now = new Date(),
+  search,
+}: AgentPromptOptions): string {
+  return [
+    `You are the recipe curator inside Roger's recipe editor, working on his recipe website for him. Today is ${agentToday(now)}.`,
+    search
+      ? "`web_search` searches the web and `web_fetch` reads a page as text."
+      : "There is no web search here: work from the URLs the person gives (or ask for them); `web_fetch` reads a page as text.",
+    "There is no shell and no file system: a local file is refused, so use a URL.",
+  ].join("\n");
+}
 
-/** A local model's system prompt: the preamble, the server's instructions, the workflow. */
+/** A local model's system prompt: the short preamble, then `skill-local.md`. */
 export function localSystemPrompt(options: AgentPromptOptions): string {
-  return [agentPreamble(options), "", INSTRUCTIONS, "", LOCAL_WORKFLOW].join(
+  return [localPreamble(options), "", CURATOR_LOCAL_SKILL_TEXT.trim()].join(
     "\n",
   );
 }

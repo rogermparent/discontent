@@ -30,6 +30,10 @@
  * - `RECIPE_SEARCH_URL` — the SearXNG server a local model's `web_search`
  *   asks (epic 44, E6), so `recipes agent` searches as the editor's agent
  *   does: how to reach a service, like the model's URL;
+ * - `RECIPE_AGENT_NUM_CTX` and `RECIPE_AGENT_THINK` — the context and the
+ *   thinking a local model's agent run asks for (44e), so `recipes agent`
+ *   runs the model as the editor's agent does: like the model's name, they
+ *   change how a run reads, never which corpus it writes to;
  * - `RECIPE_JOBS_DIR` — where import jobs keep their records (epic 37, D1),
  *   so a CLI import and the editor share one job store when the editor's is
  *   set somewhere other than the default;
@@ -97,6 +101,8 @@ export const EDITOR_ENV_KEYS = [
   "RECIPE_LLM_API_KEY",
   "RECIPE_LLM_VISION_MODEL",
   "RECIPE_SEARCH_URL",
+  "RECIPE_AGENT_NUM_CTX",
+  "RECIPE_AGENT_THINK",
   "RECIPE_JOBS_DIR",
   "RECIPE_QUEUE_DIR",
   "RECIPE_GPU_ACQUIRE_CMD",
