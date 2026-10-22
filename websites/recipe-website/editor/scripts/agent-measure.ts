@@ -26,6 +26,10 @@
  * fixture server (`AgentToolsetTesting`, Ee6), which nothing in the editor,
  * the route or the CLI can set.
  *
+ * Before the first run the clone is reindexed — a fresh `git clone` has no
+ * indexes, and readers never create them (F30, Ee9) — and its counts go to
+ * stderr (recipes and terms indexed against on disk, the gochujang and
+ * tahini sets); it refuses when the indexes list none of what is on disk.
  * Between runs the clone is put back: `git reset --hard` to the commit it
  * started at, `git clean -fd`, and a reindex — so every run starts from the
  * same corpus. The clone must be a git repository with a clean tree.
@@ -39,7 +43,14 @@
  * shows. Lines go to stdout and, with `--out`, are appended to the file.
  */
 import { execFile } from "node:child_process";
-import { appendFile, mkdir, readFile, realpath, stat } from "node:fs/promises";
+import {
+  appendFile,
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  stat,
+} from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -59,10 +70,11 @@ import {
   transcriptRecords,
 } from "../controller/agent/transcript";
 import type { CurationContext } from "../controller/curation/context";
-import { reindex } from "../controller/curation/reindex";
+import { freshIndexes, reindex } from "../controller/curation/reindex";
 import { jobLabel, jobResources, jobTier } from "../controller/jobs/kinds";
 import { runJob } from "../controller/jobs/run";
 import { llmConfig } from "../controller/llm/client";
+import { tagSlug } from "recipe-website-common/controller/tagSlug";
 import {
   ASK_IDS,
   FIXTURE_FILE,
@@ -78,11 +90,13 @@ import {
   checkTahini,
   contentDirectoryRefusal,
   positiveInt,
+  prepareCorpus,
   slugsFromPaths,
   urlKey,
   writesOf,
   type AskId,
   type CheckResult,
+  type CorpusCounts,
   type ImportedRecipe,
 } from "./agentMeasure";
 
@@ -233,7 +247,8 @@ async function vocabulary(backend: Backend) {
   const parents = new Set<string>();
   for (const row of rows) {
     terms.add(row.slug);
-    for (const alias of row.aliases ?? []) terms.add(alias);
+    /* Compared with a tag's `tagSlug` (Ee9), so aliases are slugged too. */
+    for (const alias of row.aliases ?? []) terms.add(tagSlug(alias));
     if (row.parent) parents.add(row.parent);
   }
   const roots = new Set(
@@ -241,7 +256,30 @@ async function vocabulary(backend: Backend) {
       .filter((row) => !row.parent && parents.has(row.slug))
       .map((row) => row.slug),
   );
-  return { terms, roots };
+  /* `term_list` also lists tags no record names; `records` counts the records. */
+  const records = rows.filter((row) => row.record).length;
+  return { terms, roots, records };
+}
+
+/** Directories under `dir`; none when it is missing. */
+async function directoriesIn(dir: string): Promise<number> {
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  return entries.filter((entry) => entry.isDirectory()).length;
+}
+
+/** What is on disk against what the indexes list (Ee9). */
+async function countCorpus(
+  backend: Backend,
+  directory: string,
+): Promise<CorpusCounts> {
+  return {
+    recipesOnDisk: await directoriesIn(path.join(directory, "recipes/data")),
+    recipesIndexed: (await backend.listRecipes({ limit: 1 })).total,
+    termsOnDisk: await directoriesIn(
+      path.join(directory, "taxonomies/tag/data"),
+    ),
+    termsIndexed: (await vocabulary(backend)).records,
+  };
 }
 
 async function tagsOf(backend: Backend, slug: string): Promise<string[]> {
@@ -282,7 +320,13 @@ async function putBack(settings: Settings): Promise<boolean> {
   const git = simpleGit({ baseDir: settings.ctx.contentDirectory });
   const head = (await git.revparse(["HEAD"])).trim();
   const status = await git.status();
-  if (head === settings.start && status.isClean()) return false;
+  if (head === settings.start && status.isClean()) {
+    /* Nothing to put back; the indexes still describe the start (Ee9). */
+    if (!(await freshIndexes(settings.ctx.contentDirectory))) {
+      await reindex(settings.ctx);
+    }
+    return false;
+  }
   await git.reset(["--hard", settings.start]);
   await git.clean("f", ["-d"]);
   await reindex(settings.ctx);
@@ -529,6 +573,27 @@ async function main() {
 
   const ctx: CurationContext = { contentDirectory };
   const backend = createLocalBackend({ ...ctx, inProcess: true });
+  /*
+   * Ee9: a fresh `git clone` has no indexes and readers never create them
+   * (F30), so every search — the model's and the checkers' own `expected`
+   * sets — answered "none" on the first real run. Always rebuild before the
+   * first run, then make sure the indexes list what is on disk.
+   */
+  const reindexStart = Date.now();
+  const prepared = await prepareCorpus({
+    reindex: () => reindex(ctx),
+    count: () => countCorpus(backend, contentDirectory),
+  });
+  const { counts } = prepared;
+  const gochujang = (await searchAll(backend, "ingredient:gochujang")).length;
+  const tahini = (await searchAll(backend, "ingredient:tahini")).length;
+  console.error(
+    `agent-measure: reindexed in ${Date.now() - reindexStart} ms — recipes ${counts.recipesIndexed} indexed / ${counts.recipesOnDisk} on disk, terms ${counts.termsIndexed} / ${counts.termsOnDisk}; ingredient:gochujang ${gochujang}, ingredient:tahini ${tahini}`,
+  );
+  if (prepared.refusal) {
+    await closeCachedEnvironments();
+    fail(`the indexes do not describe the clone: ${prepared.refusal}`);
+  }
   const { server, origin } = await serveFixtures();
   const settings: Settings = {
     ctx,

@@ -1089,6 +1089,44 @@ api, testing?)` and `runAgentJob(spec, {ctx, job, dir, testing?})` take
   through the allowance (one commit, the clone put back and reindexed after),
   with a zod-refused call and an unknown tool counted `malformed` and the
   stub's tags reported as "no term" (that corpus has no facet terms).
+- **Ee9 — The first real run's two harness faults (finisher, after the
+  orchestrator's first qwen3:8b run, `runs-void1.jsonl`).**
+  - **A fresh clone has no indexes.** The scratch clone was a plain `git
+clone`, and readers never create indexes (F30), so until ask (c)'s
+    import wrote the first ones (and the put-back reindexed), every
+    index read answered "none": the model's `recipe_search
+ingredient:gochujang`, the harness's own `expected` sets for (a) and
+    (b), and (c)'s vocabulary (`term_list` empty → "tags that are no term:
+    main, chicken", both of which exist). Now the harness **always
+    reindexes the clone before the first run**, then counts recipes and
+    term records indexed against on disk and prints them on stderr with
+    the gochujang / tahini set sizes; it refuses (exit 2) when the indexes
+    list none of what is on disk (`prepareCorpus` / `corpusRefusal`, the
+    order pinned by a unit test). The put-back also reindexes when the
+    stamp says stale (`freshIndexes`) though nothing changed.
+  - **The "stale" tags were the tag's spelling, not a stale read.**
+    `tagsOf` reads the recipe file from disk (`getRecipe` →
+    `readContentFileOrNull`), and the LMDB cache reopens a swapped index by
+    inode — nothing stale. But `term_assign` writes the term as **tag
+    text** (`middle eastern`, as the corpus spells it) while the checker
+    looked for the **slug** `middle-eastern`. Ask (b) and (c) now compare
+    stored tags by `tagSlug` (`carriesTerm`; the vocabulary's aliases are
+    slugged too), as `term_assign` itself does. Ask (c)'s `getRecipe` and
+    (d)'s `existingSources` (`source:` search, then `getRecipe`) read the
+    same way and needed only the index.
+  - **The orchestrator's first qwen3:8b run is void for think off** (asks
+    a–c ran against no index, so a and b had nothing to find and c's tags
+    were judged against an empty vocabulary). Think on ran indexed (the
+    put-back after c built them): (a) matched; (b) re-read by slug tagged 3
+    of the 4 tahini recipes (`dubai-chocolate-tart` left out, as the reply
+    said) — still not matched; (c) timed out at 180 s (`error`). Re-run
+    both from a clean clone.
+  - Checked with the stub (Ee8) after the fix: a plain `git clone` of the
+    smoke corpus, no indexes, was reindexed before ask (a) ("recipes 8
+    indexed / 8 on disk"); asks a–c on the smoke clone as before. The term
+    count is records only (`term_list` also lists tags no record names).
+    Gates: `pnpm --filter recipe-editor typecheck` clean; `pnpm exec
+vitest run agentMeasure agentLocal` **2 files, 30 tests** passed.
 
 **Measurements** (for the orchestrator's real runs; 2026-10-21 onward):
 
