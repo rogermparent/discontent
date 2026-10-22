@@ -1336,6 +1336,9 @@ ingredient:gochujang`, the harness's own `expected` sets for (a) and
     count is records only (`term_list` also lists tags no record names).
     Gates: `pnpm --filter recipe-editor typecheck` clean; `pnpm exec
 vitest run agentMeasure agentLocal` **2 files, 30 tests** passed.
+    After merging origin/main (9c1df448, 44d): both typechecks clean,
+    `pnpm exec vitest run` **155 files, 3,425 tests passed** (host,
+    `heavy.sh`).
 
 **Measurements** (for the orchestrator's real runs; 2026-10-21 onward):
 
