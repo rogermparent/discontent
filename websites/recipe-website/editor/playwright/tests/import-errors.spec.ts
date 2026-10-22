@@ -47,8 +47,11 @@ test.describe("Import errors (45d)", () => {
     await page
       .getByRole("button", { name: "Create recipe", exact: true })
       .click();
+    /* The save, then the recipe page's first compile on a cold `next dev`
+     * (the dev run's one flake waited 5 s). */
     await expect(page).toHaveURL(
       /\/recipe\/the-25-minute-no-knead-dough-i-use-to-make-everything$/,
+      { timeout: 15_000 },
     );
     await expect(
       page.getByText("Remove lid; bake 25–35 minutes"),
@@ -88,8 +91,11 @@ test.describe("Import errors (45d)", () => {
     await page
       .getByRole("button", { name: "Create recipe", exact: true })
       .click();
+    /* The save, then the recipe page's first compile on a cold `next dev`
+     * (the dev run's one flake waited 5 s). */
     await expect(page).toHaveURL(
       /\/recipe\/the-25-minute-no-knead-dough-i-use-to-make-everything$/,
+      { timeout: 15_000 },
     );
     await expect(page.getByText(/all-purpose flour/).first()).toBeVisible();
     await expect(page.getByText("Large Loaf").first()).toBeVisible();
@@ -149,7 +155,9 @@ test.describe("Import errors (45d)", () => {
     await page
       .getByRole("button", { name: "Create recipe", exact: true })
       .click();
-    await expect(page).toHaveURL(/\/recipe\/refused-recipe$/);
+    await expect(page).toHaveURL(/\/recipe\/refused-recipe$/, {
+      timeout: 15_000,
+    });
     await expect(page.getByText("Bake 20 minutes.")).toBeVisible();
   });
 });

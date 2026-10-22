@@ -301,7 +301,31 @@ timeline events by number; every problem counted; the section list
 described by its heading rather than a live region; `videoImportUrl` /
 `imageImportUrl` mark Picture and unknown keys say "Other".
 
-**Gates.** _(filled in after the gates)_
+**Found by the gates:** the curation input carries prose strings beside
+`Instruction` objects (the photo picker's batch); `dropBlankSteps` read
+them with `in` and threw (`photoImport.test.ts`). Blank rows now keep a
+caller's prose lines and steps (`test/blankRows.test.ts`).
+
+**Gates** (head after the review fixes; `origin/main` had not moved).
+`recipe-editor` typecheck and `recipe-website` `tsc --noEmit` clean;
+vitest 157 files / 3,462 tests; Playwright in Docker, build mode:
+`import-errors`, `new-recipe`, `ytdlp-import`, `edit-form-frame`, `edit`,
+`multi-recipe` 72/72; `import-errors` in dev mode (Docker): 2 passed, 1
+flaky (the save's navigation to a cold-compiled recipe page over 5 s), then
+3/3 with a 15 s wait on that navigation. No baselines moved.
+
+**Roger to confirm:** Dd1 (blank rows dropped silently, no note); the
+messages' wording ("Couldn't save: …", groups named by their first step);
+the description reader's reach (one recipe heading, two ingredient lines
+and a step) — a video with its recipe in lists now imports with no model.
+
+**Traps (45d).**
+
+- `z.flattenError(…).fieldErrors` keeps the first path segment only: a
+  nested issue becomes a top-level key with zod's generic message. Say
+  where in the message.
+- The curation input's ingredients and steps may be strings as well as
+  objects: a helper over imported rows must take both.
 
 ### 45c — Close-out
 
