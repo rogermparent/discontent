@@ -37,6 +37,12 @@ pre-approved: it moves only remote-tracking refs; so are `job_list` and
 `RECIPE_API_URL` for a running editor, with `RECIPE_API_TOKEN`); with neither
 set it writes — and commits — to the real content repo through that symlink.
 
+The editor's `/curator` page (and `pnpm recipes agent`) runs the same 45
+tools in-process on the configured model — the Claude API with all 45 (plus
+`web_fetch` and Anthropic's `web_search`), or a local qwen with a condensed
+8-tool view; both refuse a local `path` / `photos` argument. See
+`agent-epic-44.md`.
+
 The same operations exist as a CLI fallback, `pnpm --silent recipes <command>
 … --json` from the repo root (`--silent` keeps pnpm's banner out of the JSON).
 `pnpm --silent recipes --help` lists every command, global and environment
@@ -196,6 +202,17 @@ survives a cleared context.
   (43m), Ask — a question fills in a page, editor only (43q) — 42's
   follow-ups (43a) and a tag cleanup (43k: Other tags 90 → 0). No reindex;
   64 "Roger to confirm" items and Roger's steps are in the Close-out.
+- `websites/recipe-website/docs/agent-epic-44.md` — epic 44, the curator in
+  the editor: a model layer with tool calling and an agent loop (44a: Claude
+  API, Ollama, OpenAI-compatible), the 45-tool grant bridged from the MCP
+  registry with `web_fetch` and `web_search` (44b, SearXNG for qwen,
+  Anthropic's search for Claude), the `agent` job kind with
+  `transcript.jsonl`, `/api/agent` and `pnpm recipes agent` (44c), the
+  `/curator` page and ⌘K's hand-off (44d), and a condensed prompt and tool
+  view for qwen with a measurement harness (44e: 8b off is the local
+  default, 12,288 stays, bulk tagging and web search go to Claude). No
+  reindex; 23 "Roger to confirm" items and Roger's steps (SearXNG, workstation
+  update, Pi deploy) are in the Close-out.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
