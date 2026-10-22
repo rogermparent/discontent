@@ -13,14 +13,18 @@ import {
   Errors,
   FieldWrapper,
 } from "@discontent/component-library/components/Form";
-import { ChipsInput } from "@discontent/component-library/components/Form/ChipsInput";
 import { useCurrentTimezone } from "@discontent/cms/hooks/useCurrentTimezone";
 import type { StaticImageProps } from "@discontent/next-static-image/src";
 import { ImageInput } from "recipe-website-common/components/Form/Image";
 import { RecipeSelectInput } from "recipe-website-common/components/Form/inputs/RecipeSelect";
 import { GroupSelectInput } from "recipe-website-common/components/Form/inputs/GroupSelect";
 import { groupSlugFromName } from "recipe-website-common/controller/createGroupSlug";
-import { normalizeTag } from "recipe-website-common/controller/normalizeTags";
+import {
+  TagChips,
+  TagField,
+  TagPickerProvider,
+} from "recipe-website-common/components/Form/Tags";
+import type { TagPickerData } from "recipe-website-common/components/Form/Tags/tagPicker";
 import type { GroupFormState } from "recipe-website-common/controller/groupFormState";
 import type { Group, GroupItem } from "recipe-website-common/controller/types";
 
@@ -64,7 +68,7 @@ export default function GroupFields({
   state,
   slug,
   defaultImage,
-  allTags = [],
+  tagPicker,
 }: {
   group?: Partial<Group>;
   state?: GroupFormState;
@@ -77,12 +81,12 @@ export default function GroupFields({
    */
   defaultImage?: StaticImageProps;
   /**
-   * The corpus's vocabulary, offered as one-click quick-adds. Read by the
-   * *page* (`getAllTags()`), because that read is a server one and this is a
-   * client component — the same hand-off `defaultImage` uses, and the same one
-   * the three recipe form pages make for `TagsInput`.
+   * The tag picker's vocabulary and counts (`readTagPicker`, 45a): the same
+   * field and type-ahead the recipe form has. Read by the *page*, because
+   * that read is a server one and this is a client component — the same
+   * hand-off `defaultImage` uses, and the one the recipe form pages make.
    */
-  allTags?: string[];
+  tagPicker?: TagPickerData;
 }) {
   const { name, kind, description, date, items, tags } = group || {};
   const currentTimezone = useCurrentTimezone();
@@ -94,24 +98,12 @@ export default function GroupFields({
   );
 
   /*
-   * The chips, held in state rather than in a form library (T13).
-   *
-   * `ChipsInput` was promoted out of the recipe form and takes the *structural*
-   * slice of a TanStack array field — `{state: {value}, pushValue,
-   * removeValue}` — precisely so a second form could use it without one. This
-   * form is uncontrolled `FormData`, parsed by `parseGroupFormData`, and
-   * `Form/Recipe`'s `TagsInput` cannot be dropped in because it reads
-   * `useRecipeForm`. The six lines below are the whole adapter; the component
-   * renders the hidden `tags[i]` inputs that actually submit.
+   * The tags, held in state rather than in a form library (T13): this form
+   * is uncontrolled `FormData`, parsed by `parseGroupFormData`. Since 45a it
+   * draws the recipe form's picker — `TagChips` (which renders the hidden
+   * `tags[i]` inputs that actually submit) and `TagField` over this state.
    */
   const [tagValues, setTagValues] = useState<string[]>(() => tags ?? []);
-  const tagField = {
-    state: { value: tagValues },
-    pushValue: (value: string) =>
-      setTagValues((current) => [...current, value]),
-    removeValue: (index: number) =>
-      setTagValues((current) => current.filter((_, i) => i !== index)),
-  };
 
   const [nameValue, setNameValue] = useState<string>(name ?? "");
   /*
@@ -192,13 +184,21 @@ export default function GroupFields({
         the recipe form puts its own chips relative to the body of the record.
       */}
       <FieldWrapper label="Tags" id="group-form-tags">
-        <ChipsInput
-          field={tagField}
-          name="tags"
-          id="group-form-tags"
-          normalize={normalizeTag}
-          suggestions={allTags}
-        />
+        <TagPickerProvider data={tagPicker}>
+          <div className="flex flex-col gap-2">
+            <TagChips
+              tags={tagValues}
+              onRemove={(index) =>
+                setTagValues((current) => current.filter((_, i) => i !== index))
+              }
+            />
+            <TagField
+              id="group-form-tags"
+              tags={tagValues}
+              onChange={setTagValues}
+            />
+          </div>
+        </TagPickerProvider>
       </FieldWrapper>
 
       <fieldset className="my-2 flex flex-col flex-nowrap gap-3">

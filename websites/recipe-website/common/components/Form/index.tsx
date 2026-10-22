@@ -10,7 +10,7 @@ import { useRecipeForm } from "./formContext";
 import { mergeFieldErrors } from "./fieldErrors";
 import {
   ChosenTags,
-  TagFacets,
+  RecipeTagField,
 } from "recipe-website-common/components/Form/Tags";
 import { IngredientsSection } from "recipe-website-common/components/Form/Ingredients";
 import { InstructionsListInput } from "recipe-website-common/components/Form/Instructions";
@@ -152,7 +152,7 @@ function IngredientsWithSource({ from }: { from?: string }) {
 
 /**
  * The recipe's fields, in edit form B's sections (43e1, 43e2): on a drink the
- * Drink spec first, then Recipe, Tags (by facet), Picture and video,
+ * Drink spec first, then Recipe, Tags, Picture and video,
  * Ingredients (rows), Steps (what each uses), Times, Source and address.
  * Every field's name and submit shape is the one the form always had (D4).
  */
@@ -161,7 +161,6 @@ export default function RecipeFields({
   slug,
   state,
   defaultImage,
-  allTags = [],
   imageFile,
   fromLabel,
 }: {
@@ -169,8 +168,6 @@ export default function RecipeFields({
   slug?: string;
   state?: RecipeFormState;
   defaultImage?: StaticImageProps;
-  /** Without the tag picker's data: the corpus's tags, offered as adds. */
-  allTags?: string[];
   /** A file the image field starts with (38e: the photo a recipe was read from). */
   imageFile?: File;
   /**
@@ -264,7 +261,7 @@ export default function RecipeFields({
         </form.Field>
       </FormSection>
       <FormSection id="tags" title="Tags" aside={<ChosenTags />}>
-        <TagFacets allTags={allTags} suggestedTags={recipe?.suggestedTags} />
+        <RecipeTagField suggestedTags={recipe?.suggestedTags} />
       </FormSection>
       <FormSection
         id="picture"

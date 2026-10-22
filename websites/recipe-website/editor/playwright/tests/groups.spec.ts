@@ -642,11 +642,11 @@ test.describe("Groups", () => {
 
   test.describe("tagging", () => {
     /*
-     * The group form's chips (24b/T13). `ChipsInput` is the same component the
-     * recipe form uses, driven here by a plain `useState` adapter because this
-     * form is uncontrolled `FormData` — so the accessible names ("Add a tag",
-     * "Remove tag midweek") are the recipe form's, which is what these
-     * locators rely on.
+     * The group form's chips (24b/T13). Since 45a it draws the recipe form's
+     * tag picker (`TagChips` and `TagField`), driven here by a plain
+     * `useState` because this form is uncontrolled `FormData` — so the
+     * accessible names ("Add a tag", "Remove tag midweek") are the recipe
+     * form's, which is what these locators rely on.
      */
     test("adds a tag on create, and the detail page shows it", async ({
       page,

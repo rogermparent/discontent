@@ -1,7 +1,4 @@
-import {
-  readTagLabels,
-  readTagPicker,
-} from "recipe-website-common/controller/data/readTermPage";
+import { readTagPicker } from "recipe-website-common/controller/data/readTermPage";
 import { recipeItems } from "recipe-website-common/controller/data/readRecipeItem";
 import EditForm from "./form";
 import { notFound } from "next/navigation";
@@ -38,10 +35,7 @@ export default async function Recipe({
           sizes: "100vw",
         })
       : undefined;
-  const [allTags, tagPicker] = await Promise.all([
-    readTagLabels(),
-    readTagPicker(),
-  ]);
+  const tagPicker = await readTagPicker();
   return (
     <PageMain>
       {/* 43e1: the form draws its own frame — heading, rail and sections. */}
@@ -49,7 +43,6 @@ export default async function Recipe({
         recipe={recipe}
         slug={slug}
         defaultImage={defaultImage}
-        allTags={allTags}
         tagPicker={tagPicker}
       />
     </PageMain>

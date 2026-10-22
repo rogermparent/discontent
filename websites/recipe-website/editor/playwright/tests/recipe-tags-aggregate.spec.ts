@@ -7,7 +7,8 @@ import { fillSignInForm, markdownEditorReady } from "../support/helpers";
  * every recipe and building a `Set` per render. Four surfaces consume it — the
  * homepage's browse chips and the tag suggestions in the new/edit/copy forms —
  * and none changed shape, so this spec's job is to prove the swap is invisible
- * where it should be and correct where it matters.
+ * where it should be and correct where it matters. Since 45a the forms list
+ * no tags at rest: a corpus tag is offered once something typed matches it.
  *
  * `search-corpus` is the only fixture with tags on more than a couple of
  * recipes: 67 recipes carrying eight distinct tags.
@@ -43,6 +44,17 @@ async function signedInForm(page: Page): Promise<void> {
   await markdownEditorReady(page, "description");
 }
 
+/** Type into the tag field; the match is offered in the Suggestions area. */
+async function expectOffered(page: Page, tag: string): Promise<void> {
+  const input = page.getByLabel("Add a tag");
+  await input.fill(tag);
+  await expect(
+    page.getByRole("option", { name: `Add tag ${tag}`, exact: true }),
+  ).toBeVisible();
+  await input.press("Escape");
+  await expect(input).toHaveValue("");
+}
+
 async function addTag(page: Page, tag: string): Promise<void> {
   const input = page.getByLabel("Add a tag");
   await input.fill(tag);
@@ -75,29 +87,26 @@ test.describe("Recipe tag aggregate", () => {
     await page.goto("/new-recipe");
     await signedInForm(page);
 
-    for (const tag of CORPUS_TAGS) {
-      await expect(
-        page.getByRole("button", { name: `Add tag ${tag}`, exact: true }),
-      ).toBeVisible();
-    }
+    /* Nothing at rest (45a)… */
+    await expect(page.getByRole("option", { name: /^Add tag / })).toHaveCount(
+      0,
+    );
+    /* …and each corpus tag once it is typed. */
+    for (const tag of CORPUS_TAGS) await expectOffered(page, tag);
   });
 
   test("the edit form suggests them too", async ({ page }) => {
     await page.goto(`/recipe/${TAGGED_SLUG}/edit`);
     await signedInForm(page);
 
-    await expect(
-      page.getByRole("button", { name: "Add tag soup", exact: true }),
-    ).toBeVisible();
+    await expectOffered(page, "soup");
   });
 
   test("the copy form suggests them too", async ({ page }) => {
     await page.goto(`/recipe/${TAGGED_SLUG}/copy`);
     await signedInForm(page);
 
-    await expect(
-      page.getByRole("button", { name: "Add tag soup", exact: true }),
-    ).toBeVisible();
+    await expectOffered(page, "soup");
   });
 
   /*
