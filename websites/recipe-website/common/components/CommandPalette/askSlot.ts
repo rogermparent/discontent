@@ -36,6 +36,21 @@ export interface PaletteAskHandler {
    * page): no navigation follows, so the palette closes at once.
    */
   open(answer: PaletteAskAnswer, question: string): boolean;
+  /**
+   * The curator hand-off (44d), the editor's too: a fetch request ("find
+   * …", "import …") gets a row after Ask's that opens the curator with the
+   * words filled in — never snapped to, so Enter keeps 43q's rules (cmdk
+   * highlights it only when it is the one row) — and "Curator" joins Go
+   * to. Absent, neither shows.
+   */
+  curator?: PaletteCuratorHandler;
+}
+
+export interface PaletteCuratorHandler {
+  /** Whether the "Ask the curator" row shows for this input. */
+  offers(text: string): boolean;
+  /** Where it goes: the curator with `text` filled in. */
+  href(text: string): string;
 }
 
 type Register = (handler: PaletteAskHandler | undefined) => void;

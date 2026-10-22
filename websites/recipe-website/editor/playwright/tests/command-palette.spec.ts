@@ -1,3 +1,5 @@
+import { createServer, type Server } from "http";
+import type { AddressInfo } from "net";
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect, type Page } from "../support/test";
 import {
@@ -232,6 +234,77 @@ test.describe("Command palette", () => {
     await openPalette(page);
     await expect(palette(page)).toBeVisible();
     await axeClean(page);
+  });
+});
+
+/**
+ * 44d: the curator hand-off row. It is never snapped to (Ask's rules
+ * stand), but cmdk highlights the first row it renders: when the hand-off
+ * is the only row, Enter opens the curator — filled in, never started. A
+ * model must be set up for the row, so a stand-in that only lists its
+ * model sits on loopback; nothing here asks it anything.
+ */
+test.describe("Command palette — the curator hand-off", () => {
+  let model: Server;
+  let modelUrl: string;
+  const chats: string[] = [];
+
+  test.beforeAll(async () => {
+    model = createServer((request, response) => {
+      if (request.url === "/api/chat") chats.push(request.url);
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ models: [{ name: "qwen3:8b" }] }));
+    });
+    await new Promise<void>((resolve) =>
+      model.listen(0, "127.0.0.1", () => resolve()),
+    );
+    modelUrl = `http://127.0.0.1:${(model.address() as AddressInfo).port}`;
+  });
+
+  test.afterAll(async () => {
+    model.closeAllConnections();
+    await new Promise<void>((resolve) => model.close(() => resolve()));
+  });
+
+  test.beforeEach(async ({ request, resetData }) => {
+    await resetData("three-recipes");
+    const response = await request.get(
+      `/settings/test-llm?url=${encodeURIComponent(modelUrl)}`,
+    );
+    expect(response.ok()).toBe(true);
+  });
+
+  test.afterEach(async ({ request }) => {
+    expect((await request.get("/settings/test-llm")).ok()).toBe(true);
+  });
+
+  test("Enter on a lone hand-off row opens the curator filled in, not started", async ({
+    page,
+  }) => {
+    await signInAndHome(page);
+    await openPalette(page);
+    await paletteSearch(page, "import https://example.com/x");
+    const row = page.getByTestId("palette-curator-group").getByRole("option");
+    await expect(row).toContainText(
+      "Ask the curator: “import https://example.com/x”",
+    );
+    /* The only row, so cmdk's own first-row highlight is on it. */
+    await expect(page.getByTestId("palette-list")).not.toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    await expect(rows(page)).toHaveCount(1);
+    await expect(row).toHaveAttribute("aria-selected", "true");
+    await paletteInput(page).press("Enter");
+    await expect(page).toHaveURL(
+      /\/curator\?prompt=import%20https%3A%2F%2Fexample\.com%2Fx$/,
+      { timeout: 30_000 },
+    );
+    await expect(
+      page.getByLabel("What should the curator do?", { exact: true }),
+    ).toHaveValue("import https://example.com/x");
+    await expect(page.getByTestId("curator-run")).toHaveCount(0);
+    expect(chats).toEqual([]);
   });
 });
 

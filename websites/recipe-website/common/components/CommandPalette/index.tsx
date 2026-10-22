@@ -14,6 +14,7 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
+  Bot,
   Sun,
   Moon,
   Monitor,
@@ -62,11 +63,13 @@ import {
 } from "../SearchForm/searchView";
 import { useShortcutModifier } from "./shortcutModifier";
 import { groupKindLabel } from "../../util/groupKindLabel";
-import { NAV_DESTINATIONS } from "./destinations";
+import { CURATOR_DESTINATION, NAV_DESTINATIONS } from "./destinations";
 import { PaletteAskRegistry, type PaletteAskHandler } from "./askSlot";
 
 /** The Ask row's cmdk `value` (43q). */
 const ASK_VALUE = "ask:question";
+/** The curator hand-off row's (44d). */
+const CURATOR_VALUE = "curator:ask";
 
 /**
  * How long "Opening …" may wait for its navigation before the palette closes
@@ -472,7 +475,14 @@ export function CommandPalette({
     return haystack.includes(q);
   };
 
-  const navItems = NAV_DESTINATIONS.filter(
+  /* The curator (44d) joins the owner rows after New Recipe once the
+   * editor's slot offers its hand-off (a model is set up). */
+  const destinations = askHandler?.curator
+    ? NAV_DESTINATIONS.flatMap((dest) =>
+        dest.href === "/new-recipe" ? [dest, CURATOR_DESTINATION] : [dest],
+      )
+    : NAV_DESTINATIONS;
+  const navItems = destinations.filter(
     (dest) =>
       (isOwner || !dest.ownerOnly) && matchesQuery(dest.name, dest.keywords),
   );
@@ -757,6 +767,35 @@ export function CommandPalette({
     </CommandGroup>
   ) : null;
 
+  /*
+   * The curator hand-off (44d): a fetch request ("find …", "import …")
+   * gets a row right after Ask's place that opens the curator with the
+   * words filled in (never started). The snap above never moves the
+   * highlight onto it, so wherever another row would take Enter, 43q's
+   * rules stand; only when it is the one row does cmdk's own first-row
+   * highlight land on it, and Enter opens the curator.
+   */
+  const curator = askHandler?.curator;
+  const curatorGroup =
+    curator && trimmed && !askState && curator.offers(trimmed) ? (
+      <CommandGroup heading="Curator" data-testid="palette-curator-group">
+        <CommandItem
+          value={CURATOR_VALUE}
+          onSelect={() => go(curator.href(trimmed))}
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center">
+            <Bot aria-hidden className="size-5 text-primary" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate">Ask the curator: “{trimmed}”</span>
+            <span className="block truncate text-xs text-muted-foreground">
+              Opens the curator with this filled in
+            </span>
+          </span>
+        </CommandItem>
+      </CommandGroup>
+    ) : null;
+
   return (
     <CommandPaletteContext.Provider value={contextValue}>
       <PaletteAskRegistry.Provider value={registerAsk}>
@@ -821,6 +860,7 @@ export function CommandPalette({
             is what Enter should send.
           */}
           {askLeads && askGroup}
+          {askLeads && curatorGroup}
 
           {hasRecipeHits && (
             <CommandGroup heading="Recipes" data-testid="palette-recipes-group">
@@ -1109,6 +1149,7 @@ export function CommandPalette({
             everything else, unhighlighted — Tab, or the arrows, reach it.
           */}
           {!askLeads && askGroup}
+          {!askLeads && curatorGroup}
         </CommandList>
         {/* How to ask what doesn't read as a question (43q). */}
         {askHandler && trimmed && !askLeads && (
