@@ -138,7 +138,7 @@ describe("computeIndexVersion (39-D1)", () => {
    * spec change that moved it is the one you meant.
    */
   it("pins this site's version", () => {
-    expect(base).toMatchInlineSnapshot(`"8c67321604d73888"`);
+    expect(base).toMatchInlineSnapshot(`"72c0224ea752c76e"`);
   });
 
   /*
@@ -215,7 +215,10 @@ describe("computeIndexVersion (39-D1)", () => {
       ],
       [
         "a content index version",
-        withConfig("recipes", (config) => ({ ...config, indexVersion: "2" })),
+        withConfig("recipes", (config) => ({
+          ...config,
+          indexVersion: `${config.indexVersion ?? "1"}-bumped`,
+        })),
       ],
       [
         "a reference's borrowed fields",
