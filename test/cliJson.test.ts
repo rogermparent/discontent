@@ -1323,6 +1323,121 @@ describe("import tooling as a process (26b)", () => {
   );
 
   it(
+    "fills a recipe's gaps from its source and writes nothing (45b)",
+    async () => {
+      const draftPath = join(scratch, "fill-me.json");
+      await writeFile(
+        draftPath,
+        JSON.stringify({
+          name: "Plane To Fill",
+          slug: "plane-to-fill",
+          description: "Mine.",
+          source: { url: `${origin}/paper-plane.html` },
+        }),
+      );
+      expect(
+        (await run(["create", "--file", draftPath, "--json"])).exitCode,
+      ).toBe(0);
+      const before = await commitCount();
+      const model = {
+        RECIPE_LLM_URL: `${origin}/multi`,
+        RECIPE_LLM_MODEL: "qwen3:8b",
+      };
+
+      const filled = await run(["fill", "plane-to-fill", "--json"], model);
+      expect(filled.exitCode).toBe(0);
+      const result = JSON.parse(filled.stdout);
+      expect(result).toMatchObject({
+        slug: "plane-to-fill",
+        url: `${origin}/paper-plane.html`,
+        /* The description was the recipe's own: never replaced (F1). */
+        filled: ["recipeYield", "image", "ingredients", "instructions"],
+        estimated: {
+          fields: ["prepTime", "cookTime", "totalTime"],
+          values: { prepTime: 20, cookTime: 17, totalTime: 75 },
+          basis: expect.stringContaining("bake"),
+          model: "local model qwen3:8b",
+        },
+        patch: {
+          recipeYield: "1",
+          imageImportUrl: `${origin}/plane.png`,
+          ingredients: ["3/4 oz bourbon", "3/4 oz Aperol"],
+          instructions: ["Shake with ice.", "Strain into a coupe."],
+          prepTime: 20,
+          cookTime: 17,
+          totalTime: 75,
+        },
+      });
+      expect(result.patch.description).toBeUndefined();
+      expect(result.job).toMatch(/^[0-9A-Z]{26}$/);
+      /* A fill is a read: no commit, and no stale-editor hint. */
+      expect(await commitCount()).toBe(before);
+      expect(filled.stderr).not.toContain("stale");
+
+      /* --no-estimate: the source's values alone, no model asked. */
+      const plain = await run(
+        ["fill", "plane-to-fill", "--no-estimate", "--json"],
+        model,
+      );
+      expect(plain.exitCode).toBe(0);
+      expect(JSON.parse(plain.stdout).estimated).toBeUndefined();
+
+      /* No model configured: the fill still answers, and says why no estimate. */
+      const noModel = await run([
+        "fill",
+        "plane-to-fill",
+        "--out",
+        join(scratch, "fill-patch.json"),
+      ]);
+      expect(noModel.exitCode).toBe(0);
+      expect(noModel.stdout).toContain(
+        "filled from the source: yield, picture, ingredients and steps",
+      );
+      expect(noModel.stdout).toContain("No model is configured");
+      const patch = JSON.parse(
+        await readFile(join(scratch, "fill-patch.json"), "utf8"),
+      );
+      expect(patch.prepTime).toBeUndefined();
+      expect(patch.ingredients).toEqual(["3/4 oz bourbon", "3/4 oz Aperol"]);
+
+      /* The write is `update`, with that patch. */
+      const updated = await run([
+        "update",
+        "plane-to-fill",
+        "--file",
+        join(scratch, "fill-patch.json"),
+        "--json",
+      ]);
+      expect(updated.exitCode).toBe(0);
+      const shown = JSON.parse(
+        (await run(["show", "plane-to-fill", "--json"])).stdout,
+      );
+      expect(shown.recipe).toMatchObject({
+        description: "Mine.",
+        recipeYield: "1",
+        image: "plane.png",
+      });
+      expect(shown.recipe.ingredients).toHaveLength(2);
+
+      /* A recipe with no source link or video: usage, exit 1. */
+      await writeFile(
+        draftPath,
+        JSON.stringify({ name: "Nowhere", slug: "nowhere-to-fill" }),
+      );
+      expect(
+        (await run(["create", "--file", draftPath, "--json"])).exitCode,
+      ).toBe(0);
+      const none = await run(["fill", "nowhere-to-fill", "--json"]);
+      expect(none.exitCode).toBe(1);
+      expect(JSON.parse(none.stdout).error).toMatchObject({
+        code: "usage",
+        message: expect.stringContaining("no source link or video"),
+      });
+    },
+    TIMEOUT * 4,
+  );
+
+  it(
     "sets an image from a file and clears it, one commit each",
     async () => {
       const picture = join(scratch, "new photo.jpg");

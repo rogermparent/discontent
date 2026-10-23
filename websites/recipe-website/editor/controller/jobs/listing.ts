@@ -34,6 +34,8 @@ export const JOB_KIND_NAMES = [
   "git-sync",
   /* 44c (epic 44, E2): a run of the editor's agent. */
   "agent",
+  /* 45b: a recipe's gaps filled from its source (the edit page, `recipes fill`). */
+  "fill",
 ] as const;
 
 /**

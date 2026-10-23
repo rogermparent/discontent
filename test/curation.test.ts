@@ -2689,6 +2689,10 @@ const ALLOWED: RegExp[] = [
    * and the by-term rows the seat reads itself (`holidayEntries`,
    * `almanacView`, `holidayMenuData`), `util/holidays` and type imports. */
   /^recipe-website-common\/controller\/holidaysPage$/,
+  /* The fill's field names joined at 45b, so `fillGaps` and the edit form's
+   * marks name fields alike: constant lists, labels and pure functions, with
+   * one type-only import of the form's section ids. */
+  /^recipe-website-common\/components\/Form\/fillMarks$/,
   /* The settings store joined at 41i: the editor's saved staples
    * (`settings.makeStaples`), read with `fs-extra` — no Next API. */
   /^@discontent\/cms\/settings$/,

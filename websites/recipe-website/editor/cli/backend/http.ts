@@ -47,6 +47,7 @@ import type {
   FeaturedListResult,
   FeaturedWriteResult,
   FileAtResult,
+  FillResult,
   GitWriteResult,
   GitLogResult,
   GroupDeleteResult,
@@ -444,6 +445,13 @@ export function createHttpBackend({
         "PUT",
         `/api/recipe/${encodeURIComponent(slug)}`,
         { body: raw, query: { dryRun: options.dryRun ? 1 : undefined } },
+      );
+    },
+    fillRecipe(slug, options = {}) {
+      return call<FillResult>(
+        "POST",
+        `/api/recipe/${encodeURIComponent(slug)}/fill`,
+        { body: options.estimate === false ? { estimate: false } : {} },
       );
     },
     /*
