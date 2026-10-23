@@ -115,6 +115,143 @@ Files: `common/components/Form/Tags/` (`index.tsx`, `tagPicker.ts`),
   baselines `edit-form-populated`, `new-recipe-form*`, `new-recipe-imported`,
   `edit-form-mobile` regenerated in Docker.
 
+#### 45a Results
+
+**What changed.**
+
+- `Form/Tags/index.tsx` is now three pieces: `TagChips` (the chosen tags,
+  "Remove tag X", the hidden `tags[i]` inputs; 24 px remove targets; wraps),
+  `TagField` (the combobox "Add a tag" and the **Suggestions** area under it,
+  over any `tags` / `onChange`), and the recipe form's adapters `ChosenTags`
+  (heading) and `RecipeTagField` (section body). `TagFacets`, `RowChips`,
+  `FacetLine`, `AnythingElse` and the unused `useTagsSayDrink` are gone.
+- **At rest** the area shows only the import's suggestions — a "From the
+  import" group of dashed chips, "Accept suggested tag X" — or the hint
+  "Type to find a tag, or to add a new one." The facet rows, "Other tags" and
+  the drink-name "find a drink name…" buttons are gone.
+- **Typing** lists `searchPickerTerms` matches inline (a listbox, not a
+  popup) — label, the alias typed in quotes, a muted facet name and the count
+  — capped at `MATCH_LIMIT` = 12, then **New tag "…"** when no match spells
+  the text exactly. Text already chosen says "“x” is already chosen."
+  (neutral: the group form shares it) instead of offering a no-op. An import
+  suggestion among the matches keeps its dashed outline. A parent the
+  recipe already reaches through a chosen child is marked "· through
+  Cookies" (and "Already reached through Cookies (a child brings its
+  parent)" in its description) and ranked after the other matches — see
+  Da4.
+- **Keyboard**: ↓/↑ move `aria-activedescendant`, Enter (or a comma) takes
+  the highlighted option, else the exact match, else the new tag; Escape
+  clears; Backspace never removes a chip; Enter and comma do nothing while
+  an IME is composing (`nativeEvent.isComposing`). After an add the field
+  clears and keeps focus (a click on an option never blurs it), and an
+  `aria-live=polite` region says "Added X" — remounted per add, so a repeat
+  is announced again. Removing a chip moves focus to the chip that took its
+  place (or the one before), or to the field when none are left. The 43e2
+  blur rule stays: leaving the field takes only text that exactly names a
+  term (without pulling focus back).
+- Pure logic in `tagPicker.ts`: new `facetLabel(model, slug)` (the group that
+  places the term or its nearest ancestor), `MATCH_LIMIT`, and
+  `tagFieldOptions(picker, text, tags)` → `{matches, exact, newTag?,
+already?}`; a match carries `through` (Da4); `exactOption` returns −1 for
+  empty text. Removed as dead:
+  `pickerGroups`, `PICKER_GROUPS`, `COLLAPSED_GROUPS`, `looseTags`,
+  `serializeFacetCounts` / `deserializeFacetCounts` / `SerializedFacetCounts`.
+- **The group form** (`Form/Group/index.tsx`) drew `ChipsInput` with every
+  tag as a one-click add — the same complaint. It now draws `TagChips` +
+  `TagField` inside its own `TagPickerProvider`, over its existing `useState`
+  (still uncontrolled `FormData`, same `tags[i]` inputs); `/group/new` and
+  `/group/<slug>/edit` read `readTagPicker()` instead of `readTagLabels()`.
+  The term form keeps `ChipsInput` (pinned recipes, aliases — not tags).
+
+**Decisions.**
+
+- **Da1 the server sends less.** `TagPickerData` is now `{terms, counts}`
+  with `counts` the subtree pairs only (`countFacets(...).subtree`); the rest
+  of `FacetCounts` (kinds, drinks, own, ownDrinks, groups, other) fed only the
+  facet rows. `TagPicker.counts` is a `Map<slug, number>`. The facet name per
+  match comes from the model alone (`groupsOf`), so nothing else is needed.
+- **Da2 no `allTags` fallback.** Carried-only tags are already terms in
+  `readTagPicker`'s vocabulary, so the corpus's loose tags are found by
+  typing. The `allTags` prop and its `readTagLabels()` read are gone from the
+  new-recipe, edit and copy pages (one read fewer per form load), and
+  `readTagLabels` itself — its last callers were the forms — is removed.
+- **Da3 control names.** "Add a tag", "Remove tag X", "Accept suggested tag
+  X" kept as they were. "Add tag X" is kept as the accessible name of a
+  match, but a match is now an `option` in the listbox (combobox semantics),
+  not a `button`, and appears only once typed: `recipe-tags-aggregate.spec`
+  and `search-tags.spec` type first and look for the option. A new tag's
+  option is named "New tag X".
+- **Da4 a reached parent is offered, marked (F1).** On a recipe tagged
+  `cookies`, typing "dess" still offers Desserts — choosing it adds
+  `dessert`, as 43e2's rows let you press a reached row — but the match says
+  "· through Cookies" and ranks after every match the recipe doesn't reach
+  yet (an exact spelling still leads, so Enter on "Desserts" takes it). The
+  conservative reading: nothing an author could do is taken away; the label
+  tells them it is redundant under the child-only convention.
+
+**Roger to confirm.**
+
+- The group form now has the same quiet picker as the recipe form (it
+  showed every tag too).
+- The drinks families' "find a drink name…" shortcut went with the rows — a
+  drink name is found by typing it.
+- A comma in the field commits, like Enter (43e2's behaviour, kept): a tag
+  can't contain a comma.
+- Da4: a parent reached through a chosen child can still be added by hand
+  (marked "through …"), rather than hidden.
+
+**Tests.** `test/tagPicker.test.ts` (new, 23 tests: counts, `facetLabel`,
+ranking, alias, chosen left out, a reached parent marked and last, the cap,
+empty state, `tagFieldOptions`' new/exact/already, suggestions at rest, D4
+adds). `test/editFormFields.test.ts`: the facet-row cases (`pickerGroups`,
+`looseTags`) dropped, the rest kept on the slim `counts`, plus a reached-
+parent case. `test/editFormRoundTrip.test.tsx`: counts from
+`countFacets(...).subtree`; the facet-row checks became the chip, typing
+"dess" (Desserts "through Cookies") and typing "cook" → "Add tag Cookies",
+with the same posted `tags` (`["cookies","usa"]`, `["usa","christmas"]`).
+New `playwright/tests/tag-picker.spec.ts` (type → keyboard add → chip →
+remove with focus handed on, alias, a reached parent marked, new tag,
+already chosen, Escape/Backspace, click keeps focus, axe on the section at
+rest and typing; an import's suggestion at rest, accepted, the last chip
+removed hands focus to the field; phone targets and wrap). Updated
+`recipe-tags-aggregate.spec`, `search-tags.spec` (type, then the option)
+and the comment in `groups.spec`.
+
+**Gates** (after merging `origin/main` d5c37ef5).
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean.
+- `pnpm exec vitest run`: 156 files, 3446 tests passed. After the last
+  markup fix, the three picker files were run again: 61/61.
+- Playwright in Docker, production build, with `tag-picker`,
+  `recipe-tags-aggregate`, `search-tags`, `recipe`, `groups`,
+  `edit-form-frame`, `tag-pages`, `new-recipe`, `visual` and `mobile`:
+  169 passed, 1 failed, 1 flaky.
+  - The failure was `tag-picker`'s axe check: `label-content-name-mismatch`
+    on the options' `aria-label` (Ta1). It is fixed.
+  - The flaky test was `visual` "make page starting from nothing": a
+    `make-ticker` strict-mode hit, unrelated to 45a, which passed on retry.
+- Rerun after the fix (Docker, production build), with `tag-picker`,
+  `recipe-tags-aggregate`, `search-tags`, `groups` and `visual`: 74/74.
+- `tag-picker.spec` in dev mode (Docker): 3/3.
+- Baselines regenerated in Docker, all form views with the Tags section at
+  rest (now the field, "Suggestions" and the hint), and each one opened:
+  `edit-form-populated`, `edit-form-overwrite`, `markdown-source-mode`,
+  `new-recipe-form`, `new-recipe-form-overwrite`, `new-recipe-imported` and
+  `edit-form-mobile`.
+
+#### 45a Traps
+
+- **Ta1 an option's name must contain its visible text.** An `aria-label`
+  like "Add tag Gin" on an option whose content also shows the facet and
+  count fails axe's `label-content-name-mismatch` (WCAG 2.5.3). The fix:
+  - Put the name in one sr-only text node ("Add tag Gin").
+  - Mark the visible label `aria-hidden`, and make the facet, count, alias
+    and "through" the option's description.
+  - Keep the name in one text node. A name split across an sr-only "Add
+    tag " and a visible label came out differently in jsdom
+    (testing-library could not find "Add tag Desserts").
+
 ### 45b — Fill gaps from the source, with marked estimates
 
 Files: a pure `fillGaps` next to `mergeExtraction`

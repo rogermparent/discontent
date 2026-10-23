@@ -9,7 +9,6 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import RecipeFields from "recipe-website-common/components/Form";
 import { RecipeFormShell } from "recipe-website-common/components/Form/RecipeFormShell";
-import { serializeFacetCounts } from "recipe-website-common/components/Form/Tags/tagPicker";
 import parseRecipeFormData from "../websites/recipe-website/editor/controller/parseFormData";
 import type { Recipe } from "recipe-website-common/controller/types";
 import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
@@ -210,9 +209,10 @@ function renderForm(recipe: Partial<ImportedRecipe>, slug: string) {
   const model = buildFacetModel(TERMS);
   const tagPicker = {
     terms: TERMS,
-    counts: serializeFacetCounts(
-      countFacets(model, [{ tags: ["cookies"] }, { tags: ["american"] }]),
-    ),
+    counts: [
+      ...countFacets(model, [{ tags: ["cookies"] }, { tags: ["american"] }])
+        .subtree,
+    ],
   };
   return render(
     <RecipeFormShell
@@ -243,16 +243,23 @@ describe("edit form B's fields keep a food recipe as it was (43e2, D4)", () => {
   it("posts tags as carried, ingredients with headings and markup, steps", async () => {
     const { container } = renderForm(MOLASSES, "crisp-molasses-cookies");
     await settle();
-    /* A food recipe: no drink spec; its facet rows are drawn. */
+    /* A food recipe: no drink spec. */
     expect(
       [...container.querySelectorAll("h2")].map((h) => h.textContent)[0],
     ).toBe("Recipe");
-    const cookies = container.querySelector('[data-facet-row="cookies"]');
-    expect(cookies?.getAttribute("aria-pressed")).toBe("true");
-    /* Desserts is reached through Cookies — shown, not added. */
-    const desserts = container.querySelector('[data-facet-row="dessert"]');
-    expect(desserts?.getAttribute("aria-pressed")).toBe("false");
-    expect(desserts?.textContent).toContain("through a chosen tag");
+    /* 45a: the chosen tags are chips; no facet rows at rest. */
+    expect(
+      screen.getByRole("button", { name: "Remove tag cookies" }),
+    ).toBeTruthy();
+    expect(container.querySelector("[data-facet-row]")).toBeNull();
+    /* Desserts is reached through Cookies — offered as typed, marked, not
+     * added. */
+    const field = screen.getByLabelText("Add a tag", { exact: true });
+    fireEvent.change(field, { target: { value: "dess" } });
+    const desserts = screen.getByRole("option", { name: "Add tag Desserts" });
+    expect(desserts.textContent).toContain("through Cookies");
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect((field as HTMLInputElement).value).toBe("");
     /* The import's suggestions wait, dashed, until accepted. */
     expect(
       screen.getByRole("button", { name: "Accept suggested tag Christmas" }),
@@ -294,16 +301,20 @@ describe("edit form B's fields keep a food recipe as it was (43e2, D4)", () => {
     ]);
   });
 
-  it("accepting a suggestion adds the term's slug; a facet chip toggles it", async () => {
+  it("accepting a suggestion adds the term's slug; a chip removes it, typing adds it back", async () => {
     const { container } = renderForm(MOLASSES, "crisp-molasses-cookies");
     await settle();
     fireEvent.click(
       screen.getByRole("button", { name: "Accept suggested tag Christmas" }),
     );
-    fireEvent.click(
-      container.querySelector('[data-facet-row="cookies"]') as HTMLElement,
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Remove tag cookies" }));
     expect(post(container).tags).toEqual(["usa", "christmas"]);
+    /* 45a: typed, it is offered again; chosen, it is the slug. */
+    const field = screen.getByLabelText("Add a tag", { exact: true });
+    fireEvent.change(field, { target: { value: "cook" } });
+    fireEvent.click(screen.getByRole("option", { name: "Add tag Cookies" }));
+    expect(post(container).tags).toEqual(["usa", "christmas", "cookies"]);
+    expect((field as HTMLInputElement).value).toBe("");
   });
 });
 

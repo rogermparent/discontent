@@ -27,13 +27,11 @@ export default function EditRecipeForm({
   recipe,
   slug,
   defaultImage,
-  allTags = [],
   tagPicker,
 }: {
   slug: string;
   recipe: Recipe;
   defaultImage?: StaticImageProps | undefined;
-  allTags?: string[];
   /** The tag picker's vocabulary and counts (43e2). */
   tagPicker?: TagPickerData;
 }) {
@@ -74,7 +72,6 @@ export default function EditRecipeForm({
           slug={effectiveSlug}
           state={withSlugConflict(state)}
           defaultImage={defaultImage}
-          allTags={allTags}
         />
         {/* Last: on a phone its save bar ends the form, sticky above the tab bar. */}
         <RecipeFormRail

@@ -1,6 +1,7 @@
 // @vitest-environment node
 //
-// 43e2: edit form B's fields — tags by facet (`tagPicker.ts`), ingredient
+// 43e2: edit form B's fields — the tag picker (`tagPicker.ts`; 45a made it a
+// field and suggestions, so the facet-row cases went), ingredient
 // rows (`ingredientRows.ts`), what the steps say (`stepChecks.ts`) and the
 // drink method's style tag (`drinkMethod.ts`). Pure modules, real-shaped
 // inputs (copied shapes, never reads of `editor/content`).
@@ -18,10 +19,7 @@ import {
   addTag,
   buildTagPicker,
   exactOption,
-  looseTags,
-  pickerGroups,
   searchPickerTerms,
-  serializeFacetCounts,
   tagSelection,
   tagSuggestions,
   tagsSayDrink,
@@ -116,44 +114,11 @@ function picker(): TagPicker {
   const model = buildFacetModel(TERMS);
   return buildTagPicker({
     terms: TERMS,
-    counts: serializeFacetCounts(countFacets(model, carriersFromRows(ROWS))),
+    counts: [...countFacets(model, carriersFromRows(ROWS)).subtree],
   });
 }
 
-describe("tags by facet (tagPicker)", () => {
-  it("draws the food facets with corpus counts, sorted by label", () => {
-    const groups = pickerGroups(picker(), "food");
-    expect(groups.map((group) => group.id)).toEqual([
-      "course",
-      "cuisine",
-      "effort",
-      "holidays",
-    ]);
-    const course = groups[0];
-    expect(course.rows.map((row) => [row.label, row.count])).toEqual([
-      ["Desserts", 3],
-      ["Mains", 0],
-    ]);
-    /* Children nest: Desserts › Cookies › Linzer Cookies. */
-    expect(course.rows[0].children.map((row) => row.label)).toEqual([
-      "Cookies",
-    ]);
-  });
-
-  it("draws a drink's facets: Spirit & base first, then the styles and the name", () => {
-    const groups = pickerGroups(picker(), "drinks");
-    expect(groups.map((group) => group.id)).toEqual([
-      "spirit",
-      "style",
-      "strength-method",
-      "families",
-    ]);
-    expect(groups[0].rows.map((row) => [row.label, row.count])).toEqual([
-      ["Gin", 1],
-      ["Rum", 1],
-    ]);
-  });
-
+describe("the tag picker (tagPicker)", () => {
   it("reads chosen terms by any spelling, and the parents a child reaches", () => {
     const { model } = picker();
     const selection = tagSelection(model, ["Cookies", "tex-mex", "weeknight"]);
@@ -223,7 +188,7 @@ describe("tags by facet (tagPicker)", () => {
     ]);
   });
 
-  it("finds terms for Anything else by word start, label, slug or alias", () => {
+  it("finds terms as you type by word start, label, slug or alias", () => {
     /* "tex" starts a word of the label; the alias is said when spelled out. */
     expect(
       searchPickerTerms(picker(), "tex", []).map((m) => [m.slug, m.alias]),
@@ -246,12 +211,18 @@ describe("tags by facet (tagPicker)", () => {
     expect(exactOption(found, "te")).toBe(-1);
   });
 
-  it("offers loose tags as one-click adds, or the old list without data", () => {
-    expect(looseTags(picker(), [])).toEqual(["weeknight"]);
-    expect(looseTags(picker(), ["weeknight"])).toEqual([]);
-    expect(
-      looseTags(buildTagPicker(undefined), ["soup"], ["soup", "Baked"]),
-    ).toEqual(["baked"]);
+  it("marks a parent the recipe reaches through a chosen child, and ranks it last (F1)", () => {
+    const found = searchPickerTerms(picker(), "c", ["cookies"]);
+    /* Course carries the most, but Cookies already reaches it. */
+    expect(found.map((match) => [match.slug, match.through])).toEqual([
+      ["christmas", undefined],
+      ["cuisine", undefined],
+      ["linzer", undefined],
+      ["course", ["Cookies"]],
+    ]);
+    expect(searchPickerTerms(picker(), "dess", ["cookies"])[0].through).toEqual(
+      ["Cookies"],
+    );
   });
 });
 
