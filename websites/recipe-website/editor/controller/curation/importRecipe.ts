@@ -89,6 +89,8 @@ import {
 } from "./recipes";
 import { RecipeInputSchema, parseInput, type RecipeInput } from "./schema";
 import { pacedRequest } from "./sitePacing";
+import { withoutBlankRows } from "recipe-website-common/util/blankRows";
+import { withDescriptionRecipe } from "../descriptionRecipe";
 
 export interface ImportDryRunResult {
   /** The job that ran it (epic 37): `recipes jobs show <job>` has its steps. */
@@ -262,6 +264,12 @@ export async function importFromUrl(
           asOne,
           job,
         })) ?? applied;
+      /* 45d: the description's own lists when nothing read a recipe. */
+      applied = withDescriptionRecipe(
+        applied,
+        result.metadata.description,
+        job,
+      );
     }
   } else {
     applied = await importPage(url, { llm: mode, asOne }, job);
@@ -331,7 +339,7 @@ export async function importPage(
  * zod issue on a field the caller never wrote.
  */
 export function importedToInput(
-  imported: Partial<ImportedRecipe>,
+  reading: Partial<ImportedRecipe>,
   {
     tags,
     slug,
@@ -339,6 +347,8 @@ export function importedToInput(
     image,
   }: { tags?: string[]; slug?: string; name?: string; image?: string } = {},
 ): RecipeInput {
+  /* 45d: an empty line or step (a page's blank HowToStep) is no row. */
+  const imported = withoutBlankRows(reading);
   const resolvedName = name ?? imported.name;
   if (!resolvedName) {
     throw new ValidationError(

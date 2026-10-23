@@ -158,6 +158,175 @@ new `controller/llm/estimateTimes.ts`, the edit page
   action; model off → source-only with the note; axe; baselines touched
   regenerated in Docker. The CLI command's test.
 
+### 45d — "Error parsing recipe" with nothing to see (bug, M)
+
+Roger, 2026-10-22 ~16:15 EDT: "I try to import
+https://www.youtube.com/watch?v=wiCEyvooYYI and the form has a parsing
+error 'Error parsing recipe' and I can't see the error." Branch
+`agent/45d-import-errors`.
+
+#### Results (45d)
+
+**Root cause.** Not the video, and not an import that ended in a save.
+The workstation's job store has no job for the YouTube URL; at 16:17 it
+has `01M5JM5W4FK1FSY1PWY17F2N3W`, a `form-url` import of
+`brianlagerstrom.com/recipes/everything-dough/` — the same recipe's page,
+whose result carries the video as `videoImportUrl` (so the form showed the
+YouTube link in its Video field). The page's JSON-LD ends its "LARGE
+LOAF:" `HowToSection` with a `HowToStep` whose text is empty.
+`mapInstructions` kept it as `{text: ""}`; Create posted it; the schema's
+step `text: min(1)` refused it; and the action answered
+`z.flattenError(…).fieldErrors`, which keeps only the first path segment —
+`instructions`, a key no field rendered — with the bare "Error parsing
+recipe". Reproduced in vitest on `origin/main` (the mapper keeps the empty
+step; `parseRecipeFormData` on the posted shape fails with only
+`instructions`) before any fix. On `main` the rail at least marked Steps
+"check"; on Roger's 5ca3c53f (before 43e1) nothing did.
+
+**Roger's trigger on main?** Yes until this phase: the mapper and the
+schema are unchanged since 5ca3c53f. The other suspected triggers are not
+real: on 5ca3c53f and on main the URL field is in its own `import-form`
+(Enter there submits the import, not the recipe), every in-form button is
+the component library's `Button` (`type="button"` by default), and a video
+URL takes the import action like any other link.
+
+**What changed.**
+
+- **Imports drop blank rows** (`common/util/blankRows.ts`): an empty or
+  whitespace-only (`&nbsp;` too) ingredient or step is no row; a group left
+  with no steps is dropped; a nameless group's steps join the list. Applied
+  at the page mapper (`mapInstructions`), the form's import result
+  (`formImport.ts` `withLlm`, each batch reading too) and the curation
+  input (`importedToInput`: CLI, MCP, the batch picker). The model's
+  extractor already dropped blank steps (`instructionEntries`).
+- **The form drops blank rows before it validates** (`parseFormData.ts`):
+  an untouched "Add ingredient", a blank heading, a step with no name and
+  no text, a nameless group whose steps are all blank — dropped, not
+  refused. An all-blank list is no list. Kept rows are kept byte for byte
+  (D4's round trip; 43e2's De2-6 empty step name is still no name).
+- **Every refusal says where it is** (`controller/recipeFormErrors.ts`):
+  the steps are checked by hand so the message names the step as the form
+  numbers it (reading order across groups) — "Step 4 has no text"; a
+  group shows no number, so it is named by its first step, its place or
+  its name — "The group starting “Divide cold dough into…” needs a name",
+  "The group after step 4 needs a name", "Group “Topping” has no steps",
+  "… has only empty steps" — and "Name is required", "Video link isn't a
+  URL", "Source link isn't a URL"; any other field's zod message is
+  prefixed with what it is about ("Prep time: Invalid number", "Timeline
+  1, event 2: …"). Filed under the top-level key the fields and the rail's
+  markers already read (`videoImportUrl` / `imageImportUrl` mark Picture;
+  a key no section holds is "Other"). The message counts every problem and
+  names the sections in page order: **"Couldn't save: 2 problems —
+  Picture, Steps."**
+- **Shown where they belong**: `FormSection` takes `errors` and lists them
+  under the heading (`data-testid="section-errors-<id>"`) for the problems
+  no single field shows — Ingredients, Steps (steps and timelines),
+  Picture and video (the video link) — beside the rail's "check" (43e1).
+  The list is the section heading's description (`aria-describedby`), not
+  a live region: the save's message is the one that announces.
+  `mergeFieldErrors` de-duplicates (the server's and the field's "Name is
+  required").
+- **A video description's own lists, without the model**
+  (`controller/descriptionRecipe.ts`): under a recipe heading (a short
+  line that says "recipe" or "ingredients", followed by a list),
+  `∙ • · ● ▪ ◦` / `- ` / `* ` lines are ingredients (through
+  `createIngredient`, as imports mark them), `1.` / `1)` lines steps, and a
+  short line before a list a heading (an ingredient part, or a step group:
+  "Large Loaf", "Baguettes"…). A link (also a bare domain like
+  `geni.us/abc` or `example.shop`, or an `@handle`), a timestamp, prose,
+  or a heading about gear, tools, a kit, a code, a sponsor, a shop or an
+  affiliate ends the block; it counts with two ingredient lines **and** a
+  step, and only when the description has one recipe heading (two —
+  "RECIPE 1: Pancakes … RECIPE 2: Waffles" — are the model's to split,
+  36e). A body read here clears `partial`, except after a forced or failed
+  model call. Brian Lagerstrom's
+  description reads as 6 ingredients, 4 steps and five groups (Large Loaf
+  4, Baguettes 3, Pizza 2, Bagels 4, Soft Pretzels 4); the gear list, the
+  "WATCH NEXT" links and the chapters are left alone.
+  `withDescriptionRecipe` runs **after** `applyLlm` and `followRecipeLink`
+  in all three video paths (form, `inspect`, curation import), and only
+  when the result has no ingredients and no steps and is not a batch or a
+  followed page — so `ytdlpToRecipe` is unchanged, `auto` still asks the
+  model for every video (`autoWantsModel` sees no body), and the model's
+  reading always wins. It logs a `description` note in the job.
+
+**Decisions.**
+
+- **Dd1 blank rows are dropped, not refused** (the brief's "better
+  still", which the orchestrator preferred). A blank row carries nothing;
+  refusing it only ever produced this bug. What is still refused is
+  something a person typed that cannot stand: a named step with no text, a
+  group with steps and no name, a named group with no steps.
+- **Dd2 errors keep top-level keys**, each message saying where it is,
+  rather than a new `issues` field: `ContentFormState` is the engine's
+  (portfolio shares it), and the fields and the rail already read the
+  top-level keys. The problems no field shows are listed at their section.
+- **Dd3 no old prefix**: "Error parsing recipe" is gone; the three
+  `new-recipe.spec` cases that expected it now expect the save (a blank
+  ingredient row, a blank step) or the new message ("Couldn't save: 1
+  problem — Steps." and "The group starting “This is the first
+  instruction” needs a name").
+- **Dd4 the description reader is a fallback, never a mapper.** Putting it
+  in `ytdlpToRecipe` would have given every such video a body, and `auto`
+  would have stopped asking the model (`autoWantsModel`), losing the
+  model's reading, splitting (36e) and the 38c follow.
+- **Dd5 a group named in the description keeps its words** ("Large Loaf",
+  trailing colon dropped); an ingredient part's heading gets the colon
+  `createIngredient` reads as a heading ("Dough:").
+
+**Tests.** vitest: `importRecipeSource` (a section ending with an empty and
+an `&nbsp;` step, an empty section, a nameless section, a bare empty step
+and string), `parseRecipeForm` (Roger's posted shape saves; blank rows
+dropped; the refusals' sentences and the summary), `descriptionRecipe`
+(the Everything Dough description from the e2e fixture; negatives: a gear
+list of links, bulleted links under a recipe heading, chapter lists
+numbered or not, timestamps after the steps, lists with no recipe heading,
+one ingredient, emphasis lines, and the review's probe — gear behind bare
+domains, tools with no links, a sponsor's code, handles, a list with no
+steps, prose under the heading, two recipes together or apart; the model's
+reading, a batch and a followed page never replaced; `partial` kept after a
+forced or failed model). Playwright: new `import-errors.spec` (the
+fixture page `uploads/everything-dough.html` imports and saves with the
+blank step gone; the yt-dlp fixture `everything-dough.json` fills the form
+with no model and saves; a refused save shows the message, the section
+errors and the rail's "check", then saves once fixed), and the three
+`new-recipe.spec` cases above.
+
+**Review fixes** (after the review of 151406cf): the description reader's
+false positives (bare domains and handles are links; gear/tool/kit/code/
+sponsor/shop/affiliate headings never start or continue a block; a step is
+required; two recipe headings are left to the model; `partial` kept after
+a forced or failed model); groups named by first step, place or name;
+timeline events by number; every problem counted; the section list
+described by its heading rather than a live region; `videoImportUrl` /
+`imageImportUrl` mark Picture and unknown keys say "Other".
+
+**Found by the gates:** the curation input carries prose strings beside
+`Instruction` objects (the photo picker's batch); `dropBlankSteps` read
+them with `in` and threw (`photoImport.test.ts`). Blank rows now keep a
+caller's prose lines and steps (`test/blankRows.test.ts`).
+
+**Gates** (head after the review fixes; `origin/main` had not moved).
+`recipe-editor` typecheck and `recipe-website` `tsc --noEmit` clean;
+vitest 157 files / 3,462 tests; Playwright in Docker, build mode:
+`import-errors`, `new-recipe`, `ytdlp-import`, `edit-form-frame`, `edit`,
+`multi-recipe` 72/72; `import-errors` in dev mode (Docker): 2 passed, 1
+flaky (the save's navigation to a cold-compiled recipe page over 5 s), then
+3/3 with a 15 s wait on that navigation. No baselines moved.
+
+**Roger to confirm:** Dd1 (blank rows dropped silently, no note); the
+messages' wording ("Couldn't save: …", groups named by their first step);
+the description reader's reach (one recipe heading, two ingredient lines
+and a step) — a video with its recipe in lists now imports with no model.
+
+**Traps (45d).**
+
+- `z.flattenError(…).fieldErrors` keeps the first path segment only: a
+  nested issue becomes a top-level key with zod's generic message. Say
+  where in the message.
+- The curation input's ingredients and steps may be strings as well as
+  objects: a helper over imported rows must take both.
+
 ### 45c — Close-out
 
 Doc, CLAUDE.md bullet, backlog, memory; the orchestrator's real check on

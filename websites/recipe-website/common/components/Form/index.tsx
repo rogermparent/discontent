@@ -139,15 +139,34 @@ function DrinkFirst({ from, errors }: { from?: string; errors?: string[] }) {
 }
 
 /** The section's source link, for an ingredient flag's "Open the page". */
-function IngredientsWithSource({ from }: { from?: string }) {
+function IngredientsWithSource({
+  from,
+  errors,
+}: {
+  from?: string;
+  errors?: string[];
+}) {
   const form = useRecipeForm();
   const url = useStore(form.store, (state) => state.values.source.url.trim());
   return (
     <IngredientsSection
       from={from}
       sourceUrl={/^https?:\/\//i.test(url) ? url : undefined}
+      errors={errors}
     />
   );
+}
+
+/* A refused save's problems that no field shows by itself (45d). */
+const VIDEO_ERRORS = ["video", "videoUrl", "videoImportUrl", "imageImportUrl"];
+const STEP_ERRORS = ["instructions", "timelines"];
+
+function sectionErrors(
+  state: RecipeFormState | undefined,
+  keys: readonly string[],
+): string[] | undefined {
+  const errors = keys.flatMap((key) => state?.errors?.[key] ?? []);
+  return errors.length ? errors : undefined;
 }
 
 /**
@@ -270,6 +289,7 @@ export default function RecipeFields({
         id="picture"
         title="Picture and video"
         from={imported(imageImportUrl)}
+        errors={sectionErrors(state, VIDEO_ERRORS)}
       >
         {/*
           Image and video are file uploads: browsers don't allow setting a file
@@ -297,12 +317,16 @@ export default function RecipeFields({
           videoToImport={videoImportUrl}
         />
       </FormSection>
-      <IngredientsWithSource from={imported(recipe?.ingredients?.length)} />
+      <IngredientsWithSource
+        from={imported(recipe?.ingredients?.length)}
+        errors={state?.errors?.ingredients}
+      />
       <FormSection
         id="steps"
         title="Steps"
         from={imported(recipe?.instructions?.length)}
         aside={<StepsCount />}
+        errors={sectionErrors(state, STEP_ERRORS)}
       >
         <InstructionsListInput label="" id="recipe-form-instructions" />
         <Timelines />

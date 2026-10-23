@@ -13,6 +13,7 @@ import {
   mapRecipeNodes,
 } from "recipe-website-common/util/importRecipeData";
 import { fetchYtdlpMetadata, ytdlpToRecipe } from "./ytdlp";
+import { withDescriptionRecipe } from "./descriptionRecipe";
 import {
   applyLlm,
   readPastedText,
@@ -29,6 +30,7 @@ import { jobContext, type JobRun } from "./jobs/context";
 import type { StoredPhoto } from "./jobs/photos";
 import { fetchPageStep, parsePage, videoLinkStep } from "./jobs/steps";
 import { PHOTO_TEXT_LABEL } from "./photoLimits";
+import { withoutBlankRows } from "recipe-website-common/util/blankRows";
 
 export interface RecipeActionState {
   url?: string;
@@ -89,14 +91,18 @@ function withLlm(
 ): RecipeActionState {
   return {
     ...(url ? { url } : {}),
-    recipe,
+    /* 45d: an empty line or step is no row — the form would refuse it. */
+    recipe: recipe && withoutBlankRows(recipe),
     ...(message ? { message } : {}),
     ...(llm ? { llm } : {}),
     ...(warnings.length > 0 ? { warnings } : {}),
     /* A batch remounts its picker on every import, even of the same URL. */
     ...(recipes && recipes.length > 1
       ? {
-          recipes,
+          recipes: recipes.map((reading) => {
+            const recipe = withoutBlankRows(reading.recipe);
+            return recipe === reading.recipe ? reading : { ...reading, recipe };
+          }),
           key: `batch-${crypto.randomUUID()}`,
           ...(leftOut?.length ? { leftOut } : {}),
         }
@@ -153,7 +159,15 @@ export async function reduceRecipeImport(
             mode,
             job,
           });
-          const state = withLlm(url, followed ?? applied);
+          /* 45d: the description's own lists when nothing read a recipe. */
+          const state = withLlm(
+            url,
+            withDescriptionRecipe(
+              followed ?? applied,
+              result.metadata.description,
+              job,
+            ),
+          );
           if (followed?.recipes && fromPageBatch(followed.recipes)) {
             return { ...state, fromPage: true };
           }

@@ -35,6 +35,7 @@ import type {
 import simpleGit, { SimpleGit } from "simple-git";
 import { z } from "zod";
 import parseRecipeFormData, { ParsedRecipeFormData } from "../parseFormData";
+import { recipeFormFailure } from "../recipeFormErrors";
 import { recipeContentTypes } from "../contentTypes";
 import { ImportError } from "../curation/errors";
 import { fetchImageFilePaced } from "../imageImport";
@@ -216,12 +217,11 @@ const recipeEditorConfig: EditorContentConfig<
   parseFormData(formData: FormData) {
     const formResult = parseRecipeFormData(formData);
     if (!formResult.success) {
+      /* 45d: each problem says where it is, and the message names the
+       * sections — never a bare "Error parsing recipe" again. */
       return {
         success: false as const,
-        state: {
-          errors: z.flattenError(formResult.error).fieldErrors,
-          message: "Error parsing recipe",
-        },
+        state: recipeFormFailure(formResult.error),
       };
     }
     return { success: true as const, parsed: formResult.data };

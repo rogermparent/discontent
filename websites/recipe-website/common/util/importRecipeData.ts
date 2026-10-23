@@ -7,6 +7,7 @@ import {
   RecipeSource,
 } from "../controller/types";
 import { createIngredient, normalizeIngredientText } from "./parseIngredients";
+import { dropBlankSteps } from "./blankRows";
 import { dropsBareYield, siteLabel } from "./siteNames";
 import { parseDurationToMinutes } from "./isoDuration";
 import { normalizeTags } from "../controller/normalizeTags";
@@ -329,6 +330,12 @@ function mapInstructions(
   const entries = Array.isArray(recipeInstructions)
     ? recipeInstructions
     : [recipeInstructions];
+  /* 45d: a page's empty HowToStep (Brian Lagerstrom's "LARGE LOAF:" ends
+   * with one) is no step, and a section left with none is no section. */
+  return dropBlankSteps(mapInstructionEntries(entries));
+}
+
+function mapInstructionEntries(entries: InstructionLD[]): InstructionEntry[] {
   return entries.flatMap((entry): InstructionEntry[] => {
     // Handle string-based instructions
     if (typeof entry === "string") {
