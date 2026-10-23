@@ -17,7 +17,6 @@ export default function NewRecipeWorkspace({
   initialState,
   initialJob,
   initialImportUrl,
-  allTags,
   tagPicker,
   terms,
   llmModel,
@@ -28,7 +27,6 @@ export default function NewRecipeWorkspace({
   initialJob?: string;
   /** `/new-recipe?import=<url>` (38b, D3): the URL to fill in, not fetch. */
   initialImportUrl?: string;
-  allTags: string[];
   /** The tag picker's vocabulary and counts (43e2). */
   tagPicker?: TagPickerData;
   terms: { slug: string; label: string }[];
@@ -43,7 +41,6 @@ export default function NewRecipeWorkspace({
         initialState={initialState}
         initialJob={initialJob}
         initialImportUrl={initialImportUrl}
-        allTags={allTags}
         tagPicker={tagPicker}
         terms={terms}
         llmModel={llmModel}

@@ -172,5 +172,6 @@ export function getSearchCorpus(): Promise<ReadRecipeIndexResult> {
 
 /*
  * `getAllTags()` lived here until 31b. Its callers read `readTagLabels()`
- * (`readTermPage.ts`), the server half of the one "all terms" list.
+ * (`readTermPage.ts`), the server half of the one "all terms" list, until
+ * 45a: the recipe and group forms now read `readTagPicker()`.
  */

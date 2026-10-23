@@ -11,11 +11,9 @@ import type { TagPickerData } from "recipe-website-common/components/Form/Tags/t
 
 export default function CopyRecipeForm({
   recipe,
-  allTags = [],
   tagPicker,
 }: {
   recipe: Recipe;
-  allTags?: string[];
   tagPicker?: TagPickerData;
 }) {
   const initialState = { message: "", errors: {} } as RecipeFormState;
@@ -28,11 +26,7 @@ export default function CopyRecipeForm({
       tagPicker={tagPicker}
       className="w-full h-full flex flex-col grow"
     >
-      <UpdateRecipeFields
-        recipe={cleanedRecipe}
-        state={state}
-        allTags={allTags}
-      />
+      <UpdateRecipeFields recipe={cleanedRecipe} state={state} />
       <div id="missing-fields-error" aria-live="polite" aria-atomic="true">
         {state.message && (
           <p className="mt-2 text-sm text-destructive">{state.message}</p>

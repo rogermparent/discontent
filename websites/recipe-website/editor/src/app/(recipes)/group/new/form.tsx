@@ -5,13 +5,14 @@ import { useActionState } from "react";
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
 import type { GroupFormState } from "recipe-website-common/controller/groupFormState";
 import { createGroup } from "recipe-editor/controller/actions/groups";
+import type { TagPickerData } from "recipe-website-common/components/Form/Tags/tagPicker";
 
 export default function NewGroupForm({
   preselectedRecipe,
-  allTags,
+  tagPicker,
 }: {
   preselectedRecipe?: string;
-  allTags?: string[];
+  tagPicker?: TagPickerData;
 }) {
   const initialState = { message: "", errors: {} } as GroupFormState;
   const [state, dispatch] = useActionState(createGroup, initialState);
@@ -22,7 +23,7 @@ export default function NewGroupForm({
       <div className="flex flex-col flex-nowrap">
         <CreateGroupFields
           state={state}
-          allTags={allTags}
+          tagPicker={tagPicker}
           /*
            * `?recipe=` becomes the first row's default. The row is there
            * either way — a group form with no rows has no obvious affordance —
