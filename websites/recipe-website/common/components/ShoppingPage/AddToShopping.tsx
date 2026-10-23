@@ -7,6 +7,8 @@ import { Button } from "@discontent/component-library/components/ui/button";
 import { Input } from "@discontent/component-library/components/ui/input";
 import { isValidScale } from "../../util/scale";
 import { useMultiplier } from "../View/Multiplier/Provider";
+import { useChoices } from "../View/Choices";
+import { hasChoices } from "../../util/alternatives";
 import { isActionError, type ShoppingPageActions } from "./useShoppingList";
 
 type Add = ShoppingPageActions["add"];
@@ -125,6 +127,10 @@ export function AddRecipeToShopping({
   add: Add;
 }) {
   const [{ multiplier }] = useMultiplier();
+  /* 45e: the reader's pick among the recipe's alternatives goes with it. */
+  const choices = useChoices();
+  const picks =
+    choices && hasChoices(choices.choices) ? choices.path.picks : undefined;
   const [message, setMessage] = useState<string>();
   const [busy, setBusy] = useState(false);
   /* A zero or negative scale (typed into the scaler) adds nothing: say so. */
@@ -142,7 +148,11 @@ export function AddRecipeToShopping({
           setBusy(true);
           try {
             setMessage(
-              await addAndSay(add, { recipe, ...(scale ? { scale } : {}) }),
+              await addAndSay(add, {
+                recipe,
+                ...(scale ? { scale } : {}),
+                ...(picks ? { picks } : {}),
+              }),
             );
           } finally {
             setBusy(false);

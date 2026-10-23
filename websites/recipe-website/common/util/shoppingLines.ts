@@ -30,6 +30,8 @@ import {
   stripOrLabel,
 } from "./ingredientNames";
 import type { ShoppingSubRecipe } from "./shoppingTypes";
+import { hasChoices, shownPath, type Picks } from "./alternatives";
+import { readChoices } from "./readChoices";
 
 /**
  * How many sub-recipes deep a line expands: a pie's crust's lard is two.
@@ -37,7 +39,12 @@ import type { ShoppingSubRecipe } from "./shoppingTypes";
  */
 export const MAX_SUBRECIPE_DEPTH = 3;
 
-type Ingredients = Pick<Recipe, "ingredients">;
+/**
+ * What the list reads of a recipe: its lines, and its steps when it has them
+ * — they say which lines belong to which of its alternatives (45e, G1).
+ */
+type Ingredients = Pick<Recipe, "ingredients"> &
+  Partial<Pick<Recipe, "instructions">>;
 
 /** One ingredient line on its way to the list. */
 export interface RecipeLine {
@@ -54,8 +61,16 @@ export interface RecipeLine {
  * A recipe's ingredient lines: markup flattened, headings — stored or
  * detected — skipped, a line marked optional when the recipe makes it so (a
  * garnish section, "to taste").
+ *
+ * A recipe with alternatives (45e) gives the lines on the path `picks`
+ * choose — the default option of each set when there are none (G2), every
+ * option's under an "All" — with `line` still the index in the full list.
  */
-export function recipeLines(recipe: Ingredients): RecipeLine[] {
+export function recipeLines(recipe: Ingredients, picks?: Picks): RecipeLine[] {
+  const choices = readChoices(recipe);
+  const shown = hasChoices(choices)
+    ? shownPath(choices, picks).lines
+    : undefined;
   const ingredients = recipe.ingredients ?? [];
   const texts = ingredients.map(({ ingredient }) =>
     flattenMarkdown(ingredient),
@@ -71,7 +86,10 @@ export function recipeLines(recipe: Ingredients): RecipeLine[] {
     );
   }
   return texts.flatMap((text, line) =>
-    !text.trim() || headings.has(line) || detectHeading(text)
+    !text.trim() ||
+    headings.has(line) ||
+    detectHeading(text) ||
+    shown?.[line] === false
       ? []
       : [
           {
@@ -227,6 +245,11 @@ export interface ExpandOptions {
   maxDepth?: number;
   /** Reads shared across one add (a plan names a sub-recipe many times). */
   cache?: Map<string, Promise<(Ingredients & { name: string }) | null>>;
+  /**
+   * The reader's pick among the recipe's alternatives (45e): its own lines
+   * follow it; a sub-recipe's always follow its defaults (G2).
+   */
+  picks?: Picks;
 }
 
 export interface ExpandResult {
@@ -251,6 +274,7 @@ export async function expandRecipeLines(
     scale = new Fraction(1),
     maxDepth = MAX_SUBRECIPE_DEPTH,
     cache = new Map(),
+    picks,
   }: ExpandOptions,
 ): Promise<ExpandResult> {
   const warnings: string[] = [];
@@ -274,7 +298,7 @@ export async function expandRecipeLines(
     optionalAbove: boolean,
   ): Promise<ExpandedLine[]> => {
     const out: ExpandedLine[] = [];
-    const lines = recipeLines(current);
+    const lines = recipeLines(current, path.length === 0 ? picks : undefined);
     for (const [index, line] of lines.entries()) {
       const kept: ExpandedLine = {
         ...line,

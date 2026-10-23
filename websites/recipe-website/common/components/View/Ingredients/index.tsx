@@ -20,17 +20,44 @@ import { Checkbox } from "@discontent/component-library/components/ui/checkbox";
 import { MultiplierInput } from "../Multiplier";
 import { INGREDIENTS_ID } from "../JumpLinks";
 import { cn } from "@discontent/component-library/lib/utils";
+import { hasChoices, optionOfLine } from "../../../util/alternatives";
+import { choiceSetId, offPath, useChoices } from "../Choices";
 
-export function IngredientItem({ ingredient, type }: Ingredient) {
+export function IngredientItem({
+  ingredient,
+  type,
+  shown = true,
+  option,
+}: Ingredient & {
+  /** On the reader's path (45e): false for an option not chosen. */
+  shown?: boolean;
+  /** The option a heading starts, and its set's picker anchor (45e). */
+  option?: { label: string; href: string };
+}) {
   // If the ingredient is a heading, render it as such
   if (type === "heading") {
     return (
-      <li>
+      <li {...offPath(shown)}>
         <h3 className="my-2 text-lg font-semibold">
           <StyledMarkdown components={{ Multiplyable }}>
             {ingredient}
           </StyledMarkdown>
         </h3>
+        {/* An option's extras say so, with the way back to the picker. */}
+        {option && (
+          <p
+            data-testid="choice-extras-note"
+            className="-mt-1.5 mb-1 text-xs text-muted-foreground print:hidden"
+          >
+            Only for {option.label} ·{" "}
+            <a
+              href={option.href}
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              choose another
+            </a>
+          </p>
+        )}
       </li>
     );
   }
@@ -38,7 +65,7 @@ export function IngredientItem({ ingredient, type }: Ingredient) {
   // Otherwise, render the standard ingredient item. The Checkbox is a labelable
   // control, so clicking anywhere in the wrapping label toggles it.
   return (
-    <li>
+    <li {...offPath(shown)}>
       <label className="my-2 flex flex-row flex-nowrap items-center gap-2 print:h-auto">
         <Checkbox className="m-2 shrink-0" />
         <IngredientLineText ingredient={ingredient} />
@@ -121,6 +148,21 @@ export function Ingredients({
   // Reset clears the checklist by remounting the list (the checkboxes are
   // uncontrolled, so remounting returns them to their default unchecked state).
   const [resetKey, setResetKey] = useState(0);
+  /* 45e: the lines on the reader's path; the others stay, hidden on screen. */
+  const context = useChoices();
+  const shownLines = context?.path.lines;
+  const optionAt = (line: number) => {
+    if (!context || !hasChoices(context.choices)) return undefined;
+    const owner = optionOfLine(context.choices, line);
+    if (!owner || owner.option.ingredientLines[0] !== line) return undefined;
+    return {
+      label: owner.option.label,
+      href: `#${choiceSetId(owner.set.key)}`,
+    };
+  };
+  const shownIngredients = shownLines
+    ? (ingredients ?? []).filter((_, i) => shownLines[i] !== false)
+    : ingredients;
 
   return (
     ingredients && (
@@ -180,10 +222,16 @@ export function Ingredients({
           className="text-lg print:text-sm"
         >
           {ingredients.map(({ ingredient, type }, i) => (
-            <IngredientItem key={i} ingredient={ingredient} type={type} />
+            <IngredientItem
+              key={i}
+              ingredient={ingredient}
+              type={type}
+              shown={shownLines?.[i] !== false}
+              option={type === "heading" ? optionAt(i) : undefined}
+            />
           ))}
         </ul>
-        <BatchingNote ingredients={ingredients} drink={drink} />
+        <BatchingNote ingredients={shownIngredients ?? []} drink={drink} />
         {/* Below the list, not in the sticky header: a result line there
             would ride along over the recipe. */}
         {actions && <div className="my-2 print:hidden">{actions}</div>}

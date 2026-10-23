@@ -437,3 +437,48 @@ describe("edit form B's fields, edge cases and controls (43e2 review)", () => {
     ]);
   });
 });
+
+/* 45e1: a recipe with alternatives, as the API stores it. */
+const EVERYTHING_DOUGH: Partial<ImportedRecipe> = {
+  name: "Everything Dough",
+  date: 1_760_400_000_000,
+  recipeYield: "1 batch of dough",
+  ingredients: [
+    { ingredient: "For the dough", type: "heading" },
+    { ingredient: '<Multiplyable baseNumber="500" /> g bread flour' },
+    { ingredient: "For the bagels", type: "heading", choice: "Then make" },
+    { ingredient: '<Multiplyable baseNumber="2" /> tbsp molasses' },
+    { ingredient: "For the pretzels", type: "heading", choice: "Then make" },
+    { ingredient: '<Multiplyable baseNumber="1/4" /> cup baking soda' },
+  ],
+  instructions: [
+    { name: "Dough", instructions: [{ text: "Mix and rise." }] },
+    {
+      name: "Bagels",
+      instructions: [{ text: "Shape, boil and bake." }],
+      choice: "Then make",
+      recipeYield: '<Multiplyable baseNumber="8" /> bagels',
+    },
+    {
+      name: "Pretzels",
+      instructions: [{ text: "Shape, dip and bake." }],
+      choice: "Then make",
+    },
+    { text: "Cool." },
+  ],
+};
+
+describe("alternatives survive a save with no changes (45e1, 43-D4)", () => {
+  it("posts each group's choice and yield and each heading's choice back", async () => {
+    const { container } = renderForm(EVERYTHING_DOUGH, "everything-dough");
+    await settle();
+    const data = post(container);
+    /* Compared as the JSON that lands in recipe.json: bytes, key order too. */
+    expect(JSON.stringify(data.ingredients)).toBe(
+      JSON.stringify(EVERYTHING_DOUGH.ingredients),
+    );
+    expect(JSON.stringify(data.instructions)).toBe(
+      JSON.stringify(EVERYTHING_DOUGH.instructions),
+    );
+  });
+});

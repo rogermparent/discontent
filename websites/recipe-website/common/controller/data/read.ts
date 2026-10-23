@@ -37,6 +37,8 @@ export type MassagedRecipeEntry = {
   ingredientHeadings?: number[];
   /** Lines' recipe links, for `/make` (25c). Rides on `/search/all`. */
   ingredientRecipeLinks?: IngredientRecipeLink[];
+  /** Lines off the default option, which `/make` skips (45e). Rides on `/search/all`. */
+  ingredientAlternates?: number[];
   /** For the `source:` filter (27d). Ride on `/search/all`; never tokenized. */
   sourceName?: string;
   sourceHost?: string;
@@ -106,6 +108,7 @@ export async function getRecipes({
         totalTime,
         ingredientHeadings,
         ingredientRecipeLinks,
+        ingredientAlternates,
         sourceName,
         sourceHost,
       },
@@ -122,6 +125,7 @@ export async function getRecipes({
       totalTime,
       ingredientHeadings,
       ingredientRecipeLinks,
+      ingredientAlternates,
       sourceName,
       sourceHost,
     }),

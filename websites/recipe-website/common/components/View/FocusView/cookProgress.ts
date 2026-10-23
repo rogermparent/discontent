@@ -23,9 +23,13 @@ export interface CookProgress {
   layout: CookLayout;
 }
 
-/** The key one recipe's progress lives under. */
-export function cookProgressKey(slug: string): string {
-  return `cook-view:${slug}`;
+/**
+ * The key one recipe's progress lives under. `variant` is the path through
+ * its alternatives (45e: `then-make=bagels`), so each option keeps its own
+ * ticks; a recipe without alternatives has none and keeps its old key.
+ */
+export function cookProgressKey(slug: string, variant?: string): string {
+  return variant ? `cook-view:${slug}|${variant}` : `cook-view:${slug}`;
 }
 
 /** Indices in range, each once, in order. */
@@ -57,10 +61,11 @@ export function readCookProgress(
   storage: Pick<Storage, "getItem"> | undefined,
   slug: string,
   shape: { steps: number; ingredients: number; fallbackLayout: CookLayout },
+  variant?: string,
 ): CookProgress {
   let saved: Record<string, unknown> = {};
   try {
-    const raw = storage?.getItem(cookProgressKey(slug));
+    const raw = storage?.getItem(cookProgressKey(slug, variant));
     const parsed: unknown = raw ? JSON.parse(raw) : undefined;
     if (parsed && typeof parsed === "object") {
       saved = parsed as Record<string, unknown>;
@@ -88,9 +93,10 @@ export function writeCookProgress(
   storage: Pick<Storage, "setItem"> | undefined,
   slug: string,
   progress: CookProgress,
+  variant?: string,
 ): void {
   try {
-    storage?.setItem(cookProgressKey(slug), JSON.stringify(progress));
+    storage?.setItem(cookProgressKey(slug, variant), JSON.stringify(progress));
   } catch {
     /* Quota or blocked storage: the view still works for this visit. */
   }

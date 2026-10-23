@@ -282,6 +282,14 @@ function IngredientRow({
           value="heading"
         />
       ) : null}
+      {/* 45e: a heading's option rides along unedited (45e2 edits it). */}
+      {heading && line.choice ? (
+        <input
+          type="hidden"
+          name={`ingredients[${index}].choice`}
+          value={line.choice}
+        />
+      ) : null}
       <div className="grid min-h-10 grid-cols-[1.25rem_minmax(0,1fr)_2rem] items-center gap-x-2.5 text-[0.9375rem] leading-[1.375rem] max-sm:min-h-[3.25rem] max-sm:grid-cols-[minmax(0,1fr)_2.75rem] sm:grid-cols-[1.25rem_9.375rem_minmax(0,1fr)_2rem]">
         <span
           className="font-mono text-xs text-muted-foreground tabular-nums max-sm:hidden"
@@ -579,6 +587,13 @@ export function IngredientsSection({
                   type="hidden"
                   name={`ingredients[${index}].type`}
                   value="heading"
+                />
+              ) : null}
+              {line.type === "heading" && line.choice ? (
+                <input
+                  type="hidden"
+                  name={`ingredients[${index}].choice`}
+                  value={line.choice}
                 />
               ) : null}
             </Fragment>

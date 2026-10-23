@@ -1,20 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type {
   Ingredient,
   Instruction,
   InstructionEntry,
+  InstructionGroup,
 } from "../../../controller/types";
 
 import { cn } from "@discontent/component-library/lib/utils";
+import StyledMarkdown from "@discontent/component-library/components/Markdown";
+import {
+  plainChoices,
+  setStartingAt,
+  shownPath,
+  type PathStep,
+} from "../../../util/alternatives";
+import {
+  ChoicePicker,
+  choiceSetId,
+  offPath,
+  pickOf,
+  useChoices,
+} from "../Choices";
 import { Multiplyable } from "../Multiplier/Multiplyable";
 import { VideoTime } from "./VideoTime";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Checkbox } from "@discontent/component-library/components/ui/checkbox";
 import { INSTRUCTIONS_ID } from "../JumpLinks";
 import { IngredientLineText } from "../Ingredients";
-import { stepNumbers } from "../../../util/stepNumbers";
 import type { StepLines } from "../../../util/stepIngredients";
 import { stepId } from "./stepId";
 import { StepText } from "../Timers";
@@ -74,12 +88,18 @@ function StepUses({
 function StepItem({
   step,
   number,
+  id = stepId(number),
+  timerKey = number,
   uses,
   ingredients,
   inGroup = false,
 }: {
   step: Instruction;
   number: number;
+  /** Its anchor: `stepId(number)`, or an option's (45e, G4). */
+  id?: string;
+  /** What its timers are keyed by (45e): the number, or an option's key. */
+  timerKey?: number | string;
   uses?: number[];
   ingredients: Ingredient[];
   /** Under a group's h3, a step's own title is an h4; otherwise an h3. */
@@ -89,7 +109,7 @@ function StepItem({
   const StepHeading = inGroup ? "h4" : "h3";
   return (
     <li
-      id={stepId(number)}
+      id={id}
       className="flex scroll-mt-[calc(var(--sticky-chrome-offset)+1rem)] flex-row flex-nowrap gap-3 rounded-lg border border-border bg-card px-3 py-3 sm:px-4 print:border-0 print:px-0 print:py-1"
     >
       <span className="mt-1.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-input font-mono text-sm font-semibold tabular-nums print:border-0">
@@ -109,7 +129,12 @@ function StepItem({
               and markdown-to-jsx returns them unwrapped, so each would be
               its own item of this no-wrap row (sideways scroll on a phone). */}
           <span>
-            <StepText text={text} step={number} components={stepComponents} />
+            <StepText
+              text={text}
+              step={number}
+              timerKey={timerKey}
+              components={stepComponents}
+            />
           </span>
         </label>
         {uses && <StepUses lines={uses} ingredients={ingredients} />}
@@ -119,6 +144,86 @@ function StepItem({
 }
 
 const stepListStyle = "flex flex-col gap-2.5";
+
+/** A step group: its h3 with the steps it covers, and its steps. */
+function GroupItem({
+  entry,
+  steps,
+  uses,
+  ingredients,
+  shownLines,
+  shown,
+  option = false,
+}: {
+  entry: InstructionGroup;
+  /** Each step's place on the path (45e). */
+  steps: PathStep[];
+  /** On the path: false for an option not chosen (hidden on screen). */
+  shown: boolean;
+  /** An option of a set (45e): its yield shows beside its steps. */
+  option?: boolean;
+  uses?: number[][];
+  ingredients: Ingredient[];
+  shownLines: boolean[];
+}) {
+  const items = entry.instructions ?? [];
+  const first = steps[0]?.number;
+  const last = steps[items.length - 1]?.number;
+  const optionYield = option ? entry.recipeYield?.trim() : undefined;
+  return (
+    <li className="flex flex-col gap-2 pt-1" {...offPath(shown)}>
+      {entry.name && (
+        <h3 className="flex flex-row flex-wrap items-baseline gap-x-2.5 text-lg font-bold">
+          {entry.name}
+          {items.length > 0 && (
+            <span className="font-mono text-xs font-medium text-muted-foreground">
+              {items.length === 1 ? `step ${first}` : `steps ${first}–${last}`}
+            </span>
+          )}
+          {/* An option's yield (45e): "makes 8 bagels". */}
+          {optionYield && (
+            <span
+              data-testid="choice-yield"
+              className="font-mono text-xs font-medium text-muted-foreground"
+            >
+              makes{" "}
+              <StyledMarkdown forceInline className="" components={yieldParts}>
+                {optionYield}
+              </StyledMarkdown>
+            </span>
+          )}
+        </h3>
+      )}
+      <ol className={stepListStyle}>
+        {items.map((step, j) => (
+          <StepItem
+            key={j}
+            step={step}
+            number={steps[j].number}
+            id={steps[j].id}
+            timerKey={steps[j].timerKey}
+            uses={shownUses(uses?.[j], shownLines)}
+            ingredients={ingredients}
+            inGroup={Boolean(entry.name)}
+          />
+        ))}
+      </ol>
+    </li>
+  );
+}
+
+const yieldParts = { Multiplyable };
+
+/** A step's "Uses", less the lines off the reader's path (45e). */
+function shownUses(
+  lines: number[] | undefined,
+  shown: boolean[],
+): number[] | undefined {
+  if (!lines) return lines;
+  return lines.some((line) => shown[line] === false)
+    ? lines.filter((line) => shown[line] !== false)
+    : lines;
+}
 
 export function Instructions({
   instructions,
@@ -136,9 +241,85 @@ export function Instructions({
 }) {
   // Reset clears the checklist by remounting the list (see Ingredients).
   const [resetKey, setResetKey] = useState(0);
+  const context = useChoices();
 
   if (!instructions) return null;
-  const numbers = stepNumbers(instructions);
+  /* 45e (G4): the numbers, anchors and timer keys of the reader's path —
+     for a recipe without alternatives, `stepNumbers`' own. */
+  const choices =
+    context?.choices ?? plainChoices(instructions, ingredients.length);
+  const path = context?.path ?? shownPath(choices);
+  const shownLines = path.lines;
+
+  const items: ReactNode[] = [];
+  for (let i = 0; i < instructions.length; i++) {
+    const entry = instructions[i];
+    const set = setStartingAt(choices, i);
+    if (set) {
+      /* A set of alternatives: its picker, then its options' groups. */
+      const end = Math.max(...set.options.flatMap((o) => o.groupIndexes));
+      const groups: ReactNode[] = [];
+      for (let g = i; g <= end; g++) {
+        groups.push(
+          <GroupItem
+            key={g}
+            entry={instructions[g] as InstructionGroup}
+            steps={path.steps[g]}
+            shown={path.entries[g]}
+            option
+            uses={uses?.[g]}
+            ingredients={ingredients}
+            shownLines={shownLines}
+          />,
+        );
+      }
+      items.push(
+        <li
+          key={`set-${set.key}`}
+          id={choiceSetId(set.key)}
+          data-testid="choice-set"
+          className="flex scroll-mt-[calc(var(--sticky-chrome-offset)+1rem)] flex-col gap-2.5 pt-1"
+        >
+          {context && (
+            <ChoicePicker
+              set={set}
+              value={pickOf(path, set)}
+              onChange={(option) => context.choose(set.key, option)}
+            />
+          )}
+          <ol className={stepListStyle}>{groups}</ol>
+        </li>,
+      );
+      i = end;
+      continue;
+    }
+    if ("instructions" in entry) {
+      items.push(
+        <GroupItem
+          key={i}
+          entry={entry}
+          steps={path.steps[i]}
+          shown={path.entries[i]}
+          uses={uses?.[i]}
+          ingredients={ingredients}
+          shownLines={shownLines}
+        />,
+      );
+      continue;
+    }
+    const [step] = path.steps[i];
+    items.push(
+      <StepItem
+        key={i}
+        step={entry}
+        number={step.number}
+        id={step.id}
+        timerKey={step.timerKey}
+        uses={shownUses(uses?.[i]?.[0], shownLines)}
+        ingredients={ingredients}
+      />,
+    );
+  }
 
   return (
     <section
@@ -164,50 +345,7 @@ export function Instructions({
         </Button>
       </h2>
       <ol key={resetKey} className={stepListStyle}>
-        {instructions.map((entry, i) => {
-          if ("instructions" in entry) {
-            const steps = entry.instructions ?? [];
-            const first = numbers[i][0];
-            const last = numbers[i][steps.length - 1];
-            return (
-              <li key={i} className="flex flex-col gap-2 pt-1">
-                {entry.name && (
-                  <h3 className="flex flex-row flex-wrap items-baseline gap-x-2.5 text-lg font-bold">
-                    {entry.name}
-                    {steps.length > 0 && (
-                      <span className="font-mono text-xs font-medium text-muted-foreground">
-                        {steps.length === 1
-                          ? `step ${first}`
-                          : `steps ${first}–${last}`}
-                      </span>
-                    )}
-                  </h3>
-                )}
-                <ol className={stepListStyle}>
-                  {steps.map((step, j) => (
-                    <StepItem
-                      key={j}
-                      step={step}
-                      number={numbers[i][j]}
-                      uses={uses?.[i]?.[j]}
-                      ingredients={ingredients}
-                      inGroup={Boolean(entry.name)}
-                    />
-                  ))}
-                </ol>
-              </li>
-            );
-          }
-          return (
-            <StepItem
-              key={i}
-              step={entry}
-              number={numbers[i][0]}
-              uses={uses?.[i]?.[0]}
-              ingredients={ingredients}
-            />
-          );
-        })}
+        {items}
       </ol>
     </section>
   );

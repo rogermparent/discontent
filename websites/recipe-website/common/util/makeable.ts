@@ -136,6 +136,11 @@ export interface MakeRecipe {
   ingredientHeadings?: number[];
   /** Each `/recipe/<slug>` link in a line (25c index field). */
   ingredientRecipeLinks?: { line: number; slug: string }[];
+  /**
+   * Lines of options other than their set's default (45e index field):
+   * Make counts the default option of a recipe's alternatives (G2).
+   */
+  ingredientAlternates?: number[];
 }
 
 /** An inventory entry, through the same word pipeline as a line. */
@@ -601,12 +606,20 @@ export function prepareRecipe(recipe: MakeRecipe): PreparedRecipe {
   for (const { line, slug } of recipe.ingredientRecipeLinks ?? []) {
     links.set(line, [...(links.get(line) ?? []), slug]);
   }
+  const requirements = parseIngredientList(
+    recipe.ingredients ?? [],
+    recipe.ingredientHeadings,
+  );
+  /* 45e (G2): only the default option's extras count. */
+  const alternates = new Set(recipe.ingredientAlternates ?? []);
   return {
     recipe,
-    requirements: parseIngredientList(
-      recipe.ingredients ?? [],
-      recipe.ingredientHeadings,
-    ),
+    requirements:
+      alternates.size > 0
+        ? requirements.filter(
+            (requirement) => !alternates.has(requirement.line),
+          )
+        : requirements,
     links,
   };
 }

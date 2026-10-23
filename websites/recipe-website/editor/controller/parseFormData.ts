@@ -168,7 +168,13 @@ const ingredientsSchema = z
         });
         return;
       }
-      kept.push(type === "heading" ? { ingredient, type } : { ingredient });
+      /* 45e: a heading's `choice` (a hidden input) ties it to an option. */
+      const choice = textOf(row.choice).trim();
+      kept.push(
+        type === "heading"
+          ? { ingredient, type, ...(choice ? { choice } : {}) }
+          : { ingredient },
+      );
     });
     return kept.length ? kept : undefined;
   });
@@ -283,7 +289,16 @@ const instructionsSchema = z
         }
         return;
       }
-      kept.push({ name, instructions: steps });
+      /* 45e: an option's set and yield ride along in hidden inputs, so a
+         save with no changes keeps them (43-D4); 45e2 edits them. */
+      const choice = textOf(entry.choice).trim();
+      const optionYield = textOf(entry.recipeYield);
+      kept.push({
+        name,
+        instructions: steps,
+        ...(choice ? { choice } : {}),
+        ...(optionYield.trim() ? { recipeYield: optionYield } : {}),
+      });
     });
     return kept.length ? kept : undefined;
   });

@@ -392,6 +392,103 @@ His answers:
   - Playwright: a new `alternatives.spec` on a fixture recipe with one set and extras (tabs, pick, the rail changes, numbering, `?pick=` link, remembered after reload, "All", cook view, add-to-list sends the pick, axe), plus a two-set fixture.
   - New baselines (recipe page desktop and phone) in Docker. Existing recipe-page baselines must not move (old data renders as before).
 
+#### Results (45e1)
+
+**The model.** `common/util/alternatives.ts` is the browser's half and
+imports nothing but slugify: the `Choices` model (`sets`, `entrySteps`,
+`ingredientCount`), `shownPath(choices, picks)`, the pick helpers
+(`resolvePicks`, `cookPicks`, `parsePickParam` / `formatPickParam`, the
+localStorage pair) and `plainChoices` for a recipe with nothing to choose.
+`common/util/readChoices.ts` is the server's half — `readChoices(recipe)`,
+`recipeOnPath(recipe, picks?)`, `alternateLines(recipe)` — because pairing a
+heading with its option goes through `sectionKey`, so through
+`ingredientNames`, which 42c1 kept off the recipe page's bundle. The page
+computes the model on the server and hands it to `ChoicesProvider`
+(`View/Choices`), which every reader on the page reads: the steps, the
+rail, the heads-up, the yield, the cook view and "Add to list".
+
+**Decisions (De1-…).**
+
+- **De1-1 a set needs two options.** A lone group with a `choice`, or a
+  `choice` on a bare step, reads as an ordinary group. `choice` values and
+  group names are compared by slug, so "Then make" / "then make" are one
+  set and two groups called "Bagels" in one run are one option
+  (`groupIndexes` has both). Set keys and option slugs are made unique
+  (`-2`); an option slugged `all` becomes `all-2`.
+- **De1-2 an option's lines.** `ingredientLines` (a list, not the plan's
+  `ingredientRange`): the heading carrying the set's label whose name meets
+  the option's by `sectionKey` (falling back to the slug), through the line
+  before the next heading — stored, or one `detectHeading` sees, as
+  `lineNames` reads sections. A heading that meets no option, or names
+  another set, is an ordinary heading and always shows.
+- **De1-3 numbering (G4).** Every option is numbered from its set's start
+  as if chosen; the shared steps after a set continue from the chosen
+  option, and under "All" from the default (G2). Anchors: `step-N` for a
+  shared step (unchanged), `step-<option>-N` inside an option,
+  `step-<set>-<option>-N` when two sets share an option slug. Timer ids
+  follow (`stepTimerId` takes the key: `step-bagels-6-0`); the cook view
+  uses the same keys, so a timer started on the page is the same timer
+  there.
+- **De1-4 `?pick=` shapes.** `?pick=bagels` (a bare option slug names the
+  first set with it), `?pick=all`, `?pick=crumb:streusel,frosting:all`.
+  Written with `history.replaceState` when the reader picks, only for sets
+  off their default (the default path drops the parameter); unknown parts
+  are ignored. Precedence after hydration: the link, then the device's
+  `recipe-pick:<slug>` (localStorage), then the default. The server and
+  the first client render are always the default (U1).
+- **De1-5 off-path content stays in the DOM**, marked `data-off-path` and
+  hidden by a screen-only rule in `recipe.css`, so print shows every option
+  stacked (the picker is `print:hidden`). The picker is a Radix
+  ToggleGroup (single): `role="group"` named by the set's label, each
+  option a `radio` with `aria-checked`, arrow keys between them, 32 px
+  tall; "All" last. It sits at the top of the set; each option's group
+  heading says "makes 8 bagels" when it has a yield; the rail's option
+  headings say "Only for Bagels · choose another" (a link to the picker).
+- **De1-6 heads-up on the client.** `headsUpCandidates` (server) returns
+  every heads-up sentence with its entry and step; `selectHeadsUps`
+  (`util/headsUpSelect.ts`, no imports) picks the path's in the browser and
+  numbers them. Per-option server computation would need one answer per
+  combination of picks across sets; the candidates are a handful of
+  sentences (one for the test dough), and `isHeadsUp` stays on the server.
+  `findHeadsUps` is now `selectHeadsUps` over `stepNumbers`, the same
+  answer as before for every recipe.
+- **De1-7 one value (G2).** `recipeOnPath` (default path, "All" read as the
+  default, the option's yield) feeds JSON-LD, the plan page's rows and
+  run-sheet times (`planRecipeView`, the sub-plan rows) and the jump row's
+  line count. The shopping list's `recipeLines(recipe, picks?)` follows the
+  pick (an "All" pick adds every option's lines); a plan or a sub-recipe
+  adds the defaults. `shopping_add` gains `picks` (recipe adds only), which
+  the recipe page sends; MCP sees it through the shared schema, its blurb
+  is 45e2's.
+- **De1-8 Make.** The index value gains `ingredientAlternates` (lines off
+  the default path), written only when non-empty, carried to `/make`'s
+  corpus and to `readMakeCorpus`; `prepareRecipe` drops those lines'
+  requirements. `recipeContentConfig.indexVersion` is now `"2"`:
+  **reindex: automatic** — every instance rebuilds once at its next start.
+- **De1-9 JSON-LD (G6).** Sections are named by their group (an unnamed one
+  gets no name); "To Store" is gone. Only the default path is emitted.
+- **De1-10 the form keeps it (43-D4).** 45e1 adds no controls: a group's
+  `choice` / `recipeYield` and a heading's `choice` ride in hidden inputs
+  and `parseFormData` keeps them, byte for byte
+  (`editFormRoundTrip.test.tsx`). Text mode in the ingredients section
+  re-reads lines and drops a heading's `choice` (45e2).
+- **De1-11 the write schema** takes `choice` (trimmed, 1–80 characters) on a
+  group and on a heading only, and `recipeYield` on a group. Nothing in
+  this phase writes `choice` from a model (G5).
+- **De1-12 `matchStepIngredients` unchanged.** Checked: an option's group
+  and its heading meet by `sectionKey`, so an option's step is scoped to its
+  own lines exactly as 42c1's "Crust" / "For the crust" are. A step's Uses
+  list on the page drops lines off the reader's path.
+- **De1-13 the cook view** cooks one path (`cookPicks`): a compact picker
+  (no "All") at its top changes the page's pick too, and its ticks live
+  under `cook-view:<slug>|<path>` — a recipe without alternatives keeps
+  `cook-view:<slug>`.
+
+**Roger to confirm:** an "All" pick on the recipe page adds every option's
+extras to the shopping list (the list follows what the page shows); the
+yield sits in each option's heading line and in the meta strip, not in the
+buttons; the rail's "Only for Bagels · choose another" note.
+
 #### 45e2 (outline; brief written after 45e1)
 
 - **Edit form, Steps:** select consecutive groups and "Make these a choice", label the set, reorder options, and a yield per option. **Ingredients:** a heading row can be tied to an option, which pairs by name automatically.

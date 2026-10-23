@@ -336,7 +336,10 @@ export function TimerButton({
  * counter numbers the step's times in order, so the third time in step 5 has
  * the same id on the page and in the cook view.
  */
-function timerRenderRule(step: number): MarkdownToJSX.Options["renderRule"] {
+function timerRenderRule(
+  step: number,
+  timerKey: number | string = step,
+): MarkdownToJSX.Options["renderRule"] {
   let index = 0;
   let inLink = 0;
   const renderTimers: NonNullable<MarkdownToJSX.Options["renderRule"]> = (
@@ -360,7 +363,7 @@ function timerRenderRule(step: number): MarkdownToJSX.Options["renderRule"] {
     let at = 0;
     for (const time of times) {
       if (time.start > at) pieces.push(node.text.slice(at, time.start));
-      const id = stepTimerId(step, index++);
+      const id = stepTimerId(timerKey, index++);
       pieces.push(
         <TimerButton
           key={id}
@@ -383,15 +386,21 @@ function timerRenderRule(step: number): MarkdownToJSX.Options["renderRule"] {
 export function StepText({
   text,
   step,
+  timerKey,
   components,
 }: {
   text: string;
   /** The step's page number (42c1's `stepNumbers`). */
   step: number;
+  /** What its timer ids are keyed by, when not the number (45e). */
+  timerKey?: number | string;
   components?: MarkdownToJSX.Overrides;
 }) {
   return (
-    <StyledMarkdown components={components} renderRule={timerRenderRule(step)}>
+    <StyledMarkdown
+      components={components}
+      renderRule={timerRenderRule(step, timerKey)}
+    >
       {text}
     </StyledMarkdown>
   );

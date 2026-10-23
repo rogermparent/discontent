@@ -244,6 +244,34 @@ function InstructionGroupFields({
   );
 }
 
+/** A group's `choice` and `recipeYield` (45e) as hidden inputs, when set. */
+function GroupChoiceInputs({
+  index,
+  group,
+}: {
+  index: number;
+  group: InstructionGroup | undefined;
+}) {
+  return (
+    <>
+      {group?.choice && (
+        <input
+          type="hidden"
+          name={`instructions[${index}].choice`}
+          value={group.choice}
+        />
+      )}
+      {group?.recipeYield && (
+        <input
+          type="hidden"
+          name={`instructions[${index}].recipeYield`}
+          value={group.recipeYield}
+        />
+      )}
+    </>
+  );
+}
+
 function entryIsGroup(entry: InstructionEntry | undefined): boolean {
   return Boolean(entry && "instructions" in entry && entry.instructions);
 }
@@ -289,10 +317,18 @@ function InstructionEntryFields({
         return (
           <li className="flex flex-col my-1">
             {isGroup ? (
-              <InstructionGroupFields
-                namePrefix={`instructions[${index}]`}
-                entry={index}
-              />
+              <>
+                <InstructionGroupFields
+                  namePrefix={`instructions[${index}]`}
+                  entry={index}
+                />
+                {/* 45e: an option's set and yield ride along unedited, so a
+                    save with no changes keeps them; 45e2 gives them controls. */}
+                <GroupChoiceInputs
+                  index={index}
+                  group={entry as InstructionGroup}
+                />
+              </>
             ) : (
               <InstructionFields
                 namePrefix={`instructions[${index}]`}

@@ -369,6 +369,7 @@ export async function readMakeCorpus(ctx: CurationContext): Promise<MakeRow[]> {
       ...toRecipeRow(key, value),
       ingredientHeadings: value.ingredientHeadings,
       ingredientRecipeLinks: value.ingredientRecipeLinks,
+      ingredientAlternates: value.ingredientAlternates,
     }),
   });
   return entries;
