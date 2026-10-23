@@ -68,6 +68,8 @@ const ERROR_SECTION: Record<string, RecipeSectionId> = {
   image: "picture",
   video: "picture",
   videoUrl: "picture",
+  videoImportUrl: "picture",
+  imageImportUrl: "picture",
   ingredients: "ingredients",
   instructions: "steps",
   timelines: "steps",
@@ -90,6 +92,25 @@ export function errorSections(
     if (section) sections.add(section);
   }
   return sections;
+}
+
+/**
+ * The sections a failed save names, in page order (the drink spec first):
+ * "Couldn't save: 2 problems — Ingredients, Steps." (45d). A key no
+ * section holds is "Other", last.
+ */
+export function errorSectionLabels(
+  errors: Record<string, string[] | undefined> | undefined,
+): string[] {
+  const sections = errorSections(errors);
+  const labels = recipeSections(true)
+    .filter((section) => sections.has(section.id))
+    .map((section) => section.label);
+  const other = Object.entries(errors ?? {}).some(
+    ([key, messages]) =>
+      messages?.length && !ERROR_SECTION[key.split(/[.[]/)[0]],
+  );
+  return other ? [...labels, "Other"] : labels;
 }
 
 /** The ingredient lines that are lines, not headings. */

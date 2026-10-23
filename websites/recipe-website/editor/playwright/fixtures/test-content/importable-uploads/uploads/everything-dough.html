@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>The Everything Dough — Test Kitchen</title>
+    <!--
+      45d: the shape of brianlagerstrom.com/recipes/everything-dough's
+      JSON-LD (2026-10-22), cut down: its "LARGE LOAF:" HowToSection ends
+      with a HowToStep whose text is empty. Imported as an empty step, it
+      made Create fail with "Error parsing recipe" and nothing to show.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Recipe",
+        "name": "The 25 Minute No Knead Dough I Use to Make Everything",
+        "description": "This dough is designed to be easy to make, versatile and delicious.",
+        "author": { "@type": "Person", "name": "Test Baker" },
+        "recipeIngredient": [
+          "450 g warm water (86–90 °F, 2 c)",
+          "7 g instant yeast (2 1/4 t)",
+          "680 g all-purpose flour (3 3/4 c)"
+        ],
+        "recipeInstructions": [
+          {
+            "@type": "HowToSection",
+            "name": "THE EVERYTHING DOUGH RECIPE:",
+            "itemListElement": [
+              {
+                "@type": "HowToStep",
+                "text": "Combine the warm water in a tall, lidded 6-qt container."
+              },
+              {
+                "@type": "HowToStep",
+                "text": "Cover and rest at room temperature for 20-25 minutes."
+              }
+            ]
+          },
+          {
+            "@type": "HowToSection",
+            "name": "LARGE LOAF:",
+            "itemListElement": [
+              {
+                "@type": "HowToStep",
+                "text": "Flip cold dough onto a lightly floured surface."
+              },
+              {
+                "@type": "HowToStep",
+                "text": "Cover, and bake 20 minutes. Remove lid; bake 25–35 minutes more."
+              },
+              { "@type": "HowToStep", "text": "" }
+            ]
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <h1>The 25 Minute No Knead Dough I Use to Make Everything</h1>
+  </body>
+</html>
