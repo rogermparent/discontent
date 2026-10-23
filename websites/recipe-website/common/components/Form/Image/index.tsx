@@ -99,6 +99,8 @@ export function ImageInput({
   id = "recipe-form-image",
   existingAlt = "Existing Recipe Image",
   initialFile,
+  initialUrl,
+  initialClear,
 }: {
   defaultImage?: StaticImageProps;
   errors: string[] | undefined;
@@ -113,6 +115,10 @@ export function ImageInput({
   existingAlt?: string;
   /** A file to start the file input with (38e: an imported photo). */
   initialFile?: File;
+  /** The "Image URL" to start with (45b: carried over a fill's remount). */
+  initialUrl?: string;
+  /** Start with "Remove Image" ticked (45b: carried over a remount). */
+  initialClear?: boolean;
 }) {
   const [imagePreviewURL, setImagePreviewURL] = useState<string | undefined>(
     () => (initialFile ? URL.createObjectURL(initialFile) : undefined),
@@ -120,7 +126,7 @@ export function ImageInput({
   const [chosen, setChosen] = useState<string | undefined>(
     imageToImport ?? candidates?.[0]?.url,
   );
-  const [typed, setTyped] = useState("");
+  const [typed, setTyped] = useState(initialUrl ?? "");
 
   useEffect(() => {
     if (imagePreviewURL) {
@@ -275,7 +281,11 @@ export function ImageInput({
         ) : null}
       </div>
       {defaultImage ? (
-        <CheckboxInput name="clearImage" label="Remove Image" />
+        <CheckboxInput
+          name="clearImage"
+          label="Remove Image"
+          defaultChecked={initialClear}
+        />
       ) : null}
     </div>
   );

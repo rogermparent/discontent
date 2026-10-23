@@ -67,6 +67,7 @@ import { createLocalBackend } from "../websites/recipe-website/editor/cli/backen
 import {
   JOB_HANDLERS,
   jobLabel,
+  jobResources,
   jobTier,
   runSpec,
   type JobSpec,
@@ -548,8 +549,20 @@ describe("the registry", () => {
         "git-sync",
         /* 44c: a run of the editor's agent. */
         "agent",
+        /* 45b: a recipe's gaps filled from its source. */
+        "fill",
       ].sort(),
     );
+    expect(
+      jobLabel({ kind: "fill", contentDirectory: "/c", slug: "hour-bagels" }),
+    ).toBe("fill hour-bagels from its source");
+    expect(
+      jobResources({
+        kind: "fill",
+        contentDirectory: "/c",
+        slug: "hour-bagels",
+      }),
+    ).toEqual(["gpu", "ytdlp", "site"]);
     /* One line, cut at 80 characters. */
     const asked = jobLabel({
       kind: "agent",

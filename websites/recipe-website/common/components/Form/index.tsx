@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@discontent/component-library/components/ui/tooltip";
+import { cn } from "@discontent/component-library/lib/utils";
+import { FOCUS } from "recipe-website-common/components/MakePage/Tape";
 import { useStore } from "@tanstack/react-form";
 import { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
 import { resolveRecipeVideoSrc } from "recipe-website-common/controller/recipeVideo";
@@ -28,10 +35,18 @@ import { useCurrentTimezone } from "@discontent/cms/hooks/useCurrentTimezone";
 
 import { yieldToolbarItems } from "./RecipeMarkdown/lexicalToolbar";
 import { FormSection } from "./RecipeFormFrame";
-import { stepCount } from "./sections";
+import { fillKept, stepCount, type RecipeSectionId } from "./sections";
 import { DrinkSpecSection } from "./Drink";
 import { useDrinkShown, useRevealDrink } from "./drinkShown";
 import { timesHint } from "./Instructions/stepChecks";
+import type { PictureInputs } from "./pictureCarry";
+import {
+  FILL_FIELD_LABELS,
+  fillSections,
+  sectionFillLabel,
+  type EstimateField,
+  type FillMarks,
+} from "./fillMarks";
 
 /** A list section's count beside its heading, read live from the form. */
 function StepsCount() {
@@ -57,6 +72,65 @@ function TimesHint() {
       Prep + cook is <span className="font-mono">{hint.sum}</span>
       {hint.rest ? `; ${hint.rest}` : ""}.
     </p>
+  );
+}
+
+/**
+ * The "estimated" marks of a fill (45b): one dashed tape per field the model
+ * estimated — while the field still holds the estimate — whose basis shows
+ * on hover and focus, and the basis in text beside them, so it is read
+ * without either.
+ */
+function EstimatedMarks({
+  fill,
+  fields,
+  section,
+}: {
+  fill?: FillMarks;
+  fields: readonly EstimateField[];
+  section: "recipe" | "times";
+}) {
+  const form = useRecipeForm();
+  const basisId = useId();
+  const values = useStore(form.store, (state) => state.values);
+  const defaults = form.options.defaultValues;
+  const shown = (fill?.estimated ?? []).filter(
+    (field) =>
+      fields.includes(field) &&
+      defaults !== undefined &&
+      String(values[field] ?? "").trim() ===
+        String(defaults[field] ?? "").trim(),
+  );
+  if (shown.length === 0 || !fill?.basis) return null;
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm"
+      data-testid={`fill-estimated-${section}`}
+    >
+      {shown.map((field) => (
+        <Tooltip key={field}>
+          <TooltipTrigger asChild>
+            <span
+              tabIndex={0}
+              aria-describedby={basisId}
+              data-kind="missing"
+              data-testid="fill-estimated-mark"
+              className={cn(
+                "make-tape px-2 py-1 font-mono text-[0.75rem] leading-none",
+                FOCUS,
+              )}
+            >
+              estimated · {FILL_FIELD_LABELS[field]}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{fill.basis}</TooltipContent>
+        </Tooltip>
+      ))}
+      <p id={basisId} className="text-muted-foreground">
+        {fill.model ? `Estimated by ${fill.model}: ` : "Estimated: "}
+        {fill.basis}
+      </p>
+    </div>
   );
 }
 
@@ -182,6 +256,8 @@ export default function RecipeFields({
   defaultImage,
   imageFile,
   fromLabel,
+  fill,
+  pictures,
 }: {
   recipe?: Partial<ImportedRecipe>;
   slug?: string;
@@ -194,6 +270,17 @@ export default function RecipeFields({
    * photo" — said on the sections the import filled.
    */
   fromLabel?: string;
+  /**
+   * A fill from the source (45b, the edit page): each section it filled says
+   * "from the source", each field the model estimated "estimated", with the
+   * estimate's basis.
+   */
+  fill?: FillMarks;
+  /**
+   * The picture and video inputs as they were before a remount (45b): a
+   * fill remounts the form, and these uncontrolled inputs start from here.
+   */
+  pictures?: PictureInputs;
 }) {
   const form = useRecipeForm();
   // Read the live name reactively (drives the slug placeholder) without nesting
@@ -210,17 +297,36 @@ export default function RecipeFields({
 
   const currentTimezone = useCurrentTimezone();
   const imported = (has: unknown) => (fromLabel && has ? fromLabel : undefined);
+  /*
+   * 45b: what a fill did to each section, said where the import's would be
+   * — while the section holds what the fill left (an edit there drops the
+   * mark, as the rail's and the estimate tapes go). The selector answers a
+   * string, so a keystroke re-renders the fields only when a mark goes.
+   */
+  const filledSections = fillSections(fill);
+  const fillDefaults = form.options.defaultValues;
+  const keptSections = useStore(form.store, (state) =>
+    fillDefaults
+      ? (Object.keys(filledSections) as RecipeSectionId[])
+          .filter((section) => fillKept(section, state.values, fillDefaults))
+          .join(",")
+      : "",
+  );
+  const filled = (section: RecipeSectionId) =>
+    keptSections.split(",").includes(section)
+      ? sectionFillLabel(filledSections[section])
+      : undefined;
 
   return (
     <VideoPlayerProvider>
       <DrinkFirst
-        from={imported(recipe?.drink)}
+        from={filled("drink") ?? imported(recipe?.drink)}
         errors={state?.errors?.drink}
       />
       <FormSection
         id="recipe"
         title="Recipe"
-        from={imported(recipe?.name || recipe?.description)}
+        from={filled("recipe") ?? imported(recipe?.name || recipe?.description)}
       >
         <form.Field
           name="name"
@@ -278,6 +384,7 @@ export default function RecipeFields({
             />
           )}
         </form.Field>
+        <EstimatedMarks fill={fill} fields={["recipeYield"]} section="recipe" />
       </FormSection>
       <FormSection id="tags" title="Tags" aside={<ChosenTags />}>
         <RecipeTagField suggestedTags={recipe?.suggestedTags} />
@@ -285,7 +392,7 @@ export default function RecipeFields({
       <FormSection
         id="picture"
         title="Picture and video"
-        from={imported(imageImportUrl)}
+        from={filled("picture") ?? imported(imageImportUrl)}
         errors={sectionErrors(state, VIDEO_ERRORS)}
       >
         {/*
@@ -299,29 +406,41 @@ export default function RecipeFields({
            * photo" box ticked or unticked after an import) starts the field
            * over — holding it, with its preview, or empty — since a file
            * input cannot be told to drop just the file a script gave it. */
-          key={fileKey(imageFile)}
+          key={fileKey(imageFile ?? pictures?.imageFile)}
           defaultImage={defaultImage}
           errors={state?.errors?.image}
           imageToImport={imageImportUrl}
           candidates={images}
           allowUrl
-          initialFile={imageFile}
+          initialFile={imageFile ?? pictures?.imageFile}
+          initialUrl={pictures?.imageUrl}
+          initialClear={pictures?.clearImage}
         />
         <VideoInput
           label="Video"
           name="video"
           defaultVideo={resolveRecipeVideoSrc(slug, video)}
           videoToImport={videoImportUrl}
+          initial={
+            pictures
+              ? {
+                  mode: pictures.videoMode,
+                  url: pictures.videoUrl,
+                  file: pictures.videoFile,
+                  clear: pictures.clearVideo,
+                }
+              : undefined
+          }
         />
       </FormSection>
       <IngredientsWithSource
-        from={imported(recipe?.ingredients?.length)}
+        from={filled("ingredients") ?? imported(recipe?.ingredients?.length)}
         errors={state?.errors?.ingredients}
       />
       <FormSection
         id="steps"
         title="Steps"
-        from={imported(recipe?.instructions?.length)}
+        from={filled("steps") ?? imported(recipe?.instructions?.length)}
         aside={<StepsCount />}
         errors={sectionErrors(state, STEP_ERRORS)}
       >
@@ -331,9 +450,10 @@ export default function RecipeFields({
       <FormSection
         id="times"
         title="Times"
-        from={imported(
-          recipe?.prepTime || recipe?.cookTime || recipe?.totalTime,
-        )}
+        from={
+          filled("times") ??
+          imported(recipe?.prepTime || recipe?.cookTime || recipe?.totalTime)
+        }
       >
         <div className="flex flex-row flex-wrap items-end gap-x-6 gap-y-2">
           <form.Field name="prepTime">
@@ -375,6 +495,11 @@ export default function RecipeFields({
           </form.Field>
           <TimesHint />
         </div>
+        <EstimatedMarks
+          fill={fill}
+          fields={["prepTime", "cookTime", "totalTime"]}
+          section="times"
+        />
       </FormSection>
       <FormSection
         id="source"

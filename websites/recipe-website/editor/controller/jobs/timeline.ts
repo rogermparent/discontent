@@ -191,6 +191,9 @@ export function stepTitle(node: Pick<StepNode, "step" | "data">): string {
       return "Model lists the recipes";
     case "llm.oneDish":
       return "Model: one dish or several?";
+    /* 45b: the fill's estimate of the times and yield the source leaves out. */
+    case "llm.estimate":
+      return "Model estimates the times and yield";
     case "llm.reload":
       return "Reload the model";
     case "llm.unload":
@@ -248,6 +251,10 @@ export function stepDetail(node: Pick<StepNode, "step" | "data">): string[] {
     }
     if (data.found === false) parts.push("no recipe");
     if (Array.isArray(data.names)) parts.push(`${data.names.length} listed`);
+    /* 45b: how many of the fields asked for the estimate gave. */
+    if (Array.isArray(data.estimated)) {
+      parts.push(`${data.estimated.length} estimated`);
+    }
     if (typeof data.oneDish === "boolean") {
       parts.push(data.oneDish ? "one dish" : "separate dishes");
     }

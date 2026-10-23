@@ -264,6 +264,19 @@ export function createLocalBackend({
       await guard();
       return recipes.updateRecipe(ctx, slug, raw);
     },
+    /* 45b: reads the recipe and its source, writes nothing — no identity. */
+    async fillRecipe(slug, options = {}, run) {
+      const { corpusOf } = await import("../../controller/jobs/kinds");
+      return runSeat(
+        {
+          kind: "fill",
+          ...corpusOf(ctx),
+          slug,
+          ...(options.estimate === false ? { estimate: false } : {}),
+        },
+        run,
+      );
+    },
     async setRecipeImage(slug, input) {
       await guard();
       return setRecipeImage(ctx, slug, input);

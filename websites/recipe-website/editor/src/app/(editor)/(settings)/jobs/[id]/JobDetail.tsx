@@ -27,6 +27,15 @@ const JOB_POLL_MS = 2_000;
 /** The form kinds `/new-recipe?job=` reopens. */
 const FORM_KINDS = new Set(["form-url", "form-text", "form-photo"]);
 
+/** A finished fill's recipe (45b): its result names the slug. */
+function fillSlug(result: unknown): string | undefined {
+  const slug =
+    result && typeof result === "object"
+      ? (result as { slug?: unknown }).slug
+      : undefined;
+  return typeof slug === "string" && slug ? slug : undefined;
+}
+
 /** What a result says, whatever its kind: names, slugs, counts. */
 function ResultSummary({ meta }: { meta: JobRecord }) {
   const result = meta.result as
@@ -284,6 +293,15 @@ export function JobDetail({
           {!live && meta?.result !== undefined && FORM_KINDS.has(kind) && (
             <Link
               href={`/new-recipe?job=${id}`}
+              className="text-sm underline underline-offset-2"
+            >
+              Open in the form
+            </Link>
+          )}
+          {/* 45b: a fill reopens on its recipe's edit page, its marks with it. */}
+          {!live && kind === "fill" && fillSlug(meta?.result) && (
+            <Link
+              href={`/recipe/${encodeURIComponent(fillSlug(meta?.result)!)}/edit?fill=${id}`}
               className="text-sm underline underline-offset-2"
             >
               Open in the form

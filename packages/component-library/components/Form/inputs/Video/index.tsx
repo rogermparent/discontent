@@ -13,6 +13,7 @@ export function VideoInput({
   name,
   id,
   clearVideoName = "clearVideo",
+  initial,
 }: {
   defaultVideo?: string;
   videoToImport?: string;
@@ -21,8 +22,19 @@ export function VideoInput({
   name: string;
   clearVideoName?: string;
   id?: string;
+  /**
+   * What the field held before its form remounted (a recipe fill, 45b):
+   * the mode, the URL text, a picked file, the remove box. Read at mount.
+   */
+  initial?: {
+    mode?: "file" | "url";
+    url?: string;
+    file?: File;
+    clear?: boolean;
+  };
 }) {
   const [inputMode, setInputMode] = useState<"file" | "url">(() => {
+    if (initial?.mode) return initial.mode;
     if (defaultVideo?.startsWith("http") || videoToImport) {
       return "url";
     }
@@ -30,7 +42,9 @@ export function VideoInput({
   });
 
   const [urlValue, setUrlValue] = useState(() => {
-    if (defaultVideo?.startsWith("http")) {
+    if (initial?.url !== undefined) {
+      return initial.url;
+    } else if (defaultVideo?.startsWith("http")) {
       return defaultVideo;
     } else if (videoToImport) {
       return videoToImport;
@@ -40,6 +54,9 @@ export function VideoInput({
 
   const [urlError, setUrlError] = useState("");
   const [validatedUrl, setValidatedUrl] = useState(() => {
+    if (initial?.url !== undefined) {
+      return URL.canParse(initial.url) ? initial.url : "";
+    }
     // Initialize with default or imported URL if valid
     if (defaultVideo?.startsWith("http")) {
       return defaultVideo;
@@ -48,7 +65,9 @@ export function VideoInput({
     }
     return "";
   });
-  const [videoPreviewURL, setVideoPreviewURL] = useState<string>();
+  const [videoPreviewURL, setVideoPreviewURL] = useState<string | undefined>(
+    () => (initial?.file ? URL.createObjectURL(initial.file) : undefined),
+  );
 
   const [lastVideoToImport, setLastVideoToImport] = useState(videoToImport);
   if (videoToImport !== lastVideoToImport) {
@@ -81,6 +100,16 @@ export function VideoInput({
   }, [videoPreviewURL]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /* Start holding the carried file, as if it had been picked (the one way
+   * a script may fill a file input; its preview is the state's first value). */
+  const initialFile = initial?.file;
+  useEffect(() => {
+    const input = fileInputRef.current;
+    if (!initialFile || !input || typeof DataTransfer === "undefined") return;
+    const transfer = new DataTransfer();
+    transfer.items.add(initialFile);
+    input.files = transfer.files;
+  }, [initialFile]);
 
   const validateUrl = (url: string) => {
     if (!url) {
@@ -249,7 +278,11 @@ export function VideoInput({
 
       {/* Clear video checkbox (only for existing videos) */}
       {defaultVideo && inputMode === "file" && !videoPreviewURL ? (
-        <CheckboxInput name={clearVideoName} label="Remove Video" />
+        <CheckboxInput
+          name={clearVideoName}
+          label="Remove Video"
+          defaultChecked={initial?.clear}
+        />
       ) : null}
     </>
   );

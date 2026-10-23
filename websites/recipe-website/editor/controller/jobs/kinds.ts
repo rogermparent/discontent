@@ -37,6 +37,7 @@ import type {
   ImportListResult,
   InspectListResult,
 } from "../curation/importList";
+import type { FillResult } from "../curation/fillRecipe";
 import type { InspectResult } from "../curation/inspect";
 import type { ReindexResult } from "../curation/reindex";
 import type { SyncResult } from "../curation/sync";
@@ -172,6 +173,18 @@ export type JobSpec =
       continues?: string;
       /** A lower turn budget than E3's 40 (`--max-turns`, `maxTurns`). */
       maxTurns?: number;
+    })
+  /**
+   * A recipe's gaps filled from its source (45b): the edit page's "Fill gaps
+   * from the source", `recipes fill`, `POST /api/recipe/<slug>/fill`. Reads
+   * the stored recipe and its source; writes nothing (the form's Save, or
+   * `recipes update`, does).
+   */
+  | (CorpusSpec & {
+      kind: "fill";
+      slug: string;
+      /** False: the source's values only, no estimate (`--no-estimate`). */
+      estimate?: boolean;
     });
 
 /** Who asked for a rebuild — the label says it. */
@@ -214,6 +227,7 @@ export interface JobResults {
   reindex: ReindexResult;
   "git-sync": SyncResult;
   agent: AgentJobResult;
+  fill: FillResult;
 }
 
 /** What "Import N selected" answers: one row per pick. */
@@ -417,6 +431,15 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
       return runMirrorSync(spec.contentDirectory, spec.remote, job);
     });
   },
+  async fill(spec, { ctx, job }) {
+    const { fillRecipe } = await import("../curation/fillRecipe");
+    return fillRecipe(
+      contextFor(spec, ctx),
+      spec.slug,
+      spec.estimate === false ? { estimate: false } : {},
+      job,
+    );
+  },
   async agent(spec, { ctx, job, dir }) {
     const { runAgentJob } = await import("../agent/job");
     return runAgentJob(spec, {
@@ -591,6 +614,8 @@ export function jobLabel(spec: JobSpec): string {
       return `sync with ${spec.remote ?? "the upstream"} (${spec.triggers.join(", ") || "manual"})`;
     case "agent":
       return agentLabel(spec.prompt, spec.continues !== undefined);
+    case "fill":
+      return `fill ${spec.slug} from its source${spec.estimate === false ? " (no estimate)" : ""}`;
     default:
       return shortUrl(spec.url);
   }

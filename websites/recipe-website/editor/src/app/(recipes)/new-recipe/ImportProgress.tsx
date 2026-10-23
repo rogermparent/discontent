@@ -34,44 +34,65 @@ function capitalized(text: string): string {
 }
 
 /**
+ * What the panel calls the job (45b): an import on /new-recipe, a fill on
+ * the edit page — "Import done", "Fill done".
+ */
+export interface ProgressWords {
+  /** "Import", "Fill". */
+  noun: string;
+  /** "Importing…", "Reading the source…". */
+  running: string;
+  /** What the live region says when it ends well. */
+  done: string;
+}
+
+export const IMPORT_WORDS: ProgressWords = {
+  noun: "Import",
+  running: "Importing…",
+  done: "Import done: the form is filled.",
+};
+
+/**
  * The one sentence the live region says: it changes only when the phase
  * does — started, waiting (and where), running, and how it ended — never
  * per step, so a screen reader is told what matters without a stream.
  */
 function announcement(
   meta: JobRecord | undefined,
-  unfollowed?: UnfollowedImport,
+  unfollowed: UnfollowedImport | undefined,
+  words: ProgressWords,
 ): string {
+  const { noun } = words;
   if (unfollowed) {
     return unfollowed.status === "done"
-      ? "Import done: the form is filled."
+      ? words.done
       : unfollowed.status === "failed"
-        ? "Import failed."
+        ? `${noun} failed.`
         : unfollowed.status === "cancelled"
-          ? "Import cancelled."
-          : "Importing…";
+          ? `${noun} cancelled.`
+          : words.running;
   }
-  if (!meta) return "Import started.";
+  if (!meta) return `${noun} started.`;
   switch (meta.status) {
     case "queued":
     case "running":
       return meta.waiting
         ? `${capitalized(describeWaiting(meta.waiting))}.`
-        : "Importing…";
+        : words.running;
     case "done": {
       const found = (meta.result as RecipeActionState | undefined)?.recipes
         ?.length;
       return found && found > 1
         ? `Import done: ${found} recipes found — pick the ones to import.`
-        : "Import done: the form is filled.";
+        : words.done;
     }
     /* No message here: the form (or the panel) shows it, once. */
     case "failed":
-      return "Import failed.";
+      return `${noun} failed.`;
     case "cancelled":
-      return "Import cancelled.";
+      return `${noun} cancelled.`;
     case "interrupted":
-      return "Import interrupted: its process ended.";
+      return `${noun} interrupted: its process ended.`;
   }
 }
 
@@ -90,6 +111,7 @@ export default function ImportProgress({
   unfollowed,
   doneNote,
   doneActions,
+  words = IMPORT_WORDS,
 }: {
   job: string;
   /** Called once, when the job is seen to end. */
@@ -106,6 +128,8 @@ export default function ImportProgress({
    */
   doneNote?: ReactNode;
   doneActions?: ReactNode;
+  /** What the job is called (45b's fill): an import by default. */
+  words?: ProgressWords;
 }) {
   const poll = useJobPoll(unfollowed ? undefined : job, IMPORT_POLL_MS);
   const { lines, error, refresh } = poll;
@@ -154,17 +178,18 @@ export default function ImportProgress({
     refresh();
   };
 
+  const { noun } = words;
   const statusLine = live
     ? meta?.waiting
       ? capitalized(describeWaiting(meta.waiting))
-      : "Importing…"
+      : words.running
     : status === "done"
-      ? "Import done"
+      ? `${noun} done`
       : status === "failed"
-        ? "Import failed"
+        ? `${noun} failed`
         : status === "cancelled"
-          ? "Import cancelled"
-          : "Import interrupted";
+          ? `${noun} cancelled`
+          : `${noun} interrupted`;
 
   return (
     <section
@@ -175,7 +200,7 @@ export default function ImportProgress({
     >
       {/* Polite, and one sentence per phase: never a line per step. */}
       <p className="sr-only" aria-live="polite" data-testid="import-announce">
-        {announcement(meta, unfollowed)}
+        {announcement(meta, unfollowed, words)}
       </p>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         {!live && status === "done" ? (

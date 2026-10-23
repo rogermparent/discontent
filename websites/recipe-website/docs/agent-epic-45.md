@@ -295,6 +295,180 @@ new `controller/llm/estimateTimes.ts`, the edit page
   action; model off → source-only with the note; axe; baselines touched
   regenerated in Docker. The CLI command's test.
 
+#### 45b Results
+
+What changed (branch `agent/45b-fill`):
+
+- **`fillGaps`** (`editor/controller/curation/fillGaps.ts`, pure and
+  browser-safe): fills only empty fields (F3: `0`/absent times, blank
+  strings, `[]` lists, absent image/video/drink) from the source's reading,
+  in the form's order — description, yield, picture (`imageImportUrl`),
+  video (`videoImportUrl`), ingredients, steps, the three times, the drink
+  spec — and never from an empty value; never `name`, `slug`, `date`,
+  `source`, `timelines` or `partial`. Tags are never added: the source's
+  `suggestedTags` and `tags`, less the recipe's own (case-folded), come back
+  as `suggestedTags`, which the picker offers through 43e2's existing
+  `suggestedTags` path (45a's area). `applyEstimate` lays an estimate on the
+  time/yield fields still empty; `estimateWanted` says which those are;
+  `fillSourceUrl` is the link a fill reads — `source.url`, else `video`
+  when it is a video host's page (an uploaded file is not).
+- **`estimateTimes`** (`editor/controller/llm/estimateTimes.ts`, F4/F5):
+  one `chatJson` call with its own system prompt and JSON Schema (no bounds
+  in the schema — the Claude API refuses them — zod holds them:
+  `EstimateAnswerSchema`). The user message carries the name, the known
+  values, the ingredient lines and steps (markup stripped, cut at 12k
+  chars), and the hints — every time `findStepTimes` reads in a step,
+  named by `stepWaits`' verb ("step 2: rise 15 to 20 minutes"), and
+  `readPlanTimes`' oven, bake and chill facts. Checked: whole minutes
+  1–10,080 (a model's `0`/`null` reads as "left out"), a total no shorter
+  than the prep or the cook time (the stored values included), a yield of
+  at most 60 characters, a non-empty `basis` (cut to 200 characters). A bad
+  answer, a failed call or no model drops the estimate with a warning;
+  a cancel is rethrown. In a job it is an `llm.estimate` step with the
+  model's tokens ("Model estimates the times and yield", `N estimated`).
+  `numCtx` is `contextStep` of the prompt plus 256 answer tokens (40a). 36's
+  extraction prompt is untouched.
+- **`fillRecipe`** (`editor/controller/curation/fillRecipe.ts`) and a
+  **`fill` job kind** (`{contentDirectory, slug, estimate?}`, resources
+  gpu/ytdlp/site, writes nothing): reads the stored recipe, imports its
+  `fillSourceUrl` with `importFromUrl(url, {llm: "auto", asOne: true})`,
+  fills, then estimates the fields still empty when there are ingredients
+  or steps to estimate from. Its result is `source` (the fillable reading),
+  `filled`, `estimated` `{fields, values, basis, model}`, a `patch` for
+  `recipes update` (`toDraft`'s plain lines, the picture as
+  `imageImportUrl`), `suggestedTags`, `llm` and `warnings`.
+- **Edit page**: a "Fill gaps from the source" strip at the head of the
+  form column when the recipe has a source link or a video
+  (`FillFromSource.tsx`, `fillActions.ts`): it names the empty fields,
+  starts the `fill` job (`?fill=<job>` in the address, as `/new-recipe?job=`
+  — a reload, or `/jobs/<id>`'s new "Open in the form", reopens it),
+  follows it in 43e1's `ImportProgress` (now taking `words`: "Fill done",
+  "Reading the source…"), then **re-runs `fillGaps` over the form's current
+  values** (a typed edit survives) and remounts the form with them; the
+  rail's baseline stays the stored recipe, so "N changes · not saved" counts
+  the fills (a filled picture or video counts through the rail's new
+  `extraChanges`). Marks: each filled section's heading says "from the
+  source" (or "estimated", or both) where an import's "from the page" goes;
+  each estimated field gets a dashed tape, "estimated · prep time", whose
+  basis shows on hover and focus (Radix tooltip) and in text beside it
+  ("Estimated by local model qwen3:8b: 25 min rise + …"); the rail's rows
+  say "4 · filled" / "1h 15m · est." while the section holds what the fill
+  left (an edit there drops the mark, as an edited estimate drops its
+  tape). The summary lists what was filled and estimated, with **Undo**
+  (remount on the stored recipe, the address back to `/edit`); a source
+  with nothing new says so and changes nothing; the warnings (the model's
+  notes, "No model is configured, so … were not estimated") follow it.
+  Save is the existing update action: the picture downloads through the
+  checked `fetchImageFile` (26a), the video is stored as its URL.
+- **CLI**: `pnpm recipes fill <slug> [--no-estimate] [--out patch.json]
+[--json]` prints the fill and its patch, writes nothing (`update` is the
+  write); `--remote` posts `POST /api/recipe/<slug>/fill` (`read` scope, as
+  `/api/inspect`). Help text added; no new environment key. MCP unchanged
+  (59 tools / 45 pre-approved).
+
+Decisions (Fb-n):
+
+- **Fb1 — the action sits at the head of the form column**, not in the
+  rail's save card or the Source section: the live panel needs the
+  column's width (the rail is 13.75 rem), the phone's save card is the
+  sticky bar (a panel there would cover the form), and the Source section
+  is last, below the fold, while the marks and the summary want to be seen
+  first. It is where /new-recipe's Start from sits. **Roger to confirm.**
+- **Fb2 — the form fills its own current values, not the stored recipe**:
+  the job answers the source's reading and the estimate, and the page runs
+  `fillGaps` + `applyEstimate` again over what the form holds, so nothing
+  typed before the fill is lost (F1 for the person's edits too). The CLI's
+  patch is the stored recipe's.
+- **Fb3 — the source is read in `auto` mode, as one recipe**: a page with
+  recipe data is not re-read by a model (its data wins); a video's text
+  is. `asOne` because a fill fills one recipe.
+- **Fb4 — the marks are form state only**: nothing about a fill or an
+  estimate is stored in the recipe; after Save an estimated time is a time.
+  **Roger to confirm.**
+- **Fb5 — the estimate is all or nothing**: an answer that fails a bound
+  drops the whole estimate (one warning), rather than keeping its other
+  fields — a total under the cook time says the model misread the recipe.
+- **Fb6 — the estimate runs only with something to read**: no ingredients
+  and no steps after the fill → no call, a warning.
+
+Review fixes (the review of `25a3c8d6`, no blockers):
+
+- **A fill or Undo after a failed Save wins.** The form used to key and
+  fill on `state.formData` while a refused save's state stood, so an Undo
+  said "Undone" over the filled values and a fresh Fill never remounted.
+  The edit form now records the save state a fill or Undo came after
+  (`passedState`): while that state stands, the fill (or the stored recipe)
+  is what the form holds, and the refused save's message, errors and
+  Overwrite go too; the next save's answer is a new state and wins again.
+- **Picture and video edits survive a fill (F1, Fb2).** Only TanStack's
+  values survived the remount; the picture and video inputs are
+  uncontrolled. `common/components/Form/pictureCarry.ts` reads them off the
+  form before the remount (`readPictureInputs`: the image file, the typed
+  image URL, Remove Image, the video's mode, URL, file and Remove Video);
+  `pictureTouched` says which of the picture and the video the person set
+  (a video URL counts when it is not the saved one), and those are passed
+  to `fillGaps` as `keep` — never filled — and carried back as the inputs'
+  starting state (`ImageInput` `initialFile`/`initialUrl`/`initialClear`,
+  `VideoInput` `initial`). A carried input counts as one change in the
+  rail and its Picture status reads "new".
+- **`?fill=<job>` checks the job.** The page applies only a `fill` job's
+  result (`meta.kind`), and `isFillResult` (a slug and a `source` object)
+  guards both the panel's result and `fillResultAction`'s; anything else
+  says "That link isn't a fill for this recipe." (it said `That fill was
+for "<slug>"` before, for another recipe's fill).
+- **The form holds an estimate to the total rule.** `totalTimeProblem`
+  (`fillGaps.ts`, browser-safe) is the rule `checkEstimate` throws on;
+  `applyEstimate` now runs it over the form's values after laying the
+  estimate, drops an estimated total shorter than a typed cook or prep time
+  (or an estimated cook/prep longer than a total that is there) and answers
+  a warning — "The estimated total time was dropped: the total (60 min) is
+  shorter than the cook time (120 min)." — shown in the strip's notes. This
+  is per field, unlike Fb5's all-or-nothing on the model's answer: the
+  answer passed, and only the person's later value conflicts with it.
+- **Heading marks follow edits.** A section heading's "from the source" /
+  "estimated" now goes once the section differs from what the fill left
+  (`fillKept`, the rail's rule, shared); the picture section holds files,
+  not values, so it stays marked until Undo, as its rail row does.
+- **Fb1 amended — a quiet line when nothing is empty.** When none of the
+  fields the strip names is empty, it is one line: a ghost "Fill gaps from
+  the source" button (36 px) and "Nothing looks empty." — a fill can still
+  bring a video or a drink spec. The estimated tape keeps its height (a
+  label, not a control).
+- The "no model" vitest stubbed nothing and reached the stand-in when
+  `RECIPE_LLM_URL` was exported; it now clears the `RECIPE_LLM_*`
+  environment with `vi.stubEnv`. MCP `job_list`'s description names every
+  kind (reindex, git-sync, agent, fill were missing); no test pins it.
+- Backlog: the importer's missing private-host (SSRF) guard, the Pi as the
+  exposure (predates 45b; not fixed here).
+
+- The first gate runs found three faults in `fill-gaps.spec` itself and
+  one in the vitest suite, none in the feature: the picker offers an
+  import suggestion only for a tag with a term record (the spec now creates
+  a "Breakfast" term first); a rail link's accessible name has no leading
+  number (`/^Ingredients/`, not `/^4Ingredients/`); the edit page's own h1
+  contains "Hour Bagels", so the post-Save wait is on the address (15 s,
+  dev mode was slow) and the heading is matched exactly; and
+  `fillGaps.ts`'s import of `Form/fillMarks` was off curation's D8
+  allow-list (`test/curation.test.ts`; added — constants and pure
+  functions, one type-only import).
+
+Gates (after merging `origin/main` d5c37ef5):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: clean.
+- `pnpm exec vitest run`: 156 files, 3,454 tests passed (`fillGaps.test.ts`
+  28, also green with `RECIPE_LLM_URL` exported).
+- Playwright, Docker build mode: fill-gaps, edit, edit-form-frame,
+  edit-duplicate-slug, jobs, new-recipe, photo-import, ytdlp-import,
+  youtube-video and accessibility — 178 passed, the one failure the spec
+  faults above; then fill-gaps, visual, recipe and ingredient-preview
+  (every snapshot spec that opens an edit page) — 106 passed; fill-gaps
+  again after the last spec edit — 6 passed. No baseline moved, none
+  regenerated (the fixture recipes the snapshots open have no source link,
+  so no strip).
+- `fill-gaps.spec` in dev mode (Docker): 6 passed (an earlier dev run was
+  flaky on the post-Save wait, fixed above).
+
 ### 45d — "Error parsing recipe" with nothing to see (bug, M)
 
 Roger, 2026-10-22 ~16:15 EDT: "I try to import
