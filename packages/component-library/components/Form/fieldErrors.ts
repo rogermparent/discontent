@@ -14,6 +14,8 @@ export function mergeFieldErrors(
         ? e
         : String((e as { message?: string })?.message ?? e),
     );
-  const all = [...(serverErrors ?? []), ...client];
+  /* One of each: the server and the field can say the same thing ("Name
+   * is required", 45d), and the list is keyed by the message. */
+  const all = [...new Set([...(serverErrors ?? []), ...client])];
   return all.length ? all : undefined;
 }

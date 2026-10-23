@@ -519,11 +519,14 @@ function ModeSwitch({
 export function IngredientsSection({
   from,
   sourceUrl,
+  errors,
 }: {
   /** "from the page", after an import. */
   from?: string;
   /** The recipe's source link, for a flag's "Open the page". */
   sourceUrl?: string;
+  /** A refused save's problems with the list (45d). */
+  errors?: string[];
 }) {
   const form = useRecipeForm();
   const lines = useStore(form.store, (state) => state.values.ingredients);
@@ -553,7 +556,13 @@ export function IngredientsSection({
   );
 
   return (
-    <FormSection id="ingredients" title="Ingredients" from={from} aside={aside}>
+    <FormSection
+      id="ingredients"
+      title="Ingredients"
+      from={from}
+      aside={aside}
+      errors={errors}
+    >
       {mode === "text" ? (
         <>
           <IngredientsText lines={lines} onLines={setLines} />

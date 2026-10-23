@@ -385,6 +385,49 @@ describe("importRecipeData mapping (26a)", () => {
     ]);
   });
 
+  it("drops an empty step, an empty section, and flattens a nameless one (45d)", async () => {
+    /* Brian Lagerstrom's Everything Dough (2026-10-22): its "LARGE LOAF:"
+     * section ends with a HowToStep whose text is empty. Imported as an
+     * empty step, it made Create fail with nothing to show. */
+    stubFetch(
+      recipeHtml({
+        recipeInstructions: [
+          {
+            "@type": "HowToSection",
+            name: "LARGE LOAF:",
+            itemListElement: [
+              { "@type": "HowToStep", text: "Flip cold dough out." },
+              { "@type": "HowToStep", text: "Bake 20 minutes." },
+              { "@type": "HowToStep", text: "" },
+              { "@type": "HowToStep", text: " &nbsp; " },
+            ],
+          },
+          {
+            "@type": "HowToSection",
+            name: "EMPTY:",
+            itemListElement: [{ "@type": "HowToStep", text: "" }],
+          },
+          {
+            "@type": "HowToSection",
+            itemListElement: [{ "@type": "HowToStep", text: "Cool it." }],
+          },
+          { "@type": "HowToStep", text: "" },
+          "",
+        ],
+      }),
+    );
+    expect((await importRecipeData(PAGE_URL))?.instructions).toEqual([
+      {
+        name: "LARGE LOAF:",
+        instructions: [
+          { text: "Flip cold dough out." },
+          { text: "Bake 20 minutes." },
+        ],
+      },
+      { text: "Cool it." },
+    ]);
+  });
+
   it("skips a malformed JSON-LD block and reads the good one after it", async () => {
     const html = [
       "<html><head>",
