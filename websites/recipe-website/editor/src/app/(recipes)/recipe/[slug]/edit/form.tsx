@@ -126,7 +126,6 @@ export default function EditRecipeForm({
   recipe,
   slug,
   defaultImage,
-  allTags = [],
   tagPicker,
   fillSource,
   llmModel,
@@ -135,7 +134,6 @@ export default function EditRecipeForm({
   slug: string;
   recipe: Recipe;
   defaultImage?: StaticImageProps | undefined;
-  allTags?: string[];
   /** The tag picker's vocabulary and counts (43e2). */
   tagPicker?: TagPickerData;
   /** The link "Fill gaps from the source" reads (45b); none, no fill. */
@@ -277,7 +275,6 @@ export default function EditRecipeForm({
           slug={effectiveSlug}
           state={withSlugConflict(shown)}
           defaultImage={defaultImage}
-          allTags={allTags}
           fill={fill?.marks}
           pictures={fill?.pictures}
         />

@@ -1,7 +1,4 @@
-import {
-  readTagLabels,
-  readTagPicker,
-} from "recipe-website-common/controller/data/readTermPage";
+import { readTagPicker } from "recipe-website-common/controller/data/readTermPage";
 import { recipeItems } from "recipe-website-common/controller/data/readRecipeItem";
 import CopyForm from "./form";
 import { notFound } from "next/navigation";
@@ -28,15 +25,12 @@ export default async function Recipe({
   }
   const recipe = await recipeItems.read(slug);
   if (!recipe) notFound();
-  const [allTags, tagPicker] = await Promise.all([
-    readTagLabels(),
-    readTagPicker(),
-  ]);
+  const tagPicker = await readTagPicker();
   return (
     <PageMain>
       <PageSection maxWidth="xl" grow>
         <PageHeading as="h1">Copying recipe</PageHeading>
-        <CopyForm recipe={recipe} allTags={allTags} tagPicker={tagPicker} />
+        <CopyForm recipe={recipe} tagPicker={tagPicker} />
       </PageSection>
     </PageMain>
   );

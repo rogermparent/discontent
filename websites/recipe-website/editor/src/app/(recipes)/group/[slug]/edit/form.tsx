@@ -7,17 +7,18 @@ import type { GroupFormState } from "recipe-website-common/controller/groupFormS
 import { updateGroup } from "recipe-editor/controller/actions/groups";
 import type { Group } from "recipe-website-common/controller/types";
 import type { StaticImageProps } from "@discontent/next-static-image/src";
+import type { TagPickerData } from "recipe-website-common/components/Form/Tags/tagPicker";
 
 export default function EditGroupForm({
   group,
   slug,
   defaultImage,
-  allTags,
+  tagPicker,
 }: {
   group: Group;
   slug: string;
   defaultImage?: StaticImageProps;
-  allTags?: string[];
+  tagPicker?: TagPickerData;
 }) {
   const initialState = { message: "", errors: {} } as GroupFormState;
   const [state, dispatch] = useActionState(
@@ -34,7 +35,7 @@ export default function EditGroupForm({
           group={group}
           slug={slug}
           defaultImage={defaultImage}
-          allTags={allTags}
+          tagPicker={tagPicker}
         />
         <div id="missing-fields-error" aria-live="polite" aria-atomic="true">
           {state.message && (

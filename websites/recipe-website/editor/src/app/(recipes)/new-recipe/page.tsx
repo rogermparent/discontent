@@ -1,7 +1,6 @@
 import NewRecipeWorkspace from "./workspace";
 import { auth, signIn } from "@/auth";
 import {
-  readTagLabels,
   readTagPicker,
   readTagVocabulary,
 } from "recipe-website-common/controller/data/readTermPage";
@@ -80,8 +79,7 @@ export default async function NewRecipe({
       };
     }
   }
-  const [allTags, vocabulary, tagPicker] = await Promise.all([
-    readTagLabels(),
+  const [vocabulary, tagPicker] = await Promise.all([
     readTagVocabulary(),
     readTagPicker(),
   ]);
@@ -94,7 +92,6 @@ export default async function NewRecipe({
         initialState={initialState}
         initialJob={initialJob}
         initialImportUrl={initialImportUrl}
-        allTags={allTags}
         tagPicker={tagPicker}
         terms={vocabulary.map(({ slug, label }) => ({ slug, label }))}
         llmModel={llmConfig()?.model}

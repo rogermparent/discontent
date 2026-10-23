@@ -131,11 +131,13 @@ test.describe("Search — tags", () => {
   }) => {
     await createRecipe(page, { name: "Choco Cake", tags: ["dessert"] });
 
-    // A second recipe now sees "dessert" as a suggestion chip.
+    // A second recipe now sees "dessert" as a suggestion once it is typed
+    // (45a: no tags listed at rest), and takes it with one click.
     await gotoNewRecipe(page);
     await page.getByLabel("Name").first().clear();
     await page.getByLabel("Name").first().fill("Fruit Tart");
-    await page.getByRole("button", { name: "Add tag dessert" }).click();
+    await page.getByLabel("Add a tag").fill("dess");
+    await page.getByRole("option", { name: "Add tag dessert" }).click();
     await expect(
       page.getByRole("button", { name: "Remove tag dessert" }),
     ).toBeVisible();

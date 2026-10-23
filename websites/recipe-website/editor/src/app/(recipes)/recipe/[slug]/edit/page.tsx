@@ -1,7 +1,4 @@
-import {
-  readTagLabels,
-  readTagPicker,
-} from "recipe-website-common/controller/data/readTermPage";
+import { readTagPicker } from "recipe-website-common/controller/data/readTermPage";
 import { recipeItems } from "recipe-website-common/controller/data/readRecipeItem";
 import EditForm from "./form";
 import { notFound } from "next/navigation";
@@ -52,10 +49,7 @@ export default async function Recipe({
           sizes: "100vw",
         })
       : undefined;
-  const [allTags, tagPicker] = await Promise.all([
-    readTagLabels(),
-    readTagPicker(),
-  ]);
+  const tagPicker = await readTagPicker();
   /* 45b: what "Fill gaps from the source" reads, and who estimates. */
   const fillSource = fillSourceUrl(recipe);
   return (
@@ -65,7 +59,6 @@ export default async function Recipe({
         recipe={recipe}
         slug={slug}
         defaultImage={defaultImage}
-        allTags={allTags}
         tagPicker={tagPicker}
         fillSource={fillSource}
         llmModel={fillSource ? llmConfig()?.model : undefined}

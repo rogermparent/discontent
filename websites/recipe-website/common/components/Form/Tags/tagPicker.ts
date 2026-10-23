@@ -1,107 +1,50 @@
 /**
- * The edit form's tag picker (epic 43, 43e2 — canvas B "Review, then save"):
- * the recipe's tags read through the facet model (43f, D2), so the form can
- * draw a row per facet with counts, say which terms the recipe carries, which
- * it reaches through a child ("a child brings its parent"), and which the
- * import suggested. Pure — the picker component and its unit tests read the
- * same rules.
+ * The recipe form's tag picker (43e2, made quiet in 45a): the recipe's tags
+ * read through the facet model (43f, D2), so the form can say which terms
+ * the recipe carries, which it reaches through a child ("a child brings its
+ * parent"), which the import suggested, and — as you type — which terms
+ * match, with their counts and the facet each sits in. Pure — the picker
+ * component and its unit tests read the same rules.
  *
  * **What is stored never changes shape (D4).** Tags stay the strings the
- * recipe carries; picking a row appends the term's slug, unpicking removes
- * every carried spelling of that term (slug, label or alias), and nothing
- * else is ever added or rewritten — in particular a child does **not** add
- * its parent: it reaches it through the hierarchy (`tag:dessert` finds the
+ * recipe carries; picking a term appends its slug, unpicking removes every
+ * carried spelling of that term (slug, label or alias), and nothing else is
+ * ever added or rewritten — in particular a child does **not** add its
+ * parent: it reaches it through the hierarchy (`tag:dessert` finds the
  * cookies), the curator skill's convention since v4 (its Christmas-Cookies
- * example tags the linzers `linzer` only). The parent's row shows as reached.
+ * example tags the linzers `linzer` only).
  */
 import {
   buildFacetModel,
-  facetGroups,
-  type FacetCounts,
-  type FacetGroup,
-  type FacetGroupId,
-  type FacetKind,
   type FacetModel,
   type FacetTerm,
-  type OtherTag,
 } from "../../../util/facets";
 import { DRINK_ROOT } from "../../../controller/drinksPage";
 import { normalizeTag } from "../../../controller/normalizeTags";
 import { tagSlug } from "../../../controller/tagSlug";
 
-/** `FacetCounts` as JSON: what the server hands the form. */
-export interface SerializedFacetCounts {
-  total: number;
-  kinds: Record<FacetKind, number>;
-  subtree: [string, number][];
-  drinks: [string, number][];
-  own: [string, number][];
-  ownDrinks: [string, number][];
-  groups: [FacetGroupId, number][];
-  other: OtherTag[];
-}
-
 /**
  * Everything the picker needs, read once on the server (`readTagPicker`):
- * the vocabulary's terms and the corpus counts — recipes and groups that
- * carry each term or anything under it.
+ * the vocabulary's terms and, per term, the recipes and groups that carry
+ * it or anything under it (`countFacets`' subtree counts, as pairs). 45a
+ * dropped the rest of `FacetCounts` — the facet rows that read it are gone.
  */
 export interface TagPickerData {
   terms: FacetTerm[];
-  counts: SerializedFacetCounts;
-}
-
-export function serializeFacetCounts(
-  counts: FacetCounts,
-): SerializedFacetCounts {
-  return {
-    total: counts.total,
-    kinds: counts.kinds,
-    subtree: [...counts.subtree],
-    drinks: [...counts.drinks],
-    own: [...counts.own],
-    ownDrinks: [...counts.ownDrinks],
-    groups: [...counts.groups],
-    other: counts.other,
-  };
-}
-
-export function deserializeFacetCounts(
-  counts: SerializedFacetCounts,
-): FacetCounts {
-  return {
-    total: counts.total,
-    kinds: counts.kinds,
-    subtree: new Map(counts.subtree),
-    drinks: new Map(counts.drinks),
-    own: new Map(counts.own),
-    ownDrinks: new Map(counts.ownDrinks),
-    groups: new Map(counts.groups),
-    other: counts.other,
-  };
+  counts: [string, number][];
 }
 
 /** The picker's model and counts, built once per data. */
 export interface TagPicker {
   model: FacetModel;
-  counts: FacetCounts;
+  /** Term slug → recipes and groups under it. */
+  counts: ReadonlyMap<string, number>;
 }
 
 export function buildTagPicker(data: TagPickerData | undefined): TagPicker {
   return {
     model: buildFacetModel(data?.terms ?? []),
-    counts: deserializeFacetCounts(
-      data?.counts ?? {
-        total: 0,
-        kinds: { food: 0, drinks: 0 },
-        subtree: [],
-        drinks: [],
-        own: [],
-        ownDrinks: [],
-        groups: [],
-        other: [],
-      },
-    ),
+    counts: new Map(data?.counts ?? []),
   };
 }
 
@@ -197,46 +140,6 @@ export function tagsSayDrink(
   });
 }
 
-/**
- * The groups the picker draws, per kind: food reads Course, Main ingredient,
- * Cuisine, Speed & effort and Holidays (canvas B's desktop board); a drink
- * Spirit & base first, then Style, Strength & method and the drink's name
- * (Families — canvas B's phone board). Collections (Fall Favorites, House)
- * are found through "Anything else", as the canvas's placeholder says.
- */
-export const PICKER_GROUPS: Record<FacetKind, readonly FacetGroupId[]> = {
-  food: ["course", "main-ingredient", "cuisine", "effort", "holidays"],
-  drinks: ["spirit", "style", "strength-method", "families"],
-};
-
-/**
- * The picker's groups for a kind, every row kept (a row nothing carries yet
- * is still a choice), sorted by label as the boards are; a group with no
- * rows is dropped.
- */
-export function pickerGroups(picker: TagPicker, kind: FacetKind): FacetGroup[] {
-  const all = facetGroups(picker.model, picker.counts, {
-    includeEmpty: true,
-    sort: "label",
-    kind,
-  });
-  return PICKER_GROUPS[kind]
-    .map((id) => all.find((group) => group.id === id))
-    .filter(
-      (group): group is FacetGroup =>
-        group !== undefined && group.rows.length > 0,
-    );
-}
-
-/**
- * Families have a row per drink name (113 of them on the real site): the
- * picker shows only the ones this drink carries or reaches, and finds the
- * rest through "Anything else".
- */
-export const COLLAPSED_GROUPS: ReadonlySet<FacetGroupId> = new Set([
-  "families",
-]);
-
 /** An import's suggestion that names a term the recipe does not carry yet. */
 export interface TagSuggestion {
   /** The suggestion as the page wrote it. */
@@ -270,15 +173,23 @@ export function tagSuggestions(
   return out;
 }
 
-/** One option of "Anything else": a term, its trail, its count. */
+/** One match as you type: a term, where it sits, its count. */
 export interface TagOptionMatch {
   slug: string;
   label: string;
-  /** The ancestors' labels, root first: "Desserts › Cookies". */
+  /** The ancestors' labels, root first: "Course › Desserts". */
   trail: string[];
+  /** The facet the term sits in ("Speed & effort"), when one places it. */
+  facet?: string;
   count: number;
   /** The spelling that matched, when it is an alias. */
   alias?: string;
+  /**
+   * The recipe already reaches this term through a chosen child (F1, "a
+   * child brings its parent"): those children's labels, nearest first.
+   * Choosing it still adds it — the label tells the author it is redundant.
+   */
+  through?: string[];
 }
 
 function fold(text: string): string {
@@ -298,20 +209,43 @@ function wordStart(text: string, query: string): boolean {
 }
 
 /**
+ * The facet a term sits in: the group that places it or its nearest
+ * ancestor (a group's root, or one of its top-level rows) — "Course" for
+ * Cookies, "Families" for a drink name — or `undefined` for a carried-only
+ * tag no group places.
+ */
+export function facetLabel(
+  model: FacetModel,
+  slug: string,
+): string | undefined {
+  for (const up of model.ancestors(slug)) {
+    const id = model.groupsOf(up)[0];
+    if (id === undefined) continue;
+    return model.groups.find((group) => group.id === id)?.label;
+  }
+  return undefined;
+}
+
+/** How many matches the field lists at most (45a: "capped, ~12"). */
+export const MATCH_LIMIT = 12;
+
+/**
  * Terms whose label, slug or alias has a word starting with what was typed,
- * an exact spelling first, then the most carried. Terms the recipe carries
- * are left out.
+ * an exact spelling first, then the terms the recipe does not reach yet,
+ * then the most carried, then by label. Terms the recipe carries are left
+ * out; one it reaches through a chosen child is kept but marked `through`
+ * and ranked after the rest. An alias resolves to its term.
  */
 export function searchPickerTerms(
   picker: TagPicker,
   text: string,
   tags: readonly string[],
-  limit = 8,
+  limit = MATCH_LIMIT,
 ): TagOptionMatch[] {
   const query = fold(text);
   if (!query) return [];
   const { model, counts } = picker;
-  const { chosen } = tagSelection(model, tags);
+  const { chosen, implied } = tagSelection(model, tags);
   const matches: (TagOptionMatch & { exact: boolean })[] = [];
   for (const term of model.terms.values()) {
     if (chosen.has(term.slug)) continue;
@@ -329,27 +263,36 @@ export function searchPickerTerms(
       hit = alias !== undefined;
     }
     if (!hit) continue;
-    const exact =
-      [...spellings, ...(term.aliases ?? [])].some(
-        (spelling) => fold(spelling) === query,
-      ) || false;
+    const exact = [...spellings, ...(term.aliases ?? [])].some(
+      (spelling) => fold(spelling) === query,
+    );
     const trail = model
       .ancestors(term.slug)
       .slice(1)
       .reverse()
       .map((slug) => model.terms.get(slug)?.label ?? slug);
+    const facet = facetLabel(model, term.slug);
     matches.push({
       slug: term.slug,
       label: term.label,
       trail,
-      count: counts.subtree.get(term.slug) ?? 0,
+      ...(facet !== undefined ? { facet } : {}),
+      count: counts.get(term.slug) ?? 0,
       ...(alias ? { alias } : {}),
+      ...(implied.has(term.slug)
+        ? {
+            through: implied
+              .get(term.slug)!
+              .map((slug) => model.terms.get(slug)?.label ?? slug),
+          }
+        : {}),
       exact,
     });
   }
   matches.sort(
     (a, b) =>
       Number(b.exact) - Number(a.exact) ||
+      Number(a.through !== undefined) - Number(b.through !== undefined) ||
       b.count - a.count ||
       a.label.localeCompare(b.label),
   );
@@ -365,6 +308,7 @@ export function exactOption(
   text: string,
 ): number {
   const query = fold(text);
+  if (!query) return -1;
   return options.findIndex(
     (option) =>
       fold(option.label) === query ||
@@ -374,27 +318,43 @@ export function exactOption(
 }
 
 /**
- * Tags no group places (Df6) that the recipe does not carry — the corpus's
- * loose strings, offered as one-click adds as the form always has ("Add tag
- * soup"). On the real site, since 43k, there are none.
+ * What the suggestions area lists for the text in the field (45a): the
+ * matching terms; **New tag "…"** when none of them spells the text exactly
+ * and the recipe does not carry it yet; or, when it does, the spelling it
+ * carries (`already`), so the area says so instead of offering a no-op.
+ * Nothing for an empty field — the area then shows the import's
+ * suggestions, or its hint.
  */
-export function looseTags(
+export interface TagFieldOptions {
+  matches: TagOptionMatch[];
+  /** The index in `matches` of the exact spelling, or -1. */
+  exact: number;
+  /** The text as it would be stored, offered as a new tag. */
+  newTag?: string;
+  /** The carried tag the text already names. */
+  already?: string;
+}
+
+export function tagFieldOptions(
   picker: TagPicker,
+  text: string,
   tags: readonly string[],
-  fallback: readonly string[] = [],
-): string[] {
-  const carried = new Set(tags.map((tag) => normalizeTag(tag)));
-  const loose =
-    picker.counts.other.length > 0 || picker.model.terms.size > 0
-      ? picker.counts.other.map((other) => other.label)
-      : fallback;
-  const out: string[] = [];
-  for (const label of loose) {
-    const value = normalizeTag(label);
-    if (!value || carried.has(value) || out.includes(value)) continue;
-    out.push(value);
+  limit = MATCH_LIMIT,
+): TagFieldOptions {
+  const matches = searchPickerTerms(picker, text, tags, limit);
+  const exact = exactOption(matches, text);
+  const value = normalizeTag(text);
+  if (!value || exact >= 0) return { matches, exact };
+  if (addTag(picker.model, tags, value).length > tags.length) {
+    return { matches, exact, newTag: value };
   }
-  return out;
+  const slug = resolveTag(picker.model, value);
+  const already = tags.find(
+    (tag) =>
+      normalizeTag(tag) === value ||
+      (slug !== undefined && resolveTag(picker.model, tag) === slug),
+  );
+  return { matches, exact, ...(already !== undefined ? { already } : {}) };
 }
 
 /** How a chosen tag reads in the heading: its term's label, or as carried. */

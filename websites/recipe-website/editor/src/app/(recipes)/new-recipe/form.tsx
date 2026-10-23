@@ -191,7 +191,6 @@ export default function NewOrImportRecipeForm({
   initialState: initialImportState,
   initialJob,
   initialImportUrl,
-  allTags = [],
   tagPicker,
   terms = [],
   llmModel,
@@ -209,7 +208,6 @@ export default function NewOrImportRecipeForm({
    * Import button starts the job, as if it had been typed.
    */
   initialImportUrl?: string;
-  allTags?: string[];
   /** The tag picker's vocabulary and counts (43e2). */
   tagPicker?: TagPickerData;
   /** The vocabulary, for the roundup's collection term. */
@@ -1092,7 +1090,6 @@ export default function NewOrImportRecipeForm({
           state={withSlugConflict(submissionState)}
           slug={slug}
           recipe={submissionState.formData || recipe || undefined}
-          allTags={allTags}
           imageFile={submissionState.formData ? undefined : imageFile}
           fromLabel={submissionState.formData ? undefined : fromLabel}
         />

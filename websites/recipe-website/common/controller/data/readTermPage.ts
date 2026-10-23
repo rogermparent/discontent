@@ -24,10 +24,7 @@ import {
   countFacets,
   facetTermsFromOptions,
 } from "../../util/facets";
-import {
-  serializeFacetCounts,
-  type TagPickerData,
-} from "../../components/Form/Tags/tagPicker";
+import type { TagPickerData } from "../../components/Form/Tags/tagPicker";
 
 /**
  * The reading half of the join (24c) — the cached reads, and nothing else.
@@ -119,21 +116,6 @@ export async function readTagBoardPage(): Promise<TagBoardData> {
 }
 
 /**
- * Every term something carries, as labels, in slug order (31b) — the forms'
- * `TagsInput` suggestions and the homepage's browse chips.
- *
- * It replaced `getAllTags()`, which read the recipe fold alone: the server half
- * of the one "all terms" list (24-T11) whose browser half is `/search/terms`.
- * A group's tags and a record's label now reach both, and a record nothing
- * carries is left out, as the rail leaves it out.
- */
-export async function readTagLabels(): Promise<string[]> {
-  return (await readTagVocabulary())
-    .filter((entry) => entry.count > 0)
-    .map((entry) => entry.label);
-}
-
-/**
  * `/make`'s tag picker (28g): the same vocabulary as `/tags`, with each term's
  * parent from the tree, so the page can show roots and expand them.
  */
@@ -150,10 +132,11 @@ export async function readTagOptions(): Promise<TagOption[]> {
 }
 
 /**
- * The edit form's tag picker (43e2): the vocabulary as facet terms (records
- * and carried-only tags, `readTagOptions`' list) and the corpus counts —
- * recipes and groups under each term, counted once per term over its
- * subtree and aliases (`countFacets`). Read from the two by-term maps and
+ * The edit form's tag picker (43e2, 45a): the vocabulary as facet terms
+ * (records and carried-only tags, `readTagOptions`' list) and the corpus
+ * counts — recipes and groups under each term, counted once per term over
+ * its subtree and aliases (`countFacets`' `subtree`, the only count the
+ * type-ahead shows). Read from the two by-term maps and
  * the tree, as `/tags`' board is; an editor page, so nothing is exported.
  */
 export async function readTagPicker(): Promise<TagPickerData> {
@@ -174,7 +157,7 @@ export async function readTagPicker(): Promise<TagPickerData> {
     ...carriersFromRows(byRecipeTag),
     ...carriersFromRows(byGroupTag),
   ];
-  return { terms, counts: serializeFacetCounts(countFacets(model, carriers)) };
+  return { terms, counts: [...countFacets(model, carriers).subtree] };
 }
 
 /** One row of `/search/terms`: a term, its parent, its aliases, and how many carry it. */
