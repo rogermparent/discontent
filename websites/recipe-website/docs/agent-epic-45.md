@@ -833,6 +833,34 @@ on the shelf makes the dough on its default, Bagels; without
 `ingredientAlternates` the pretzels' lines count and it does not) was
 already right and stays.
 
+**Gates (finisher, on origin/main 26b4ec58 = 45a + 45b merged in).**
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean.
+- `pnpm exec vitest run`: **160 files, 3546 tests passed.** The first run
+  failed 2 in `reindexJobs.test.ts`, both De1-8's doing: the pinned index
+  version hash moved (now `72c0224ea752c76e`), and the "a content index
+  version" variant set `indexVersion: "2"`, which is now the real value —
+  it bumps the current value instead.
+- Playwright in Docker, build mode (alternatives, the recipe page specs,
+  yield, cook view, shopping ×2, make, groups, plan page, `visual`,
+  `mobile`, accessibility, timeline, edit — the regexes also took in
+  multi-recipe): **369 of 370 passed.** The one failure was `visual`'s
+  `git-page.png`: the git page prints the index version, and De1-8 moved
+  it. Regenerated in Docker (only that PNG; the hash text is the whole
+  diff), then 1/1.
+- `alternatives.spec`: 13/13 in Docker build mode, 13/13 in dev mode.
+- Baselines (Docker): new `alternatives-desktop-e2e.png` (Pretzels: the
+  heads-up box with its "Nothing to plan ahead for Pretzels" line) and
+  `alternatives-phone-mobile.png` (Bagels, the note). **No recipe-page
+  baseline moved**; the one old PNG that moved is `git-page-e2e.png`, above.
+- Export: `next build` of `recipe-website` on a scratch content dir with a
+  choice recipe passed; `out/recipe/everything-dough.html` has the picker
+  (Bagels `aria-checked="true"`, Pretzels, All), the default path's anchors
+  (`step-bagels-2`, `step-bagels-3`, `step-pretzels-2` hidden, shared
+  `step-4`), the "Plan ahead" box, JSON-LD `recipeYield` "8 bagels" and no
+  "To Store".
+
 **Roger to confirm:** an "All" pick on the recipe page adds every option's
 extras to the shopping list (the list follows what the page shows); the
 yield sits in each option's heading line and in the meta strip, not in the
