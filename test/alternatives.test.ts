@@ -33,7 +33,6 @@ import {
 } from "recipe-website-common/util/readChoices";
 import { stepNumbers } from "recipe-website-common/util/stepNumbers";
 import {
-  findHeadsUps,
   headsUpCandidates,
   selectHeadsUps,
 } from "recipe-website-common/util/headsUp";
@@ -48,7 +47,12 @@ import { cookProgressKey } from "recipe-website-common/components/View/FocusView
 import { stepTimerId } from "recipe-website-common/util/kitchenTimers";
 import { matchStepIngredients } from "recipe-website-common/util/stepIngredients";
 import {
+  showJumpLinks,
+  showJumpLinksOnPath,
+} from "recipe-website-common/components/View/JumpLinks";
+import {
   RecipeInputSchema,
+  ShoppingAddSchema,
   toIngredients,
   toInstructions,
 } from "../websites/recipe-website/editor/controller/curation/schema";
@@ -170,6 +174,32 @@ describe("readChoices (G1)", () => {
       instructions: [{ text: "Mix.", choice: "Then make" }],
     } as unknown as Recipe;
     expect(readChoices(bare).sets).toEqual([]);
+  });
+
+  it("labels an unnamed option by its place, and never merges it", () => {
+    const unnamed: Recipe = {
+      name: "Two ways",
+      date: 1_760_000_000_000,
+      instructions: [
+        { name: "", choice: "Finish", instructions: [{ text: "Glaze." }] },
+        {
+          name: "Option 1",
+          choice: "Finish",
+          instructions: [{ text: "Dust." }],
+        },
+      ],
+    };
+    const [set] = readChoices(unnamed).sets;
+    expect(
+      set.options.map(({ slug, label, groupIndexes }) => ({
+        slug,
+        label,
+        groupIndexes,
+      })),
+    ).toEqual([
+      { slug: "option-1", label: "Option 1", groupIndexes: [0] },
+      { slug: "option-1-2", label: "Option 1", groupIndexes: [1] },
+    ]);
   });
 
   it("matches `choice` labels by slug and merges groups of one name", () => {
@@ -617,15 +647,78 @@ describe("heads-up notes on the reader's path", () => {
     expect(notesFor({ [SET]: "pretzels" })).toEqual([]);
   });
 
-  it("is `findHeadsUps` for a recipe without alternatives", () => {
+  it("picks every note on the one path of a recipe without alternatives", () => {
+    /* Worked by hand: the dough's only heads-up is the bagels' first step,
+       the third on the page with every group stacked. */
     const plain = stripChoices(DOUGH);
-    const numbers = stepNumbers(plain.instructions);
+    const path = shownPath(readChoices(plain));
     expect(
       selectHeadsUps(
         headsUpCandidates(plain.instructions, plain.timelines),
-        (entry, step) => ({ number: numbers[entry][step] }),
+        (entry, step) => {
+          const at = path.steps[entry]?.[step];
+          return at?.shown ? { number: at.number } : undefined;
+        },
       ),
-    ).toEqual(findHeadsUps(plain.instructions, plain.timelines));
+    ).toEqual([
+      {
+        sentence: "Cover and refrigerate overnight.",
+        step: 3,
+        source: "step",
+      },
+    ]);
+    expect(path.steps[1][0].id).toBe("step-3");
+  });
+});
+
+describe("the jump row on the reader's path", () => {
+  /* 15 lines and steps between them is the row's threshold (39-Dc5). */
+  const LONG: Recipe = {
+    name: "Long dough",
+    date: 1_760_000_000_000,
+    ingredients: [
+      ...Array.from({ length: 8 }, (_, n) => ({ ingredient: `${n + 1} g a` })),
+      { ingredient: "For the bagels", type: "heading", choice: "Then make" },
+      ...Array.from({ length: 3 }, (_, n) => ({ ingredient: `${n + 1} g b` })),
+    ],
+    instructions: [
+      { name: "Dough", instructions: [{ text: "Mix." }, { text: "Rise." }] },
+      {
+        name: "Bagels",
+        choice: "Then make",
+        instructions: [{ text: "Shape." }, { text: "Boil." }],
+      },
+      { name: "Pizza", choice: "Then make", instructions: [{ text: "Bake." }] },
+    ],
+  };
+  const onPath = (recipe: Recipe, picks?: Record<string, string>) => {
+    const path = shownPath(readChoices(recipe), picks);
+    return showJumpLinksOnPath({
+      headings: (recipe.ingredients ?? []).map(
+        ({ type }) => type === "heading",
+      ),
+      lines: path.lines,
+      entries: path.entries,
+      steps: path.steps.flat().filter((step) => step.shown).length,
+    });
+  };
+
+  it("counts the chosen path: bagels 8 + 3 + 2 + 2 = 15, pizza 8 + 2 + 1 = 11", () => {
+    expect(onPath(LONG)).toBe(true);
+    expect(onPath(LONG, { [SET]: "pizza" })).toBe(false);
+    expect(onPath(LONG, { [SET]: ALL_OPTIONS })).toBe(true);
+  });
+
+  it("is `showJumpLinks` without alternatives: 11 lines + 5 steps", () => {
+    const plain = stripChoices(LONG);
+    expect(onPath(plain)).toBe(true);
+    expect(showJumpLinks(plain.ingredients, plain.instructions)).toBe(true);
+    const short: Recipe = {
+      ...plain,
+      ingredients: plain.ingredients!.slice(2),
+    };
+    expect(onPath(short)).toBe(false);
+    expect(showJumpLinks(short.ingredients, short.instructions)).toBe(false);
   });
 });
 
@@ -636,6 +729,36 @@ describe("a step's Uses inside an option", () => {
     expect(uses[1][1]).toEqual([5]);
     /* "the baking soda … the salt": the pretzels' own lines. */
     expect(uses[2][1]).toEqual([7, 8]);
+  });
+});
+
+describe("Add to list with a pick", () => {
+  it("takes a pick whose option has a long name", () => {
+    const name =
+      "Soft pretzels with a beer cheese dip and a mustard glaze, rolled in everything seasoning and baked on a stone";
+    const recipe: Recipe = {
+      ...DOUGH,
+      instructions: [
+        DOUGH.instructions![0],
+        DOUGH.instructions![1],
+        { ...(DOUGH.instructions![2] as object), name } as InstructionEntry,
+        DOUGH.instructions![3],
+      ],
+    };
+    const [set] = readChoices(recipe).sets;
+    const long = set.options[1].slug;
+    expect(long.length).toBeGreaterThan(80);
+    const parsed = ShoppingAddSchema.safeParse({
+      recipe: "everything-dough",
+      picks: { [set.key]: long },
+    });
+    expect(parsed.success).toBe(true);
+    expect(
+      ShoppingAddSchema.safeParse({
+        recipe: "everything-dough",
+        picks: { [set.key]: "x".repeat(201) },
+      }).success,
+    ).toBe(false);
   });
 });
 

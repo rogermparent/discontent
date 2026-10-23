@@ -55,6 +55,11 @@ export function JumpLinks({
   instructions?: InstructionEntry[];
 }) {
   if (!showJumpLinks(ingredients, instructions)) return null;
+  return <JumpLinksRow />;
+}
+
+/** The row itself, once a reader has decided it shows. */
+export function JumpLinksRow() {
   return (
     <nav
       aria-label="Jump to"
@@ -70,5 +75,34 @@ export function JumpLinks({
         Instructions
       </a>
     </nav>
+  );
+}
+
+/**
+ * `showJumpLinks` over one path (45e): the lines and steps the path shows,
+ * counted as `recipeLineCount` counts them. With everything shown it is
+ * `showJumpLinks` exactly.
+ */
+export function showJumpLinksOnPath({
+  headings,
+  lines,
+  entries,
+  steps,
+}: {
+  /** Per ingredient line, whether it is a stored heading. */
+  headings: readonly boolean[];
+  /** Per ingredient line, whether the path shows it. */
+  lines: readonly boolean[];
+  /** Per instruction entry, whether the path shows it. */
+  entries: readonly boolean[];
+  /** How many steps the path shows. */
+  steps: number;
+}): boolean {
+  const shownLines = headings.filter((_, index) => lines[index] !== false);
+  const count = shownLines.filter((heading) => !heading).length + steps;
+  return (
+    shownLines.length > 0 &&
+    entries.some(Boolean) &&
+    count >= JUMP_LINKS_MIN_LINES
   );
 }

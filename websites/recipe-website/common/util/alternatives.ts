@@ -25,7 +25,7 @@ export const ALL_OPTIONS = "all";
 export interface ChoiceOption {
   /** The option's key in a pick and in anchors: `bagels`. */
   slug: string;
-  /** The group's name, as written: "Bagels". */
+  /** The group's name, as written: "Bagels" ("Option 2" for an unnamed one). */
   label: string;
   /** The instruction entries (groups) that make up the option, in order. */
   groupIndexes: number[];

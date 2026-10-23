@@ -7,7 +7,13 @@ import {
   type HeadsUp,
   type HeadsUpCandidate,
 } from "../../util/headsUpSelect";
-import { plainChoices, shownPath } from "../../util/alternatives";
+import {
+  hasChoices,
+  plainChoices,
+  shownPath,
+  type Choices,
+  type ShownPath,
+} from "../../util/alternatives";
 import { stepId } from "./Instructions/stepId";
 import { useChoices } from "./Choices";
 
@@ -19,12 +25,18 @@ import { useChoices } from "./Choices";
  */
 export function HeadsUpNotes({
   notes,
+  emptyNote,
   className,
 }: {
   notes: HeadsUp[];
+  /**
+   * What the box says when the reader's path has no notes but another path
+   * does (45e): the box stays, so nothing above the steps moves.
+   */
+  emptyNote?: string;
   className?: string;
 }) {
-  if (notes.length === 0) return null;
+  if (notes.length === 0 && !emptyNote) return null;
   return (
     <section
       aria-label="Heads-up"
@@ -40,26 +52,32 @@ export function HeadsUpNotes({
       />
       <div className="min-w-0">
         <p className="font-semibold">Plan ahead</p>
-        <ul className="flex flex-col gap-1">
-          {notes.map(({ sentence, step, anchor, source }) => (
-            <li
-              key={`${step ?? source}-${sentence}`}
-              data-testid="heads-up-note"
-            >
-              {step !== undefined ? (
-                <a
-                  href={`#${anchor ?? stepId(step)}`}
-                  className="font-medium underline underline-offset-2 hover:text-primary"
-                >
-                  Step {step}
-                </a>
-              ) : (
-                <span className="font-medium">The cook schedule</span>
-              )}{" "}
-              says “{sentence}”
-            </li>
-          ))}
-        </ul>
+        {notes.length > 0 ? (
+          <ul className="flex flex-col gap-1">
+            {notes.map(({ sentence, step, anchor, source }) => (
+              <li
+                key={`${step ?? source}-${sentence}`}
+                data-testid="heads-up-note"
+              >
+                {step !== undefined ? (
+                  <a
+                    href={`#${anchor ?? stepId(step)}`}
+                    className="font-medium underline underline-offset-2 hover:text-primary"
+                  >
+                    Step {step}
+                  </a>
+                ) : (
+                  <span className="font-medium">The cook schedule</span>
+                )}{" "}
+                says “{sentence}”
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p data-testid="heads-up-empty" className="italic">
+            {emptyNote}
+          </p>
+        )}
       </div>
     </section>
   );
@@ -70,6 +88,10 @@ export function HeadsUpNotes({
  * sentence (`headsUpCandidates`), and the ones in steps of an option not
  * chosen drop out here, the rest numbered as the path numbers them. For a
  * recipe without alternatives that is `findHeadsUps`' answer exactly.
+ *
+ * The box itself does not come and go with the pick (U1): when any option
+ * has a note, it renders on the server and stays, saying "Nothing to plan
+ * ahead for Pretzels" while the chosen path has none.
  */
 export function PathHeadsUpNotes({
   candidates,
@@ -93,5 +115,37 @@ export function PathHeadsUpNotes({
       ...(step.id !== stepId(step.number) ? { anchor: step.id } : {}),
     };
   });
-  return <HeadsUpNotes notes={notes} className={className} />;
+  const emptyNote =
+    notes.length === 0 && context && hasChoices(context.choices)
+      ? nothingToPlanFor(context.choices, path, candidates)
+      : undefined;
+  return (
+    <HeadsUpNotes notes={notes} emptyNote={emptyNote} className={className} />
+  );
+}
+
+/**
+ * "Nothing to plan ahead for Pretzels": the chosen options of the sets
+ * whose other options hold a note, or `undefined` when no path has one.
+ */
+function nothingToPlanFor(
+  choices: Choices,
+  path: ShownPath,
+  candidates: readonly HeadsUpCandidate[],
+): string | undefined {
+  const setKeys = new Set<string>();
+  for (const candidate of candidates) {
+    if (candidate.source !== "step") continue;
+    const step = path.steps[candidate.entry ?? 0]?.[candidate.step ?? 0];
+    if (step?.option) setKeys.add(step.option.set);
+  }
+  const labels = choices.sets.flatMap((set) => {
+    if (!setKeys.has(set.key)) return [];
+    const option = set.options.find(
+      (each) => each.slug === path.picks[set.key],
+    );
+    return option ? [option.label] : [];
+  });
+  if (labels.length === 0) return undefined;
+  return `Nothing to plan ahead for ${labels.join(" and ")}`;
 }

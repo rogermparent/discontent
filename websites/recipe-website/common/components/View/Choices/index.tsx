@@ -222,7 +222,7 @@ export function ChoicePicker({
         {[
           ...set.options.map((option) => ({
             value: option.slug,
-            label: option.label || option.slug,
+            label: option.label,
           })),
           ...(all ? [{ value: ALL_OPTIONS, label: "All" }] : []),
         ].map(({ value: optionValue, label }) => (

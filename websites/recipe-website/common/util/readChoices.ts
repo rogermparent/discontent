@@ -91,13 +91,18 @@ export function readChoices(recipe: ChoiceFields): Choices {
     }
     const options: ChoiceOption[] = [];
     const optionSlugs = new Set<string>([ALL_OPTIONS]);
+    /* An unnamed group is "Option 2" on the picker (slug `option-2`), and
+       never merges with another — not even one named "Option 2". */
+    const unnamed = new Set<ChoiceOption>();
     for (let entry = i; entry < end; entry++) {
       const group = instructions[entry] as InstructionGroup;
       const name = (group.name ?? "").trim();
       const base = choiceSlug(name) || `option-${options.length + 1}`;
       const existing = name
         ? options.find(
-            (option) => choiceSlug(option.label) === choiceSlug(name),
+            (option) =>
+              !unnamed.has(option) &&
+              choiceSlug(option.label) === choiceSlug(name),
           )
         : undefined;
       if (existing) {
@@ -107,15 +112,17 @@ export function readChoices(recipe: ChoiceFields): Choices {
         }
         continue;
       }
-      options.push({
+      const option: ChoiceOption = {
         slug: unique(base, optionSlugs),
-        label: name,
+        label: name || `Option ${options.length + 1}`,
         groupIndexes: [entry],
         ingredientLines: [],
         ...(group.recipeYield?.trim()
           ? { yield: group.recipeYield.trim() }
           : {}),
-      });
+      };
+      if (!name) unnamed.add(option);
+      options.push(option);
     }
     if (options.length >= 2) {
       sets.push({ key: unique(slug, setKeys), label, options });

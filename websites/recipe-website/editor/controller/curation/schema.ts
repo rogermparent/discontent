@@ -612,10 +612,12 @@ export const ShoppingAddSchema = z
     /*
      * A recipe's alternatives (45e): set key → option slug, or "all" —
      * what the recipe page sends for the reader's pick. Sets left out use
-     * their first option; unknown keys are ignored.
+     * their first option; unknown keys are ignored. 200 characters: the
+     * keys and slugs come from labels and group names (plus a `-2` when
+     * two meet), which nothing caps at 80.
      */
     picks: z
-      .record(z.string().min(1).max(80), z.string().min(1).max(80))
+      .record(z.string().min(1).max(200), z.string().min(1).max(200))
       .optional(),
     items: z.array(ShoppingTextSchema).min(1).max(200).optional(),
   })

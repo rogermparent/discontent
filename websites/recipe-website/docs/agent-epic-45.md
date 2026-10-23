@@ -414,7 +414,9 @@ rail, the heads-up, the yield, the cook view and "Add to list".
   group names are compared by slug, so "Then make" / "then make" are one
   set and two groups called "Bagels" in one run are one option
   (`groupIndexes` has both). Set keys and option slugs are made unique
-  (`-2`); an option slugged `all` becomes `all-2`.
+  (`-2`); an option slugged `all` becomes `all-2`. An unnamed group is
+  labelled by its place ("Option 1", slug `option-1`) and never merges with
+  another option, even one named "Option 1".
 - **De1-2 an option's lines.** `ingredientLines` (a list, not the plan's
   `ingredientRange`): the heading carrying the set's label whose name meets
   the option's by `sectionKey` (falling back to the slug), through the line
@@ -451,15 +453,25 @@ rail, the heads-up, the yield, the cook view and "Add to list".
   combination of picks across sets; the candidates are a handful of
   sentences (one for the test dough), and `isHeadsUp` stays on the server.
   `findHeadsUps` is now `selectHeadsUps` over `stepNumbers`, the same
-  answer as before for every recipe.
+  answer as before for every recipe. **The box never comes and goes with
+  the pick (U1):** when any option has a note, the server renders the
+  "Plan ahead" box and the client keeps it; a chosen path with no note
+  says one muted line instead, "Nothing to plan ahead for Pretzels" (the
+  chosen options of the sets whose other options hold a note). Notes off
+  the path are not rendered, so print shows the path's notes only.
 - **De1-7 one value (G2).** `recipeOnPath` (default path, "All" read as the
   default, the option's yield) feeds JSON-LD, the plan page's rows and
-  run-sheet times (`planRecipeView`, the sub-plan rows) and the jump row's
-  line count. The shopping list's `recipeLines(recipe, picks?)` follows the
+  run-sheet times (`planRecipeView`, the sub-plan rows). The jump row
+  (`PathJumpLinks`, client) counts the reader's path as the steps do —
+  `showJumpLinksOnPath` over `shownPath`'s lines and steps — so the server
+  renders the default path's answer, and a recipe without alternatives
+  gets exactly `showJumpLinks`' row. The shopping list's `recipeLines(recipe, picks?)` follows the
   pick (an "All" pick adds every option's lines); a plan or a sub-recipe
   adds the defaults. `shopping_add` gains `picks` (recipe adds only), which
   the recipe page sends; MCP sees it through the shared schema, its blurb
-  is 45e2's.
+  is 45e2's. Its keys and values take up to 200 characters: they are
+  slugs of labels and group names (plus `-2`), and a group name has no
+  cap, so 80 refused a long option's "Add to list" as `validation`.
 - **De1-8 Make.** The index value gains `ingredientAlternates` (lines off
   the default path), written only when non-empty, carried to `/make`'s
   corpus and to `readMakeCorpus`; `prepareRecipe` drops those lines'
@@ -484,10 +496,40 @@ rail, the heads-up, the yield, the cook view and "Add to list".
   under `cook-view:<slug>|<path>` — a recipe without alternatives keeps
   `cook-view:<slug>`.
 
+**Known limits (for 45e2's form).**
+
+- **Two sets with the same label** ("Frosting", a shared step, "Frosting"
+  again) read as two sets (`frosting`, `frosting-2`), but an ingredient
+  heading's `choice` names a set only by its label, so a heading binds to
+  the first such set that has an option of its name. 45e2's form should
+  refuse duplicate set labels in one recipe.
+- The ingredients section's text mode drops a heading's `choice` (De1-10;
+  45e2's).
+- Option slugs are as long as their group names; nothing truncates them
+  (the `picks` cap is 200).
+
+**Review fixes (finisher, on 1450cfc9's review).** The heads-up box stays
+across picks (De1-6); `picks` caps at 200 (De1-7); the jump row follows the
+pick (De1-7); an unnamed option reads "Option N" (De1-1); the test that
+rebuilt `findHeadsUps` from itself now checks hand-worked notes for the
+plain dough's one path, and the jump row on a path has its own cases.
+Assertions the first worker had guessed, settled against what is right:
+the pretzels' dip step uses **both** its own lines ("1/4 cup baking soda",
+"Flaky sea salt, for topping" — its "flaky salt" meets the topping salt,
+not the dough's), so the spec now checks the exact list rather than
+`toContainText` of one; the Make case (bread flour, water, salt, molasses
+on the shelf makes the dough on its default, Bagels; without
+`ingredientAlternates` the pretzels' lines count and it does not) was
+already right and stays.
+
 **Roger to confirm:** an "All" pick on the recipe page adds every option's
 extras to the shopping list (the list follows what the page shows); the
 yield sits in each option's heading line and in the meta strip, not in the
-buttons; the rail's "Only for Bagels · choose another" note.
+buttons; the rail's "Only for Bagels · choose another" note. **Accepted
+after hydration:** a remembered or linked pick changes, once the page is
+live, the meta strip's yield, the rail's option lines, the steps and their
+numbers, and the jump row (which can appear or go when a pick crosses its
+15-line threshold) — the heads-up box alone is held in place.
 
 #### 45e2 (outline; brief written after 45e1)
 

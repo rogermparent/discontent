@@ -285,8 +285,20 @@ test.describe("Alternatives on the recipe page (45e1)", () => {
       "href",
       "#step-bagels-3",
     );
+    /* The box stays (U1): nothing above the ingredients moves. */
+    const box = page.getByTestId("recipe-heads-up");
+    const ingredientsArea = page.locator(".recipe-area-ingredients");
+    const top = (await ingredientsArea.boundingBox())!.y;
     await option(page, "Pretzels").click();
-    await expect(page.getByTestId("recipe-heads-up")).toHaveCount(0);
+    await expect(box).toBeVisible();
+    await expect(notes).toHaveCount(0);
+    await expect(box.getByTestId("heads-up-empty")).toHaveText(
+      "Nothing to plan ahead for Pretzels",
+    );
+    expect((await ingredientsArea.boundingBox())!.y).toBeCloseTo(top, 0);
+    await option(page, "Bagels").click();
+    await expect(notes).toHaveCount(1);
+    await expect(box.getByTestId("heads-up-empty")).toHaveCount(0);
   });
 
   test("a step's Uses are the chosen option's lines", async ({ page }) => {
@@ -296,7 +308,7 @@ test.describe("Alternatives on the recipe page (45e1)", () => {
         .locator("#step-pretzels-4")
         .getByRole("list", { name: "Uses", exact: true })
         .getByRole("listitem"),
-    ).toContainText(["1/4 cup baking soda"]);
+    ).toHaveText(["1/4 cup baking soda", "Flaky sea salt, for topping"]);
   });
 
   test("the cook view cooks the chosen path, with its own picker and ticks", async ({

@@ -17,7 +17,7 @@ import { RecipeJsonLD } from "./JsonLD";
 import { Ingredients } from "./Ingredients";
 import { AppearsIn } from "./AppearsIn";
 import { SourceLine } from "./SourceLine";
-import { JumpLinks } from "./JumpLinks";
+import { PathJumpLinks } from "./PathJumpLinks";
 import { DrinkSpecBar } from "./DrinkSpec";
 import { RecipeSchedule } from "./Schedule";
 import BookmarkButton from "../BookmarkButton";
@@ -29,7 +29,7 @@ import { RecipeCardPlaceholder } from "../List/shared";
 import { PathHeadsUpNotes } from "./HeadsUp";
 import { matchStepIngredients } from "../../util/stepIngredients";
 import { headsUpCandidates } from "../../util/headsUp";
-import { readChoices, recipeOnPath } from "../../util/readChoices";
+import { readChoices } from "../../util/readChoices";
 import { ChoicesProvider, PathYield } from "./Choices";
 import { drinkYieldBase, isDrinkRecipe } from "../../util/drinkCount";
 import { TimersProvider, TimerTray } from "./Timers";
@@ -75,10 +75,8 @@ export async function RecipeView({
      reader's path are chosen in the browser (`PathHeadsUpNotes`). */
   const headsUps = headsUpCandidates(instructions, timelines);
   /* 45e (G1): the recipe's sets of alternatives, as a model the browser
-     can read without the matcher; the default path (G2) for what the
-     server decides alone (the jump row). */
+     can read without the matcher. */
   const choices = readChoices(recipe);
-  const defaultPath = recipeOnPath(recipe);
   const hasOptionYield = choices.sets.some((set) =>
     set.options.some((option) => option.yield),
   );
@@ -241,9 +239,13 @@ export async function RecipeView({
                       ]}
                     />
                     <DrinkSpecBar drink={recipe.drink} />
-                    <JumpLinks
-                      ingredients={defaultPath.ingredients}
-                      instructions={defaultPath.instructions}
+                    {/* 45e: its count follows the reader's path, as the
+                        steps do; the server renders the default's. */}
+                    <PathJumpLinks
+                      headings={(ingredients ?? []).map(
+                        ({ type }) => type === "heading",
+                      )}
+                      entrySteps={choices.entrySteps}
                     />
                   </div>
                 </div>
