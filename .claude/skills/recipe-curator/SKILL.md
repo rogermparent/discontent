@@ -273,6 +273,36 @@ dish, so leave it off unless asked). Exactly one of `url`, `text` or
 `photos`. It needs a vision model: without one it is `usage` naming
 `RECIPE_LLM_VISION_MODEL`. HEIC is refused — ask for a JPEG.
 
+**Alternatives (a choice).** Some recipes end in one of several ways — one
+dough, then a loaf, baguettes, pizza, bagels or pretzels; one cake, then a
+cream-cheese or a buttercream frosting. Those step groups are a **set** the
+reader picks one option of, shown on the page as tabs:
+
+- Give every group of the set the same `choice` — the set's label, the
+  reader's question ("Then make", "Frosting") — and keep them **next to each
+  other**. Each group's `name` is an option ("Bagels"), unique in its set; a
+  set needs two options or more, and two sets in one recipe need different
+  labels. **The first option is the default**: the page shows it until the
+  reader picks, and Make, the plan page and a plan's shopping use it.
+- An option's own yield goes on its group as `recipeYield` ("8 bagels").
+- An option's extra ingredients sit under an ingredient **heading** with the
+  same `choice` and a name that matches the option's ("For the bagels" is
+  `Bagels`): `{"ingredient": "For the bagels", "type": "heading", "choice":
+"Then make"}`, its lines below it up to the next heading. They show only
+  when that option is picked.
+
+```json
+recipe_update {"slug": "everything-dough", "patch": {"instructions": [{"name": "Dough", "instructions": [{"text": "Mix…"}]}, {"name": "Bagels", "choice": "Then make", "recipeYield": "8 bagels", "instructions": [{"text": "Shape…"}]}, {"name": "Soft pretzels", "choice": "Then make", "recipeYield": "8 pretzels", "instructions": [{"text": "Dip…"}]}]}}
+```
+
+`page_inspect`, `recipe_import` (a dry run, and a create) answer
+`suggestedChoices: [{label, groups}]` when sibling groups look like
+alternatives — `groups` index the draft's (or the written recipe's)
+`instructions`. **A hint, never applied:** nothing sets `choice` by itself.
+Make it a choice only when the person's ask or the recipe plainly says the
+reader does one of them (not sequential parts — a filling and an assembly
+are both made), and say so in the report.
+
 **Fixing an image later:**
 
 ```json
@@ -620,6 +650,11 @@ shopping_remove {"recipe": "chili"}
   `warnings` entry too.
 - **"Add the chili ×2"** → `shopping_add {"recipe": "chili", "scale": "2"}`;
   things that are not recipe lines → `{"items": [...]}`.
+- **"Add the dough, for bagels"** — a recipe with alternatives adds its
+  default option's extras unless `picks` names another: `shopping_add
+{"recipe": "everything-dough", "picks": {"then-make": "bagels"}}`. Keys
+  are the set's label and values the option's name, as slugs; `"all"` adds
+  every option's lines. A plan adds the defaults.
 - **"I bought eggs"** → `shopping_check {"names": ["eggs"]}` ticks every egg
   line; `unmatched` lists names that matched nothing — look at `shopping_get`
   and tick by `ids` instead. `uncheck: true` reverses a tick.

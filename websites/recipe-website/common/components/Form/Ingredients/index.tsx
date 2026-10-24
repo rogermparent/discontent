@@ -1,6 +1,13 @@
 "use client";
 
-import { Fragment, useId, useRef, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useStore } from "@tanstack/react-form";
 import { MoreHorizontal } from "lucide-react";
 import { Button } from "@discontent/component-library/components/Button";
@@ -17,6 +24,13 @@ import { detectHeading } from "../../../util/detectHeading";
 import type { Ingredient } from "../../../controller/types";
 import { useRecipeForm } from "../formContext";
 import { FormSection } from "../RecipeFormFrame";
+import { SelectInput } from "@discontent/component-library/components/Form/inputs/Select";
+import {
+  headingTies,
+  tieHeading,
+  type HeadingTie,
+  type TieOption,
+} from "./headingTies";
 import {
   ingredientFlags,
   inlineRuns,
@@ -133,6 +147,82 @@ function RowField({
   );
 }
 
+const NO_TIE = "";
+
+/**
+ * Under a heading, when the recipe has sets (45e2): which option its lines
+ * belong to — "Then make › Bagels" — and, when its name meets an option's
+ * and it has no tie yet, that tie offered in one click (never made by
+ * itself).
+ */
+function HeadingTieRow({
+  number,
+  tie,
+  options,
+  renamed,
+  onTie,
+}: {
+  number: number;
+  tie?: HeadingTie;
+  options: TieOption[];
+  renamed?: string;
+  onTie?: (option: TieOption | undefined) => void;
+}) {
+  const selectId = useId();
+  return (
+    <div
+      className="mt-1.5 flex flex-col gap-1.5 text-sm sm:ml-[1.875rem]"
+      data-testid="heading-tie"
+    >
+      <div className="flex flex-wrap items-end gap-2">
+        <SelectInput
+          id={selectId}
+          label={`Ingredient ${number} option`}
+          className="min-w-56"
+          value={tie?.tied?.value ?? NO_TIE}
+          options={[
+            { value: NO_TIE, label: "For every option" },
+            ...options.map((option) => ({
+              value: option.value,
+              label: option.label,
+            })),
+          ]}
+          onValueChange={(value) =>
+            onTie?.(options.find((option) => option.value === value))
+          }
+        />
+        {tie?.suggestion ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="max-sm:h-11"
+            onClick={() => onTie?.(tie.suggestion)}
+          >
+            Tie it to {tie.suggestion.label}
+          </Button>
+        ) : null}
+      </div>
+      {tie?.suggestion ? (
+        <p className="text-muted-foreground">
+          Its name matches the option “{tie.suggestion.optionLabel}”: tied, its
+          lines show only when a reader picks it.
+        </p>
+      ) : null}
+      {tie?.dangling ? (
+        <p className="border-l-2 border-warning pl-2">
+          Tied to the choice “{tie.dangling}”, but no option there has this
+          heading&apos;s name. Pick one above, or “For every option”.
+        </p>
+      ) : null}
+      {renamed && tie?.tied ? (
+        <p className="text-muted-foreground">
+          Renamed from “{renamed}”: a heading pairs with its option by name.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /** One row: display, or the field while it is being edited. */
 function IngredientRow({
   index,
@@ -147,11 +237,21 @@ function IngredientRow({
   onInsert,
   onMove,
   onRemove,
+  tie,
+  tieChoices = [],
+  renamed,
+  onTie,
 }: {
   index: number;
   count: number;
   line: Ingredient;
   sourceUrl?: string;
+  /** A heading's tie to an option of a set (45e2), when the recipe has sets. */
+  tie?: HeadingTie;
+  tieChoices?: TieOption[];
+  /** The tie renamed this heading to its option's name. */
+  renamed?: string;
+  onTie?: (option: TieOption | undefined) => void;
   /** This row is open for typing (one at a time, the section says which). */
   editing: boolean;
   onEdit: () => void;
@@ -282,7 +382,7 @@ function IngredientRow({
           value="heading"
         />
       ) : null}
-      {/* 45e: a heading's option rides along unedited (45e2 edits it). */}
+      {/* 45e: a heading's option, which the tie row below edits (45e2). */}
       {heading && line.choice ? (
         <input
           type="hidden"
@@ -340,6 +440,15 @@ function IngredientRow({
         )}
         {menu}
       </div>
+      {heading && tieChoices.length ? (
+        <HeadingTieRow
+          number={number}
+          tie={tie}
+          options={tieChoices}
+          renamed={renamed}
+          onTie={onTie}
+        />
+      ) : null}
       {flags.includes("note-mark") ? (
         <p
           id={`${id}-flag`}
@@ -551,6 +660,16 @@ export function IngredientsSection({
     form.setFieldValue("ingredients", next);
   const setLine = (index: number, patch: (line: Ingredient) => Ingredient) =>
     setLines(lines.map((line, i) => (i === index ? patch(line) : line)));
+  /* 45e2: headings tied to an option of a set, when the steps have sets. */
+  const instructions = useStore(
+    form.store,
+    (state) => state.values.instructions,
+  );
+  const { options: tieChoices, ties } = useMemo(
+    () => headingTies(lines, instructions),
+    [lines, instructions],
+  );
+  const [renamed, setRenamed] = useState<Record<number, string>>({});
 
   const aside: ReactNode = (
     <>
@@ -641,6 +760,20 @@ export function IngredientsSection({
                     setLines(next);
                   }}
                   onRemove={() => setLines(lines.filter((_, i) => i !== index))}
+                  tie={ties.get(index)}
+                  tieChoices={tieChoices}
+                  renamed={renamed[index]}
+                  onTie={(option) => {
+                    const next = tieHeading(lines, index, option);
+                    setLines(next.ingredients);
+                    setRenamed((old) => {
+                      const { [index]: _gone, ...rest } = old;
+                      void _gone;
+                      return next.renamed
+                        ? { ...rest, [index]: plainLine(line.ingredient) }
+                        : rest;
+                    });
+                  }}
                 />
               ))}
             </ul>

@@ -31,6 +31,7 @@ import {
 import { Recipe } from "recipe-website-common/controller/types";
 import { RecipeFormState } from "recipe-website-common/controller/formState";
 import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
+import { suggestChoices } from "recipe-website-common/util/suggestChoices";
 import { StaticImageProps } from "@discontent/next-static-image/src";
 import type { TagPickerData } from "recipe-website-common/components/Form/Tags/tagPicker";
 import {
@@ -217,9 +218,14 @@ export default function EditRecipeForm({
           : {}),
       };
       remounts.current += 1;
+      /* 45e2: groups that look like alternatives — filled from the source
+       * or already stored — offered as a marked suggestion, never set. */
+      const suggestedChoices = suggestChoices(merged.instructions);
       setApplied({
         key: `fill-${remounts.current}`,
-        recipe: merged,
+        recipe: suggestedChoices.length
+          ? { ...merged, suggestedChoices }
+          : merged,
         marks,
         extraChanges:
           (fields.includes("image") ? 1 : 0) +

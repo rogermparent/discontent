@@ -15,9 +15,39 @@ import { PasteField, ParsedLine } from "../PasteField";
 import { detectHeading } from "../../../util/detectHeading";
 import { useRecipeForm } from "../formContext";
 import { ArrayItemControls } from "@discontent/component-library/components/Form/ArrayItemControls";
-import { createContext, useContext, useMemo } from "react";
+import {
+  createContext,
+  useContext,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { useStore } from "@tanstack/react-form";
 import { Check } from "lucide-react";
+import { Checkbox } from "@discontent/component-library/components/ui/checkbox";
+import { choiceSlug } from "../../../util/alternatives";
+import {
+  choiceProblems,
+  choiceRuns,
+  inChoice,
+  runOf,
+  type ChoiceRun,
+} from "../../../util/choiceChecks";
+import type { SuggestedChoice } from "../../../util/suggestChoices";
+import {
+  labelProblem,
+  makeChoice,
+  moveTarget,
+  notChoice,
+  retieHeadings,
+  selectionProblem,
+  suggestionFits,
+} from "./choiceEdits";
+import {
+  ChoiceSetBlock,
+  ChoiceSuggestionCard,
+  MakeChoicePanel,
+} from "./ChoiceSet";
 import {
   flatSteps,
   ingredientChipLabel,
@@ -174,9 +204,12 @@ function InstructionFields({
 function InstructionGroupFields({
   namePrefix,
   entry,
+  nameLabel = "Name",
 }: {
   namePrefix: TopLevelPrefix;
   entry: number;
+  /** "Option name" on an option of a set (45e2). */
+  nameLabel?: string;
 }) {
   const form = useRecipeForm();
   return (
@@ -184,7 +217,7 @@ function InstructionGroupFields({
       <form.Field name={`${namePrefix}.name`}>
         {(field) => (
           <TextInput
-            label="Name"
+            label={nameLabel}
             name={`${namePrefix}.name`}
             value={(field.state.value as string) ?? ""}
             onChange={(e) => field.handleChange(e.target.value)}
@@ -244,7 +277,11 @@ function InstructionGroupFields({
   );
 }
 
-/** A group's `choice` and `recipeYield` (45e) as hidden inputs, when set. */
+/**
+ * A plain group's leftover `choice` / `recipeYield` (45e) as hidden inputs,
+ * so an unchanged save keeps them (43-D4). A group in a set posts its own
+ * from its option card (`ChoiceSet`).
+ */
 function GroupChoiceInputs({
   index,
   group,
@@ -288,12 +325,15 @@ function InstructionEntryFields({
   onMoveUp,
   onMoveDown,
   onRemove,
+  select,
 }: {
   index: number;
   onInsert: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
   onRemove: () => void;
+  /** A group's "Include in the choice" box while groups are ticked (45e2). */
+  select?: ReactNode;
 }) {
   const form = useRecipeForm();
   return (
@@ -318,12 +358,11 @@ function InstructionEntryFields({
           <li className="flex flex-col my-1">
             {isGroup ? (
               <>
+                {select}
                 <InstructionGroupFields
                   namePrefix={`instructions[${index}]`}
                   entry={index}
                 />
-                {/* 45e: an option's set and yield ride along unedited, so a
-                    save with no changes keeps them; 45e2 gives them controls. */}
                 <GroupChoiceInputs
                   index={index}
                   group={entry as InstructionGroup}
@@ -415,9 +454,14 @@ function assembleInstructions(lines: ParsedLine[]): InstructionEntry[] {
   return entries;
 }
 
+/** A suggestion's state in the form: offered, taken (until Save) or put away. */
+type SuggestionStatus = "offered" | "accepted" | "dismissed";
+
 export function InstructionsListInput({
   id,
   label,
+  suggestedChoices,
+  suggestedBy = "suggested by the import",
 }: {
   name?: string;
   id: string;
@@ -425,6 +469,13 @@ export function InstructionsListInput({
   defaultValue?: InstructionEntry[];
   placeholder?: string;
   errors?: unknown;
+  /**
+   * Sets an import (or a fill) proposes (45e2, G5): offered as marked cards,
+   * applied to the form only when the person accepts, stored only on Save.
+   */
+  suggestedChoices?: readonly SuggestedChoice[];
+  /** The mark's words: "suggested by the import". */
+  suggestedBy?: string;
 }) {
   const form = useRecipeForm();
   const ingredients = useStore(form.store, (state) => state.values.ingredients);
@@ -452,6 +503,54 @@ export function InstructionsListInput({
   );
   const hasSteps = flatSteps(instructions).some((step) => step.text.trim());
 
+  /* 45e2: the sets as the form holds them, and what is wrong with them. */
+  const runs = useMemo(() => choiceRuns(instructions), [instructions]);
+  const problems = useMemo(() => choiceProblems(instructions), [instructions]);
+
+  /* "Make these a choice": groups ticked, the label typed. */
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [newLabel, setNewLabel] = useState("");
+  const [tried, setTried] = useState(false);
+  const eligible = (entry: InstructionEntry | undefined) =>
+    entryIsGroup(entry) && !inChoice(entry);
+  const canSelect = instructions.some(
+    (entry, index) => eligible(entry) && eligible(instructions[index + 1]),
+  );
+  const selectProblem =
+    selectionProblem(instructions, selected) ??
+    labelProblem(instructions, newLabel);
+  const stopSelecting = () => {
+    setSelecting(false);
+    setSelected([]);
+    setNewLabel("");
+    setTried(false);
+  };
+
+  /* An import's suggestions, each offered, accepted or put away. */
+  const [statuses, setStatuses] = useState<SuggestionStatus[]>(() =>
+    (suggestedChoices ?? []).map(() => "offered"),
+  );
+  const setStatus = (index: number, status: SuggestionStatus) =>
+    setStatuses((list) => list.map((old, i) => (i === index ? status : old)));
+  /** The accepted suggestion a set still is: same place, size and label. */
+  const acceptedAs = (run: ChoiceRun) =>
+    (suggestedChoices ?? []).findIndex(
+      (suggestion, index) =>
+        statuses[index] === "accepted" &&
+        suggestion.groups[0] === run.start &&
+        suggestion.groups.length === run.end - run.start &&
+        choiceSlug(suggestion.label) === choiceSlug(run.label),
+    );
+
+  const renderGroup = (index: number) => (
+    <InstructionGroupFields
+      namePrefix={`instructions[${index}]`}
+      entry={index}
+      nameLabel="Option name"
+    />
+  );
+
   return (
     <StepInfoContext.Provider value={info}>
       <FieldWrapper label={label} id={id}>
@@ -459,8 +558,114 @@ export function InstructionsListInput({
           {(arrayField) => {
             const items =
               (arrayField.state.value as InstructionEntry[] | undefined) ?? [];
+            /* Each row: an ordinary entry, or a set from its first option. */
+            const starts: number[] = [];
+            for (let at = 0; at < items.length;) {
+              starts.push(at);
+              at = runOf(runs, at)?.end ?? at + 1;
+            }
+            const rows: ReactNode[] = [];
+            for (const index of starts) {
+              const run = runOf(runs, index);
+              if (run) {
+                const accepted = acceptedAs(run);
+                rows.push(
+                  <ChoiceSetBlock
+                    key={`set-${run.start}`}
+                    run={run}
+                    problems={problems}
+                    suggestedBy={accepted >= 0 ? suggestedBy : undefined}
+                    onUndo={() => {
+                      form.setFieldValue(
+                        "instructions",
+                        notChoice(form.state.values.instructions, run),
+                      );
+                      form.setFieldValue(
+                        "ingredients",
+                        retieHeadings(
+                          form.state.values.ingredients,
+                          run.label,
+                          undefined,
+                        ),
+                      );
+                      setStatus(accepted, "offered");
+                    }}
+                    renderGroup={renderGroup}
+                  />,
+                );
+                continue;
+              }
+              const entry = items[index];
+              const groupName = entryIsGroup(entry)
+                ? (entry as InstructionGroup).name?.trim() || "this group"
+                : "";
+              const at = index;
+              rows.push(
+                <InstructionEntryFields
+                  key={index}
+                  index={index}
+                  select={
+                    selecting && eligible(entry) ? (
+                      <label className="mb-1 flex min-h-6 items-center gap-2 text-sm font-medium">
+                        <Checkbox
+                          checked={selected.includes(at)}
+                          onCheckedChange={(checked) =>
+                            setSelected((list) =>
+                              checked
+                                ? [...list, at]
+                                : list.filter((other) => other !== at),
+                            )
+                          }
+                        />
+                        Include “{groupName}” in the choice
+                      </label>
+                    ) : undefined
+                  }
+                  onInsert={() => arrayField.insertValue(index, { text: "" })}
+                  onMoveUp={() => {
+                    const to = moveTarget(items, at, true);
+                    if (to !== undefined) arrayField.moveValue(at, to);
+                  }}
+                  onMoveDown={() => {
+                    const to = moveTarget(items, at, false);
+                    if (to !== undefined) arrayField.moveValue(at, to);
+                  }}
+                  onRemove={() => arrayField.removeValue(index)}
+                />,
+              );
+            }
             return (
               <>
+                {(suggestedChoices ?? []).map((suggestion, index) =>
+                  statuses[index] === "offered" &&
+                  suggestionFits(items, suggestion) ? (
+                    <ChoiceSuggestionCard
+                      key={`suggestion-${index}`}
+                      suggestion={suggestion}
+                      names={suggestion.groups.map(
+                        (group) => (items[group] as InstructionGroup).name,
+                      )}
+                      suggestedBy={suggestedBy}
+                      onAccept={() => {
+                        form.setFieldValue(
+                          "instructions",
+                          makeChoice(
+                            form.state.values.instructions,
+                            suggestion.groups,
+                            labelProblem(
+                              form.state.values.instructions,
+                              suggestion.label,
+                            )
+                              ? `${suggestion.label} ${index + 2}`
+                              : suggestion.label,
+                          ),
+                        );
+                        setStatus(index, "accepted");
+                      }}
+                      onDismiss={() => setStatus(index, "dismissed")}
+                    />
+                  ) : null,
+                )}
                 <PasteField
                   itemName="Instructions"
                   pasteAreaId="instructions-paste-area"
@@ -473,25 +678,27 @@ export function InstructionsListInput({
                     )
                   }
                 />
-                <ul>
-                  {items.map((_, index) => (
-                    <InstructionEntryFields
-                      key={index}
-                      index={index}
-                      onInsert={() =>
-                        arrayField.insertValue(index, { text: "" })
+                <ul>{rows}</ul>
+                {selecting ? (
+                  <MakeChoicePanel
+                    label={newLabel}
+                    onLabel={setNewLabel}
+                    problem={tried ? selectProblem : undefined}
+                    count={selected.length}
+                    onMake={() => {
+                      if (selectProblem) {
+                        setTried(true);
+                        return;
                       }
-                      onMoveUp={() =>
-                        index > 0 && arrayField.moveValue(index, index - 1)
-                      }
-                      onMoveDown={() =>
-                        index < items.length - 1 &&
-                        arrayField.moveValue(index, index + 1)
-                      }
-                      onRemove={() => arrayField.removeValue(index)}
-                    />
-                  ))}
-                </ul>
+                      form.setFieldValue(
+                        "instructions",
+                        makeChoice(items, selected, newLabel),
+                      );
+                      stopSelecting();
+                    }}
+                    onCancel={stopSelecting}
+                  />
+                ) : null}
                 <Button
                   variant="outline"
                   className="mx-0.5 my-1 w-full"
@@ -499,6 +706,15 @@ export function InstructionsListInput({
                 >
                   Add Instruction
                 </Button>
+                {canSelect && !selecting ? (
+                  <Button
+                    variant="ghost"
+                    className="mx-0.5 my-1 self-start max-sm:h-11"
+                    onClick={() => setSelecting(true)}
+                  >
+                    Make a choice of groups…
+                  </Button>
+                ) : null}
               </>
             );
           }}

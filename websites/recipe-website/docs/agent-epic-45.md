@@ -876,6 +876,124 @@ numbers, and the jump row (which can appear or go when a pick crosses its
 - **Import detection:** the extractor and the deterministic path propose a set when sibling sections are parallel endings. Shown as a marked suggestion (G5), accepted or dismissed in the form.
 - The curator skill and the MCP `recipe_create` / `recipe_update` blurbs document `choice`.
 
+#### Results (45e2)
+
+**The Steps section.** A set is one block (`Form/Instructions/ChoiceSet.tsx`):
+its **Choice label** (not posted itself — every option posts it as its
+hidden `instructions[i].choice`), **Not a choice**, the note "A reader picks
+one option. The first is the default: the recipe page shows it until they
+pick another.", the set's problems as they are typed, its options as cards —
+"Option 1 · default", **Option name**, **Option yield** (the group's
+`recipeYield`), the steps, "Move option “Bagels” up / down" (inside the set
+only) and "Remove option" — and **Add an option**. **Make a choice of
+groups…** (shown when two groups that are in no set sit next to each other)
+opens a panel: each such group gets "Include “Bagels” in the choice", a label
+field, **Make these a choice** and Cancel; it says why it cannot yet ("Tick
+at least two groups.", "The groups must sit next to each other, with no step
+between them.", "Give the choice a label, such as “Then make”.", "Another
+choice is already called “Frosting”."). An ordinary entry's ↑/↓ jump a whole
+set rather than split it (`moveTarget`). The edits are pure
+(`Instructions/choiceEdits.ts`).
+
+**The rules** (`common/util/choiceChecks.ts`, shared by the form and
+`parseFormData`): a set is a run of consecutive groups whose `choice` is set
+(a blank label too, while typed), by slug as `readChoices` reads them. A
+label is required ("The choice starting with “Large Loaf” needs a label"); a
+set needs two options ("The choice “Then make” needs at least two options");
+an option needs a name ("An option of the choice “Then make” needs a name" —
+said instead of 45d's "The group … needs a name"), unique in its set ("… has
+two options called “Bagels”"); and **two sets in one recipe can't share a
+label** ("Two choices are called “Frosting”: give each its own label",
+45e1's known limit). The server files them under `instructions`, so 45d's
+summary says "Couldn't save: 1 problem — Steps." and the Steps section lists
+them.
+
+**Ingredients.** When the steps have sets, a heading row gets a select,
+"Ingredient N option": "For every option" or "<set> › <option>"
+(`Ingredients/headingTies.ts`). A heading with no tie whose name meets one
+option's (`nameKey`, exported from `readChoices`) offers **Tie it to Then
+make › Pretzels** — one click, never made by itself. A tie whose heading
+name does not meet the option renames the heading to the option's name and
+says so ("Renamed from “Toppings”: a heading pairs with its option by
+name."), because the tie is by name (G1). A heading whose `choice` meets no
+option says so. Relabelling a set moves its tied headings' `choice` along
+(unless another set has the old label — the clash being fixed); Not a choice
+unties them.
+
+**Text mode keeps the tie.** A line that reads as before already kept its
+object (and so its `choice`); an edited heading did not. `linesFromText` now
+re-attaches a `choice` to a new heading whose `nameKey` still meets a tied
+heading's ("For the bagels" → "For the Bagels:"). **No text syntax**: the
+name is the tie. A heading renamed to something else loses it.
+
+**Import detection** (`common/util/suggestChoices.ts`, pure, no model):
+runs of consecutive named groups in no set, cut into stretches whose names
+read as variants — one head noun with different words before it ("Vanilla
+crumb" / "Chocolate crumb" → **Crumb**), one prefix before a colon or dash
+("Frosting: cream cheese" → **Frosting**), every name a form or shape ("Large
+Loaf", "Baguettes", "For bagels" → **Then make**), every name a method
+("Stovetop", "Slow cooker" → **Method**), or every name an option/version
+(**Version**). Proposed only after something shared (a step, a group or
+another set), with step counts of a size (none more than 3× another, give or
+take three), and no cross-reference (no option's steps name a sibling; no
+later step names two options — a lasagna's two sauces). Never: names that
+count or stage ("First rise", "Day 2"), verb-led names ("Make the dough" /
+"Shape the dough"), shared heads that are parts ("Dry / Wet ingredients",
+"layer"). A label the recipe already has gets a number ("Then make 2"). The
+everything-dough video reads as `{label: "Then make", groups: [4…8]}`.
+
+- **The form** (`formImport.ts` `withLlm`: URL, text and photo imports)
+  carries it as `recipe.suggestedChoices`; the Steps section shows a marked
+  card per suggestion — the dashed tape "suggested by the import", "These 5
+  groups look like alternatives: Large Loaf, Baguettes, Pizza, Bagels and
+  Soft Pretzels. Make them a choice, “Then make”?" — **Make it a choice** /
+  **Not now**. Accepting changes form state only; the set block wears the
+  same tape with "Not saved yet." and **Undo** (the groups ordinary again,
+  the card back) until Save. A card whose groups an edit has moved is not
+  shown (`suggestionFits`).
+- **The edit page's fill** (45b) runs the heuristic over the merged recipe
+  in the browser (filled steps or stored ones) and offers it the same way,
+  "suggested by the fill".
+- **CLI and MCP** never write `choice`: `page_inspect` (over
+  `draft.instructions`), `recipe_import`'s dry run (the draft) and its
+  create (the written recipe's entries) answer `suggestedChoices`, for the
+  curator to apply with `recipe_update`.
+
+**Docs.** The curator skill documents `choice`, an option's `recipeYield`,
+headings tied to options, `suggestedChoices` as hints, and `picks` on
+`shopping_add` (regenerated `skillText.generated.ts`). MCP: `recipe_create`
+/ `recipe_update` carry `CHOICE_DESCRIPTION`; `shopping_add` documents
+`picks`; `page_inspect` / `recipe_import` mention `suggestedChoices`. 59
+tools / 45 pre-approved, unchanged.
+
+**Decisions (De2-…).**
+
+- **De2-1 deterministic detection only; the extractor is untouched.** The
+  heuristic catches the everything-dough shape (both the video's
+  description reading and a page's own sections), so 36's prompt gains no
+  `parallel` hint and keeps its never-estimate rule (orchestrator: touch the
+  extractor only if the heuristic missed it). **Roger to confirm.**
+- **De2-2 a tie is by name.** Choosing an option whose name the heading's
+  does not meet renames the heading to the option's name, said in a note;
+  the data shape (G1) pairs by name and 45e1 reads it so.
+- **De2-3 the form numbers steps in reading order** (as before, and as 45d's
+  "Step N" messages count), not the page's G4 path numbering.
+- **De2-4 the fill's suggestion is computed in the browser** over the merged
+  recipe, rather than a `suggestedChoices` on the fill job's result: Fb2
+  re-runs `fillGaps` over the form's own values, so only the browser knows
+  the final steps. Shown only when a fill applies something; a fill with
+  nothing new changes nothing (as 45b). **Roger to confirm.**
+- **De2-5 option names unique in a set.** 45e1's reader merges two groups of
+  one name into one option; the form refuses it instead (the brief's rule).
+- **De2-6 the curation write path is unchanged**: `recipe_create` /
+  `recipe_update` still take duplicate labels and one-option sets (the
+  readers cope, De1-1); the blurbs say the rules.
+- **De2-7 the local curator skill (`skill-local.md`) is unchanged**: it has
+  no recipe-shape section and a 1,200-token budget.
+
+**Roger to confirm:** De2-1, De2-4; the label words ("Then make", "Method",
+"Version", a head noun); a tie renaming its heading (De2-2).
+
 ### 45c — Close-out
 
 Doc, CLAUDE.md bullet, backlog, memory; the orchestrator's real check on

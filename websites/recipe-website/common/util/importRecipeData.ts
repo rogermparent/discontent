@@ -22,6 +22,7 @@ import {
 } from "./pageMetadata";
 import { htmlToMarkdown as decodeText } from "./htmlMarkdown";
 import { isVideoUrl } from "./videoUrl";
+import type { SuggestedChoice } from "./suggestChoices";
 
 import { decodeHTML } from "entities";
 import {
@@ -167,6 +168,12 @@ export interface ImportedRecipe extends Recipe {
    * (`suggestTags`). Never applied: the curator picks from them.
    */
   suggestedTags?: string[];
+  /**
+   * Step groups that look like alternatives (45e2, `suggestChoices`): a
+   * suggestion the form offers, marked, and never applies by itself; the
+   * recipe carries no `choice` until a person accepts it and saves.
+   */
+  suggestedChoices?: SuggestedChoice[];
 }
 
 function createStep({
