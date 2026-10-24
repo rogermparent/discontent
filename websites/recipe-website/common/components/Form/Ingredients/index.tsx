@@ -23,6 +23,7 @@ import { cn } from "@discontent/component-library/lib/utils";
 import { detectHeading } from "../../../util/detectHeading";
 import type { Ingredient } from "../../../controller/types";
 import { useRecipeForm } from "../formContext";
+import { useStableKeys } from "../stableKeys";
 import { FormSection } from "../RecipeFormFrame";
 import { SelectInput } from "@discontent/component-library/components/Form/inputs/Select";
 import {
@@ -669,7 +670,24 @@ export function IngredientsSection({
     () => headingTies(lines, instructions),
     [lines, instructions],
   );
-  const [renamed, setRenamed] = useState<Record<number, string>>({});
+  /* A tie that renamed its heading says so, keyed by the row (not its
+   * place), and keeps the old name for an untie to give back. */
+  const { keys: rowKeys } = useStableKeys(lines, "ingredient");
+  const [renamed, setRenamed] = useState<
+    Record<string, { from: string; to: string }>
+  >({});
+  /* The name a tie gave this row's heading came from — while it still has
+   * the name the tie gave it (an edit since is the person's own). */
+  const renamedFrom = (index: number): string | undefined => {
+    const rename = renamed[rowKeys[index]];
+    return rename && lines[index]?.ingredient === rename.to
+      ? rename.from
+      : undefined;
+  };
+  const renamedNote = (index: number): string | undefined => {
+    const from = renamedFrom(index);
+    return from === undefined ? undefined : plainLine(from);
+  };
 
   const aside: ReactNode = (
     <>
@@ -762,15 +780,27 @@ export function IngredientsSection({
                   onRemove={() => setLines(lines.filter((_, i) => i !== index))}
                   tie={ties.get(index)}
                   tieChoices={tieChoices}
-                  renamed={renamed[index]}
+                  renamed={renamedNote(index)}
                   onTie={(option) => {
-                    const next = tieHeading(lines, index, option);
+                    const key = rowKeys[index];
+                    const next = tieHeading(
+                      lines,
+                      index,
+                      option,
+                      renamedFrom(index),
+                    );
                     setLines(next.ingredients);
                     setRenamed((old) => {
-                      const { [index]: _gone, ...rest } = old;
+                      const { [key]: _gone, ...rest } = old;
                       void _gone;
-                      return next.renamed
-                        ? { ...rest, [index]: plainLine(line.ingredient) }
+                      return next.renamed !== undefined
+                        ? {
+                            ...rest,
+                            [key]: {
+                              from: next.renamed,
+                              to: next.ingredients[index].ingredient,
+                            },
+                          }
                         : rest;
                     });
                   }}

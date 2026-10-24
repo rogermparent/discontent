@@ -19,6 +19,7 @@ type Request = import("@playwright/test").APIRequestContext;
 
 const PLAIN = "plain-dough";
 const CHOSEN = "chosen-dough";
+const CAKE = "cake-framework";
 
 async function write(request: Request, token: string, data: object) {
   const response = await request.post("/api/recipes", {
@@ -94,6 +95,40 @@ const chosenDough = {
   ],
 };
 
+/** Two sets side by side: a crumb, then a frosting. */
+const cakeFramework = {
+  name: "Cake Framework",
+  slug: CAKE,
+  ingredients: [
+    "2 cups flour",
+    { ingredient: "For the chocolate", type: "heading", choice: "Frosting" },
+    "1/2 cup cocoa",
+  ],
+  instructions: [
+    { name: "Cake", instructions: [{ text: "Mix the batter and bake." }] },
+    {
+      name: "Vanilla",
+      choice: "Crumb",
+      instructions: [{ text: "Add the vanilla." }],
+    },
+    {
+      name: "Streusel",
+      choice: "Crumb",
+      instructions: [{ text: "Rub in the streusel." }],
+    },
+    {
+      name: "Cream cheese",
+      choice: "Frosting",
+      instructions: [{ text: "Beat the cream cheese." }],
+    },
+    {
+      name: "Chocolate",
+      choice: "Frosting",
+      instructions: [{ text: "Melt the chocolate." }],
+    },
+  ],
+};
+
 async function openEdit(page: Page, slug: string) {
   await page.goto(`/recipe/${slug}/edit`);
   await fillSignInForm(page);
@@ -118,6 +153,7 @@ test.describe("Alternatives in the edit form (45e2)", () => {
     const token = await createApiToken();
     await write(request, token, plainDough);
     await write(request, token, chosenDough);
+    await write(request, token, cakeFramework);
   });
 
   test("make two groups a choice, give an option a yield, and the page shows tabs", async ({
@@ -133,6 +169,11 @@ test.describe("Alternatives in the edit form (45e2)", () => {
     await start.click();
 
     const panel = page.getByRole("group", { name: "Make a choice" });
+    /* Focus goes to the panel, so its instructions are read. */
+    await expect(panel).toBeFocused();
+    await panel.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(start).toBeFocused();
+    await start.click();
     /* Nothing ticked yet, and no label: it says why. */
     await panel
       .getByRole("button", { name: "Make these a choice", exact: true })
@@ -159,19 +200,39 @@ test.describe("Alternatives in the edit form (45e2)", () => {
 
     const set = setBlock(page, "Then make");
     await expect(set).toBeVisible();
+    /* Focus lands on the new set's label. */
+    await expect(set.getByLabel("Choice label")).toBeFocused();
     await expect(set.getByTestId("choice-option")).toHaveCount(2);
     await expect(set.getByTestId("choice-option").first()).toContainText(
       "Option 1 · default",
     );
     await expect(set).toContainText("The first is the default");
 
-    /* Reorder: Pretzels first, so it is the default. */
+    /* A third option: focus on its name. Then, from the keyboard, Bagels
+     * moved down twice — the same card each time, focus on its button. */
     await set
-      .getByRole("button", { name: "Move option “Pretzels” up" })
+      .getByRole("button", { name: "Add an option", exact: true })
       .click();
+    const names = set.getByLabel("Option name");
+    await expect(names.nth(2)).toBeFocused();
+    const down = set.getByRole("button", { name: "Move option “Bagels” down" });
+    await down.focus();
+    await page.keyboard.press("Enter");
+    await expect(down).toBeFocused();
+    await page.keyboard.press("Enter");
+    for (const [at, name] of ["Pretzels", "", "Bagels"].entries()) {
+      await expect(names.nth(at)).toHaveValue(name);
+    }
+    /* At the bottom, "down" is off: focus stays on the card, on "up". */
     await expect(
-      set.getByTestId("choice-option").first().getByLabel("Option name"),
-    ).toHaveValue("Pretzels");
+      set.getByRole("button", { name: "Move option “Bagels” up" }),
+    ).toBeFocused();
+    /* The empty option removed: focus on the name of the card that takes
+     * its place. */
+    await set.getByRole("button", { name: "Remove option “Option 2”" }).click();
+    await expect(names.nth(1)).toBeFocused();
+    await expect(names.nth(1)).toHaveValue("Bagels");
+    await expect(names.first()).toHaveValue("Pretzels");
     await set
       .getByTestId("choice-option")
       .nth(1)
@@ -301,7 +362,98 @@ test.describe("Alternatives in the edit form (45e2)", () => {
       .getByRole("button", { name: "Not a choice", exact: true })
       .click();
     await expect(setBlock(page, "Finish with")).toHaveCount(0);
+    /* Focus on the group that was its first option. */
+    await expect(page.locator(":focus")).toHaveValue("Sesame");
     await save(page, CHOSEN);
+  });
+
+  test("a label cleared and retyped key by key keeps its ties", async ({
+    page,
+    request,
+  }) => {
+    await openEdit(page, CHOSEN);
+    /* By place, not by label: the label is what changes. */
+    const set = page.getByTestId("choice-set").first();
+    const label = set.getByLabel("Choice label");
+    await expectHydrated(label);
+    await label.click();
+    await label.press("End");
+    for (let i = 0; i < "Then make".length; i++) {
+      await label.press("Backspace");
+    }
+    await expect(label).toHaveValue("");
+    await expect(set).toContainText(
+      "The choice starting with “Bagels” needs a label",
+    );
+    await expect(label).toHaveAttribute("aria-invalid", "true");
+    await label.pressSequentially("Bake");
+    await label.press("Tab");
+    await expect(page.getByLabel("Ingredient 2 option")).toHaveText(
+      "Bake › Bagels",
+    );
+
+    await save(page, CHOSEN);
+    const stored = await (await request.get(`/api/recipe/${CHOSEN}`)).json();
+    expect(stored.ingredients[1]).toEqual({
+      ingredient: "For the bagels",
+      type: "heading",
+      choice: "Bake",
+    });
+    expect(
+      stored.instructions.map((entry: { choice?: string }) => entry.choice),
+    ).toEqual([undefined, "Bake", "Bake", undefined, "Topping", "Topping"]);
+  });
+
+  test("typing a neighbour's label never merges two sets", async ({
+    page,
+    request,
+  }) => {
+    await openEdit(page, CAKE);
+    const sets = page.getByTestId("choice-set");
+    const frosting = sets.nth(1);
+    const label = frosting.getByLabel("Choice label");
+    await expectHydrated(label);
+    await label.selectText();
+    await label.press("Backspace");
+    await label.pressSequentially("Crumb");
+    /* Still two blocks, the field still has focus, and it says why. */
+    await expect(sets).toHaveCount(2);
+    await expect(label).toBeFocused();
+    await expect(frosting).toContainText(
+      "Two choices next to each other can't share a label",
+    );
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByTestId("recipe-form-message")).toHaveText(
+      "Couldn't save: 1 problem — Steps.",
+    );
+    /* Its heading waits under the old label meanwhile. */
+    await expect(page.getByTestId("heading-tie")).toContainText(
+      "Tied to the choice “Frosting”",
+    );
+
+    /* An option's name problem is linked to its field. */
+    const chocolate = frosting.getByLabel("Option name").nth(1);
+    await chocolate.fill("");
+    await expect(chocolate).toHaveAttribute("aria-invalid", "true");
+    await expect(chocolate).toHaveAccessibleDescription(
+      "An option of the choice “Crumb” needs a name",
+    );
+    await chocolate.fill("Chocolate");
+    await expect(chocolate).not.toHaveAttribute("aria-invalid");
+
+    await label.click();
+    await label.press("End");
+    await label.pressSequentially("s");
+    await label.press("Tab");
+    await expect(page.getByLabel("Ingredient 2 option")).toHaveText(
+      "Crumbs › Chocolate",
+    );
+    await save(page, CAKE);
+    const stored = await (await request.get(`/api/recipe/${CAKE}`)).json();
+    expect(
+      stored.instructions.map((entry: { choice?: string }) => entry.choice),
+    ).toEqual([undefined, "Crumb", "Crumb", "Crumbs", "Crumbs"]);
+    expect(stored.ingredients[1].choice).toBe("Crumbs");
   });
 
   test("axe: the edit form with a set and a tie", async ({ page }) => {
@@ -345,19 +497,34 @@ test.describe("An import's suggested choice (45e2, G5)", () => {
     await expect(page.getByTestId("choice-set")).toHaveCount(0);
 
     await card.getByRole("button", { name: "Make it a choice" }).click();
-    const set = setBlock(page, "Then make");
+    const set = page.getByTestId("choice-set");
     await expect(set.getByTestId("choice-option")).toHaveCount(5);
     await expect(set.getByTestId("choice-suggested-mark")).toHaveText(
       "suggested by the import",
     );
     await expect(card).toHaveCount(0);
+    /* Focus on its label; relabelled, it is still the suggestion, marked,
+     * with its Undo. */
+    const label = set.getByLabel("Choice label");
+    await expect(label).toBeFocused();
+    await label.selectText();
+    await label.pressSequentially("Shape it as");
+    await label.press("Tab");
+    await expect(setBlock(page, "Shape it as")).toBeVisible();
+    await expect(set.getByTestId("choice-suggested-mark")).toHaveText(
+      "suggested by the import",
+    );
 
     await expectNoViolations(page);
 
-    /* Undo: the groups are ordinary again, and the card is back. */
+    /* Undo: the groups are ordinary again, the card is back, and focus is
+     * on its button. */
     await set.getByRole("button", { name: "Undo", exact: true }).click();
     await expect(page.getByTestId("choice-set")).toHaveCount(0);
     await expect(card).toBeVisible();
+    await expect(
+      card.getByRole("button", { name: "Make it a choice" }),
+    ).toBeFocused();
 
     await card.getByRole("button", { name: "Make it a choice" }).click();
     await page
@@ -390,6 +557,8 @@ test.describe("An import's suggested choice (45e2, G5)", () => {
     await expect(card).toBeVisible({ timeout: 30_000 });
     await card.getByRole("button", { name: "Not now" }).click();
     await expect(card).toHaveCount(0);
+    /* Focus on the first of its groups. */
+    await expect(page.locator(":focus")).toHaveValue("Large Loaf");
     await page
       .getByRole("button", { name: "Create recipe", exact: true })
       .click();

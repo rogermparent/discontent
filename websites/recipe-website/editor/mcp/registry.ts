@@ -353,7 +353,8 @@ const CHOICE_DESCRIPTION =
   'group may carry its own `recipeYield` ("8 bagels"). An ingredient heading ' +
   'with the same `choice` and a name matching an option\'s ("For the bagels" ' +
   "for `Bagels`) holds that option's extra lines, up to the next heading. An " +
-  "import's `suggestedChoices` are hints only: set `choice` yourself when it fits.";
+  "import's `suggestedChoices` are hints only: set `choice` yourself when it fits. " +
+  "Instructions that break these rules are refused as `validation`.";
 const IDEMPOTENT_WRITE = { readOnlyHint: false, idempotentHint: true } as const;
 const DESTRUCTIVE_WRITE = {
   readOnlyHint: false,
@@ -582,9 +583,10 @@ export function recipeToolDefinitions(
       description:
         "Fetch a page, extract its recipe and write it, keeping the source as " +
         "provenance. `dryRun` returns what would be written — and a create-ready " +
-        "`draft` — without writing it. Either may answer `suggestedChoices` " +
-        "(as page_inspect; a create's index the written recipe): `choice` is never " +
-        "set by an import. `image` replaces the page's best image URL. " +
+        "`draft` — without writing it. Either may answer `suggestedChoices`, " +
+        "as page_inspect does (after a create, its indexes count the written " +
+        "recipe's instructions): `choice` is never set by an import. " +
+        "`image` replaces the page's best image URL. " +
         "A page with no Recipe node is refused unless `allowPartial`. " +
         LLM_DESCRIPTION +
         " Pasted text instead of `url`: `text` (a YouTube description, an email, a " +

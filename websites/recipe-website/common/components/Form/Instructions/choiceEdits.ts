@@ -35,18 +35,17 @@ function plainGroup(group: InstructionGroup): InstructionGroup {
 
 /**
  * Why `indexes` cannot be made a choice, or undefined when they can: two
- * or more groups, next to each other, none already in a set.
+ * or more groups, next to each other, none already in a set (`runs`).
  */
 export function selectionProblem(
   instructions: readonly InstructionEntry[],
   indexes: readonly number[],
+  runs: readonly ChoiceRun[] = choiceRuns(instructions),
 ): string | undefined {
   const sorted = [...indexes].sort((a, b) => a - b);
   if (sorted.length < 2) return "Tick at least two groups.";
   if (
-    sorted.some(
-      (index) => !isGroup(instructions[index]) || inChoice(instructions[index]),
-    )
+    sorted.some((index) => !isGroup(instructions[index]) || runOf(runs, index))
   ) {
     return "Only groups that are not in a choice yet can be ticked.";
   }
@@ -56,18 +55,29 @@ export function selectionProblem(
   return undefined;
 }
 
-/** Why `label` cannot be a new set's label, or undefined when it can. */
-export function labelProblem(
-  instructions: readonly InstructionEntry[],
+/** A set of `runs` other than `except` labelled `label` (by slug). */
+export function labelTaken(
+  runs: readonly ChoiceRun[],
   label: string,
   except?: ChoiceRun,
-): string | undefined {
+): ChoiceRun | undefined {
   const key = choiceSlug(label.trim());
-  if (!key) return "Give the choice a label, such as “Then make”.";
-  const clash = choiceRuns(instructions).find(
+  if (!key) return undefined;
+  return runs.find(
     (run) =>
       run.start !== except?.start && choiceSlug(run.label.trim()) === key,
   );
+}
+
+/** Why `label` cannot be a new set's label, or undefined when it can. */
+export function labelProblem(
+  runs: readonly ChoiceRun[],
+  label: string,
+  except?: ChoiceRun,
+): string | undefined {
+  if (!choiceSlug(label.trim()))
+    return "Give the choice a label, such as “Then make”.";
+  const clash = labelTaken(runs, label, except);
   return clash
     ? `Another choice is already called “${clash.label.trim()}”.`
     : undefined;
@@ -115,7 +125,8 @@ export function relabel(
 /**
  * Ingredient headings tied to the set labelled `from` (by slug), tied to
  * `to` instead — a relabelled set keeps its extras. `to` undefined unties
- * them ("Not a choice").
+ * them ("Not a choice"). Never to a blank label: a label being typed
+ * through "" would leave its headings tied to nothing, so they wait.
  */
 export function retieHeadings(
   ingredients: readonly Ingredient[],
@@ -124,6 +135,7 @@ export function retieHeadings(
 ): Ingredient[] {
   const key = choiceSlug(from.trim());
   if (!key) return [...ingredients];
+  if (to !== undefined && !choiceSlug(to.trim())) return [...ingredients];
   let changed = false;
   const next = ingredients.map((line) => {
     if (
@@ -139,24 +151,36 @@ export function retieHeadings(
       void _choice;
       return rest;
     }
-    return { ...line, choice: to };
+    return { ...line, choice: to.trim() };
   });
   return changed ? next : [...ingredients];
 }
 
-/** Another set has `run`'s label too: the clash `choiceProblems` refuses. */
-export function sharesLabel(
-  instructions: readonly InstructionEntry[],
+/**
+ * A relabelled set's headings, once the label is settled (the field left,
+ * or Enter): from `tiedAs` — the label they were last tied under — to the
+ * set's label now. Nothing moves to a blank label, to one another set has
+ * (the clash is being fixed: they wait for a label of the set's own), or
+ * from one another set has too (theirs would move with them). `tiedAs` is
+ * the label the headings are tied under afterwards.
+ */
+export function settleLabel(
+  ingredients: readonly Ingredient[],
+  runs: readonly ChoiceRun[],
   run: ChoiceRun,
-): boolean {
-  const key = choiceSlug(run.label.trim());
-  return (
-    key !== "" &&
-    choiceRuns(instructions).some(
-      (other) =>
-        other.start !== run.start && choiceSlug(other.label.trim()) === key,
-    )
-  );
+  tiedAs: string,
+): { ingredients: Ingredient[]; tiedAs: string } {
+  const label = run.label.trim();
+  if (!choiceSlug(label) || labelTaken(runs, label, run)) {
+    return { ingredients: [...ingredients], tiedAs };
+  }
+  if (labelTaken(runs, tiedAs, run)) {
+    return { ingredients: [...ingredients], tiedAs: label };
+  }
+  return {
+    ingredients: retieHeadings(ingredients, tiedAs, label),
+    tiedAs: label,
+  };
 }
 
 /** The option at `from` moved to `to`, both inside `run`. */
@@ -189,15 +213,15 @@ export function addOption(
 
 /**
  * Where an ordinary entry at `index` goes one step `up` or down: past a
- * whole set rather than between its options, which would split it.
- * Undefined at either end.
+ * whole set (of `runs`) rather than between its options, which would split
+ * it. Undefined at either end.
  */
 export function moveTarget(
   instructions: readonly InstructionEntry[],
   index: number,
   up: boolean,
+  runs: readonly ChoiceRun[] = choiceRuns(instructions),
 ): number | undefined {
-  const runs = choiceRuns(instructions);
   const neighbour = up ? index - 1 : index + 1;
   if (neighbour < 0 || neighbour >= instructions.length) return undefined;
   const run = runOf(runs, neighbour);

@@ -18,8 +18,10 @@
  *   "Chocolate crumb" → "Crumb");
  * - **one prefix** before a colon or dash ("Frosting: cream cheese",
  *   "Frosting: chocolate" → "Frosting");
- * - **every name a form, a shape or a method** ("Large Loaf", "Baguettes",
- *   "For bagels", "Dutch oven", "Slow cooker" → "Then make" or "Method");
+ * - **every name a form of one kind, or a method** ("Large Loaf",
+ *   "Baguettes", "For bagels"; "Dutch oven", "Slow cooker" → "Then make" or
+ *   "Method") — not a form and a dish made from another ("Tortillas",
+ *   "Tacos");
  * - **every name an option or a version** ("Option 1", "Vegan version").
  *
  * A set is proposed only when it has ≥ 2 options, follows something shared
@@ -134,66 +136,58 @@ const FORM_ADJECTIVES = new Set([
   "dish",
 ]);
 
-/** Breads, bakes and dishes a shared dough or batter is made into. */
-const FORM_WORDS = new Set([
-  "loaf",
-  "boule",
-  "batard",
-  "baguette",
-  "ficelle",
-  "epi",
-  "pizza",
-  "bagel",
-  "bialy",
-  "pretzel",
-  "roll",
-  "bun",
-  "knot",
-  "focaccia",
-  "flatbread",
-  "naan",
-  "pita",
-  "calzone",
-  "stromboli",
-  "ciabatta",
-  "breadstick",
-  "muffin",
-  "cupcake",
-  "cake",
-  "bundt",
-  "tart",
-  "tartlet",
-  "pie",
-  "galette",
-  "cookie",
-  "bar",
-  "brownie",
-  "scone",
-  "biscuit",
-  "waffle",
-  "pancake",
-  "crepe",
-  "dumpling",
-  "bao",
-  "empanada",
-  "croissant",
-  "danish",
-  "pastry",
-  "doughnut",
-  "donut",
-  "flatbread",
-  "tortilla",
-  "taco",
-  "burrito",
-  "quesadilla",
-  "sandwich",
-  "burger",
-  "patty",
-  "meatball",
-  "skewer",
-  "kebab",
-  "casserole",
-]);
+/**
+ * Breads, bakes and dishes a shared dough or batter is made into, by kind:
+ * options are forms of one kind — a dough made into a loaf or bagels, a
+ * batter into cupcakes or a layer cake — never one form and a dish built
+ * from another ("Tortillas" and "Tacos", "Burger buns" and "Burgers",
+ * "Pastry" and "Tart": the second uses the first).
+ */
+const FORM_KINDS: Record<string, readonly string[]> = {
+  dough: [
+    "loaf",
+    "boule",
+    "batard",
+    "baguette",
+    "ficelle",
+    "epi",
+    "pizza",
+    "bagel",
+    "bialy",
+    "pretzel",
+    "roll",
+    "bun",
+    "knot",
+    "focaccia",
+    "flatbread",
+    "naan",
+    "pita",
+    "calzone",
+    "stromboli",
+    "ciabatta",
+    "breadstick",
+    "tortilla",
+    "croissant",
+    "danish",
+    "pastry",
+    "doughnut",
+    "donut",
+    "dumpling",
+    "bao",
+    "empanada",
+  ],
+  batter: ["muffin", "cupcake", "cake", "bundt", "waffle", "pancake", "crepe"],
+  pie: ["tart", "tartlet", "pie", "galette"],
+  cookie: ["cookie", "bar", "brownie", "scone", "biscuit"],
+  shaped: ["burger", "patty", "meatball", "skewer", "kebab"],
+  dish: ["taco", "burrito", "quesadilla", "sandwich", "casserole"],
+};
+
+const FORM_KIND = new Map<string, string>(
+  Object.entries(FORM_KINDS).flatMap(([kind, list]) =>
+    list.map((word) => [word, kind] as const),
+  ),
+);
 
 /** Ways to cook the same thing ("Oven", "Dutch oven", "Slow cooker"). */
 const METHOD_WORDS = new Set([
@@ -353,9 +347,10 @@ function formCore(list: string[]): string[] {
   return core.length ? core : list;
 }
 
-function isForm(list: string[]): boolean {
+/** The kind of form a name makes ("Large Loaf": dough), if it is one. */
+function formKind(list: string[]): string | undefined {
   const core = formCore(list);
-  return FORM_WORDS.has(core[core.length - 1]);
+  return FORM_KIND.get(core[core.length - 1]);
 }
 
 function isMethod(list: string[]): boolean {
@@ -430,8 +425,9 @@ function variantRule(
     }
   }
 
-  /* Every name a form the shared work is made into. */
-  if (lists.every(isForm)) {
+  /* Every name a form the shared work is made into, all of one kind. */
+  const kinds = lists.map(formKind);
+  if (kinds[0] && kinds.every((kind) => kind === kinds[0])) {
     const cores = new Set(lists.map((list) => formCore(list).join(" ")));
     if (cores.size === lists.length)
       return { rule: "form", label: "Then make" };
@@ -505,9 +501,14 @@ function crossReferenced(
   return keys.filter((key) => mentions(later, key)).length >= 2;
 }
 
+/** How two labels are one for `freeLabel`: their words. */
+export function labelKey(text: string): string {
+  return words(text).join(" ");
+}
+
 /** A label not yet used by the recipe or another suggestion: "Then make 2". */
-function freeLabel(label: string, taken: Set<string>): string {
-  const key = (text: string) => words(text).join(" ");
+export function freeLabel(label: string, taken: Set<string>): string {
+  const key = labelKey;
   let candidate = label;
   for (let n = 2; taken.has(key(candidate)); n++) candidate = `${label} ${n}`;
   taken.add(key(candidate));

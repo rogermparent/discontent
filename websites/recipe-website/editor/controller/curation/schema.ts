@@ -31,6 +31,10 @@ import { SCALE_MESSAGE, isValidScale } from "recipe-website-common/util/scale";
 import { STORE_ID_PATTERN } from "recipe-website-common/util/shoppingTypes";
 import { featureKey } from "recipe-website-common/components/MakePage/kinds";
 import { patternError } from "recipe-website-common/util/matchers";
+import {
+  choiceProblems,
+  everySet,
+} from "recipe-website-common/util/choiceChecks";
 import { z } from "zod";
 import { ValidationError, issuesOf } from "./errors";
 
@@ -97,6 +101,28 @@ const InstructionGroupSchema = z.strictObject({
   /** An option's own yield ("8 bagels"). */
   recipeYield: z.string().optional(),
 });
+
+/**
+ * A write's steps judged by the edit form's rules for alternatives (45e2,
+ * `choiceProblems`), every set as worked on: a label two sets share, a set
+ * of one, an option with no name or a name its set has twice is a
+ * `validation` error in the form's words. Only a write that carries
+ * `instructions` is judged.
+ */
+function checkChoices(
+  instructions: readonly unknown[] | null | undefined,
+  ctx: z.RefinementCtx,
+): void {
+  if (!instructions) return;
+  const entries = instructions as InstructionEntry[];
+  for (const problem of choiceProblems(entries, everySet(entries))) {
+    ctx.addIssue({
+      code: "custom",
+      path: [problem.index, problem.field],
+      message: problem.message,
+    });
+  }
+}
 
 /*
  * Group before step: both shapes carry `name`, and only the group carries
@@ -168,7 +194,10 @@ export const RecipeInputSchema = z.strictObject({
   totalTime: z.number().optional(),
   recipeYield: z.string().optional(),
   ingredients: z.array(IngredientInputSchema).optional(),
-  instructions: z.array(InstructionInputSchema).optional(),
+  instructions: z
+    .array(InstructionInputSchema)
+    .superRefine(checkChoices)
+    .optional(),
   timelines: z.array(TimelineSchema).optional(),
   source: SourceSchema.optional(),
   drink: DrinkSpecSchema.optional(),
@@ -198,7 +227,11 @@ export const RecipePatchSchema = z.strictObject({
   totalTime: z.number().nullable().optional(),
   recipeYield: z.string().nullable().optional(),
   ingredients: z.array(IngredientInputSchema).nullable().optional(),
-  instructions: z.array(InstructionInputSchema).nullable().optional(),
+  instructions: z
+    .array(InstructionInputSchema)
+    .superRefine(checkChoices)
+    .nullable()
+    .optional(),
   timelines: z.array(TimelineSchema).nullable().optional(),
   source: SourceSchema.nullable().optional(),
   /** Replaces the whole spec; `null` — or an all-blank object — clears it. */

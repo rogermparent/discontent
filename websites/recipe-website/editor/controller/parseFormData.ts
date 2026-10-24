@@ -222,12 +222,16 @@ const instructionsSchema = z
     if (!entries) return undefined;
     const kept: InstructionEntry[] = [];
     /* 45e2: the entries as the sets read them (`choiceProblems`), each with
-     * its posted index — a refused one too, so a set keeps its options. */
+     * its posted index — a refused one too, so a set keeps its options —
+     * and the worked-on set it is an option of (its posted `choiceSet`;
+     * none for a set as stored, which no rule judges: 43-D4). */
     const shape: InstructionEntry[] = [];
     const posted: number[] = [];
-    const shaped = (entry: InstructionEntry, index: number) => {
+    const sets: (string | undefined)[] = [];
+    const shaped = (entry: InstructionEntry, index: number, set?: string) => {
       shape.push(entry);
       posted.push(index);
+      sets.push(set);
     };
     let step = 0;
     entries.forEach((value: unknown, index) => {
@@ -255,9 +259,13 @@ const instructionsSchema = z
         return;
       }
       /* 45e2: in a set when `choice` was posted, even blank (a label being
-       * typed): the set's rules are `choiceProblems`', below. */
+       * typed): a worked-on set's rules are `choiceProblems`', below. */
       const posting =
         entry.choice === undefined ? undefined : textOf(entry.choice);
+      const set =
+        posting !== undefined && textOf(entry.choiceSet).trim()
+          ? textOf(entry.choiceSet).trim()
+          : undefined;
       const before = step;
       const steps: Instruction[] = [];
       let refused = false;
@@ -291,10 +299,11 @@ const instructionsSchema = z
           ...(posting !== undefined ? { choice: posting } : {}),
         },
         index,
+        set,
       );
       if (!name.trim()) {
-        /* An option's missing name is said as the set's (below). */
-        if (posting !== undefined) return;
+        /* A worked-on option's missing name is said as the set's (below). */
+        if (set !== undefined) return;
         ctx.addIssue({
           code: "custom",
           path: [index, "name"],
@@ -325,7 +334,7 @@ const instructionsSchema = z
         ...(optionYield.trim() ? { recipeYield: optionYield } : {}),
       });
     });
-    for (const problem of choiceProblems(shape)) {
+    for (const problem of choiceProblems(shape, sets)) {
       ctx.addIssue({
         code: "custom",
         path: [posted[problem.index], problem.field],

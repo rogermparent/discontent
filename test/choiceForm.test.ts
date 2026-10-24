@@ -15,6 +15,7 @@ import type {
 import {
   choiceProblems,
   choiceRuns,
+  everySet,
 } from "../websites/recipe-website/common/util/choiceChecks";
 import {
   addOption,
@@ -27,8 +28,10 @@ import {
   relabel,
   retieHeadings,
   selectionProblem,
+  settleLabel,
   suggestionFits,
 } from "../websites/recipe-website/common/components/Form/Instructions/choiceEdits";
+import { reconcileKeys } from "../websites/recipe-website/common/components/Form/stableKeys";
 import {
   headingTies,
   tieHeading,
@@ -39,6 +42,12 @@ import {
 } from "../websites/recipe-website/common/components/Form/Ingredients/ingredientRows";
 import parseRecipeFormData from "../websites/recipe-website/editor/controller/parseFormData";
 import { recipeFormFailure } from "../websites/recipe-website/editor/controller/recipeFormErrors";
+import {
+  RecipeInputSchema,
+  RecipePatchSchema,
+  parseInput,
+} from "../websites/recipe-website/editor/controller/curation/schema";
+import { ValidationError } from "../websites/recipe-website/editor/controller/curation/errors";
 
 function group(
   name: string,
@@ -72,18 +81,84 @@ const INGREDIENTS: Ingredient[] = [
   { ingredient: "Sesame seeds" },
 ];
 
+/** Every set worked on, as the curation write path judges them. */
+function judged(instructions: InstructionEntry[]) {
+  return choiceProblems(instructions, everySet(instructions));
+}
+
 describe("choiceRuns / choiceProblems", () => {
   it("reads a set as one run, and finds nothing wrong with it", () => {
     expect(choiceRuns(DOUGH)).toEqual([
       { start: 1, end: 4, label: "Then make" },
     ]);
     expect(choiceProblems(DOUGH)).toEqual([]);
+    expect(judged(DOUGH)).toEqual([]);
+  });
+
+  it("a set as stored reads as readChoices reads it, and is never judged", () => {
+    /* A lone group with a `choice` is an ordinary group (De1-1). */
+    const lone = [group("Dough"), group("Bagels", "Then make")];
+    expect(choiceRuns(lone)).toEqual([]);
+    expect(choiceProblems(lone)).toEqual([]);
+    /* Two groups of one name are one option: no set either. */
+    expect(
+      choiceRuns([
+        group("Dough"),
+        group("Bagels", "Then make"),
+        group("bagels", "Then make"),
+      ]),
+    ).toEqual([]);
+    /* Two sets sharing a label: two runs, no problem until worked on. */
+    const two = [
+      group("Cake"),
+      group("Cream cheese", "Frosting"),
+      group("Buttercream", "Frosting"),
+      { text: "Chill the cake." },
+      group("Ganache", "Frosting"),
+      group("Glaze", "Frosting"),
+    ];
+    expect(choiceRuns(two).map((run) => [run.start, run.end])).toEqual([
+      [1, 3],
+      [4, 6],
+    ]);
+    expect(choiceProblems(two)).toEqual([]);
+    /* Worked on, the set says so — whichever of the two it is. */
+    const sets = [undefined, "a", "a", undefined, undefined, undefined];
+    expect(choiceProblems(two, sets).map((p) => [p.index, p.message])).toEqual([
+      [1, "Two choices are called “Frosting”: give each its own label"],
+    ]);
+  });
+
+  it("a worked-on set keeps its bounds: a neighbour's label never merges them", () => {
+    /* Two sets, the second's label typed until it is the first's. */
+    const typed = [
+      group("Cake"),
+      group("Vanilla", "Crumb"),
+      group("Streusel", "Crumb"),
+      group("Cream cheese", "Crumb"),
+      group("Chocolate", "Crumb"),
+    ];
+    const sets = [undefined, "a", "a", "b", "b"];
+    expect(choiceRuns(typed, sets).map((run) => [run.start, run.end])).toEqual([
+      [1, 3],
+      [3, 5],
+    ]);
+    expect(
+      choiceProblems(typed, sets).map((p) => [p.index, p.message]),
+    ).toEqual([
+      [1, "Two choices next to each other can't share a label"],
+      [3, "Two choices next to each other can't share a label"],
+    ]);
+    /* Only the edited one is judged when the other is as stored. */
+    expect(
+      choiceProblems(typed, [undefined, undefined, undefined, "b", "b"]).map(
+        (p) => [p.index, p.message],
+      ),
+    ).toEqual([[3, "Two choices next to each other can't share a label"]]);
   });
 
   it("a set of one needs a second option", () => {
-    expect(
-      choiceProblems([group("Dough"), group("Bagels", "Then make")]),
-    ).toEqual([
+    expect(judged([group("Dough"), group("Bagels", "Then make")])).toEqual([
       {
         index: 1,
         field: "choice",
@@ -94,8 +169,11 @@ describe("choiceRuns / choiceProblems", () => {
 
   it("a blank label is one set still, and needs a label", () => {
     const blank = [group("Dough"), group("Bagels", ""), group("Pizza", " ")];
-    expect(choiceRuns(blank)).toEqual([{ start: 1, end: 3, label: "" }]);
-    expect(choiceProblems(blank).map((p) => p.message)).toEqual([
+    expect(choiceRuns(blank)).toEqual([]);
+    expect(choiceRuns(blank, ["x", "a", "a"])).toEqual([
+      { start: 1, end: 3, label: "", set: "a" },
+    ]);
+    expect(judged(blank).map((p) => p.message)).toEqual([
       "The choice starting with “Bagels” needs a label",
     ]);
   });
@@ -109,7 +187,7 @@ describe("choiceRuns / choiceProblems", () => {
       group("Ganache", "frosting"),
       group("Glaze", "Frosting"),
     ];
-    expect(choiceProblems(two)).toEqual([
+    expect(judged(two)).toEqual([
       {
         index: 4,
         field: "choice",
@@ -120,7 +198,7 @@ describe("choiceRuns / choiceProblems", () => {
 
   it("option names are required, and unique in their set", () => {
     expect(
-      choiceProblems([
+      judged([
         group("Dough"),
         group("Bagels", "Then make"),
         group("bagels", "Then make"),
@@ -158,16 +236,15 @@ describe("the Steps section's edits", () => {
   });
 
   it("refuses a blank label and one another set has", () => {
-    expect(labelProblem(DOUGH, " ")).toBe(
+    const runs = choiceRuns(DOUGH);
+    expect(labelProblem(runs, " ")).toBe(
       "Give the choice a label, such as “Then make”.",
     );
-    expect(labelProblem(DOUGH, "then make")).toBe(
+    expect(labelProblem(runs, "then make")).toBe(
       "Another choice is already called “Then make”.",
     );
-    expect(labelProblem(DOUGH, "Then make", choiceRuns(DOUGH)[0])).toBe(
-      undefined,
-    );
-    expect(labelProblem(DOUGH, "Crumb")).toBeUndefined();
+    expect(labelProblem(runs, "Then make", runs[0])).toBe(undefined);
+    expect(labelProblem(runs, "Crumb")).toBeUndefined();
   });
 
   it("“Not a choice” drops the label and the yields", () => {
@@ -175,6 +252,83 @@ describe("the Steps section's edits", () => {
     const undone = notChoice(DOUGH, run);
     expect(undone[1]).toEqual(group("Bagels"));
     expect(choiceRuns(undone)).toEqual([]);
+  });
+
+  it("a label settles once: cleared and retyped key by key, the ties follow", () => {
+    /* The review's sequence: "Then make" backspaced to "" and typed again
+     * as "Bake" — the headings move once, when the field is left. */
+    let instructions: InstructionEntry[] = DOUGH;
+    const sets = DOUGH.map((_, i) => (i >= 1 && i < 4 ? "a" : undefined));
+    for (const typed of ["Then mak", "T", "", "B", "Bake"]) {
+      const run = choiceRuns(instructions, sets)[0];
+      instructions = relabel(instructions, run, typed);
+    }
+    const run = choiceRuns(instructions, sets)[0];
+    expect(run.label).toBe("Bake");
+    const settled = settleLabel(
+      INGREDIENTS,
+      choiceRuns(instructions, sets),
+      run,
+      "Then make",
+    );
+    expect(settled.tiedAs).toBe("Bake");
+    expect(settled.ingredients[2].choice).toBe("Bake");
+    expect(settled.ingredients[6].choice).toBe("Bake");
+    /* Left blank: nothing moves, and the label they wait under stays. */
+    const blank = relabel(DOUGH, choiceRuns(DOUGH, sets)[0], "");
+    const waiting = settleLabel(
+      INGREDIENTS,
+      choiceRuns(blank, sets),
+      choiceRuns(blank, sets)[0],
+      "Then make",
+    );
+    expect(waiting.tiedAs).toBe("Then make");
+    expect(waiting.ingredients[2].choice).toBe("Then make");
+    /* Never retied to a blank label directly either. */
+    expect(retieHeadings(INGREDIENTS, "Then make", " ")[2].choice).toBe(
+      "Then make",
+    );
+  });
+
+  it("typing through another set's label moves no headings to it", () => {
+    const cake: InstructionEntry[] = [
+      group("Cake"),
+      group("Vanilla", "Crumb"),
+      group("Streusel", "Crumb"),
+      { text: "Bake." },
+      group("Cream cheese", "Frosting"),
+      group("Chocolate", "Frosting"),
+    ];
+    const lines: Ingredient[] = [
+      { ingredient: "For the streusel", type: "heading", choice: "Crumb" },
+      { ingredient: "Oats" },
+      { ingredient: "Chocolate", type: "heading", choice: "Frosting" },
+      { ingredient: "Cocoa" },
+    ];
+    const sets = [undefined, "a", "a", undefined, "b", "b"];
+    let instructions = cake;
+    /* "Frosting" retyped as "Crumbs", through "Crumb" (the other set's). */
+    for (const typed of ["C", "Cr", "Cru", "Crum", "Crumb", "Crumbs"]) {
+      instructions = relabel(
+        instructions,
+        choiceRuns(instructions, sets)[1],
+        typed,
+      );
+    }
+    const runs = choiceRuns(instructions, sets);
+    const settled = settleLabel(lines, runs, runs[1], "Frosting");
+    expect(settled.ingredients[0].choice).toBe("Crumb");
+    expect(settled.ingredients[2].choice).toBe("Crumbs");
+    /* Left on the other set's label, they wait for one of its own. */
+    const clash = relabel(cake, choiceRuns(cake, sets)[1], "Crumb");
+    const held = settleLabel(
+      lines,
+      choiceRuns(clash, sets),
+      choiceRuns(clash, sets)[1],
+      "Frosting",
+    );
+    expect(held.tiedAs).toBe("Frosting");
+    expect(held.ingredients[2].choice).toBe("Frosting");
   });
 
   it("relabels every option, and the tied headings follow", () => {
@@ -279,7 +433,7 @@ describe("heading ties", () => {
       choice: "Then make",
     });
     const pizza = tieHeading(INGREDIENTS, 6, options[2]);
-    expect(pizza.renamed).toBe("Pizza");
+    expect(pizza.renamed).toBe("Toppings");
     expect(pizza.ingredients[6]).toEqual({
       ingredient: "Pizza",
       type: "heading",
@@ -293,6 +447,87 @@ describe("heading ties", () => {
       ingredient: "For the bagels",
       type: "heading",
     });
+  });
+
+  it("a rename is undone: untied, or tied back to an option its old name meets", () => {
+    const { options } = headingTies(INGREDIENTS, DOUGH);
+    const pizza = tieHeading(INGREDIENTS, 4, options[2]);
+    expect(pizza.renamed).toBe("For the pretzels");
+    expect(pizza.ingredients[4].ingredient).toBe("Pizza");
+    /* "For every option" gives the old name back. */
+    const untied = tieHeading(pizza.ingredients, 4, undefined, pizza.renamed);
+    expect(untied.ingredients[4]).toEqual({
+      ingredient: "For the pretzels",
+      type: "heading",
+    });
+    expect(untied.renamed).toBeUndefined();
+    /* Tied back to the option the old name meets: the old name, no note. */
+    const back = tieHeading(pizza.ingredients, 4, options[1], pizza.renamed);
+    expect(back.ingredients[4]).toEqual({
+      ingredient: "For the pretzels",
+      type: "heading",
+      choice: "Then make",
+    });
+    expect(back.renamed).toBeUndefined();
+    /* Retied to a third option: still renamed from the first name. */
+    const bagels = tieHeading(pizza.ingredients, 4, options[0], pizza.renamed);
+    expect(bagels.renamed).toBe("For the pretzels");
+    expect(bagels.ingredients[4].ingredient).toBe("Bagels");
+  });
+
+  it("a second heading tied to the same option is tied, not dangling", () => {
+    const lines: Ingredient[] = [
+      { ingredient: "For the bagels", type: "heading", choice: "Then make" },
+      { ingredient: "2 tbsp molasses" },
+      { ingredient: "For the dough", type: "heading" },
+      { ingredient: "Flour" },
+      { ingredient: "For the bagels", type: "heading", choice: "Then make" },
+      { ingredient: "Sesame seeds" },
+    ];
+    const { ties } = headingTies(lines, DOUGH);
+    expect(ties.get(0)?.tied?.label).toBe("Then make › Bagels");
+    expect(ties.get(4)?.tied?.label).toBe("Then make › Bagels");
+    expect(ties.get(4)?.dangling).toBeUndefined();
+  });
+});
+
+describe("stable row keys (45e2)", () => {
+  let n = 0;
+  const mint = () => `k${++n}`;
+  const a = { id: "a" };
+  const b = { id: "b" };
+  const c = { id: "c" };
+
+  it("an edited row keeps its place's key; a moved one keeps its own", () => {
+    n = 0;
+    const keys = reconcileKeys([], [], [a, b, c], mint);
+    expect(keys).toEqual(["k1", "k2", "k3"]);
+    /* b edited in place (a new object), then c and a swapped. */
+    const edited = { id: "b2" };
+    expect(reconcileKeys([a, b, c], keys, [a, edited, c], mint)).toEqual(keys);
+    expect(reconcileKeys([a, b, c], keys, [c, b, a], mint)).toEqual([
+      "k3",
+      "k2",
+      "k1",
+    ]);
+  });
+
+  it("an inserted row is new; a removed one takes its key away", () => {
+    n = 10;
+    const keys = ["k1", "k2", "k3"];
+    const fresh = { id: "new" };
+    expect(reconcileKeys([a, b, c], keys, [a, fresh, b, c], mint)).toEqual([
+      "k1",
+      "k11",
+      "k2",
+      "k3",
+    ]);
+    expect(reconcileKeys([a, b, c], keys, [a, c], mint)).toEqual(["k1", "k3"]);
+    /* A row given a key before it arrived keeps it. */
+    const claimed = new WeakMap([[fresh, "mine"]]);
+    expect(
+      reconcileKeys([a, b, c], keys, [a, b, c, fresh], mint, claimed),
+    ).toEqual(["k1", "k2", "k3", "mine"]);
   });
 });
 
@@ -337,9 +572,17 @@ describe("parseRecipeFormData — alternatives", () => {
     }
     return formData;
   }
-  const option = (index: number, name: string, choice: string) => ({
+  /* An option of a set the person worked on: it posts the set's id. */
+  const option = (
+    index: number,
+    name: string,
+    choice: string,
+    /* null: a set as stored, which posts no id. */
+    set: string | null = "a",
+  ) => ({
     [`instructions[${index}].name`]: name,
     [`instructions[${index}].choice`]: choice,
+    ...(set !== null ? { [`instructions[${index}].choiceSet`]: set } : {}),
     [`instructions[${index}].instructions[0].text`]: `${name}: bake.`,
   });
 
@@ -401,15 +644,67 @@ describe("parseRecipeFormData — alternatives", () => {
 
     const shared = parseRecipeFormData(
       stepsForm({
-        ...option(1, "Cream cheese", "Frosting"),
-        ...option(2, "Buttercream", "Frosting"),
+        ...option(1, "Cream cheese", "Frosting", "a"),
+        ...option(2, "Buttercream", "Frosting", "a"),
         "instructions[3].text": "Chill.",
-        ...option(4, "Ganache", "Frosting"),
-        ...option(5, "Glaze", "Frosting"),
+        ...option(4, "Ganache", "Frosting", "b"),
+        ...option(5, "Glaze", "Frosting", "b"),
       }),
     );
     expect(recipeFormFailure(shared.error!).errors.instructions).toEqual([
       "Two choices are called “Frosting”: give each its own label",
+    ]);
+
+    /* Two worked-on sets side by side with one label: never merged. */
+    const touching = parseRecipeFormData(
+      stepsForm({
+        ...option(1, "Vanilla", "Crumb", "a"),
+        ...option(2, "Streusel", "Crumb", "a"),
+        ...option(3, "Cream cheese", "Crumb", "b"),
+        ...option(4, "Chocolate", "Crumb", "b"),
+      }),
+    );
+    expect(recipeFormFailure(touching.error!).errors.instructions).toEqual([
+      "Two choices next to each other can't share a label",
+    ]);
+  });
+
+  it("a set as stored that breaks a rule saves unchanged (43-D4)", () => {
+    /* A lone group with a `choice` (an ordinary group to readChoices). */
+    const lone = parseRecipeFormData(
+      stepsForm({ ...option(1, "Bagels", "Then make", null) }),
+    );
+    expect(lone.success).toBe(true);
+    expect(JSON.parse(JSON.stringify(lone.data?.instructions))).toEqual([
+      { name: "Dough", instructions: [{ text: "Mix." }] },
+      {
+        name: "Bagels",
+        instructions: [{ text: "Bagels: bake." }],
+        choice: "Then make",
+      },
+    ]);
+    /* Two sets sharing a label. */
+    const shared = parseRecipeFormData(
+      stepsForm({
+        ...option(1, "Cream cheese", "Frosting", null),
+        ...option(2, "Buttercream", "Frosting", null),
+        "instructions[3].text": "Chill.",
+        ...option(4, "Ganache", "Frosting", null),
+        ...option(5, "Glaze", "Frosting", null),
+      }),
+    );
+    expect(shared.success).toBe(true);
+    expect(
+      shared.data?.instructions?.map((entry) =>
+        "choice" in entry ? entry.choice : undefined,
+      ),
+    ).toEqual([
+      undefined,
+      "Frosting",
+      "Frosting",
+      undefined,
+      "Frosting",
+      "Frosting",
     ]);
   });
 
@@ -425,5 +720,92 @@ describe("parseRecipeFormData — alternatives", () => {
       { name: "Dough", instructions: [{ text: "Mix." }] },
       { name: "Bagels", instructions: [{ text: "Boil." }] },
     ]);
+  });
+});
+
+describe("the curation write path judges every set (45e2, De2-6 reversed)", () => {
+  const steps = (...entries: unknown[]) => ({
+    name: "Everything Dough",
+    instructions: [
+      { name: "Dough", instructions: [{ text: "Mix." }] },
+      ...entries,
+    ],
+  });
+  const option = (name: string, choice: string) => ({
+    name,
+    choice,
+    instructions: [{ text: `${name}: bake.` }],
+  });
+  function issues(raw: unknown, schema: "input" | "patch" = "input") {
+    try {
+      parseInput(
+        schema === "input" ? RecipeInputSchema : RecipePatchSchema,
+        schema === "input"
+          ? raw
+          : { instructions: (raw as { instructions: unknown }).instructions },
+      );
+      return [];
+    } catch (error) {
+      expect(error).toBeInstanceOf(ValidationError);
+      expect((error as ValidationError).code).toBe("validation");
+      return (
+        (error as ValidationError).details as {
+          issues: { path: string; message: string }[];
+        }
+      ).issues;
+    }
+  }
+
+  it("takes a set that keeps the rules", () => {
+    expect(
+      issues(
+        steps(option("Bagels", "Then make"), option("Pizza", "Then make")),
+      ),
+    ).toEqual([]);
+  });
+
+  it("refuses a set of one and two sets of one label, in the form's words", () => {
+    expect(issues(steps(option("Bagels", "Then make")))).toEqual([
+      {
+        path: "instructions.1.choice",
+        message: "The choice “Then make” needs at least two options",
+      },
+    ]);
+    const shared = steps(
+      option("Cream cheese", "Frosting"),
+      option("Buttercream", "Frosting"),
+      { text: "Chill." },
+      option("Ganache", "Frosting"),
+      option("Glaze", "Frosting"),
+    );
+    expect(issues(shared)).toEqual([
+      {
+        path: "instructions.4.choice",
+        message: "Two choices are called “Frosting”: give each its own label",
+      },
+    ]);
+    expect(issues(shared, "patch")).toEqual([
+      {
+        path: "instructions.4.choice",
+        message: "Two choices are called “Frosting”: give each its own label",
+      },
+    ]);
+    expect(
+      issues(
+        steps(option("Bagels", "Then make"), option("bagels", "Then make")),
+      ),
+    ).toEqual([
+      {
+        path: "instructions.2.name",
+        message: "The choice “Then make” has two options called “bagels”",
+      },
+    ]);
+  });
+
+  it("a write without instructions, or with prose steps, is not judged", () => {
+    expect(issues({ name: "Just a name" })).toEqual([]);
+    expect(issues({ name: "Prose", instructions: ["Mix.", "Bake."] })).toEqual(
+      [],
+    );
   });
 });

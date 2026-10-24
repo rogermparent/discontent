@@ -283,7 +283,9 @@ reader picks one option of, shown on the page as tabs:
   other**. Each group's `name` is an option ("Bagels"), unique in its set; a
   set needs two options or more, and two sets in one recipe need different
   labels. **The first option is the default**: the page shows it until the
-  reader picks, and Make, the plan page and a plan's shopping use it.
+  reader picks, and Make, the plan page and a plan's shopping use it. A
+  write whose `instructions` break these is refused as `validation`, in the
+  edit form's words ("The choice “Then make” needs at least two options").
 - An option's own yield goes on its group as `recipeYield` ("8 bagels").
 - An option's extra ingredients sit under an ingredient **heading** with the
   same `choice` and a name that matches the option's ("For the bagels" is

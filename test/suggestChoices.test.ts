@@ -174,6 +174,41 @@ describe("suggestChoices — the negatives", () => {
     ).toEqual([]);
   });
 
+  it("a form and a dish made from another: the review's four", () => {
+    /* Steps that never name each other, so only the names can tell: the
+     * second is built from the first, so both are made. */
+    const shared = step("Mix everything into a dough.");
+    for (const [first, second] of [
+      ["Tortillas", "Tacos"],
+      ["Burger buns", "Burgers"],
+      ["Meatballs", "Sandwich"],
+      ["Pastry", "Tart"],
+    ]) {
+      expect(
+        suggestChoices([
+          shared,
+          group(first, "Do the thing 1.", "Do the thing 2."),
+          group(second, "Do the other 1.", "Do the other 2."),
+        ]),
+      ).toEqual([]);
+    }
+    /* Forms of one kind still read as a choice. */
+    expect(
+      suggestChoices([
+        shared,
+        group("Pizza", "Stretch.", "Bake."),
+        group("Calzones", "Fold.", "Bake."),
+      ]),
+    ).toEqual([{ label: "Then make", groups: [1, 2] }]);
+    expect(
+      suggestChoices([
+        step("Make the batter."),
+        group("Cupcakes", "Fill the liners.", "Bake 18 minutes."),
+        group("Layer cake", "Fill two pans.", "Bake 30 minutes."),
+      ]),
+    ).toEqual([{ label: "Then make", groups: [1, 2] }]);
+  });
+
   it("a single group", () => {
     expect(
       suggestChoices([step("Mix."), group("Bagels", "Boil.", "Bake.")]),

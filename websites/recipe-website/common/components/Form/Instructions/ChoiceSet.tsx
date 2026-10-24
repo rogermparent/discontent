@@ -7,28 +7,19 @@
  * with its name, its yield and its steps — plus the "Make these a choice"
  * panel and an import's marked suggestion (G5: a suggestion is form state
  * only, marked until Save, with Undo).
+ *
+ * The blocks only draw and report: every edit, and where focus goes after
+ * it, is the Steps section's (`InstructionsListInput`), which knows each
+ * row's stable key and which sets the person has worked on.
  */
 import { useId, type ReactNode } from "react";
-import { useStore } from "@tanstack/react-form";
 import { ArrowDown, ArrowUp, X } from "lucide-react";
 import { Button } from "@discontent/component-library/components/Button";
 import { Input } from "@discontent/component-library/components/ui/input";
 import { cn } from "@discontent/component-library/lib/utils";
-import type {
-  InstructionEntry,
-  InstructionGroup,
-} from "../../../controller/types";
+import type { InstructionGroup } from "../../../controller/types";
 import type { ChoiceProblem, ChoiceRun } from "../../../util/choiceChecks";
 import type { SuggestedChoice } from "../../../util/suggestChoices";
-import { useRecipeForm } from "../formContext";
-import {
-  addOption,
-  moveOption,
-  notChoice,
-  relabel,
-  retieHeadings,
-  sharesLabel,
-} from "./choiceEdits";
 
 /** The dashed tape a suggestion wears until Save (45b's estimated tape). */
 export function SuggestedTape({ children }: { children: ReactNode }) {
@@ -45,38 +36,62 @@ export function SuggestedTape({ children }: { children: ReactNode }) {
 
 const LABEL = "text-sm font-medium";
 
+/** What an option's name field is told about its problems. */
+export interface FieldProblems {
+  /** The problems' element ids (`aria-describedby`). */
+  describedBy?: string;
+  invalid: boolean;
+}
+
 /** One option of a set: a card with its place, name, yield and steps. */
 function ChoiceOption({
   index,
+  rowKey,
   position,
   count,
   run,
   group,
+  nameProblems,
   renderGroup,
+  onMove,
+  onRemove,
+  onYield,
 }: {
   index: number;
+  /** The option's stable key (its card's React key and focus name). */
+  rowKey: string;
   position: number;
   count: number;
   run: ChoiceRun;
   group: InstructionGroup;
-  renderGroup: (index: number) => ReactNode;
+  nameProblems: FieldProblems;
+  renderGroup: (index: number, problems: FieldProblems) => ReactNode;
+  onMove: (to: number, direction: "up" | "down") => void;
+  onRemove: () => void;
+  onYield: (value: string) => void;
 }) {
-  const form = useRecipeForm();
   const yieldId = useId();
   const name = group.name?.trim() || `Option ${position + 1}`;
-  const setInstructions = (next: InstructionEntry[]) =>
-    form.setFieldValue("instructions", next);
-  const instructions = () => form.state.values.instructions;
   return (
     <li
       className="flex flex-col gap-1 rounded-md border border-border bg-background p-3 max-sm:p-2.5"
       data-testid="choice-option"
+      data-focus={`card:${rowKey}`}
     >
+      {/* Its own label, as stored or typed; a worked-on set's id too, so
+          the server judges it and keeps it apart from a neighbour. */}
       <input
         type="hidden"
         name={`instructions[${index}].choice`}
-        value={run.label}
+        value={group.choice ?? ""}
       />
+      {run.set !== undefined ? (
+        <input
+          type="hidden"
+          name={`instructions[${index}].choiceSet`}
+          value={run.set}
+        />
+      ) : null}
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="grow font-mono text-xs font-semibold tracking-[0.06em] text-muted-foreground uppercase">
           Option {position + 1}
@@ -88,10 +103,9 @@ function ChoiceOption({
           className="max-sm:size-11"
           aria-label={`Move option “${name}” up`}
           title="Move up"
+          data-focus={`card:${rowKey}:up`}
           disabled={position === 0}
-          onClick={() =>
-            setInstructions(moveOption(instructions(), run, index, index - 1))
-          }
+          onClick={() => onMove(index - 1, "up")}
         >
           <ArrowUp aria-hidden />
         </Button>
@@ -101,10 +115,9 @@ function ChoiceOption({
           className="max-sm:size-11"
           aria-label={`Move option “${name}” down`}
           title="Move down"
+          data-focus={`card:${rowKey}:down`}
           disabled={position === count - 1}
-          onClick={() =>
-            setInstructions(moveOption(instructions(), run, index, index + 1))
-          }
+          onClick={() => onMove(index + 1, "down")}
         >
           <ArrowDown aria-hidden />
         </Button>
@@ -114,14 +127,14 @@ function ChoiceOption({
           className="max-sm:size-11"
           aria-label={`Remove option “${name}”`}
           title="Remove"
-          onClick={() =>
-            setInstructions(instructions().filter((_, i) => i !== index))
-          }
+          onClick={onRemove}
         >
           <X aria-hidden />
         </Button>
       </div>
-      {renderGroup(index)}
+      <div data-focus={`card:${rowKey}:name`}>
+        {renderGroup(index, nameProblems)}
+      </div>
       <div className="flex flex-col gap-1">
         <label htmlFor={yieldId} className={LABEL}>
           Option yield
@@ -131,22 +144,7 @@ function ChoiceOption({
           name={`instructions[${index}].recipeYield`}
           value={group.recipeYield ?? ""}
           placeholder="Optional — 8 bagels"
-          onChange={(event) => {
-            const list = instructions();
-            const current = list[index] as InstructionGroup;
-            const value = event.target.value;
-            const { recipeYield: _old, ...rest } = current;
-            void _old;
-            setInstructions(
-              list.map((entry, i) =>
-                i === index
-                  ? value
-                    ? { ...rest, recipeYield: value }
-                    : rest
-                  : entry,
-              ),
-            );
-          }}
+          onChange={(event) => onYield(event.target.value)}
         />
       </div>
     </li>
@@ -160,30 +158,54 @@ function ChoiceOption({
  */
 export function ChoiceSetBlock({
   run,
+  blockKey,
+  groups,
+  optionKeys,
   problems,
   suggestedBy,
   onUndo,
   renderGroup,
+  onLabel,
+  onSettle,
+  onNotChoice,
+  onMove,
+  onRemove,
+  onYield,
+  onAdd,
 }: {
   run: ChoiceRun;
+  /** The set's stable key: its label field's focus name. */
+  blockKey: string;
+  /** The set's options, in order. */
+  groups: readonly InstructionGroup[];
+  /** Each option's stable key, in order. */
+  optionKeys: readonly string[];
+  /** The set's own problems (a set as stored has none). */
   problems: readonly ChoiceProblem[];
   /** Accepted from a suggestion and not saved yet: its mark. */
   suggestedBy?: string;
   onUndo?: () => void;
-  renderGroup: (index: number) => ReactNode;
+  renderGroup: (index: number, problems: FieldProblems) => ReactNode;
+  /** A keystroke in the label. */
+  onLabel: (value: string) => void;
+  /** The label settled (the field left, or Enter): its headings follow. */
+  onSettle: () => void;
+  onNotChoice: () => void;
+  onMove: (from: number, to: number, direction: "up" | "down") => void;
+  onRemove: (index: number) => void;
+  onYield: (index: number, value: string) => void;
+  onAdd: () => void;
 }) {
-  const form = useRecipeForm();
   const labelId = useId();
   const problemsId = useId();
-  const instructions = useStore(
-    form.store,
-    (state) => state.values.instructions,
-  );
-  const groups = instructions.slice(run.start, run.end) as InstructionGroup[];
   const label = run.label.trim();
-  const mine = problems.filter(
-    (problem) => problem.index >= run.start && problem.index < run.end,
-  );
+  const problemId = (at: number) => `${problemsId}-${at}`;
+  const idsOf = (match: (problem: ChoiceProblem) => boolean) =>
+    problems
+      .map((problem, at) => (match(problem) ? problemId(at) : ""))
+      .filter(Boolean)
+      .join(" ");
+  const labelProblems = idsOf((problem) => problem.field === "choice");
   return (
     <li
       className="my-2 flex flex-col gap-2.5 rounded-lg border-2 border-border bg-card p-3 max-sm:p-2.5"
@@ -199,44 +221,21 @@ export function ChoiceSetBlock({
             id={labelId}
             value={run.label}
             placeholder="Then make"
-            aria-describedby={mine.length ? problemsId : undefined}
-            onChange={(event) => {
-              const value = event.target.value;
-              const list = form.state.values.instructions;
-              form.setFieldValue("instructions", relabel(list, run, value));
-              /* Its tied headings follow — unless another set has the old
-               * label too (a clash being fixed): theirs would move. */
-              if (!sharesLabel(list, run)) {
-                form.setFieldValue(
-                  "ingredients",
-                  retieHeadings(
-                    form.state.values.ingredients,
-                    run.label,
-                    value,
-                  ),
-                );
+            data-focus={`label:${blockKey}`}
+            aria-describedby={labelProblems || undefined}
+            aria-invalid={labelProblems ? true : undefined}
+            onChange={(event) => onLabel(event.target.value)}
+            onBlur={onSettle}
+            onKeyDown={(event) => {
+              /* Enter settles the label rather than saving the recipe. */
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onSettle();
               }
             }}
           />
         </div>
-        <Button
-          variant="outline"
-          className="max-sm:h-11"
-          onClick={() => {
-            const list = form.state.values.instructions;
-            form.setFieldValue("instructions", notChoice(list, run));
-            if (!sharesLabel(list, run)) {
-              form.setFieldValue(
-                "ingredients",
-                retieHeadings(
-                  form.state.values.ingredients,
-                  run.label,
-                  undefined,
-                ),
-              );
-            }
-          }}
-        >
+        <Button variant="outline" className="max-sm:h-11" onClick={onNotChoice}>
           Not a choice
         </Button>
       </div>
@@ -253,41 +252,49 @@ export function ChoiceSetBlock({
         A reader picks one option. The first is the default: the recipe page
         shows it until they pick another.
       </p>
-      {mine.length ? (
+      {problems.length ? (
         <ul
-          id={problemsId}
           data-testid="choice-problems"
           className="flex flex-col gap-1 text-sm text-destructive"
         >
-          {mine.map((problem) => (
-            <li key={`${problem.index}-${problem.message}`}>
+          {problems.map((problem, at) => (
+            <li key={`${problem.index}-${problem.message}`} id={problemId(at)}>
               {problem.message}
             </li>
           ))}
         </ul>
       ) : null}
       <ol className="flex flex-col gap-2">
-        {groups.map((group, position) => (
-          <ChoiceOption
-            key={run.start + position}
-            index={run.start + position}
-            position={position}
-            count={groups.length}
-            run={run}
-            group={group}
-            renderGroup={renderGroup}
-          />
-        ))}
+        {groups.map((group, position) => {
+          const index = run.start + position;
+          const described = idsOf(
+            (problem) => problem.field === "name" && problem.index === index,
+          );
+          return (
+            <ChoiceOption
+              key={optionKeys[position]}
+              rowKey={optionKeys[position]}
+              index={index}
+              position={position}
+              count={groups.length}
+              run={run}
+              group={group}
+              nameProblems={{
+                describedBy: described || undefined,
+                invalid: Boolean(described),
+              }}
+              renderGroup={renderGroup}
+              onMove={(to, direction) => onMove(index, to, direction)}
+              onRemove={() => onRemove(index)}
+              onYield={(value) => onYield(index, value)}
+            />
+          );
+        })}
       </ol>
       <Button
         variant="outline"
         className="self-start max-sm:h-11"
-        onClick={() =>
-          form.setFieldValue(
-            "instructions",
-            addOption(form.state.values.instructions, run),
-          )
-        }
+        onClick={onAdd}
       >
         Add an option
       </Button>
@@ -308,12 +315,15 @@ function nameList(names: readonly string[]): string {
  */
 export function ChoiceSuggestionCard({
   suggestion,
+  focusKey,
   names,
   suggestedBy,
   onAccept,
   onDismiss,
 }: {
   suggestion: SuggestedChoice;
+  /** Its accept button's focus name. */
+  focusKey: string;
   names: readonly string[];
   suggestedBy: string;
   onAccept: () => void;
@@ -335,7 +345,11 @@ export function ChoiceSuggestionCard({
         Make them a choice, “{suggestion.label}”?
       </p>
       <div className="flex flex-wrap gap-2">
-        <Button className="max-sm:h-11" onClick={onAccept}>
+        <Button
+          className="max-sm:h-11"
+          data-focus={focusKey}
+          onClick={onAccept}
+        >
           Make it a choice
         </Button>
         <Button variant="ghost" className="max-sm:h-11" onClick={onDismiss}>
@@ -348,7 +362,8 @@ export function ChoiceSuggestionCard({
 
 /**
  * "Make these a choice": the panel under the list while groups are being
- * ticked — the label, why it cannot be made yet, and the action.
+ * ticked — the label, why it cannot be made yet, and the action. It takes
+ * focus when it opens (`data-focus="panel"`), so its instructions are read.
  */
 export function MakeChoicePanel({
   label,
@@ -368,14 +383,18 @@ export function MakeChoicePanel({
 }) {
   const labelId = useId();
   const problemId = useId();
+  const textId = useId();
   return (
     <div
       role="group"
       aria-label="Make a choice"
+      aria-describedby={textId}
+      tabIndex={-1}
+      data-focus="panel"
       data-testid="make-choice-panel"
-      className="my-2 flex flex-col gap-2.5 rounded-lg border-2 border-dashed border-border p-3"
+      className="my-2 flex flex-col gap-2.5 rounded-lg border-2 border-dashed border-border p-3 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
     >
-      <p className="text-sm">
+      <p className="text-sm" id={textId}>
         Tick two or more groups that sit next to each other: a reader will pick
         one, and the first is the default.{" "}
         <span className="text-muted-foreground">
@@ -391,7 +410,15 @@ export function MakeChoicePanel({
           value={label}
           placeholder="Then make"
           aria-describedby={problem ? problemId : undefined}
+          aria-invalid={problem ? true : undefined}
           onChange={(event) => onLabel(event.target.value)}
+          onKeyDown={(event) => {
+            /* Enter makes the choice rather than saving the recipe. */
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onMake();
+            }
+          }}
         />
       </div>
       {problem ? (

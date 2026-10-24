@@ -30,8 +30,8 @@ export interface HeadingTie {
   dangling?: string;
 }
 
-function readable(line: Ingredient): string {
-  return stripMarkup(plainLine(line.ingredient ?? "")).trim();
+function readable(text: string | undefined): string {
+  return stripMarkup(plainLine(text ?? "")).trim();
 }
 
 /** Every option of every set, in the recipe's order. */
@@ -62,15 +62,18 @@ export function headingTies(
   const ties = new Map<number, HeadingTie>();
   const options = tieOptions(choices);
   if (options.length === 0) return { options, ties };
+  /* Every heading an option's lines run under: its first, and a second
+   * heading of the same name and label, whose lines `readChoices` gives
+   * that option too. */
   const owner = new Map<number, TieOption>();
   for (const set of choices.sets) {
     for (const option of set.options) {
-      const first = option.ingredientLines[0];
-      if (first === undefined) continue;
-      owner.set(
-        first,
-        options.find((tie) => tie.value === `${set.key}/${option.slug}`)!,
-      );
+      const tie = options.find(
+        (candidate) => candidate.value === `${set.key}/${option.slug}`,
+      )!;
+      for (const line of option.ingredientLines) {
+        if (ingredients[line]?.type === "heading") owner.set(line, tie);
+      }
     }
   }
   ingredients.forEach((line, index) => {
@@ -84,7 +87,7 @@ export function headingTies(
       ties.set(index, { dangling: line.choice.trim() });
       return;
     }
-    const key = nameKey(readable(line));
+    const key = nameKey(readable(line.ingredient));
     const meets = key
       ? options.filter((option) => nameKey(option.optionLabel) === key)
       : [];
@@ -98,31 +101,34 @@ export function headingTies(
 /**
  * `ingredients` with the heading at `index` tied to `option` — renamed to
  * the option's name when its own does not meet it, since the tie is by
- * name (`renamed` says so) — or untied when `option` is undefined.
+ * name (`renamed` is the name it had) — or untied when `option` is
+ * undefined. `original` is the name a tie renamed it from, if one did: an
+ * untie, or a tie to an option that name meets, gives it back.
  */
 export function tieHeading(
   ingredients: readonly Ingredient[],
   index: number,
   option: TieOption | undefined,
+  original?: string,
 ): { ingredients: Ingredient[]; renamed?: string } {
   const line = ingredients[index];
   if (!line || line.type !== "heading")
     return { ingredients: [...ingredients] };
+  const name = original ?? line.ingredient;
+  const swap = (next: Ingredient) =>
+    ingredients.map((other, i) => (i === index ? next : other));
   if (!option) {
     const { choice: _choice, ...rest } = line;
     void _choice;
-    return {
-      ingredients: ingredients.map((other, i) => (i === index ? rest : other)),
-    };
+    return { ingredients: swap({ ...rest, ingredient: name }) };
   }
-  const meets = nameKey(readable(line)) === nameKey(option.optionLabel);
-  const next: Ingredient = {
-    ...line,
-    ...(meets ? {} : { ingredient: option.optionLabel }),
-    choice: option.setLabel,
-  };
+  const meets = nameKey(readable(name)) === nameKey(option.optionLabel);
   return {
-    ingredients: ingredients.map((other, i) => (i === index ? next : other)),
-    ...(meets ? {} : { renamed: option.optionLabel }),
+    ingredients: swap({
+      ...line,
+      ingredient: meets ? name : option.optionLabel,
+      choice: option.setLabel,
+    }),
+    ...(meets ? {} : { renamed: name }),
   };
 }
