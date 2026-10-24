@@ -774,12 +774,19 @@ describe("the write schema (G1, G5: explicit only)", () => {
   });
 
   it("trims a label, refuses a blank one, and refuses one on a plain line", () => {
+    /* Two options: a set of one is refused since 45e2 (De2-6 reversed). */
     const group = (choice: string) => ({
       name: "Dough",
-      instructions: [{ name: "Bagels", choice, instructions: [] }],
+      instructions: [
+        { name: "Bagels", choice, instructions: [] },
+        { name: "Pretzels", choice, instructions: [] },
+      ],
     });
     expect(RecipeInputSchema.parse(group("  Then make ")).instructions).toEqual(
-      [{ name: "Bagels", choice: "Then make", instructions: [] }],
+      [
+        { name: "Bagels", choice: "Then make", instructions: [] },
+        { name: "Pretzels", choice: "Then make", instructions: [] },
+      ],
     );
     expect(RecipeInputSchema.safeParse(group("  ")).success).toBe(false);
     expect(

@@ -895,9 +895,10 @@ choice is already called “Frosting”."). An ordinary entry's ↑/↓ jump a w
 set rather than split it (`moveTarget`). The edits are pure
 (`Instructions/choiceEdits.ts`).
 
-**The rules** (`common/util/choiceChecks.ts`, shared by the form and
-`parseFormData`): a set is a run of consecutive groups whose `choice` is set
-(a blank label too, while typed), by slug as `readChoices` reads them. A
+**The rules** (`common/util/choiceChecks.ts`, shared by the form,
+`parseFormData` and the curation schema) apply to a set the person has
+**worked on** (see the review fixes below: a set as stored is never
+judged). A
 label is required ("The choice starting with “Large Loaf” needs a label"); a
 set needs two options ("The choice “Then make” needs at least two options");
 an option needs a name ("An option of the choice “Then make” needs a name" —
@@ -985,14 +986,91 @@ tools / 45 pre-approved, unchanged.
   nothing new changes nothing (as 45b). **Roger to confirm.**
 - **De2-5 option names unique in a set.** 45e1's reader merges two groups of
   one name into one option; the form refuses it instead (the brief's rule).
-- **De2-6 the curation write path is unchanged**: `recipe_create` /
-  `recipe_update` still take duplicate labels and one-option sets (the
-  readers cope, De1-1); the blurbs say the rules.
+- **De2-6 (reversed by the review fixes) the curation write path judges
+  every set**: `recipe_create` / `recipe_update` with `instructions` run
+  `choiceProblems` over every set (`everySet`: each run of one label slug,
+  a lone group included) and refuse a break as `validation`, in the form's
+  words (`instructions.1.choice: The choice “Then make” needs at least two
+options`). A write without `instructions` is not judged; neither are
+  prose steps. The first worker had left it open (the readers cope,
+  De1-1); with the form refusing what the API took, a curator's write
+  could store a recipe the form then would not save once touched.
 - **De2-7 the local curator skill (`skill-local.md`) is unchanged**: it has
   no recipe-shape section and a 1,200-token budget.
 
+**Review fixes (finisher, on 715618bb's review).**
+
+- **A set as stored, and a set worked on (De2-8).** The form reads stored
+  sets exactly as `readChoices` does: a lone group with a `choice` (or two
+  groups of one name) is an ordinary group that keeps its keys in hidden
+  inputs; two sets of one label are two sets. Nothing judges them, so a
+  save with no changes stays byte-identical (43-D4,
+  `editFormRoundTrip.test.tsx`: both shapes). Once the person edits a set —
+  its label, an option's name or yield, a move, an add, a remove — it is
+  **worked on**: the form gives it an id (`InstructionsListInput`'s
+  `worked`, by stable row key), each option posts it as a hidden
+  `instructions[i].choiceSet` (read by `parseFormData`, never stored), and
+  every rule applies, a set of one or a blank label included. The id, not
+  the label, bounds a worked-on set (`choiceRuns(instructions, sets)`), so
+  typing a neighbour's label never joins the two: it says "Two choices
+  next to each other can't share a label" (the form and the server), and
+  the edited block keeps its focus. A worked-on set next to a stored one of
+  its label says the same. The server judges only what posts an id; the
+  curation path judges everything (De2-6).
+- **A label settles once (De2-9).** Typing in a set's label moves no
+  headings; when the field is left (or Enter, which no longer submits the
+  recipe) `settleLabel` moves the headings from the label they were last
+  tied under to the new one — never to a blank label, never to one another
+  set has (they wait under the old label, and move when the clash is
+  fixed), never from one another set has. Backspacing "Then make" to "" and
+  typing "Bake" ties them to "Bake"; typing "Frosting" through "Crumb" into
+  "Crumbs" leaves the crumb's heading alone.
+- **Stable keys** (`Form/stableKeys.ts`, `useStableKeys`): a row keeps its
+  key while edited in place, moved, or as rows come and go — kept beside
+  the form's values, never in them (`changedFields` and the fill compare
+  the values). Option cards are keyed by it, so a second "Move option …
+  down" moves the same card; the "Make a choice" ticks are kept by it; the
+  accepted suggestion is tracked by its set's id, so a relabel or a
+  numbered label (`freeLabel`, "Then make 2") keeps the mark and Undo; and
+  a tie's "Renamed from …" note follows its ingredient row.
+- **A tie's rename is undone**: "For every option", or a tie to an option
+  the old name meets, gives the heading its old name back (while it still
+  has the name the tie gave it — an edit since is the person's own).
+- **Focus** after each action: "Make a choice of groups…" → the panel
+  (`tabIndex=-1`, described by its instructions); "Make these a choice" and
+  "Make it a choice" → the new set's label; Cancel → "Make a choice of
+  groups…"; "Not a choice" → the first former option's name; "Not now" →
+  the next suggestion card, else the first of its groups; Undo → the
+  card's "Make it a choice"; "Remove option" → the name of the card that
+  takes its place, else the one before; a move → the moved card's button
+  (its other one at an end); "Add an option" → the new option's name.
+  Option-name problems are linked to their field (`aria-describedby`,
+  `aria-invalid`; `TextInput` gained `invalid`), and the label's too.
+- **Minor.** A second heading of one option (same label, same name) is
+  tied, as `readChoices` gives it that option's lines, not "dangling". The
+  `recipe_import` blurb reads "as page_inspect does (after a create, its
+  indexes count the written recipe's instructions)".
+- **`suggestChoices`'s forms are of one kind** (dough, batter, pie, cookie,
+  shaped, dish): "Tortillas" / "Tacos", "Burger buns" / "Burgers",
+  "Meatballs" / "Sandwich" and "Pastry" / "Tart" are no longer suggested
+  (vitest negatives); "Pizza" / "Calzones" and "Cupcakes" / "Layer cake"
+  still are. Remaining on the reviewer's probe, all arguably real
+  alternatives and only ever a suggestion: "White sauce" / "Red sauce"
+  (Sauce), "Hot chocolate" / "Iced chocolate", "Dry rub" / "Wet rub", the
+  method pairs, "Cookies" / "Bars", "Dinner rolls" / "Sandwich loaf".
+
+**Gates (finisher, so far; origin/main still f7a161a6, so no merge).**
+Both typechecks clean; eslint clean on the changed files; `choiceForm`,
+`suggestChoices` and `editFormRoundTrip` 69/69 (before a test-helper fix,
+68/69). The full `vitest run` was stopped by the machine's low-memory reaper
+early on; the one failure it had shown (`alternatives.test.ts`, a 45e1 case
+writing a set of one through the curation schema, which De2-6 now refuses)
+is fixed. Still to run: the full vitest, the Docker build-mode specs, the
+dev-mode `alternatives-form.spec`, and any moved baselines.
+
 **Roger to confirm:** De2-1, De2-4; the label words ("Then make", "Method",
-"Version", a head noun); a tie renaming its heading (De2-2).
+"Version", a head noun); a tie renaming its heading (De2-2); the curation
+path refusing what breaks a rule (De2-6 reversed).
 
 ### 45c — Close-out
 
