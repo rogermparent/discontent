@@ -12,6 +12,7 @@ import {
 import { walkGroupRecipes } from "../../util/groupShoppingWalk";
 import { isDrinkRecipe } from "../../util/drinkCount";
 import { readPlanTimes } from "../../util/planTimes";
+import { recipeOnPath } from "../../util/readChoices";
 import type {
   PlanHoliday,
   PlanPageData,
@@ -45,8 +46,12 @@ function ingredientCount(recipe: Recipe): number {
   ).length;
 }
 
-/** One recipe as a plan row shows it. */
-export function planRecipeView(slug: string, recipe: Recipe): PlanRecipeView {
+/**
+ * One recipe as a plan row shows it. A recipe with alternatives is read on
+ * its default path (45e, G2): the default option's steps, lines and yield.
+ */
+export function planRecipeView(slug: string, stored: Recipe): PlanRecipeView {
+  const recipe = recipeOnPath(stored);
   return {
     slug,
     name: recipe.name,
@@ -73,7 +78,7 @@ async function subPlanView(
   const recipes = await Promise.all(
     walk.recipes.map(async ({ slug: recipeSlug }) => {
       const recipe = await recipeItems.read(recipeSlug);
-      const times = recipe ? readPlanTimes(recipe) : undefined;
+      const times = recipe ? readPlanTimes(recipeOnPath(recipe)) : undefined;
       return {
         slug: recipeSlug,
         name: recipe?.name ?? recipeSlug,

@@ -2,6 +2,7 @@ import { Recipe, RecipeEntryValue } from "./types";
 import { hostnameLabel } from "../util/hostnameLabel";
 import { siteLabel } from "../util/siteNames";
 import { capturedLineSeparator } from "../util/capturedLine";
+import { alternateLines } from "../util/readChoices";
 import { compiler } from "markdown-to-jsx/react";
 import { normalizeLineEndings } from "@discontent/component-library/components/Markdown/normalize";
 
@@ -241,6 +242,9 @@ export default function buildRecipeIndexValue(
   const ingredientRecipeLinks = ingredients?.flatMap(({ ingredient }, line) =>
     recipeLinkSlugs(ingredient).map((slug) => ({ line, slug })),
   );
+  /* 45e (G2): the lines of options other than their set's default, which
+     `/make` skips. Only when there are some (T16). */
+  const ingredientAlternates = alternateLines(recipe);
   return {
     name,
     description: flatDescription || undefined,
@@ -254,6 +258,7 @@ export default function buildRecipeIndexValue(
     totalTime: totalTime || undefined,
     ...(ingredientHeadings?.length ? { ingredientHeadings } : {}),
     ...(ingredientRecipeLinks?.length ? { ingredientRecipeLinks } : {}),
+    ...(ingredientAlternates.length ? { ingredientAlternates } : {}),
     ...sourceFields(recipe.source),
   };
 }

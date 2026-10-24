@@ -72,11 +72,13 @@ His answers (2026-10-22):
 
 ## Roadmap
 
-| Phase | What                                             | Size | Branch           | Status |
-| ----- | ------------------------------------------------ | ---- | ---------------- | ------ |
-| 45a   | Tag picker: a field and suggestions as you type  | M    | `agent/45a-tags` | 🟡     |
-| 45b   | Fill gaps from the source, with marked estimates | L    | `agent/45b-fill` | 🟡     |
-| 45c   | Close-out                                        | S    | `agent/45-close` | 📝     |
+| Phase | What                                              | Size | Branch                         | Status |
+| ----- | ------------------------------------------------- | ---- | ------------------------------ | ------ |
+| 45a   | Tag picker: a field and suggestions as you type   | M    | `agent/45a-tags`               | 🟡     |
+| 45b   | Fill gaps from the source, with marked estimates  | L    | `agent/45b-fill`               | 🟡     |
+| 45e1  | Alternatives: the data and every reader           | L    | `agent/45e1-alternatives`      | 🟡     |
+| 45e2  | Alternatives: authoring (form, import suggestion) | L    | `agent/45e2-alternatives-form` | 📝     |
+| 45c   | Close-out                                         | S    | `agent/45-close`               | 📝     |
 
 45a and 45b run in parallel (disjoint files except a line or two in
 `Form/index.tsx`). Both move edit-form baselines: the second to merge
@@ -637,6 +639,242 @@ and a step) — a video with its recipe in lists now imports with no model.
   where in the message.
 - The curation input's ingredients and steps may be strings as well as
   objects: a helper over imported rows must take both.
+
+### 45e — Alternatives
+
+Roger, 2026-10-22, on /recipe/25-minute-everything-bread-dough-lagerstrom (dough, then Large loaf / Baguettes / Pizza / Bagels / Soft pretzels shown one after another): "Could we put all the alternate baking methods as selectable alternatives rather than showing all sequentially?"
+
+His answers:
+
+- **Segmented tabs** on the recipe page. The pick is remembered on the device and can be linked.
+- **Each option can have its own extra ingredients and a yield.**
+- **Authoring:** an edit-form toggle, and imports that detect it. The orchestrator converts the everything-dough recipe after it ships.
+- "**A generic 'alternative/parallel sections' construct** that can be used for many things, definitely not 'ways to finish' — maybe an alternative crumb and/or frosting in a complex cake framework recipe."
+- "**Always mark when the AI makes a change** [so] the editor can approve it."
+
+#### Decisions (45e)
+
+- **G1, the data shape (backward-compatible).**
+  - An optional `choice?: string` on an `InstructionGroup` and on a heading `Ingredient`.
+  - **Consecutive** step groups with the same `choice` form one **set**. The `choice` value is the set's label ("Then make", "Crumb", "Frosting"), and each group's `name` is an option's label ("Bagels").
+  - A recipe may have several sets.
+  - An ingredient heading with the same `choice` and a name matching an option (`sectionKey`, as `matchStepIngredients` already pairs) owns that option's extra lines, up to the next heading.
+  - An optional `recipeYield?: string` on a choice group is that option's yield.
+  - Old data needs no change. Old readers and anything not yet taught see ordinary groups and headings, stacked as today.
+- **G2, the default option is the first.** Wherever one value is needed (Make, the plan run sheet, JSON-LD, the index's counts, the shopping list from a plan), the default option stands in for its set. The chosen option is used only where a reader has chosen.
+- **G3, choosing is per reader.** The pick is remembered per recipe in `localStorage`, read after hydration so the server renders the default (the U1 trap). It is linkable with a query parameter, e.g. `?pick=bagels` or `?pick=crumb:streusel,frosting:cream-cheese`; the worker chooses the exact shape and records it. An "All" choice shows every option stacked, and print shows all.
+- **G4, step numbers count within the shown path.** Shared steps are numbered 1…n, and the chosen option's steps continue from n+1. Anchors and timer ids include the option slug where they fall inside an option, so `stepTimerId` never collides across options. Heads-up "step N" references follow the shown numbering.
+- **G5, AI changes are marked and approved.** No import, model or curator path writes `choice` silently in the editor. A detected set arrives as a **suggestion** in the form ("These 5 groups look like alternatives — Make them a choice?"), marked like 45b's fills, and is applied only when the person accepts it and saves. CLI and MCP writes stay explicit.
+- **G6, the JSON-LD fix.** Emit the default path and fix the existing bug where every `HowToSection` is named "To Store" (`View/JsonLD/index.tsx`:37) instead of `entry.name`.
+
+#### Phases (45e)
+
+| Phase   | What                                                                                                                                                                                        | Size | Branch                         |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------ |
+| 45e1    | Data and every reader: schemas, recipe page tabs, cook view, shopping, Make, plans, JSON-LD                                                                                                 | L    | `agent/45e1-alternatives`      |
+| 45e2    | Authoring: edit-form choice controls, per-option ingredients and yield, import detection as a marked suggestion, curator docs                                                               | L    | `agent/45e2-alternatives-form` |
+| content | The orchestrator converts everything-dough (extras: molasses, baking soda, semolina, sauce and toppings; yields 1 loaf / 4 baguettes / 4 pizzas / 8 bagels / 8 pretzels), after 45e1 merges | S    | (real repo)                    |
+
+#### 45e1 (files from the survey; verify each on origin/main)
+
+- **Schema:**
+  - `common/controller/types.ts`:7-22 (`Ingredient`, `InstructionGroup`).
+  - `editor/controller/curation/schema.ts`:59-89, :139-150, :169-180: these are `strictObject`s, so add the keys.
+  - `editor/controller/parseFormData.ts` `RecipeFormSchema`: `z.object` silently strips unknown keys. Add `choice` and the per-group `recipeYield`, and keep 45d's hand-written step checks.
+  - `toIngredients` / `toInstructions` (schema.ts:836/846).
+  - `common/util/recipeText.ts`. Round-trip test: a recipe with `choice` saved through the form with no changes is byte-identical (43-D4).
+- **A pure model:** `common/util/alternatives.ts`. `readChoices(recipe)` returns `{sets: [{key, label, options: [{slug, label, groupIndexes, ingredientRange?, yield?}]}]}`, and `shownPath(recipe, picks)` returns the steps and ingredient lines on the chosen path with display numbers (G4). Vitest it hard, including recipes with no sets, two sets, a set at the start, mismatched ingredient headings, and an option with no extras.
+- **Recipe page:**
+  - `View/Instructions/index.tsx`: segmented tabs (Radix ToggleGroup or the site's segmented control; ≥ 24 px; keyboard; `aria-pressed` or a tablist, whichever is right) above each set, with the option's yield ("makes 8 bagels").
+  - `View/Ingredients/index.tsx`: the rail shows the shared lines plus the chosen option's extras under its heading.
+  - `JumpLinks`, `stepNumbers`, `stepId` and `stepTimerId` follow G4.
+  - `matchStepIngredients` already pairs by section name. Check it.
+  - `findHeadsUps` runs over the shown path. It is server-computed today, so either compute it per option or on the client; measure and record the choice.
+  - MetaBar yield: the option's yield when chosen.
+- **Cook view** (`FocusView`): `flattenSteps` over the shown path, with a compact picker at its top. `cookProgress`'s sessionStorage indices are keyed by the pick so a switch doesn't misread progress.
+- **Consumers:**
+  - `shoppingLines.recipeLines` takes `picks?` (default G2), and "add to list" from the recipe page sends the reader's pick.
+  - `parseIngredientList` and `makeable`: Make counts the default option. The index value gains `ingredientChoices` if needed (bump the index value per 39b, so the stamp rebuilds; record "reindex: automatic").
+  - `planTimes` / `readPlanPage`: the default option.
+  - JSON-LD per G6.
+  - The export site reuses `RecipeView`. Verify it with the export build.
+- **Tests:**
+  - Vitest: the model, schemas, the round trip, shopping and makeable with choices.
+  - Playwright: a new `alternatives.spec` on a fixture recipe with one set and extras (tabs, pick, the rail changes, numbering, `?pick=` link, remembered after reload, "All", cook view, add-to-list sends the pick, axe), plus a two-set fixture.
+  - New baselines (recipe page desktop and phone) in Docker. Existing recipe-page baselines must not move (old data renders as before).
+
+#### Results (45e1)
+
+**The model.** `common/util/alternatives.ts` is the browser's half and
+imports nothing but slugify: the `Choices` model (`sets`, `entrySteps`,
+`ingredientCount`), `shownPath(choices, picks)`, the pick helpers
+(`resolvePicks`, `cookPicks`, `parsePickParam` / `formatPickParam`, the
+localStorage pair) and `plainChoices` for a recipe with nothing to choose.
+`common/util/readChoices.ts` is the server's half — `readChoices(recipe)`,
+`recipeOnPath(recipe, picks?)`, `alternateLines(recipe)` — because pairing a
+heading with its option goes through `sectionKey`, so through
+`ingredientNames`, which 42c1 kept off the recipe page's bundle. The page
+computes the model on the server and hands it to `ChoicesProvider`
+(`View/Choices`), which every reader on the page reads: the steps, the
+rail, the heads-up, the yield, the cook view and "Add to list".
+
+**Decisions (De1-…).**
+
+- **De1-1 a set needs two options.** A lone group with a `choice`, or a
+  `choice` on a bare step, reads as an ordinary group. `choice` values and
+  group names are compared by slug, so "Then make" / "then make" are one
+  set and two groups called "Bagels" in one run are one option
+  (`groupIndexes` has both). Set keys and option slugs are made unique
+  (`-2`); an option slugged `all` becomes `all-2`. An unnamed group is
+  labelled by its place ("Option 1", slug `option-1`) and never merges with
+  another option, even one named "Option 1".
+- **De1-2 an option's lines.** `ingredientLines` (a list, not the plan's
+  `ingredientRange`): the heading carrying the set's label whose name meets
+  the option's by `sectionKey` (falling back to the slug), through the line
+  before the next heading — stored, or one `detectHeading` sees, as
+  `lineNames` reads sections. A heading that meets no option, or names
+  another set, is an ordinary heading and always shows.
+- **De1-3 numbering (G4).** Every option is numbered from its set's start
+  as if chosen; the shared steps after a set continue from the chosen
+  option, and under "All" from the default (G2). Anchors: `step-N` for a
+  shared step (unchanged), `step-<option>-N` inside an option,
+  `step-<set>-<option>-N` when two sets share an option slug. Timer ids
+  follow (`stepTimerId` takes the key: `step-bagels-6-0`); the cook view
+  uses the same keys, so a timer started on the page is the same timer
+  there.
+- **De1-4 `?pick=` shapes.** `?pick=bagels` (a bare option slug names the
+  first set with it), `?pick=all`, `?pick=crumb:streusel,frosting:all`.
+  Written with `history.replaceState` when the reader picks, only for sets
+  off their default (the default path drops the parameter); unknown parts
+  are ignored. Precedence after hydration: the link, then the device's
+  `recipe-pick:<slug>` (localStorage), then the default. The server and
+  the first client render are always the default (U1).
+- **De1-5 off-path content stays in the DOM**, marked `data-off-path` and
+  hidden by a screen-only rule in `recipe.css`, so print shows every option
+  stacked (the picker is `print:hidden`). The picker is a Radix
+  ToggleGroup (single): `role="group"` named by the set's label, each
+  option a `radio` with `aria-checked`, arrow keys between them, 32 px
+  tall; "All" last. It sits at the top of the set; each option's group
+  heading says "makes 8 bagels" when it has a yield; the rail's option
+  headings say "Only for Bagels · choose another" (a link to the picker).
+- **De1-6 heads-up on the client.** `headsUpCandidates` (server) returns
+  every heads-up sentence with its entry and step; `selectHeadsUps`
+  (`util/headsUpSelect.ts`, no imports) picks the path's in the browser and
+  numbers them. Per-option server computation would need one answer per
+  combination of picks across sets; the candidates are a handful of
+  sentences (one for the test dough), and `isHeadsUp` stays on the server.
+  `findHeadsUps` is now `selectHeadsUps` over `stepNumbers`, the same
+  answer as before for every recipe. **The box never comes and goes with
+  the pick (U1):** when any option has a note, the server renders the
+  "Plan ahead" box and the client keeps it; a chosen path with no note
+  says one muted line instead, "Nothing to plan ahead for Pretzels" (the
+  chosen options of the sets whose other options hold a note). Notes off
+  the path are not rendered, so print shows the path's notes only.
+- **De1-7 one value (G2).** `recipeOnPath` (default path, "All" read as the
+  default, the option's yield) feeds JSON-LD, the plan page's rows and
+  run-sheet times (`planRecipeView`, the sub-plan rows). The jump row
+  (`PathJumpLinks`, client) counts the reader's path as the steps do —
+  `showJumpLinksOnPath` over `shownPath`'s lines and steps — so the server
+  renders the default path's answer, and a recipe without alternatives
+  gets exactly `showJumpLinks`' row. The shopping list's `recipeLines(recipe, picks?)` follows the
+  pick (an "All" pick adds every option's lines); a plan or a sub-recipe
+  adds the defaults. `shopping_add` gains `picks` (recipe adds only), which
+  the recipe page sends; MCP sees it through the shared schema, its blurb
+  is 45e2's. Its keys and values take up to 200 characters: they are
+  slugs of labels and group names (plus `-2`), and a group name has no
+  cap, so 80 refused a long option's "Add to list" as `validation`.
+- **De1-8 Make.** The index value gains `ingredientAlternates` (lines off
+  the default path), written only when non-empty, carried to `/make`'s
+  corpus and to `readMakeCorpus`; `prepareRecipe` drops those lines'
+  requirements. `recipeContentConfig.indexVersion` is now `"2"`:
+  **reindex: automatic** — every instance rebuilds once at its next start.
+- **De1-9 JSON-LD (G6).** Sections are named by their group (an unnamed one
+  gets no name); "To Store" is gone. Only the default path is emitted.
+- **De1-10 the form keeps it (43-D4).** 45e1 adds no controls: a group's
+  `choice` / `recipeYield` and a heading's `choice` ride in hidden inputs
+  and `parseFormData` keeps them, byte for byte
+  (`editFormRoundTrip.test.tsx`). Text mode in the ingredients section
+  re-reads lines and drops a heading's `choice` (45e2).
+- **De1-11 the write schema** takes `choice` (trimmed, 1–80 characters) on a
+  group and on a heading only, and `recipeYield` on a group. Nothing in
+  this phase writes `choice` from a model (G5).
+- **De1-12 `matchStepIngredients` unchanged.** Checked: an option's group
+  and its heading meet by `sectionKey`, so an option's step is scoped to its
+  own lines exactly as 42c1's "Crust" / "For the crust" are. A step's Uses
+  list on the page drops lines off the reader's path.
+- **De1-13 the cook view** cooks one path (`cookPicks`): a compact picker
+  (no "All") at its top changes the page's pick too, and its ticks live
+  under `cook-view:<slug>|<path>` — a recipe without alternatives keeps
+  `cook-view:<slug>`.
+
+**Known limits (for 45e2's form).**
+
+- **Two sets with the same label** ("Frosting", a shared step, "Frosting"
+  again) read as two sets (`frosting`, `frosting-2`), but an ingredient
+  heading's `choice` names a set only by its label, so a heading binds to
+  the first such set that has an option of its name. 45e2's form should
+  refuse duplicate set labels in one recipe.
+- The ingredients section's text mode drops a heading's `choice` (De1-10;
+  45e2's).
+- Option slugs are as long as their group names; nothing truncates them
+  (the `picks` cap is 200).
+
+**Review fixes (finisher, on 1450cfc9's review).** The heads-up box stays
+across picks (De1-6); `picks` caps at 200 (De1-7); the jump row follows the
+pick (De1-7); an unnamed option reads "Option N" (De1-1); the test that
+rebuilt `findHeadsUps` from itself now checks hand-worked notes for the
+plain dough's one path, and the jump row on a path has its own cases.
+Assertions the first worker had guessed, settled against what is right:
+the pretzels' dip step uses **both** its own lines ("1/4 cup baking soda",
+"Flaky sea salt, for topping" — its "flaky salt" meets the topping salt,
+not the dough's), so the spec now checks the exact list rather than
+`toContainText` of one; the Make case (bread flour, water, salt, molasses
+on the shelf makes the dough on its default, Bagels; without
+`ingredientAlternates` the pretzels' lines count and it does not) was
+already right and stays.
+
+**Gates (finisher, on origin/main 26b4ec58 = 45a + 45b merged in).**
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean.
+- `pnpm exec vitest run`: **160 files, 3546 tests passed.** The first run
+  failed 2 in `reindexJobs.test.ts`, both De1-8's doing: the pinned index
+  version hash moved (now `72c0224ea752c76e`), and the "a content index
+  version" variant set `indexVersion: "2"`, which is now the real value —
+  it bumps the current value instead.
+- Playwright in Docker, build mode (alternatives, the recipe page specs,
+  yield, cook view, shopping ×2, make, groups, plan page, `visual`,
+  `mobile`, accessibility, timeline, edit — the regexes also took in
+  multi-recipe): **369 of 370 passed.** The one failure was `visual`'s
+  `git-page.png`: the git page prints the index version, and De1-8 moved
+  it. Regenerated in Docker (only that PNG; the hash text is the whole
+  diff), then 1/1.
+- `alternatives.spec`: 13/13 in Docker build mode, 13/13 in dev mode.
+- Baselines (Docker): new `alternatives-desktop-e2e.png` (Pretzels: the
+  heads-up box with its "Nothing to plan ahead for Pretzels" line) and
+  `alternatives-phone-mobile.png` (Bagels, the note). **No recipe-page
+  baseline moved**; the one old PNG that moved is `git-page-e2e.png`, above.
+- Export: `next build` of `recipe-website` on a scratch content dir with a
+  choice recipe passed; `out/recipe/everything-dough.html` has the picker
+  (Bagels `aria-checked="true"`, Pretzels, All), the default path's anchors
+  (`step-bagels-2`, `step-bagels-3`, `step-pretzels-2` hidden, shared
+  `step-4`), the "Plan ahead" box, JSON-LD `recipeYield` "8 bagels" and no
+  "To Store".
+
+**Roger to confirm:** an "All" pick on the recipe page adds every option's
+extras to the shopping list (the list follows what the page shows); the
+yield sits in each option's heading line and in the meta strip, not in the
+buttons; the rail's "Only for Bagels · choose another" note. **Accepted
+after hydration:** a remembered or linked pick changes, once the page is
+live, the meta strip's yield, the rail's option lines, the steps and their
+numbers, and the jump row (which can appear or go when a pick crosses its
+15-line threshold) — the heads-up box alone is held in place.
+
+#### 45e2 (outline; brief written after 45e1)
+
+- **Edit form, Steps:** select consecutive groups and "Make these a choice", label the set, reorder options, and a yield per option. **Ingredients:** a heading row can be tied to an option, which pairs by name automatically.
+- **Import detection:** the extractor and the deterministic path propose a set when sibling sections are parallel endings. Shown as a marked suggestion (G5), accepted or dismissed in the form.
+- The curator skill and the MCP `recipe_create` / `recipe_update` blurbs document `choice`.
 
 ### 45c — Close-out
 

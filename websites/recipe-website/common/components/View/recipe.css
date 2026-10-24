@@ -73,3 +73,16 @@
     }
   }
 }
+
+/*
+ * Alternatives (epic 45e, G3): what is off the reader's chosen path — the
+ * options not picked, and their extra ingredient lines — stays in the DOM
+ * and is hidden on screen only, so print shows every option stacked. Outside
+ * the components layer and `!important`, so no layout utility on the element
+ * (`flex`, `grid`) brings it back on screen.
+ */
+@media screen {
+  [data-off-path] {
+    display: none !important;
+  }
+}

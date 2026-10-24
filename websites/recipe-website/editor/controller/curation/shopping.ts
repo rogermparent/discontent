@@ -45,6 +45,7 @@ import { AISLES } from "recipe-website-common/util/aisles";
 import { walkGroupRecipes } from "recipe-website-common/util/groupShoppingWalk";
 import { DEFAULT_STAPLES } from "recipe-website-common/util/makeable";
 import { expandRecipeLines } from "recipe-website-common/util/shoppingLines";
+import type { Picks } from "recipe-website-common/util/alternatives";
 import { parseScale } from "recipe-website-common/util/scale";
 import {
   canonicalShoppingItem,
@@ -476,12 +477,14 @@ async function itemsFor(
   scale: Scale | null,
   expansion: Expansion,
   via?: string[],
+  picks?: Picks,
 ): Promise<ShoppingItem[]> {
   const { lines, warnings } = await expandRecipeLines(slug, recipe, {
     readRecipe: expansion.readRecipe,
     expand: expansion.expand,
     scale: scale ?? undefined,
     cache: expansion.cache,
+    picks,
   });
   for (const warning of warnings) {
     if (!expansion.warnings.includes(warning)) {
@@ -545,7 +548,15 @@ async function addLocked(
     if (!recipe) {
       throw new UnknownRecipeError([input.recipe], { forceHint: false });
     }
-    added = await itemsFor(input.recipe, recipe, scale, expansion);
+    /* The reader's pick among its alternatives (45e); else the defaults. */
+    added = await itemsFor(
+      input.recipe,
+      recipe,
+      scale,
+      expansion,
+      undefined,
+      input.picks,
+    );
     if (added.length === 0) {
       warnings.push(`${recipe.name} has no ingredient lines.`);
     }

@@ -13,15 +13,18 @@
 import type { InstructionEntry, Timeline } from "../controller/types";
 import { stripMarkup } from "./ingredientNames";
 import { stepNumbers } from "./stepNumbers";
+import {
+  selectHeadsUps,
+  type HeadsUp,
+  type HeadsUpCandidate,
+} from "./headsUpSelect";
 
-export interface HeadsUp {
-  /** The sentence, quoted as written (markup undone). */
-  sentence: string;
-  /** The page's step number it came from; absent for a schedule note. */
-  step?: number;
-  /** Where it came from: a step, or a cook schedule's note. */
-  source: "step" | "schedule";
-}
+export {
+  MAX_HEADS_UPS,
+  selectHeadsUps,
+  type HeadsUp,
+  type HeadsUpCandidate,
+} from "./headsUpSelect";
 
 const COUNT = String.raw`(?:\d+(?:\s*(?:-|–|to)\s*\d+)?|one|two|three|four|five|six|eight|ten|twelve|twenty[- ]four|forty[- ]eight)`;
 
@@ -119,36 +122,45 @@ export function sentences(text: string): string[] {
     .filter(Boolean);
 }
 
-/** At most this many notes: a heads-up is a line or two, not a summary. */
-export const MAX_HEADS_UPS = 3;
+/**
+ * Every heads-up sentence in the steps and the schedule notes, where each
+ * was found (45e) — the server's half of `findHeadsUps`. Which of them show
+ * depends on the path the reader chose, so `selectHeadsUps`
+ * (`headsUpSelect.ts`) finishes the job in the browser, and `isHeadsUp`
+ * stays off its bundle.
+ */
+export function headsUpCandidates(
+  instructions: readonly InstructionEntry[] = [],
+  timelines: readonly Timeline[] = [],
+): HeadsUpCandidate[] {
+  const out: HeadsUpCandidate[] = [];
+  instructions.forEach((entry, i) => {
+    const steps =
+      "instructions" in entry ? (entry.instructions ?? []) : [entry];
+    steps.forEach((step, j) => {
+      for (const sentence of sentences(step.text ?? "")) {
+        if (isHeadsUp(sentence)) {
+          out.push({ sentence, entry: i, step: j, source: "step" });
+        }
+      }
+    });
+  });
+  for (const timeline of timelines) {
+    for (const sentence of sentences(timeline.note ?? "")) {
+      if (isHeadsUp(sentence)) out.push({ sentence, source: "schedule" });
+    }
+  }
+  return out;
+}
 
 /** The recipe's heads-up notes, in step order, each sentence once. */
 export function findHeadsUps(
   instructions: readonly InstructionEntry[] = [],
   timelines: readonly Timeline[] = [],
 ): HeadsUp[] {
-  const out: HeadsUp[] = [];
-  const seen = new Set<string>();
-  const add = (sentence: string, note: Omit<HeadsUp, "sentence">) => {
-    const key = sentence.toLowerCase();
-    if (seen.has(key) || !isHeadsUp(sentence)) return;
-    seen.add(key);
-    out.push({ sentence, ...note });
-  };
   const numbers = stepNumbers(instructions);
-  instructions.forEach((entry, i) => {
-    const steps =
-      "instructions" in entry ? (entry.instructions ?? []) : [entry];
-    steps.forEach((step, j) => {
-      for (const sentence of sentences(step.text ?? "")) {
-        add(sentence, { step: numbers[i][j], source: "step" });
-      }
-    });
-  });
-  for (const timeline of timelines) {
-    for (const sentence of sentences(timeline.note ?? "")) {
-      add(sentence, { source: "schedule" });
-    }
-  }
-  return out.slice(0, MAX_HEADS_UPS);
+  return selectHeadsUps(
+    headsUpCandidates(instructions, timelines),
+    (entry, step) => ({ number: numbers[entry][step] }),
+  );
 }

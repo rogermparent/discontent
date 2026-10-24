@@ -136,7 +136,12 @@ export function anyRunning(timers: readonly KitchenTimer[]): boolean {
   return timers.some((timer) => timer.status === "running");
 }
 
-/** The id of a step's nth time: the same on the page and in the cook view. */
-export function stepTimerId(step: number, index: number): string {
+/**
+ * The id of a step's nth time: the same on the page and in the cook view.
+ * `step` is its page number, or inside an option of a set of alternatives
+ * (45e, G4) the option's key and number (`bagels-6`), so two options' sixth
+ * steps never share a timer.
+ */
+export function stepTimerId(step: number | string, index: number): string {
   return `step-${step}-${index}`;
 }

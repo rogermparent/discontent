@@ -3,6 +3,7 @@ import { Recipe } from "../../../controller/types";
 import { flattenMarkdown } from "recipe-website-common/controller/buildIndexValue";
 import { getWebsiteRoot } from "@discontent/cms/util/getWebsiteRoot";
 import { minutesToDuration } from "recipe-website-common/util/isoDuration";
+import { recipeOnPath } from "recipe-website-common/util/readChoices";
 
 function buildJsonLDIngredients(
   recipe: Recipe,
@@ -34,7 +35,8 @@ export function buildJsonLDInstructions(
       if ("instructions" in instructionEntry) {
         recipeInstructions.push({
           "@type": "HowToSection",
-          name: "To Store",
+          /* The group's own name (G6: every section used to be "To Store"). */
+          name: instructionEntry.name || undefined,
           itemListElement: instructionEntry.instructions.map(
             ({ text, name }) => ({
               "@type": "HowToStep",
@@ -72,10 +74,13 @@ function absoluteUrl(src: string): string {
  * and its method as `cookingMethod`.
  */
 export function buildRecipeJsonLD(
-  recipe: Recipe,
+  stored: Recipe,
   image: string | undefined,
   video?: string,
 ): JsonLDRecipe {
+  /* 45e (G2, G6): one recipe for a crawler — the default option of each
+     set of alternatives, its lines, its steps and its yield. */
+  const recipe = recipeOnPath(stored);
   const { name } = recipe;
 
   const jsonLD: WithContext<JsonLDRecipe> = {

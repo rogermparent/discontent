@@ -56,10 +56,24 @@ export const EpochSchema = z.union([
   }),
 ]);
 
-const IngredientObjectSchema = z.strictObject({
-  ingredient: z.string(),
-  type: z.literal("heading").optional(),
-});
+/**
+ * A set of alternatives' label (45e, G1): "Then make", "Frosting". Trimmed,
+ * and never blank — a blank one would be no set at all, so it is refused
+ * rather than stored.
+ */
+const ChoiceLabelSchema = z.string().trim().min(1).max(80);
+
+const IngredientObjectSchema = z
+  .strictObject({
+    ingredient: z.string(),
+    type: z.literal("heading").optional(),
+    /** Ties a heading's lines to the option it names (45e). */
+    choice: ChoiceLabelSchema.optional(),
+  })
+  .refine((line) => line.choice === undefined || line.type === "heading", {
+    message: '`choice` goes on a heading (`type: "heading"`)',
+    path: ["choice"],
+  });
 
 /** A line of ingredients is either prose or an already-shaped `Ingredient`. */
 export const IngredientInputSchema = z.union([
@@ -75,6 +89,13 @@ const InstructionObjectSchema = z.strictObject({
 const InstructionGroupSchema = z.strictObject({
   name: z.string(),
   instructions: z.array(InstructionObjectSchema),
+  /**
+   * Alternatives (45e, G1): consecutive groups with the same `choice` are one
+   * set the reader picks an option of; the group's `name` is the option's.
+   */
+  choice: ChoiceLabelSchema.optional(),
+  /** An option's own yield ("8 bagels"). */
+  recipeYield: z.string().optional(),
 });
 
 /*
@@ -588,6 +609,16 @@ export const ShoppingAddSchema = z
     recipe: z.string().min(1).optional(),
     group: z.string().min(1).optional(),
     scale: ScaleSchema().optional(),
+    /*
+     * A recipe's alternatives (45e): set key → option slug, or "all" —
+     * what the recipe page sends for the reader's pick. Sets left out use
+     * their first option; unknown keys are ignored. 200 characters: the
+     * keys and slugs come from labels and group names (plus a `-2` when
+     * two meet), which nothing caps at 80.
+     */
+    picks: z
+      .record(z.string().min(1).max(200), z.string().min(1).max(200))
+      .optional(),
     items: z.array(ShoppingTextSchema).min(1).max(200).optional(),
   })
   .refine(
@@ -600,6 +631,10 @@ export const ShoppingAddSchema = z
       path: ["recipe"],
     },
   )
+  .refine((data) => !(data.picks && data.recipe === undefined), {
+    message: "`picks` applies to a `recipe` only",
+    path: ["picks"],
+  })
   .refine((data) => !(data.items && data.scale !== undefined), {
     message: "`scale` applies to a `recipe` or a `group`, not to `items`",
     path: ["scale"],

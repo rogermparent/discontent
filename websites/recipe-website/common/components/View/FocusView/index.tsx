@@ -27,6 +27,15 @@ import { DrinkSpecBar } from "../DrinkSpec";
 import { MultiplierInput } from "../Multiplier";
 import { Multiplyable } from "../Multiplier/Multiplyable";
 import { StepText, TimerAnnouncer, TimerTray } from "../Timers";
+import { ChoicePicker, useChoices } from "../Choices";
+import {
+  cookPicks,
+  hasChoices,
+  pathKey,
+  plainChoices,
+  shownPath,
+  type ShownPath,
+} from "../../../util/alternatives";
 import {
   readCookProgress,
   sessionStore,
@@ -70,22 +79,42 @@ interface FocusViewProps {
   uses?: StepLines;
 }
 
-type FlatStep = Instruction & { group?: string; uses?: number[] };
+type FlatStep = Instruction & {
+  group?: string;
+  uses?: number[];
+  /** What its timers are keyed by on the page (45e): the same timer here. */
+  timerKey?: number | string;
+};
 
-/** Every step in order, a group's steps under the group's name, with what each uses. */
+/**
+ * Every step on the path in order, a group's steps under the group's name,
+ * with what each uses (45e: the chosen option's steps only, and only the
+ * lines on the path). Without alternatives, every step.
+ */
 function flattenSteps(
   instructions: InstructionEntry[] = [],
-  uses?: StepLines,
+  uses: StepLines | undefined,
+  path: ShownPath,
 ): FlatStep[] {
-  return instructions.flatMap((entry, i) =>
-    "instructions" in entry
+  const onPath = (lines?: number[]) =>
+    lines?.filter((line) => path.lines[line] !== false);
+  return instructions.flatMap((entry, i) => {
+    if (!path.entries[i]) return [];
+    return "instructions" in entry
       ? (entry.instructions ?? []).map((step, j) => ({
           ...step,
           group: entry.name,
-          uses: uses?.[i]?.[j],
+          uses: onPath(uses?.[i]?.[j]),
+          timerKey: path.steps[i]?.[j]?.timerKey,
         }))
-      : [{ ...entry, uses: uses?.[i]?.[0] }],
-  );
+      : [
+          {
+            ...entry,
+            uses: onPath(uses?.[i]?.[0]),
+            timerKey: path.steps[i]?.[0]?.timerKey,
+          },
+        ];
+  });
 }
 
 /** A step as a short line for the Done button: its title, or its words. */
@@ -192,11 +221,14 @@ function IngredientCheck({
 /** Every ingredient line as a checklist, headings between. */
 function IngredientChecklist({
   ingredients,
+  shown,
   gathered,
   onToggle,
   className,
 }: {
   ingredients: Ingredient[];
+  /** Line → on the path (45e); the others are left out. */
+  shown: boolean[];
   gathered: Set<number>;
   onToggle: (index: number) => void;
   className?: string;
@@ -204,7 +236,7 @@ function IngredientChecklist({
   return (
     <ul className={cn("space-y-3", className)}>
       {ingredients.map(({ ingredient, type }, i) =>
-        type === "heading" ? (
+        shown[i] === false ? null : type === "heading" ? (
           <li
             key={i}
             className="pt-2 text-lg font-semibold text-muted-foreground"
@@ -247,20 +279,56 @@ function FocusOverlay({
   /* Set by Done: once the next step renders, focus moves to it. */
   const focusStep = useRef(false);
   const awake = useScreenWakeLock();
-  const steps = useMemo(
-    () => flattenSteps(instructions, uses),
-    [instructions, uses],
+  /* 45e: one path to cook — the page's pick, an "All" read as the default
+     (G2) — and the compact picker here changes it for the page too. */
+  const context = useChoices();
+  const choices = useMemo(
+    () => context?.choices ?? plainChoices(instructions, ingredients.length),
+    [context?.choices, instructions, ingredients.length],
   );
-  const [progress, setProgress] = useState<CookProgress>(() =>
-    readCookProgress(sessionStore(), slug, {
-      steps: steps.length,
-      ingredients: ingredients.length,
-      fallbackLayout: defaultLayout,
-    }),
+  const pagePicks = context?.picks;
+  const picks = useMemo(
+    () => cookPicks(choices, pagePicks),
+    [choices, pagePicks],
+  );
+  const variant = hasChoices(choices) ? pathKey(choices, picks) : undefined;
+  const path = useMemo(() => shownPath(choices, picks), [choices, picks]);
+  const steps = useMemo(
+    () => flattenSteps(instructions, uses, path),
+    [instructions, uses, path],
+  );
+  /* Ticks are kept per path, so a switch never reads one option's ticks
+     as another's; without alternatives the key is the one it always was. */
+  const readSaved = (): CookProgress =>
+    readCookProgress(
+      sessionStore(),
+      slug,
+      {
+        steps: steps.length,
+        ingredients: ingredients.length,
+        fallbackLayout: defaultLayout,
+      },
+      variant,
+    );
+  const [kept, setKept] = useState(() => ({
+    variant,
+    progress: readSaved(),
+  }));
+  if (kept.variant !== variant) {
+    setKept({ variant, progress: readSaved() });
+  }
+  const progress = kept.progress;
+  const setProgress = useCallback(
+    (update: (previous: CookProgress) => CookProgress) =>
+      setKept((previous) => ({
+        ...previous,
+        progress: update(previous.progress),
+      })),
+    [],
   );
   useEffect(() => {
-    writeCookProgress(sessionStore(), slug, progress);
-  }, [slug, progress]);
+    writeCookProgress(sessionStore(), slug, kept.progress, kept.variant);
+  }, [slug, kept]);
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -370,6 +438,21 @@ function FocusOverlay({
         </div>
 
         <DrinkSpecBar drink={drink} />
+
+        {context && hasChoices(choices) && (
+          <div className="flex flex-col gap-3" data-testid="cook-choices">
+            {choices.sets.map((set) => (
+              <ChoicePicker
+                key={set.key}
+                set={set}
+                value={picks[set.key]}
+                onChange={(option) => context.choose(set.key, option)}
+                all={false}
+                compact
+              />
+            ))}
+          </div>
+        )}
 
         {ingredients.length > 0 && <MultiplierInput />}
 
@@ -487,6 +570,7 @@ function FocusOverlay({
                 <StepText
                   text={step.text}
                   step={current + 1}
+                  timerKey={step.timerKey}
                   components={markdownComponents}
                 />
               </span>
@@ -520,6 +604,7 @@ function FocusOverlay({
                 </summary>
                 <IngredientChecklist
                   ingredients={ingredients}
+                  shown={path.lines}
                   gathered={gathered}
                   onToggle={toggleIngredient}
                   className="py-2 text-lg sm:text-xl"
@@ -533,6 +618,7 @@ function FocusOverlay({
               <section aria-label="Ingredients">
                 <IngredientChecklist
                   ingredients={ingredients}
+                  shown={path.lines}
                   gathered={gathered}
                   onToggle={toggleIngredient}
                   className="text-2xl sm:text-3xl"
@@ -581,6 +667,7 @@ function FocusOverlay({
                           <StepText
                             text={each.text}
                             step={i + 1}
+                            timerKey={each.timerKey}
                             components={markdownComponents}
                           />
                         </span>

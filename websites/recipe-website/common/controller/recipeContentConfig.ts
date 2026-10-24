@@ -21,6 +21,12 @@ export const recipeContentConfig: ContentTypeConfig<
   dataFilename: "recipe.json",
   uploadsDirectory: "uploads/recipe",
   buildIndexValue: buildRecipeIndexValue,
+  /*
+   * "2" since 45e: the value gained `ingredientAlternates` (a recipe with
+   * alternatives only). Bumping it rebuilds every instance's indexes once at
+   * its next start (epic 39, D1), so no manual reindex.
+   */
+  indexVersion: "2",
   buildIndexKey: (slug: string, data: Recipe): RecipeEntryKey => [
     data.date,
     slug,

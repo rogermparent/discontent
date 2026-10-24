@@ -7,6 +7,14 @@ import type {
 export type Ingredient = {
   ingredient: string;
   type?: "heading";
+  /**
+   * On a heading only (45e, G1): the label of the set of alternatives whose
+   * option this heading's lines belong to — the option whose group name
+   * matches the heading's (`sectionKey`: "For the bagels" is `Bagels`).
+   * Those lines, up to the next heading, are that option's extras: shown
+   * when it is chosen, skipped when another is. Absent everywhere else.
+   */
+  choice?: string;
 };
 
 export interface Instruction {
@@ -17,6 +25,16 @@ export interface Instruction {
 export interface InstructionGroup {
   name: string;
   instructions: Instruction[];
+  /**
+   * Alternatives (45e, G1): consecutive groups with the same `choice` are one
+   * set the reader picks an option of — the value is the set's label ("Then
+   * make"), each group's `name` an option's ("Bagels"). The first option is
+   * the default wherever one value is needed (G2). Absent on an ordinary
+   * group, and every reader not taught it sees the groups stacked as before.
+   */
+  choice?: string;
+  /** A choice group's own yield ("8 bagels"), shown when it is chosen. */
+  recipeYield?: string;
 }
 
 export type InstructionEntry = Instruction | InstructionGroup;
@@ -130,6 +148,14 @@ export interface RecipeEntryValue {
    * "make lavender syrup first". Absent when there are none.
    */
   ingredientRecipeLinks?: IngredientRecipeLink[];
+  /**
+   * Indexes into `ingredients` of the lines that belong to an option other
+   * than its set's default (45e, G2): `/make` counts the default option
+   * only, so these are skipped there. Stored, never tokenized — the lines
+   * are still searchable. Absent when the recipe has no alternatives, so
+   * every recipe without them re-indexes to the bytes already on disk.
+   */
+  ingredientAlternates?: number[];
   /**
    * Where the recipe came from, for the `source:` search field (27d/D11):
    * `source.name` or the known-site label, and the bare hostname. Both are
