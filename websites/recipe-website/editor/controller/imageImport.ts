@@ -20,6 +20,7 @@ import { openAsBlob } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { ImportError, ValidationError } from "./curation/errors";
+import { importerFetch } from "./guardedFetch";
 import { jobContext, type JobRun } from "./jobs/context";
 import { hostOf, noteRetry } from "./jobs/steps";
 
@@ -139,6 +140,7 @@ function fetchWithRetry(
   retry?: ForbiddenRetry,
 ): Promise<Response> {
   return fetchRetrying403(
+    importerFetch,
     url,
     init,
     { ...RECIPE_FETCH_HEADERS, accept: "image/*,*/*;q=0.8" },

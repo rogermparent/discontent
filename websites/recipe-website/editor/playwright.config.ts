@@ -143,6 +143,14 @@ export default defineConfig({
        * no spec ever reaches a real SearXNG.
        */
       RECIPE_SEARCH_URL: "",
+      /*
+       * 46a: the importer's SSRF guard refuses loopback, so the fixture
+       * pages this server serves itself (`/uploads/*.html`) are let through
+       * — this server's own host and port, exactly, and nothing else. The
+       * guard reads it under `TEST_MODE` only (`controller/urlGuard.ts`);
+       * `test/urlGuard.test.ts` checks no production path sets it.
+       */
+      RECIPE_TEST_FETCH_ALLOW: `localhost:${PORT},127.0.0.1:${PORT}`,
     },
   },
 });

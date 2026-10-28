@@ -28,6 +28,7 @@ import { decodeHTML } from "entities";
 import {
   RECIPE_FETCH_HEADERS,
   fetchRetrying403,
+  type CheckedFetch,
   type ForbiddenRetry,
 } from "./politeFetch";
 
@@ -233,7 +234,7 @@ export {
   fetchRetrying403,
   forbiddenRetryFromEnv,
 } from "./politeFetch";
-export type { ForbiddenRetry } from "./politeFetch";
+export type { CheckedFetch, ForbiddenRetry } from "./politeFetch";
 
 export interface FetchedPage {
   html: string;
@@ -254,11 +255,19 @@ export interface FetchedPage {
  */
 export async function fetchRecipePage(
   url: string,
-  retry?: ForbiddenRetry,
-  /** `signal` aborts the fetch, and the wait before a 403's retry (epic 37). */
-  { signal }: { signal?: AbortSignal } = {},
+  retry: ForbiddenRetry | undefined,
+  {
+    signal,
+    fetcher,
+  }: {
+    /** Aborts the fetch, and the wait before a 403's retry (epic 37). */
+    signal?: AbortSignal;
+    /** The editor's guarded fetch (46a, `importerFetch`). */
+    fetcher: CheckedFetch;
+  },
 ): Promise<FetchedPage> {
   const response = await fetchRetrying403(
+    fetcher,
     url,
     { next: { revalidate: 300 }, ...(signal ? { signal } : {}) },
     RECIPE_FETCH_HEADERS,
@@ -599,7 +608,8 @@ export type { JsonLdNode };
 
 export async function importRecipeData(
   rawUrl: string,
-  retry?: ForbiddenRetry,
+  /** `fetcher`: the editor's guarded fetch (46a, `importerFetch`). */
+  { retry, fetcher }: { retry?: ForbiddenRetry; fetcher: CheckedFetch },
 ): Promise<Partial<ImportedRecipe> | undefined> {
   // Trim hash from URL if it exists
   const url = rawUrl?.split("#")[0];
@@ -616,6 +626,6 @@ export async function importRecipeData(
     };
   }
 
-  const { html, ok } = await fetchRecipePage(url, retry);
+  const { html, ok } = await fetchRecipePage(url, retry, { fetcher });
   return mapRecipePage(url, parseRecipePage(html, url), { ok });
 }

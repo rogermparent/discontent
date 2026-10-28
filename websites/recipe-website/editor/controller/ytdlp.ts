@@ -20,6 +20,7 @@ import {
   suggestTags,
   type ImportedRecipe,
 } from "recipe-website-common/util/importRecipeData";
+import { assertFetchableUrl } from "./guardedFetch";
 import { jobContext, type JobContext, type JobRun } from "./jobs/context";
 import { withResource } from "./jobs/queue";
 import { hostOf } from "./jobs/steps";
@@ -255,6 +256,14 @@ export async function fetchYtdlpMetadata(
   { comments = false, job: run }: FetchYtdlpOptions = {},
 ): Promise<YtdlpResult> {
   const job = jobContext(run);
+  /*
+   * The SSRF guard (46a) before yt-dlp sees the URL: `isVideoUrl` matches a
+   * host *containing* a platform's name, so `youtube.com.lan.example` would
+   * reach yt-dlp's generic extractor, which fetches anything. A name that
+   * resolves privately is refused here; yt-dlp's own redirects are not
+   * checked (it only runs for the platforms' URLs).
+   */
+  await assertFetchableUrl(url);
   const withComments = comments && isYouTubeUrl(url);
   return withResource("ytdlp", job, async () => {
     const result = await ytdlpStep(url, withComments, job);

@@ -6,7 +6,11 @@ export {
   type AgentToolsOptions,
   type RecipeAgentToolsOptions,
 } from "./bridge";
-export { isBlockedAddress, urlRefusal, type UrlGuardOptions } from "./urlGuard";
+export {
+  isBlockedAddress,
+  urlRefusal,
+  type UrlGuardOptions,
+} from "../../urlGuard";
 export {
   LOCAL_TOOL_TEXT,
   localResult,

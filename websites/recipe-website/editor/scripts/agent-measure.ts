@@ -23,8 +23,9 @@
  * `--num-ctx` / `--think`), the transcript beside the job — in a job store
  * of its own (`--jobs-dir`, default `<content dir>/../agent-measure-jobs`),
  * with one difference: the SSRF guard lets `127.0.0.1` through for the
- * fixture server (`AgentToolsetTesting`, Ee6), which nothing in the editor,
- * the route or the CLI can set.
+ * fixture server (`AgentToolsetTesting`, Ee6, for the agent's own checks;
+ * `setFetchGuardTesting`, 46a, for the importer's fetches), which nothing
+ * in the editor, the route or the CLI can set.
  *
  * Before the first run the clone is reindexed — a fresh `git clone` has no
  * indexes, and readers never create them (F30, Ee9) — and its counts go to
@@ -74,6 +75,7 @@ import { freshIndexes, reindex } from "../controller/curation/reindex";
 import { jobLabel, jobResources, jobTier } from "../controller/jobs/kinds";
 import { runJob } from "../controller/jobs/run";
 import { llmConfig } from "../controller/llm/client";
+import { setFetchGuardTesting } from "../controller/urlGuard";
 import { tagSlug } from "recipe-website-common/controller/tagSlug";
 import {
   ASK_IDS,
@@ -546,6 +548,9 @@ async function main() {
   process.env.RECIPE_AGENT_THINK = has("think") ? "1" : "0";
   process.env.RECIPE_JOBS_DIR = jobsDir;
   loadEditorEnv();
+  /* 46a: the importer's guard lets the fixture server through, as the
+   * agent's does (`testing` below). */
+  setFetchGuardTesting({ allowHosts: ["127.0.0.1"] });
   const config = llmConfig();
   if (!config)
     fail(

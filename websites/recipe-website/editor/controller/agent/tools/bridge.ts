@@ -34,7 +34,7 @@ import {
   localSchema,
   refusedLocalArg,
 } from "./local";
-import { urlRefusal, type UrlGuardOptions } from "./urlGuard";
+import { urlRefusal, type UrlGuardOptions } from "../../urlGuard";
 import { webFetchTool, type WebFetchOptions } from "./webFetch";
 import { webSearchTool, type WebSearchOptions } from "./webSearch";
 
@@ -158,9 +158,26 @@ async function urlsRefusal(
       continue;
     }
     const refused = await urlRefusal(url, guard);
-    if (refused?.error.code === "forbidden") return refused;
+    if (refused?.code === "forbidden") {
+      return toolError(refused.code, refused.message);
+    }
   }
   return undefined;
+}
+
+/**
+ * The importer's own SSRF refusal (46a, `url_refused` — a redirect to a
+ * private address, which the bridge's up-front check cannot see) as the
+ * agent's code for one (Eb7): `forbidden`, as the bridge and `web_fetch`
+ * answer, so the prompts' one rule — never retry it — covers both.
+ */
+function asAgentError(value: unknown): unknown {
+  const error = (value as { error?: { code?: unknown } } | null)?.error;
+  if (error?.code !== "url_refused") return value;
+  return {
+    ...(value as object),
+    error: { ...error, code: "forbidden" },
+  };
 }
 
 /**
@@ -256,13 +273,15 @@ export function recipeAgentTools(
         try {
           const result = await tool.handler(parsed.data, seatRun(ctx));
           if (result.structuredContent !== undefined) {
-            return result.structuredContent;
+            return asAgentError(result.structuredContent);
           }
           const text = result.content?.find((part) => part.type === "text");
-          return text && "text" in text ? JSON.parse(text.text) : {};
+          return text && "text" in text
+            ? asAgentError(JSON.parse(text.text))
+            : {};
         } catch (error) {
           /* The SDK would have answered a throw as a tool error, too. */
-          return toErrorObject(error);
+          return asAgentError(toErrorObject(error));
         }
       },
     } satisfies AgentTool;

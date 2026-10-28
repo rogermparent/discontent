@@ -287,8 +287,16 @@ describe("parseRoundupPage", () => {
       { url: "https://example.com/recipes/three/", name: "Three" },
     ]);
 
-    /* A page on a private network may list its neighbours. */
-    const local = parseRoundupPage(html, "http://192.168.1.5/list/");
+    /* 46a: a page on a private network no longer lists its neighbours by
+     * default — only when a test's fixture host allows it. */
+    expect(
+      parseRoundupPage(html, "http://192.168.1.5/list/").items.map(
+        (item) => item.name,
+      ),
+    ).not.toEqual(expect.arrayContaining(["Router"]));
+    const local = parseRoundupPage(html, "http://192.168.1.5/list/", {
+      allowPrivateLinks: true,
+    });
     expect(local.items.map((item) => item.name)).toEqual(
       expect.arrayContaining(["Router", "Metadata", "Local", "Ula"]),
     );

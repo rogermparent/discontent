@@ -64,11 +64,13 @@ import { tagSlug } from "recipe-website-common/controller/tagSlug";
 import type { TagTerm } from "recipe-website-common/controller/types";
 import { z } from "zod";
 import { fetchImageFile } from "../imageImport";
+import { isTestAllowedUrl } from "../urlGuard";
 import { countsTail, withBatchCommit } from "./batch";
 import type { CurationContext } from "./context";
 import {
   ImportError,
   NotFoundError,
+  UrlRefusedError,
   ValidationError,
   toErrorObject,
   type ErrorObject,
@@ -269,7 +271,13 @@ async function fetchListPage(
       (fetched) => fetched.finalUrl,
     );
   } catch (error) {
-    if (error instanceof SiteDroppedError || job.signal?.aborted) throw error;
+    if (
+      error instanceof SiteDroppedError ||
+      error instanceof UrlRefusedError ||
+      job.signal?.aborted
+    ) {
+      throw error;
+    }
     throw new ImportError(`Could not fetch ${url}: ${describe(error)}`);
   }
   if (page.status === 403) {
@@ -288,7 +296,10 @@ function parseListStep(
   { log }: JobContext,
 ): Promise<ParsedRoundup> {
   return log.step("parse", { list: true }, (step) => {
-    const parsed = parseRoundupPage(page.html, page.finalUrl || url);
+    const pageUrl = page.finalUrl || url;
+    const parsed = parseRoundupPage(page.html, pageUrl, {
+      allowPrivateLinks: isTestAllowedUrl(pageUrl),
+    });
     step.set({
       items: parsed.items.length,
       ...(parsed.source ? { source: parsed.source } : {}),
