@@ -273,8 +273,19 @@ export async function startAgentRun(
   if (!agentAvailable()) throw new UsageError(agentUnavailableMessage());
   const prompt = checkAgentPrompt(input.prompt);
   const maxTurns = checkMaxTurns(input.maxTurns);
+  if (
+    input.newerWebTools !== undefined &&
+    typeof input.newerWebTools !== "boolean"
+  ) {
+    throw new UsageError("newerWebTools is true or false.");
+  }
 
-  const start = async (continues: string | undefined) => {
+  const start = async (
+    continues: string | undefined,
+    /** The conversation's setting: a follow-up keeps the newer web tools (46d). */
+    inheritedNewer = false,
+  ) => {
+    const newerWebTools = inheritedNewer || input.newerWebTools === true;
     const started = await startSpec(
       {
         kind: "agent",
@@ -282,6 +293,7 @@ export async function startAgentRun(
         prompt,
         ...(continues ? { continues } : {}),
         ...(maxTurns ? { maxTurns } : {}),
+        ...(newerWebTools ? { newerWebTools: true } : {}),
       },
       { ctx, dir },
     );
@@ -309,8 +321,12 @@ export async function startAgentRun(
   starting.add(runId);
   try {
     return await withContinueLock(dir, runId, continueLockWaitMs, async () => {
-      await continuable(runId, dir, ctx);
-      return start(runId);
+      const earlier = await continuable(runId, dir, ctx);
+      return start(
+        runId,
+        (earlier.spec as { newerWebTools?: unknown } | undefined)
+          ?.newerWebTools === true,
+      );
     });
   } finally {
     starting.delete(runId);

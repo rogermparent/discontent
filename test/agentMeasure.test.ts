@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import {
   INJECTED_TAG,
   askPrompt,
+  askSkipped,
   carriesTerm,
   corpusRefusal,
   prepareCorpus,
@@ -509,6 +510,20 @@ describe("which directory the harness may reset (review of 44e)", () => {
       expect(failed?.stderr).toMatch(/refusing .*shares its git repository/);
     }
   }, 120_000);
+
+  it("runs ask (d) for Claude with its own search, and for a local model only with SearXNG (46d)", () => {
+    expect(askSkipped("d", "anthropic", {})).toBeUndefined();
+    expect(askSkipped("d", "ollama", {})).toContain("RECIPE_SEARCH_URL");
+    expect(askSkipped("d", "openai", { RECIPE_SEARCH_URL: " " })).toContain(
+      "RECIPE_SEARCH_URL",
+    );
+    expect(
+      askSkipped("d", "ollama", { RECIPE_SEARCH_URL: "http://127.0.0.1:8888" }),
+    ).toBeUndefined();
+    for (const ask of ["a", "b", "c"] as const) {
+      expect(askSkipped(ask, "ollama", {})).toBeUndefined();
+    }
+  });
 
   it("takes positive whole numbers for --repeat and --max-turns", () => {
     expect(positiveInt("3", 40)).toBe(3);

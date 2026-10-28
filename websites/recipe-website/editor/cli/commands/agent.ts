@@ -12,6 +12,12 @@
  *   `text`, `stopReason`, `error?`, `usage`, `turns`, `toolCalls`, `model`…
  * - `--run <id>` follows up on a run: its conversation is the history.
  * - `--max-turns N` lowers E3's 40.
+ * - `--newer-web-tools` (46d) gives a Claude run the newer server web
+ *   tools (dynamic filtering) on a model that takes them; a follow-up keeps
+ *   its conversation's, and any other model ignores it (the job log says so).
+ *
+ * A Claude run stops at its cost budget (46d: `RECIPE_AGENT_MAX_COST_USD`,
+ * default $1) with `stopReason: "budget:cost"`.
  *
  * Exits 1 when the run failed (`stopReason: "error"`, or no run at all),
  * 130 when it was cancelled. No MCP tool does this: an MCP client is an
@@ -110,10 +116,11 @@ function usageLine(outcome: AgentRunOutcome): string | undefined {
 export const agentCommand: CommandDef<AgentRunOutcome> = {
   name: "agent",
   usage:
-    'recipes agent "<ask>" [--run <id>] [--max-turns 1-40] [--verbose] [--json]',
+    'recipes agent "<ask>" [--run <id>] [--max-turns 1-40] [--newer-web-tools] [--verbose] [--json]',
   options: {
     run: { type: "string" },
     "max-turns": { type: "string" },
+    "newer-web-tools": { type: "boolean" },
     ...VERBOSE_OPTION,
   },
   write: true,
@@ -143,6 +150,9 @@ export const agentCommand: CommandDef<AgentRunOutcome> = {
         prompt,
         ...(runId ? { runId } : {}),
         ...(maxTurns !== undefined ? { maxTurns } : {}),
+        ...(booleanOption(options, "newer-web-tools")
+          ? { newerWebTools: true }
+          : {}),
       },
       json
         ? {}

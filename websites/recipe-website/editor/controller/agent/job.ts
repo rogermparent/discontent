@@ -20,6 +20,12 @@
  *   local view (44e), and runs at `RECIPE_AGENT_NUM_CTX` with
  *   `RECIPE_AGENT_THINK` (`agentLocalOptions`).
  *
+ * - **A cost budget** (46d): a Claude run with a priced model stops at
+ *   `RECIPE_AGENT_MAX_COST_USD` (default $1, `agentCostBudget`) with
+ *   `budget:cost`; a local model has no cap. **The newer web tools** (46d,
+ *   Ea3's toggle): `newerWebTools` gives a Claude run the server search's
+ *   dynamic-filtering version; a local model ignores it, and the log says so.
+ *
  * What the job answers (its meta's `result`) is small — the final text, how
  * it stopped, the usage and counts — never the transcript.
  */
@@ -27,7 +33,13 @@ import { createLocalBackend } from "../../cli/backend/local";
 import type { CurationContext } from "../curation/context";
 import { UsageError } from "../curation/errors";
 import type { JobContext } from "../jobs/context";
-import { LLM_NUM_CTX, llmConfig, type LlmApi } from "../llm/client";
+import {
+  LLM_NUM_CTX,
+  llmConfig,
+  takesNewerWebTools,
+  type LlmApi,
+} from "../llm/client";
+import { DEFAULT_AGENT_MAX_COST_USD, modelPrice } from "../llm/cost";
 import { AGENT_PROMPT_MAX } from "./follow";
 import { runAgent } from "./loop";
 import {
@@ -62,6 +74,11 @@ export interface AgentJobSpec {
   prompt: string;
   continues?: string;
   maxTurns?: number;
+  /**
+   * Claude's newer server web tools for this run (46d, Ea3's toggle);
+   * ignored — and said so in the log — for a local model.
+   */
+  newerWebTools?: boolean;
 }
 
 /** What an agent job answers: its meta's `result`. */
@@ -79,6 +96,10 @@ export interface AgentJobResult {
   api: LlmApi;
   /** The run this one continued. */
   continues?: string;
+  /** The run's cost budget in USD (46d); absent when it had none (a model with no price). */
+  maxCostUsd?: number;
+  /** The run used Claude's newer web tools (46d). */
+  newerWebTools?: true;
 }
 
 /** Why there is no agent: no model is configured (the route's 400, the CLI's usage). */
@@ -155,6 +176,66 @@ export function agentLocalOptions(
     }
   }
   return { numCtx, think, ignored };
+}
+
+/** The largest cost budget `RECIPE_AGENT_MAX_COST_USD` takes, in USD. */
+export const AGENT_MAX_COST_CEILING_USD = 50;
+
+/** A run's cost budget (46d), and a setting that was not understood. */
+export interface AgentCostBudget {
+  /** The cap in USD; absent for a model with no price (no estimate to check). */
+  maxCostUsd?: number;
+  /**
+   * Why there is no cap (a model on Claude's API with no price at all), or
+   * how an unlisted Claude model is priced for it (46d: the highest listed
+   * rates) — said in the job's log.
+   */
+  unpriced?: string;
+  /** A `RECIPE_AGENT_MAX_COST_USD` that was not understood (the default is used). */
+  ignored?: string;
+}
+
+/**
+ * The cost budget a run gets (46d): `RECIPE_AGENT_MAX_COST_USD` (a number of
+ * dollars above 0, at most `AGENT_MAX_COST_CEILING_USD`), else
+ * `DEFAULT_AGENT_MAX_COST_USD` ($1) — for every Claude model. One the price
+ * table does not list is estimated at its highest rates (`modelPrice`), so
+ * it keeps the cap, and the log says so. Only a local model has no estimate
+ * and so no cap. A value it does not take falls back to the default and is
+ * said in the log, as `agentLocalOptions` does.
+ */
+export function agentCostBudget(
+  config: { api: LlmApi; model: string },
+  env: NodeJS.ProcessEnv = process.env,
+): AgentCostBudget {
+  if (config.api !== "anthropic") return {};
+  const priced = modelPrice(config.model);
+  if (!priced) {
+    return {
+      unpriced: `${config.model} has no price in the estimate table: this run has no cost budget`,
+    };
+  }
+  const highest =
+    priced.basis === "highest"
+      ? {
+          unpriced: `${config.model} is not in the price table: its cost is estimated at the highest listed price`,
+        }
+      : {};
+  const text = env.RECIPE_AGENT_MAX_COST_USD?.trim();
+  if (!text) return { maxCostUsd: DEFAULT_AGENT_MAX_COST_USD, ...highest };
+  const value = Number(text.replace(/^\$/, ""));
+  if (
+    Number.isFinite(value) &&
+    value > 0 &&
+    value <= AGENT_MAX_COST_CEILING_USD
+  ) {
+    return { maxCostUsd: value, ...highest };
+  }
+  return {
+    maxCostUsd: DEFAULT_AGENT_MAX_COST_USD,
+    ...highest,
+    ignored: `RECIPE_AGENT_MAX_COST_USD=${text.slice(0, 20)} (takes dollars above 0, at most ${AGENT_MAX_COST_CEILING_USD})`,
+  };
 }
 
 /**
@@ -266,6 +347,12 @@ export async function runAgentJob(
   const search = toolsetSearches({ tools, serverTools });
   const system = agentSystemPrompt(config.api, { now: new Date(), search });
   const local = config.api === "anthropic" ? undefined : agentLocalOptions();
+  const cost = agentCostBudget(config);
+  /* 46d: Claude's newer server tools, per run, on a model that takes them;
+   * a local model has no server tools at all. */
+  const newerTaken = takesNewerWebTools(config.model);
+  const newerWebTools =
+    spec.newerWebTools === true && serverTools.length > 0 && newerTaken;
 
   writer.write({
     type: "start",
@@ -277,6 +364,8 @@ export async function runAgentJob(
     ...(serverTools.length
       ? { serverTools: serverTools.map((tool) => tool.kind) }
       : {}),
+    ...(newerWebTools ? { newerWebTools: true as const } : {}),
+    ...(cost.maxCostUsd !== undefined ? { maxCostUsd: cost.maxCostUsd } : {}),
   });
   job.log.info(
     "agent.start",
@@ -287,10 +376,24 @@ export async function runAgentJob(
       tools: tools.length,
       ...(local ? { numCtx: local.numCtx, think: local.think } : {}),
       ...(spec.continues ? { continues: spec.continues } : {}),
+      ...(newerWebTools ? { newerWebTools: true } : {}),
+      ...(cost.maxCostUsd !== undefined ? { maxCostUsd: cost.maxCostUsd } : {}),
     },
   );
-  for (const setting of local?.ignored ?? []) {
+  for (const setting of [
+    ...(local?.ignored ?? []),
+    ...(cost.ignored ? [cost.ignored] : []),
+  ]) {
     job.log.warn("agent.setting", `ignored ${setting}: the default is used`);
+  }
+  if (cost.unpriced) job.log.warn("agent.setting", cost.unpriced);
+  if (spec.newerWebTools === true && !newerWebTools) {
+    job.log.info(
+      "agent.setting",
+      serverTools.length === 0
+        ? "ignored newerWebTools: they are Claude's server tools, and this model has none"
+        : `ignored newerWebTools: ${config.model} does not take them (dynamic filtering needs Claude 4.6 or later, not Haiku); the basic web search is used`,
+    );
   }
 
   const result = await runAgent({
@@ -299,7 +402,11 @@ export async function runAgentJob(
     history,
     tools,
     serverTools,
-    budgets: spec.maxTurns ? { maxTurns: spec.maxTurns } : {},
+    budgets: {
+      ...(spec.maxTurns ? { maxTurns: spec.maxTurns } : {}),
+      ...(cost.maxCostUsd !== undefined ? { maxCostUsd: cost.maxCostUsd } : {}),
+    },
+    ...(newerWebTools ? { newerWebTools: true } : {}),
     config,
     ...(local ? { numCtx: local.numCtx, think: local.think } : {}),
     job,
@@ -314,6 +421,16 @@ export async function runAgentJob(
     },
   });
 
+  /* 46d: a budget's stop is said in the job's own log, not only its result. */
+  if (result.stopReason.startsWith("budget:") && result.error) {
+    job.log.warn("agent.budget", result.error, {
+      stopReason: result.stopReason,
+      ...(result.usage.costEstimateUsd !== undefined
+        ? { costEstimateUsd: result.usage.costEstimateUsd }
+        : {}),
+    });
+  }
+
   writer.write({
     type: "end",
     job: jobId ?? "",
@@ -323,6 +440,7 @@ export async function runAgentJob(
     ...(result.usage.costEstimateUsd !== undefined
       ? { costEstimate: result.usage.costEstimateUsd }
       : {}),
+    ...(cost.maxCostUsd !== undefined ? { maxCostUsd: cost.maxCostUsd } : {}),
     model: config.model,
     api: config.api,
     turns: result.turns,
@@ -343,5 +461,7 @@ export async function runAgentJob(
     model: config.model,
     api: config.api,
     ...(spec.continues ? { continues: spec.continues } : {}),
+    ...(cost.maxCostUsd !== undefined ? { maxCostUsd: cost.maxCostUsd } : {}),
+    ...(newerWebTools ? { newerWebTools: true as const } : {}),
   };
 }

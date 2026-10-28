@@ -106,7 +106,20 @@ export interface AgentAssistantMessage {
    * their `encrypted_content`, which the API requires back unchanged on
    * later turns. Replayed verbatim to the same API; ignored by the others.
    */
-  raw?: { api: LlmApi; content: unknown[] };
+  raw?: {
+    api: LlmApi;
+    content: unknown[];
+    /**
+     * The code-execution container the turn ran in (46d: the newer web
+     * tools' dynamic filtering), sent back on the run's later requests.
+     */
+    container?: string;
+    /**
+     * When that container expires (the API's `container.expires_at`): a
+     * later turn after it starts without one (46d).
+     */
+    containerExpiresAt?: string;
+  };
 }
 
 export interface AgentToolResultMessage {
@@ -149,6 +162,20 @@ export interface AgentWriteSummary {
   terms?: string[];
   groups?: string[];
   places?: ("featured" | "inventory" | "shopping")[];
+  /**
+   * A `term_assign`'s counts (46d), from its result: the recipes (or plans)
+   * it put the term on, and those that already carried it — so "What
+   * changed" and the model's reply can say "added 3, already tagged 2"
+   * rather than claim them all.
+   */
+  assigned?: AgentTermAssigned[];
+}
+
+/** One term's assignment counts in a write summary (46d). */
+export interface AgentTermAssigned {
+  term: string;
+  added: number;
+  alreadyTagged: number;
 }
 
 export type AgentMessage =
@@ -188,6 +215,13 @@ export interface AgentBudgets {
   maxInputTokens?: number;
   /** Output tokens over the run. */
   maxOutputTokens?: number;
+  /**
+   * The run's estimated cost in USD (46d, Ea9's follow-up): checked before
+   * each model call against `AgentUsage.costEstimateUsd`. No cap when unset,
+   * and none for a model with no price (a local model, an unlisted Claude
+   * model), whose usage carries no estimate.
+   */
+  maxCostUsd?: number;
 }
 
 /**
@@ -196,7 +230,7 @@ export interface AgentBudgets {
  * trimmed (Ea6).
  */
 export type AgentBudgetName =
-  "turns" | "tool_calls" | "wall_time" | "tokens" | "context";
+  "turns" | "tool_calls" | "wall_time" | "tokens" | "cost" | "context";
 
 export type AgentStopReason =
   "done" | `budget:${AgentBudgetName}` | "cancelled" | "error";
