@@ -36,6 +36,7 @@ import {
   initialDraft,
   labelRuns,
   moveRow,
+  PLAN_CHANGED,
   planItemsKey,
   readLabel,
   removeRow,
@@ -49,6 +50,7 @@ import {
 } from "../../util/planPage";
 import { useSearch } from "../SearchForm/SearchContext";
 import type { PlanEditor } from "./types";
+import { PlanMerge } from "./PlanMerge";
 
 const FOCUS =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
@@ -662,6 +664,20 @@ export function PlanList({
   const busy = saving || refreshing;
   const [error, setError] = useState<string>();
   const changes = editor ? draftChanges(draft, items) : 0;
+  /* The rows' names by `recipe:<slug>` / `group:<slug>`, for a merge's lines. */
+  const baseNames = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const row of rows) {
+      const { item } = row;
+      const key =
+        item.group !== undefined
+          ? `group:${item.group}`
+          : `recipe:${item.recipe}`;
+      const name = row.recipe?.name ?? row.group?.name;
+      if (name) names[key] = name;
+    }
+    return names;
+  }, [rows]);
   const ordered = draft.order.map((index) => ({ row: rows[index], index }));
   const runs = labelRuns(ordered.map(({ row }) => row));
   const editable = Boolean(editor);
@@ -744,9 +760,27 @@ export function PlanList({
         )}
       </div>
       {error && (
-        <p className="pt-2 text-sm text-destructive" role="alert">
-          {error}
-        </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-2">
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+          {/* 46h (43-Dp1-11): refused, then offered a merge with the draft. */}
+          {editor && error === PLAN_CHANGED && (
+            <PlanMerge
+              editor={editor}
+              base={items}
+              mine={draft.order.map((index, position) => ({
+                item: draftItems(draft, items)[position],
+                base: index,
+              }))}
+              baseNames={baseNames}
+              onMerged={() => {
+                setError(undefined);
+                startRefresh(() => router.refresh());
+              }}
+            />
+          )}
+        </div>
       )}
       {ordered.length === 0 ? (
         <p className="py-4 text-muted-foreground" data-testid="group-empty">

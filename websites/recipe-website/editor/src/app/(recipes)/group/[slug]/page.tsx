@@ -16,6 +16,7 @@ import type {
 import {
   addPlanItem,
   deleteGroup,
+  readPlanItems,
   savePlanItems,
 } from "recipe-editor/controller/actions/groups";
 import {
@@ -119,6 +120,10 @@ export default async function GroupPage({
       saveItems: async (next: GroupItem[], base: string) => {
         "use server";
         return savePlanItems(slug, next, base);
+      },
+      readItems: async () => {
+        "use server";
+        return readPlanItems(slug);
       },
       addItem: async (ref: GroupItemRef) => {
         "use server";
