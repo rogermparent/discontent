@@ -1177,7 +1177,7 @@ describe("chatTools — Claude's newer web tools (46d)", () => {
     expect(calls).toHaveLength(2);
     expect(result).toMatchObject({ stop: "pause", costStopped: true });
     expect(result.usage.costEstimateUsd).toBeCloseTo(0.802);
-    expect(result.message.text).toBe("Two so far. Two so far. ");
+    expect(result.message.text).toBe("Two so far. Two so far.");
     /* The unanswered code run, and the search it called, are dropped. */
     expect(result.message.raw!.content).toEqual([
       { type: "text", text: "Two so far. " },
