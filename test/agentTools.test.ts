@@ -305,6 +305,36 @@ describe("the bridge over a temp content directory", () => {
     expect(await run("recipe_list", {})).toMatchObject({ recipes: [] });
   });
 
+  it("answers the importer's own refusal of a redirect as forbidden (46a)", async () => {
+    /* A public page that redirects inside the network: the bridge's
+     * up-front check passes it, the importer's guard refuses the hop. */
+    const fetchSpy = vi.fn(async (url: string) =>
+      url.startsWith("https://public.example/")
+        ? new Response(null, {
+            status: 302,
+            headers: { location: "http://10.0.0.1/admin" },
+          })
+        : new Response("should not be fetched"),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      const guarded = agentTools(backend, {
+        webSearch: false,
+        guard: { lookup: async () => ["93.184.216.34"] },
+      });
+      const result = (await (
+        guarded.find((entry) => entry.name === "page_inspect") as AgentTool
+      ).run({ url: "https://public.example/r", llm: "off" }, ctx())) as {
+        error: { code: string; message: string };
+      };
+      expect(result.error.code).toBe("forbidden");
+      expect(result.error.message).toMatch(/inside your network/);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("refuses a local file — an image `path`, import `photos` — nothing written (Ec10)", async () => {
     const image = join(contentDirectory, "secret.jpg");
     await writeFile(image, "not really a jpeg");

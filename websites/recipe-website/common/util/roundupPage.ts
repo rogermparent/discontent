@@ -29,6 +29,7 @@ import { fromHtml } from "hast-util-from-html";
 import type { Element, Root } from "hast";
 import { getDomain } from "tldts";
 import { parseJsonLd } from "./pageMetadata";
+import { isPrivateHost } from "./privateHost";
 import { youTubeSourceKey } from "./videoUrl";
 import {
   articleRoot,
@@ -285,60 +286,14 @@ const SKIP_SITES = new Set([
   "yummly.com",
 ]);
 
-/**
- * A host on this machine or a private network: loopback, RFC 1918, CGNAT,
- * link-local, `0.0.0.0`, IPv6 ULA and link-local, `localhost`. A public
- * roundup must not steer the editor's fetches there (SSRF), so its items on
- * such hosts are dropped — unless the list page is on one itself (a local
- * fixture, a LAN wiki). A public name that *resolves* privately, or a public
- * item that redirects to a private one, is not caught here.
- */
-export function isPrivateHost(url: string): boolean {
-  let host: string;
-  try {
-    host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  } catch {
-    return false;
-  }
-  if (host === "localhost" || host.endsWith(".localhost")) return true;
-  /* `[::ffff:10.0.0.1]` — which `URL` spells `::ffff:a00:1`. */
-  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
-  const mapped = hex
-    ? [
-        parseInt(hex[1], 16) >> 8,
-        parseInt(hex[1], 16) & 255,
-        parseInt(hex[2], 16) >> 8,
-        parseInt(hex[2], 16) & 255,
-      ].join(".")
-    : /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(host)?.[1];
-  const v4 = IPV4.test(host) ? host : mapped;
-  if (v4) {
-    const [a, b] = v4.split(".").map(Number);
-    return (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 100 && b >= 64 && b <= 127)
-    );
-  }
-  if (host.includes(":")) {
-    return (
-      host === "::1" ||
-      host === "::" ||
-      /^f[cd][0-9a-f]{0,2}:/.test(host) ||
-      /^fe[89ab][0-9a-f]?:/.test(host)
-    );
-  }
-  return false;
-}
+/* `isPrivateHost` lives in `privateHost.ts` since 46a, so the SSRF guard
+ * can load it without the page parsers; it is re-exported here. */
+export { isPrivateHost };
 
 interface SkipContext {
   /** The page's own keys (its URL, its canonical): self-links. */
   pageKeys: Set<string>;
-  /** The page is on a private host, so its private links are fair. */
+  /** Private links are kept: a test's fixture page (46a; see below). */
   allowPrivate: boolean;
 }
 
@@ -847,7 +802,17 @@ function pageTitle(tree: Root): string | undefined {
 /* The page                                                            */
 /* ------------------------------------------------------------------ */
 
-export function parseRoundupPage(html: string, pageUrl: string): ParsedRoundup {
+/**
+ * `allowPrivateLinks` (46a): keep links to local and private hosts. Off by
+ * default — before 46a a list page on a private host kept them (a LAN wiki,
+ * a fixture); now the importer refuses to fetch such a page at all, and only
+ * a test's allowed fixture host turns this on (`isTestAllowedUrl`).
+ */
+export function parseRoundupPage(
+  html: string,
+  pageUrl: string,
+  { allowPrivateLinks = false }: { allowPrivateLinks?: boolean } = {},
+): ParsedRoundup {
   const tree = fromHtml(html);
   const nodes = jsonLdNodes(tree);
   const hasRecipe = nodes.some((node) => hasType(node, "Recipe"));
@@ -882,7 +847,7 @@ export function parseRoundupPage(html: string, pageUrl: string): ParsedRoundup {
   );
   const context: SkipContext = {
     pageKeys,
-    allowPrivate: isPrivateHost(pageUrl),
+    allowPrivate: allowPrivateLinks,
   };
 
   const root = articleRoot(tree);

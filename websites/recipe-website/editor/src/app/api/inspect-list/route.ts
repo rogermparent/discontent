@@ -6,9 +6,11 @@
  * already imported from that page, or a `reason` when the page lists none.
  *
  * Authenticated, read scope, for `/api/inspect`'s reason: it makes this server
- * fetch an arbitrary URL.
+ * fetch an arbitrary URL. A list page the SSRF guard refuses answers 422
+ * `url_refused` (46a).
  */
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
+import { assertFetchableUrl } from "recipe-editor/controller/guardedFetch";
 import {
   errorResponse,
   readJsonBody,
@@ -28,6 +30,7 @@ export async function POST(request: Request) {
       InspectListBodySchema,
       await readJsonBody(request),
     );
+    await assertFetchableUrl(url);
     /* A job (epic 37): the answer carries its `job` id. */
     return Response.json(
       await runSpec({ kind: "inspect-list", ...corpusOf(ctx), url }, { ctx }),

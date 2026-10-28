@@ -20,6 +20,7 @@ import {
   resolveYtdlpBinary,
   videoSuggestedTags,
   ytdlpArgs,
+  YTDLP_EXTRACTOR_ARGS,
   ytdlpToRecipe,
 } from "../websites/recipe-website/editor/controller/ytdlp";
 import { SUGGESTED_TAGS_LIMIT } from "../websites/recipe-website/common/util/importRecipeData";
@@ -269,21 +270,46 @@ describe("resolveYtdlpBinary", () => {
         .split("\n")
         .map((line) => JSON.parse(line) as string[]);
       expect(calls).toEqual([
-        ["--no-playlist", "-J", "--", pinned],
-        [...YTDLP_COMMENT_ARGS, "--no-playlist", "-J", "--", pinned],
-        ["--no-playlist", "-J", "--", "https://vimeo.com/404"],
+        [...YTDLP_EXTRACTOR_ARGS, "--no-playlist", "-J", "--", pinned],
+        [
+          ...YTDLP_COMMENT_ARGS,
+          ...YTDLP_EXTRACTOR_ARGS,
+          "--no-playlist",
+          "-J",
+          "--",
+          pinned,
+        ],
+        [
+          ...YTDLP_EXTRACTOR_ARGS,
+          "--no-playlist",
+          "-J",
+          "--",
+          "https://vimeo.com/404",
+        ],
       ]);
     } finally {
       delete process.env.YTDLP_MIMIC_LOG;
     }
   });
 
-  /* 36d review: one video, never a playlist; the URL never an option. */
+  /* 36d review: one video, never a playlist; the URL never an option;
+   * 46a review: never yt-dlp's generic extractor. */
   it("builds the argv with --no-playlist and -- before the URL", () => {
+    expect(YTDLP_EXTRACTOR_ARGS).toEqual([
+      "--use-extractors",
+      "default,-generic",
+    ]);
     const listUrl = "https://www.youtube.com/watch?v=X&list=PL123";
-    expect(ytdlpArgs(listUrl)).toEqual(["--no-playlist", "-J", "--", listUrl]);
+    expect(ytdlpArgs(listUrl)).toEqual([
+      ...YTDLP_EXTRACTOR_ARGS,
+      "--no-playlist",
+      "-J",
+      "--",
+      listUrl,
+    ]);
     expect(ytdlpArgs("-oops", true)).toEqual([
       ...YTDLP_COMMENT_ARGS,
+      ...YTDLP_EXTRACTOR_ARGS,
       "--no-playlist",
       "-J",
       "--",
@@ -305,8 +331,15 @@ describe("resolveYtdlpBinary", () => {
       });
       const calls = (await readFile(log, "utf8")).trim().split("\n");
       expect(calls.map((line) => JSON.parse(line))).toEqual([
-        [...YTDLP_COMMENT_ARGS, "--no-playlist", "-J", "--", url],
-        ["--no-playlist", "-J", "--", url],
+        [
+          ...YTDLP_COMMENT_ARGS,
+          ...YTDLP_EXTRACTOR_ARGS,
+          "--no-playlist",
+          "-J",
+          "--",
+          url,
+        ],
+        [...YTDLP_EXTRACTOR_ARGS, "--no-playlist", "-J", "--", url],
       ]);
     } finally {
       delete process.env.YTDLP_MIMIC_LOG;

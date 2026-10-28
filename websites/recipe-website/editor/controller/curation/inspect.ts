@@ -50,7 +50,7 @@ import {
   ytdlpToRecipe,
   type YtdlpMetadata,
 } from "../ytdlp";
-import { ImportError } from "./errors";
+import { ImportError, UrlRefusedError } from "./errors";
 import { withDescriptionRecipe } from "../descriptionRecipe";
 import { pacedRequest } from "./sitePacing";
 import { resolveCreateSlug } from "./recipes";
@@ -365,7 +365,7 @@ async function readUrl(
       job,
     );
   } catch (error) {
-    if (job.signal?.aborted) throw error;
+    if (job.signal?.aborted || error instanceof UrlRefusedError) throw error;
     throw new ImportError(
       `Could not fetch ${url}: ${error instanceof Error ? error.message : String(error)}`,
     );

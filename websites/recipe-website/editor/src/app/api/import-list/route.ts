@@ -11,8 +11,11 @@
  * pick `existing`) or fail per item while the call itself succeeds. Each
  * imported recipe was its own commit and its own `onWrite`, so the caches
  * were invalidated as the call went.
+ *
+ * A list page the SSRF guard refuses answers 422 `url_refused` (46a).
  */
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
+import { assertFetchableUrl } from "recipe-editor/controller/guardedFetch";
 import {
   errorResponse,
   readJsonBody,
@@ -37,6 +40,7 @@ export async function POST(request: Request) {
     }
     /* The job's spec keeps the options as parsed, never the raw body. */
     const options = parseInput(ImportListOptionsSchema, rest);
+    await assertFetchableUrl(url);
     /* A job (epic 37): the answer carries its `job` id. */
     return Response.json(
       await runSpec(

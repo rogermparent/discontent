@@ -40,6 +40,19 @@ delete process.env.RECIPE_GPU_RELEASE_CMD;
  * makes its own `card0/device/mem_info_vram_*` files.
  */
 process.env.RECIPE_DRM_DIR = join(jobsDir, "no-drm");
+/*
+ * 46a: the importer's SSRF guard (`editor/controller/urlGuard.ts`) refuses
+ * loopback and checks every name's addresses. The suites' fixture servers
+ * listen on 127.0.0.1 (some reached as `localhost`), and their stubbed
+ * fetches name hosts that never resolve (`example.com`, `x.test`). Under
+ * vitest only (the guard reads these with `VITEST` or `TEST_MODE` set; the
+ * children a test spawns inherit them), those two hosts are let through and
+ * every name resolves to a documentation address (TEST-NET-3), so no test
+ * does real DNS. The guard's own tests set their own
+ * (`setFetchGuardTesting`) and check the refusals.
+ */
+process.env.RECIPE_TEST_FETCH_ALLOW ??= "127.0.0.1,localhost";
+process.env.RECIPE_TEST_DNS ??= "*=203.0.113.10";
 afterAll(() => {
   rmSync(jobsDir, { recursive: true, force: true });
 });

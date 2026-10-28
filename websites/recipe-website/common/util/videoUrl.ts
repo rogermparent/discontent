@@ -30,12 +30,17 @@ function hostname(url: string): string | undefined {
 
 /**
  * The video platform `url` is on — "YouTube", "Vimeo" — or `undefined` for
- * anything else, including text that is not a URL.
+ * anything else, including text that is not a URL. The platform's host or a
+ * subdomain of it (`www.`, `m.`, `player.`), never a host that merely
+ * contains its name (46a review: `vimeo.com.attacker.example` is not Vimeo,
+ * and yt-dlp would fetch it).
  */
 export function videoHostName(url: string): string | undefined {
-  const host = hostname(url.trim());
+  const host = hostname(url.trim())?.toLowerCase().replace(/\.$/, "");
   if (!host) return undefined;
-  return VIDEO_HOSTS.find(([videoHost]) => host.includes(videoHost))?.[1];
+  return VIDEO_HOSTS.find(
+    ([videoHost]) => host === videoHost || host.endsWith(`.${videoHost}`),
+  )?.[1];
 }
 
 /** A video platform: imported through yt-dlp where it is available. */

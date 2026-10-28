@@ -73,6 +73,7 @@ import type { CurationContext } from "./context";
 import {
   CurationError,
   ImportError,
+  UrlRefusedError,
   UsageError,
   ValidationError,
   toErrorObject,
@@ -326,8 +327,9 @@ export async function importPage(
      * `import_failed`, not `internal`. */
     ({ parsed, mapped } = await parsePage(pageUrl, page, { job }));
   } catch (error) {
-    /* A cancel is the job's to report, not a fetch failure. */
-    if (job.signal?.aborted) throw error;
+    /* A cancel is the job's to report, not a fetch failure; nor is a URL
+     * the SSRF guard refused (46a), which says so itself. */
+    if (job.signal?.aborted || error instanceof UrlRefusedError) throw error;
     throw new ImportError(
       `Could not fetch ${url}: ${error instanceof Error ? error.message : String(error)}`,
     );
