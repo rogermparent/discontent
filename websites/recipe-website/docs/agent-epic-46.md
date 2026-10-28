@@ -148,7 +148,8 @@ retry, {signal?, fetcher})` and `importRecipeData(url, {retry?, fetcher})`
     `RECIPE_TEST_DNS` (`name=address`, `*=address`).
   - `test/setupTests.js` sets `127.0.0.1,localhost` and `*=203.0.113.10`
     (TEST-NET-3, so no vitest run does real DNS; children inherit it).
-    `playwright.config.ts` sets exactly `localhost:<port>,127.0.0.1:<port>`.
+    `playwright.config.ts` sets exactly `localhost:<port>,127.0.0.1:<port>`,
+    and `*=203.0.113.10` for the guard's own lookup (Ta1).
     `scripts/agent-measure.ts` calls `setFetchGuardTesting({allowHosts:
 ["127.0.0.1"]})`.
   - Source scans (`test/urlGuard.test.ts`): the two variables and
@@ -208,6 +209,23 @@ does `http://localtest.me:9/x` (real DNS: "localtest.me resolves to ::1").
 **Roger to confirm:** a roundup list page on the LAN (a wiki on
 `192.168.x`) is now refused, page and links (the old `roundupPage.ts:877`
 allowance is gone outside tests).
+
+#### Traps (46a)
+
+- **Ta1 — The guard's DNS lookup doubles a slow resolver.** In the
+  Playwright Docker image a lookup takes ~5 s (`www.youtube.com`: 5,030 ms).
+  The guard resolves each hop, then `fetch` resolves it again, so a
+  fixture's real image host (`kingarthurbaking.com`) and yt-dlp's YouTube
+  URL went past the specs' 10 s request timeouts: the first Docker run
+  failed 17 of 110, all of them imports. `playwright.config.ts` now stubs the
+  guard's lookup (`RECIPE_TEST_DNS=*=203.0.113.10`, `TEST_MODE` only);
+  `fetch` still resolves for real. On the workstation and the Pi the
+  system resolver caches, so the second lookup is cheap. If imports there
+  ever slow by a resolver timeout, that is this.
+- **Ta2 — Never walk the repo root recursively in a scan.** The allowance
+  scan first walked the root, which takes in `.claude/worktrees/*`, other
+  full checkouts: it timed out under load. It reads the root's own files and
+  skips `.git` and `.claude`.
 
 ### 46b: Hygiene (S)
 
