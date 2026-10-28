@@ -18,7 +18,9 @@ import { ulid } from "@discontent/cms/util/ulid";
 
 import {
   WRITE_SUMMARY_MAX_ITEMS,
+  assignedNote,
   changeCount,
+  changesToShow,
   runChanges,
   writeSummary,
 } from "../websites/recipe-website/editor/controller/agent/changes";
@@ -66,6 +68,9 @@ import {
 } from "../websites/recipe-website/editor/controller/jobs/store";
 import {
   detailText,
+  fixedSitePath,
+  hostsOf,
+  siteSlugsOf,
   sitePath,
 } from "../websites/recipe-website/editor/src/curator/links";
 
@@ -721,6 +726,211 @@ describe("the page's words", () => {
     expect(stopWords(undefined, { status: "cancelled" })).toBe(
       "Stopped by you",
     );
+    /* 46d: the cost budget, named with its amount. */
+    expect(stopWords({ ...base, stop: "budget:cost", maxCostUsd: 1 })).toBe(
+      "Stopped at the cost budget ($1.00)",
+    );
+    expect(stopWords({ ...base, stop: "budget:cost", maxCostUsd: 2.5 })).toBe(
+      "Stopped at the cost budget ($2.50)",
+    );
+    expect(stopWords({ ...base, stop: "budget:cost" })).toBe(
+      "Stopped at the cost budget",
+    );
+  });
+
+  it("says what a term_assign added and what already carried the term (46d)", () => {
+    expect(
+      toolPhrase(
+        {
+          id: "c",
+          name: "term_assign",
+          input: { slug: "korean", add: ["a", "b", "c"] },
+        },
+        JSON.stringify({
+          slug: "korean",
+          updated: ["a"],
+          unchanged: ["b", "c"],
+          missing: [],
+          added: ["a"],
+          alreadyTagged: ["b", "c"],
+        }),
+      ),
+    ).toBe("Tagged 1 recipe korean (2 already were)");
+    const summary = writeSummary(
+      "term_assign",
+      { slug: "korean", add: ["a", "b", "c"] },
+      {
+        slug: "korean",
+        updated: ["a"],
+        unchanged: ["b", "c"],
+        missing: [],
+        added: ["a"],
+        alreadyTagged: ["b", "c"],
+      },
+    );
+    expect(summary).toEqual({
+      commits: 1,
+      recipes: [{ slug: "a", change: "updated" }],
+      terms: ["korean"],
+      assigned: [{ term: "korean", added: 1, alreadyTagged: 2 }],
+    });
+    /* Nothing added: nothing written or committed, but "already tagged"
+     * is still said. */
+    const noop = writeSummary(
+      "term_assign",
+      { slug: "korean", add: ["b", "c", "e"] },
+      {
+        slug: "korean",
+        updated: [],
+        unchanged: ["b", "c", "e"],
+        missing: [],
+        added: [],
+        alreadyTagged: ["b", "c", "e"],
+      },
+    );
+    expect(noop).toEqual({
+      commits: 0,
+      assigned: [{ term: "korean", added: 0, alreadyTagged: 3 }],
+    });
+    const noopRun = runChanges([
+      {
+        role: "assistant",
+        text: "",
+        toolCalls: [
+          { id: "n1", name: "term_assign", input: { slug: "korean" } },
+        ],
+      },
+      {
+        role: "tool",
+        toolCallId: "n1",
+        name: "term_assign",
+        content: "{}",
+        summary: noop!,
+      },
+    ]);
+    expect(noopRun.terms).toEqual([
+      { slug: "korean", added: 0, alreadyTagged: 3, unchanged: true },
+    ]);
+    expect(changeCount(noopRun)).toBe(0);
+    expect(noopRun.commits).toBe(0);
+    expect(changesToShow(noopRun)).toBe(true);
+    expect(assignedNote(noopRun.terms[0])).toBe("3 already tagged");
+    /* Read from a result with no summary too (an older transcript's). */
+    expect(
+      runChanges([
+        {
+          role: "assistant",
+          text: "",
+          toolCalls: [
+            {
+              id: "n2",
+              name: "term_assign",
+              input: { slug: "korean", add: ["b"] },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          toolCallId: "n2",
+          name: "term_assign",
+          content: JSON.stringify({
+            slug: "korean",
+            updated: [],
+            unchanged: ["b"],
+            added: [],
+            alreadyTagged: ["b"],
+          }),
+        },
+      ]).terms,
+    ).toEqual([
+      { slug: "korean", added: 0, alreadyTagged: 1, unchanged: true },
+    ]);
+    expect(
+      changesToShow({
+        recipes: [],
+        terms: [],
+        groups: [],
+        places: [],
+        commits: 0,
+      }),
+    ).toBe(false);
+    /* The row says it in the same words. */
+    expect(
+      toolPhrase(
+        {
+          id: "c",
+          name: "term_assign",
+          input: { slug: "korean", add: ["b", "c", "e"] },
+        },
+        JSON.stringify({
+          slug: "korean",
+          updated: [],
+          unchanged: ["b", "c", "e"],
+          added: [],
+          alreadyTagged: ["b", "c", "e"],
+        }),
+      ),
+    ).toBe("3 recipes already tagged korean");
+    /* A mixed call names its removes too. */
+    expect(
+      toolPhrase(
+        {
+          id: "c",
+          name: "term_assign",
+          input: { slug: "korean", add: ["a", "b"], remove: ["x", "y"] },
+        },
+        JSON.stringify({
+          slug: "korean",
+          updated: ["a", "x", "y"],
+          unchanged: ["b"],
+          added: ["a"],
+          alreadyTagged: ["b"],
+        }),
+      ),
+    ).toBe("Tagged 1 recipe korean (1 already was); untagged 2 recipes");
+    expect(
+      toolPhrase({
+        id: "c",
+        name: "term_assign",
+        input: { slug: "korean", add: ["a", "b"], remove: ["x"] },
+      }),
+    ).toBe("Tagged 2 recipes korean; untagged 1 recipe");
+    /* Over a run, per term, from the summaries. */
+    const changes = runChanges([
+      {
+        role: "assistant",
+        text: "",
+        toolCalls: [
+          { id: "t1", name: "term_assign", input: { slug: "korean" } },
+          { id: "t2", name: "term_assign", input: { slug: "korean" } },
+        ],
+      },
+      {
+        role: "tool",
+        toolCallId: "t1",
+        name: "term_assign",
+        content: "{}",
+        summary: summary!,
+      },
+      {
+        role: "tool",
+        toolCallId: "t2",
+        name: "term_assign",
+        content: "{}",
+        summary: {
+          commits: 1,
+          terms: ["korean"],
+          recipes: [{ slug: "d", change: "updated" }],
+          assigned: [{ term: "korean", added: 1, alreadyTagged: 0 }],
+        },
+      },
+    ]);
+    expect(changes.terms).toEqual([
+      { slug: "korean", added: 2, alreadyTagged: 2 },
+    ]);
+    expect(assignedNote(changes.terms[0])).toBe("added 2, 2 already tagged");
+    expect(assignedNote({ added: 1, alreadyTagged: 0 })).toBe("added 1");
+    expect(assignedNote({})).toBeUndefined();
   });
 
   it("names the model in words, and numbers in short", () => {
@@ -763,6 +973,7 @@ describe("the page's words", () => {
       model: "qwen3:8b on this machine",
       api: "local",
       search: false,
+      newerWebTools: false,
     });
     expect(
       curatorSetup({
@@ -778,8 +989,17 @@ describe("the page's words", () => {
       model: "Claude Sonnet 5 through the API",
       api: "anthropic",
       search: true,
+      newerWebTools: true,
     });
     expect(JSON.stringify(claude)).not.toContain("sk-ant");
+    /* 46d: a Haiku has no newer web tools: the box is not offered. */
+    expect(
+      curatorSetup({
+        RECIPE_LLM_API: "anthropic",
+        RECIPE_LLM_API_KEY: "sk-ant-secret-0000",
+        RECIPE_LLM_MODEL: "claude-haiku-4-5",
+      })?.newerWebTools,
+    ).toBe(false);
   });
 });
 
@@ -835,6 +1055,112 @@ describe("⌘K's hand-off to the curator", () => {
     ).toBeUndefined();
     expect(
       sitePath("javascript:alert(1)", "http://editor.test"),
+    ).toBeUndefined();
+    /* 46d: this site's page on a host the model made up opens in the app —
+     * when its slug is one this site's tools answered with. */
+    const hosts = hostsOf([
+      "https://www.bonappetit.com/recipe/chili",
+      "not a url",
+    ]);
+    expect([...hosts]).toEqual(["www.bonappetit.com"]);
+    const slugs = siteSlugsOf([
+      { role: "user", text: "tag korean things" },
+      {
+        role: "tool",
+        toolCallId: "t1",
+        name: "recipe_search",
+        content:
+          '{"total":2,"recipes":[{"slug":"pork-braise","name":"Pork braise"},{"slug": "bulgogi"',
+      },
+      {
+        role: "tool",
+        toolCallId: "t2",
+        name: "term_assign",
+        content: "{}",
+        summary: { commits: 1, terms: ["korean"], groups: ["week-12"] },
+      },
+      {
+        role: "tool",
+        toolCallId: "t3",
+        name: "web_fetch",
+        content:
+          '<untrusted_page_text tool="web_fetch">\n{"slug":"x"}\n</untrusted_page_text>',
+      },
+      {
+        role: "tool",
+        toolCallId: "t4",
+        name: "recipe_get",
+        content: '{"error":{"code":"not_found","slug":"gone"}}',
+        isError: true,
+      },
+    ]);
+    expect([...slugs].sort()).toEqual([
+      "bulgogi",
+      "korean",
+      "pork-braise",
+      "week-12",
+    ]);
+    const known = { hosts, slugs };
+    expect(
+      fixedSitePath(
+        "https://roger.recipe/recipe/pork-braise",
+        known,
+        "http://editor.test",
+      ),
+    ).toBe("/recipe/pork-braise");
+    expect(
+      fixedSitePath("https://your-site.com/tags/korean/", known, undefined),
+    ).toBe("/tags/korean/");
+    expect(
+      fixedSitePath("https://x.example/group/week-12#mon", known, undefined),
+    ).toBe("/group/week-12#mon");
+    /* A real site's recipe page stays a real link: its host was seen, or
+     * its slug is none of this site's (even on a host never seen). */
+    expect(
+      fixedSitePath(
+        "https://www.bonappetit.com/recipe/chili",
+        known,
+        "http://editor.test",
+      ),
+    ).toBeUndefined();
+    expect(
+      fixedSitePath("https://bonappetit.com/recipe/x", known, undefined),
+    ).toBeUndefined();
+    expect(
+      fixedSitePath(
+        "https://www.seriouseats.com/recipe/bulgogi-x",
+        known,
+        undefined,
+      ),
+    ).toBeUndefined();
+    /* A slug only a web page's text named is not this site's. */
+    expect(
+      fixedSitePath("https://roger.recipe/recipe/x", known, undefined),
+    ).toBeUndefined();
+    /* Not one of this site's pages, this origin, or not a web link. */
+    expect(
+      fixedSitePath(
+        "https://allrecipes.com/recipe/123/chili/",
+        known,
+        undefined,
+      ),
+    ).toBeUndefined();
+    expect(
+      fixedSitePath("https://roger.recipe/about", known, undefined),
+    ).toBeUndefined();
+    expect(
+      fixedSitePath(
+        "http://editor.test/recipe/pork-braise",
+        known,
+        "http://editor.test",
+      ),
+    ).toBeUndefined();
+    expect(
+      fixedSitePath(
+        "javascript:alert(1)//recipe/pork-braise",
+        known,
+        undefined,
+      ),
     ).toBeUndefined();
     expect(detailText('{"a":1}')).toBe('{\n  "a": 1\n}');
     expect(detailText("<b>page</b>")).toBe("<b>page</b>");

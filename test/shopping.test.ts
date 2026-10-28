@@ -379,9 +379,9 @@ describe("sub-recipes (38d)", () => {
     const { view } = await readShoppingView(ctx);
     const sugar = view.stores[0].sections
       .flatMap((section) => section.rows)
-      .find((row) => row.nameKey === "sugar");
+      .find((row) => row.nameKey === "granulated sugar");
     expect(sugar).toMatchObject({
-      label: "1¼ cups sugar",
+      label: "1¼ cups granulated sugar",
       forNote: "partly for Simple Syrup",
     });
     expect(sugar?.sources?.map((source) => source.for?.[0]?.slug)).toEqual([
@@ -467,8 +467,8 @@ describe("undo a sub-recipe expansion (39c)", () => {
     const { view } = await readShoppingView(ctx);
     const sugar = view.stores[0].sections
       .flatMap((section) => section.rows)
-      .find((row) => row.nameKey === "sugar");
-    expect(sugar?.label).toBe("¼ cup sugar");
+      .find((row) => row.nameKey === "granulated sugar");
+    expect(sugar?.label).toBe("¼ cup granulated sugar");
     expect(sugar?.forNote).toBeUndefined();
   });
 

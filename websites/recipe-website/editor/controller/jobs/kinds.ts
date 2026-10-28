@@ -175,6 +175,11 @@ export type JobSpec =
       continues?: string;
       /** A lower turn budget than E3's 40 (`--max-turns`, `maxTurns`). */
       maxTurns?: number;
+      /**
+       * Claude's newer server web tools (46d, `--newer-web-tools`,
+       * `newerWebTools`); a follow-up keeps its conversation's.
+       */
+      newerWebTools?: boolean;
     })
   /**
    * A recipe's gaps filled from its source (45b): the edit page's "Fill gaps

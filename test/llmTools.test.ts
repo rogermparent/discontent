@@ -45,16 +45,22 @@ import {
   CLAUDE_PRICE_ESTIMATE_USD_PER_MTOK,
   WEB_SEARCH_PRICE_ESTIMATE_USD,
   claudeCostEstimate,
+  HIGHEST_PRICE_ESTIMATE_USD_PER_MTOK,
   modelPriceKey,
 } from "../websites/recipe-website/editor/controller/llm/cost";
 import {
   ANTHROPIC_CACHE_CONTROL,
   ANTHROPIC_WEB_FETCH_TOOL_TYPE,
+  ANTHROPIC_WEB_FETCH_TOOL_TYPE_NEWER,
   ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
+  ANTHROPIC_WEB_SEARCH_TOOL_TYPE_NEWER,
   CLAUDE_PAUSE_CONTINUATIONS,
   addUsage,
   chatTools,
+  containerLive,
   emptyUsage,
+  lastContainer,
+  settledContent,
   readArguments,
   trimmedStub,
 } from "../websites/recipe-website/editor/controller/llm/tools";
@@ -869,6 +875,350 @@ describe("chatTools — the Claude API", () => {
   });
 });
 
+describe("chatTools — Claude's newer web tools (46d)", () => {
+  it("sends the basic server tools by default and the newer ones when asked, with no beta header", async () => {
+    const calls = stubApi([
+      json(claudeMessage([{ type: "text", text: "ok" }])),
+    ]);
+    for (const newerWebTools of [undefined, false, true]) {
+      await chatTools({
+        system: "s",
+        messages: ASK,
+        tools: [SEARCH],
+        serverTools: [{ kind: "web_search", maxUses: 5 }],
+        config: CLAUDE,
+        ...(newerWebTools !== undefined ? { newerWebTools } : {}),
+      });
+    }
+    const serverTool = (index: number) =>
+      (calls[index].body!.tools as Record<string, unknown>[]).find(
+        (tool) => tool.name === "web_search",
+      );
+    expect(serverTool(0)).toEqual({
+      type: ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
+      name: "web_search",
+      max_uses: 5,
+    });
+    expect(serverTool(1)).toEqual(serverTool(0));
+    expect(serverTool(2)).toEqual({
+      type: ANTHROPIC_WEB_SEARCH_TOOL_TYPE_NEWER,
+      name: "web_search",
+      max_uses: 5,
+    });
+    expect(ANTHROPIC_WEB_SEARCH_TOOL_TYPE_NEWER).toBe("web_search_20260209");
+    expect(ANTHROPIC_WEB_FETCH_TOOL_TYPE_NEWER).toBe("web_fetch_20260209");
+    /* Our own tools are the same either way; no `code_execution` declared. */
+    expect(
+      (calls[2].body!.tools as Record<string, unknown>[]).map((t) => t.name),
+    ).toEqual(["recipe_search", "web_search"]);
+    for (const call of calls) {
+      expect(call.headers["anthropic-beta"]).toBeUndefined();
+      expect(call.body!.container).toBeUndefined();
+    }
+  });
+
+  it("ignores the setting with no server tools, and for a local model", async () => {
+    const calls = stubApi([
+      json(claudeMessage([{ type: "text", text: "ok" }])),
+    ]);
+    await chatTools({
+      system: "s",
+      messages: ASK,
+      tools: [SEARCH],
+      config: CLAUDE,
+      newerWebTools: true,
+    });
+    expect(
+      (calls[0].body!.tools as Record<string, unknown>[]).map((t) => t.type),
+    ).toEqual([undefined]);
+
+    const local = stubApi([
+      json({
+        model: "qwen3:8b",
+        message: { role: "assistant", content: "ok" },
+        done: true,
+        done_reason: "stop",
+        prompt_eval_count: 10,
+        eval_count: 2,
+      }),
+    ]);
+    await chatTools({
+      system: "s",
+      messages: ASK,
+      tools: [SEARCH],
+      serverTools: [{ kind: "web_search" }],
+      config: OLLAMA,
+      newerWebTools: true,
+    });
+    expect(JSON.stringify(local[0].body)).not.toContain("web_search_2026");
+  });
+
+  it("hides dynamic filtering's code runs, keeps them raw, and carries the container", async () => {
+    const codeUse = {
+      type: "server_tool_use",
+      id: "srvtoolu_code",
+      name: "code_execution",
+      input: { code: "filter(results)" },
+    };
+    const searchUse = {
+      type: "server_tool_use",
+      id: "srvtoolu_search",
+      name: "web_search",
+      input: { query: "chewy cookies" },
+      caller: { type: "code_execution_20260120", tool_id: "srvtoolu_code" },
+    };
+    const searchResult = {
+      type: "web_search_tool_result",
+      tool_use_id: "srvtoolu_search",
+      content: [
+        {
+          type: "web_search_result",
+          url: "https://sallysbakingaddiction.com/chewy-cookies/",
+          title: "Chewy Cookies",
+          encrypted_content: "opaque",
+        },
+      ],
+    };
+    const codeResult = {
+      type: "code_execution_tool_result",
+      tool_use_id: "srvtoolu_code",
+      content: {
+        type: "code_execution_result",
+        stdout: "1 hit",
+        return_code: 0,
+      },
+    };
+    const calls = stubApi([
+      () =>
+        new Response(
+          JSON.stringify({
+            ...claudeMessage(
+              [{ type: "text", text: "Searching. " }, codeUse, searchUse],
+              "pause_turn",
+            ),
+            container: {
+              id: "container_011",
+              expires_at: "2099-10-28T23:00:00Z",
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      json({
+        ...claudeMessage([
+          searchResult,
+          codeResult,
+          { type: "text", text: "One." },
+        ]),
+        container: { id: "container_011" },
+      }),
+      json(claudeMessage([{ type: "text", text: "ok" }])),
+    ]);
+    const result = await chatTools({
+      system: "s",
+      messages: ASK,
+      tools: [],
+      serverTools: [{ kind: "web_search" }],
+      config: CLAUDE,
+      newerWebTools: true,
+    });
+    /* The continuation is sent in the container the first response named. */
+    expect(calls[0].body!.container).toBeUndefined();
+    expect(calls[1].body!.container).toBe("container_011");
+    expect(result.message.serverToolUses).toEqual([
+      {
+        id: "srvtoolu_search",
+        name: "web_search",
+        input: { query: "chewy cookies" },
+        result: {
+          ok: true,
+          pages: [
+            {
+              url: "https://sallysbakingaddiction.com/chewy-cookies/",
+              title: "Chewy Cookies",
+            },
+          ],
+        },
+      },
+    ]);
+    /* The second response named the container without its expiry: kept. */
+    expect(result.message.raw).toMatchObject({
+      api: "anthropic",
+      container: "container_011",
+      containerExpiresAt: "2099-10-28T23:00:00Z",
+    });
+    expect(result.message.raw!.content).toHaveLength(6);
+    /* The next turn replays every block and names the container. */
+    await chatTools({
+      system: "s",
+      messages: [...ASK, result.message, { role: "user", text: "more" }],
+      tools: [],
+      serverTools: [{ kind: "web_search" }],
+      config: CLAUDE,
+      newerWebTools: true,
+    });
+    expect(calls[2].body!.container).toBe("container_011");
+    expect(
+      (calls[2].body!.messages as { content: unknown[] }[])[1].content,
+    ).toEqual([
+      { type: "text", text: "Searching. " },
+      codeUse,
+      searchUse,
+      searchResult,
+      codeResult,
+      { type: "text", text: "One." },
+    ]);
+  });
+
+  it("leaves an expired container out of a later turn", async () => {
+    const calls = stubApi([
+      json(claudeMessage([{ type: "text", text: "ok" }])),
+    ]);
+    const earlier = (expiresAt?: string): AgentMessage => ({
+      role: "assistant",
+      text: "Searched.",
+      toolCalls: [],
+      raw: {
+        api: "anthropic",
+        content: [{ type: "text", text: "Searched." }],
+        container: "container_old",
+        ...(expiresAt ? { containerExpiresAt: expiresAt } : {}),
+      },
+    });
+    const ask = (message: AgentMessage) =>
+      chatTools({
+        system: "s",
+        messages: [...ASK, message, { role: "user", text: "more" }],
+        tools: [],
+        serverTools: [{ kind: "web_search" }],
+        config: CLAUDE,
+        newerWebTools: true,
+      });
+    await ask(earlier("2020-01-01T00:00:00Z"));
+    await ask(earlier(new Date(Date.now() + 30_000).toISOString()));
+    await ask(earlier(new Date(Date.now() + 3_600_000).toISOString()));
+    await ask(earlier());
+    /* Expired, and within a minute of it: no container. */
+    expect(calls[0].body).not.toHaveProperty("container");
+    expect(calls[1].body).not.toHaveProperty("container");
+    /* An hour left, or no expiry said: sent. */
+    expect(calls[2].body!.container).toBe("container_old");
+    expect(calls[3].body!.container).toBe("container_old");
+    expect(lastContainer([earlier("2020-01-01T00:00:00Z")])).toBeUndefined();
+    expect(
+      containerLive("2026-10-28T12:00:00Z", Date.parse("2026-10-28T11:00:00Z")),
+    ).toBe(true);
+  });
+
+  it("does not continue a paused turn past the cost budget, and keeps only its finished calls", async () => {
+    const searchUse = {
+      type: "server_tool_use",
+      id: "srvtoolu_done",
+      name: "web_search",
+      input: { query: "cookies" },
+    };
+    const searchResult = {
+      type: "web_search_tool_result",
+      tool_use_id: "srvtoolu_done",
+      content: [
+        {
+          type: "web_search_result",
+          url: "https://sallysbakingaddiction.com/cookies/",
+          title: "Cookies",
+          encrypted_content: "opaque",
+        },
+      ],
+    };
+    const codeUse = {
+      type: "server_tool_use",
+      id: "srvtoolu_code",
+      name: "code_execution",
+      input: { code: "go()" },
+    };
+    const innerUse = {
+      type: "server_tool_use",
+      id: "srvtoolu_inner",
+      name: "web_search",
+      input: { query: "more" },
+      caller: { type: "code_execution_20260120", tool_id: "srvtoolu_code" },
+    };
+    const innerResult = {
+      type: "web_search_tool_result",
+      tool_use_id: "srvtoolu_inner",
+      content: [],
+    };
+    /* Sonnet 5: 200k input tokens ≈ $0.40 a response. */
+    const dear = { input_tokens: 200_000, output_tokens: 100 };
+    const paused = () =>
+      json(
+        claudeMessage(
+          [
+            { type: "text", text: "Two so far. " },
+            searchUse,
+            searchResult,
+            codeUse,
+            innerUse,
+            innerResult,
+          ],
+          "pause_turn",
+          dear,
+        ),
+      )();
+    const calls = stubApi([paused, paused, paused]);
+    const result = await chatTools({
+      system: "s",
+      messages: ASK,
+      tools: [],
+      serverTools: [{ kind: "web_search" }],
+      config: CLAUDE,
+      newerWebTools: true,
+      costBudgetUsd: 0.7,
+    });
+    /* $0.40 after one response, $0.80 after two: no third. */
+    expect(calls).toHaveLength(2);
+    expect(result).toMatchObject({ stop: "pause", costStopped: true });
+    expect(result.usage.costEstimateUsd).toBeCloseTo(0.802);
+    expect(result.message.text).toBe("Two so far. Two so far.");
+    /* The unanswered code run, and the search it called, are dropped. */
+    expect(result.message.raw!.content).toEqual([
+      { type: "text", text: "Two so far. " },
+      searchUse,
+      searchResult,
+      { type: "text", text: "Two so far. " },
+      searchUse,
+      searchResult,
+    ]);
+    expect(result.message.serverToolUses?.map((use) => use.id)).toEqual([
+      "srvtoolu_done",
+    ]);
+
+    /* With no budget, it is continued as before. */
+    const unbudgeted = stubApi([
+      paused,
+      json(claudeMessage([{ type: "text", text: "Done." }])),
+    ]);
+    const done = await chatTools({
+      system: "s",
+      messages: ASK,
+      tools: [],
+      serverTools: [{ kind: "web_search" }],
+      config: CLAUDE,
+    });
+    expect(unbudgeted).toHaveLength(2);
+    expect(done.stop).toBe("end");
+    expect(done).not.toHaveProperty("costStopped");
+  });
+
+  it("keeps a finished call and drops an unfinished one (settledContent)", () => {
+    const content = [
+      { type: "text", text: "a" },
+      { type: "server_tool_use", id: "x", name: "web_search" },
+      { type: "web_search_tool_result", tool_use_id: "x", content: [] },
+      { type: "server_tool_use", id: "y", name: "web_search" },
+    ];
+    expect(settledContent(content)).toEqual(content.slice(0, 3));
+  });
+});
+
 describe("chatTools — Ollama", () => {
   it("sends tools as functions with num_ctx and think off; reads a plain answer and its usage", async () => {
     const calls = stubApi([
@@ -1328,7 +1678,7 @@ describe("arguments, usage and the cost estimate", () => {
     );
   });
 
-  it("prices known models, dated ids by their family, and no estimate for an unknown one", () => {
+  it("prices known models, dated ids by their family, an unlisted Claude model at the highest rates, and no other", () => {
     expect(modelPriceKey("claude-opus-4-5-20251101")).toBe("claude-opus-4-5");
     const usage = {
       ...emptyUsage(),
@@ -1337,7 +1687,18 @@ describe("arguments, usage and the cost estimate", () => {
     };
     expect(claudeCostEstimate("claude-opus-4-5-20251101", usage)).toBe(30);
     expect(claudeCostEstimate("claude-haiku-4-5", usage)).toBe(6);
-    expect(claudeCostEstimate("claude-unknown-9", usage)).toBeUndefined();
+    /* 46d: an unlisted Claude model at the table's highest rates; any
+     * other model has no price. */
+    expect(HIGHEST_PRICE_ESTIMATE_USD_PER_MTOK).toEqual({
+      input: 10,
+      output: 50,
+      cacheWrite: 12.5,
+      cacheRead: 1,
+    });
+    expect(claudeCostEstimate("claude-unknown-9", usage)).toBe(
+      claudeCostEstimate("claude-fable-5", usage),
+    );
+    expect(claudeCostEstimate("qwen3:8b", usage)).toBeUndefined();
     /* Every model the effort list knows is priced too, so a run on it shows a cost. */
     for (const model of [
       "claude-sonnet-5",

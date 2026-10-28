@@ -67,7 +67,7 @@ describe("parseIngredientLine — every real drink line", () => {
     ["1/2 oz ancho chile liqueur (Ancho Reyes)", "ancho chile liqueur"],
     ["2 oz extra dry vermouth", "extra dry vermouth"],
     ["2 oz non-alcoholic gin (Big Spoon virGin)", "non-alcoholic gin"],
-    ["1 cup sugar", "sugar"],
+    ["1 cup sugar", "granulated sugar"],
     ["1 cup water", "water"],
     ["1 tbsp dried culinary lavender", "lavender"],
   ];
@@ -181,8 +181,9 @@ describe("parseIngredientLine — quantities, units and alternatives", () => {
     ["4 whole cloves", "clove"],
     ["4 cloves", "clove"],
     ["3 cloves garlic, minced", "garlic"],
-    ["2 heaping teaspoons sugar", "sugar"],
-    ["1 large (8-ounce; 215g) yellow onion, thinly sliced", "yellow onion"],
+    ["2 heaping teaspoons sugar", "granulated sugar"],
+    /* `yellow` goes: a bare onion is yellow (46g). */
+    ["1 large (8-ounce; 215g) yellow onion, thinly sliced", "onion"],
     ["2 teaspoons light corn syrup*", "light corn syrup"],
   ])("%s → %s", (line, expected) => {
     expect(label(line)).toBe(expected);
@@ -191,7 +192,7 @@ describe("parseIngredientLine — quantities, units and alternatives", () => {
   it("reads unicode fractions the way the form stores them", () => {
     expect(label("½ oz lime juice")).toBe("lime juice");
     expect(label("1½ oz gin")).toBe("gin");
-    expect(label("¾ cup sugar")).toBe("sugar");
+    expect(label("¾ cup sugar")).toBe("granulated sugar");
   });
 
   it("reads stored markup", () => {
@@ -358,7 +359,7 @@ describe("parseIngredientLine — food lines (32j)", () => {
     /* Remarks in parentheses that say how much. */
     ["1/2 cup milk (or more as needed)", "milk"],
     ["1 tbsp. (or more) fresh lemon juice", "lemon juice"],
-    ["2 Tbsp sugar (adjust to taste)", "sugar"],
+    ["2 Tbsp sugar (adjust to taste)", "granulated sugar"],
     /* "or more" before a name is a choice. */
     [
       "2-3 Tbsp ghee (or margarine, or more butter)",
@@ -442,7 +443,7 @@ describe("38d: OR: lines and a bare pinch", () => {
         "1 cup sugar",
         "OR: 1 cup honey or maple syrup",
       ]).map(requirementLabel),
-    ).toEqual(["sugar or honey or maple syrup"]);
+    ).toEqual(["granulated sugar or honey or maple syrup"]);
   });
 
   it("leaves an OR: line after a heading on its own", () => {
@@ -450,7 +451,7 @@ describe("38d: OR: lines and a bare pinch", () => {
       ["1 cup sugar", "Topping", "OR: 1 cup honey"],
       [1],
     );
-    expect(list.map(requirementLabel)).toEqual(["sugar", "honey"]);
+    expect(list.map(requirementLabel)).toEqual(["granulated sugar", "honey"]);
   });
 
   it("reads a pinch or a dash with no 'a' and no 'of' as an amount", () => {
@@ -506,8 +507,9 @@ describe("parseIngredientLine — ranges, dashes and amount shapes (43n)", () =>
       "canned cannellini bean",
     ],
     ["28oz/800g can crushed tomatoes", "canned tomato"],
-    ["one 15-ounce can (425g) pumpkin puree*", "canned pumpkin puree"],
-    ["6-ounce can of tomato paste", "canned tomato paste"],
+    /* Canned anyway (46g): no `canned` on pumpkin puree or tomato paste. */
+    ["one 15-ounce can (425g) pumpkin puree*", "pumpkin puree"],
+    ["6-ounce can of tomato paste", "tomato paste"],
     ["12 ounce bag cranberries, rinsed", "cranberry"],
     ["4 6-oz. bags baby spinach leaves, (stems removed)", "baby spinach leaf"],
     [
@@ -554,14 +556,14 @@ describe("parseIngredientLine — ranges, dashes and amount shapes (43n)", () =>
     ],
     [
       "1 lb. 90% lean ground beef -or ground lamb",
-      "lean ground beef or ground lamb",
+      "ground beef or ground lamb",
     ],
     /* Remarks after the name: `onion and to remove excess liquid`. */
     ["1 onion grated and squeezed to remove excess liquid", "onion"],
     ["75g or 5 1/2Tbsp melted butter (not hot) + extra for brushing", "butter"],
     ["optional: 3/4 cup (100g) finely chopped and toasted pecans", "pecan"],
     /* Alternatives: `uncut stevia or tbsp sugar`, `… or plus more`, `… note`. */
-    ["pinch uncut stevia OR 2 tbsp sugar", "uncut stevia or sugar"],
+    ["pinch uncut stevia OR 2 tbsp sugar", "uncut stevia or granulated sugar"],
     [
       "1 tablespoon (18 grams) adobo ((or seasoned salt), plus more to taste)",
       "adobo or seasoned salt",
@@ -677,7 +679,7 @@ describe("toName — synonyms and descriptors (43n)", () => {
     ["parm", "parmesan cheese"],
     ["Parmigiano-Reggiano", "parmesan cheese"],
     ["grated parmesan", "parmesan cheese"],
-    ["sharp cheddar", "sharp cheddar cheese"],
+    ["sharp cheddar", "cheddar cheese"],
     ["shredded mozzarella", "mozzarella cheese"],
     ["pepper jack", "pepper jack cheese"],
     ["garbanzo beans", "chickpea"],
@@ -724,7 +726,7 @@ describe("toName — synonyms and descriptors (43n)", () => {
       ["ground cloves", "ground clove"],
       ["dry vermouth", "dry vermouth"],
       ["cooked rice", "cooked rice"],
-      ["low sodium soy sauce", "low sodium soy sauce"],
+      ["low sodium beef broth", "low sodium beef broth"],
       ["cream cheese", "cream cheese"],
       ["cheddar cheese sauce", "cheddar cheese sauce"],
       ["parmesan rind", "parmesan rind"],
@@ -771,11 +773,11 @@ describe("parseIngredientLine — mixed numbers written with and (43n2)", () => 
     ["one and a half cups milk", "milk"],
     /* `half pound beef`, `quarter cup sugar`, `three quarter cup milk` */
     ["two and a half pounds beef", "beef"],
-    ["1 and a quarter cups sugar", "sugar"],
+    ["1 and a quarter cups sugar", "granulated sugar"],
     ["1 and three-quarters cups milk", "milk"],
     /* `cup plus tablespoon sugar`, `plus and tablespoon sugar` */
-    ["1 and 1/2 cups plus 2 tablespoons sugar", "sugar"],
-    ["1/2 cup plus 1 and 1/2 tablespoons sugar", "sugar"],
+    ["1 and 1/2 cups plus 2 tablespoons sugar", "granulated sugar"],
+    ["1/2 cup plus 1 and 1/2 tablespoons sugar", "granulated sugar"],
     /* `cup flour or cup bread flour` */
     [
       "2 and 1/4 cups flour or 1 and 1/2 cups bread flour",

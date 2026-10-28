@@ -196,11 +196,11 @@ describe("buildShoppingView", () => {
       ],
       settings({ aisles: false }),
     );
-    const sugar = row(view, "sugar");
+    const sugar = row(view, "granulated sugar");
     expect(sugar.quantity).toBe("1 cup");
     expect(sugar.raw).toEqual(["sugar (1 tbsp per serving) (2×)"]);
     expect(formatShoppingText(view)).toBe(
-      "1 cup sugar\n  · sugar (1 tbsp per serving) (2×)",
+      "1 cup granulated sugar\n  · sugar (1 tbsp per serving) (2×)",
     );
   });
 
@@ -352,13 +352,13 @@ describe("buildShoppingView", () => {
       "water",
     ]);
     /* Merged with a `need` item: the whole row stays on the list. */
-    expect(labels(view)).toEqual(["1½ cups sugar", "3 eggs"]);
+    expect(labels(view)).toEqual(["1½ cups granulated sugar", "3 eggs"]);
     expect(view.counts).toMatchObject({ remaining: 2, onHand: 3 });
     expect(formatShoppingText(view)).toBe(
-      "1½ cups sugar\n3 eggs\n\nProbably on hand:\n1 tsp kosher salt\n2 cups flour\n1 cup water",
+      "1½ cups granulated sugar\n3 eggs\n\nProbably on hand:\n1 tsp kosher salt\n2 cups flour\n1 cup water",
     );
     expect(formatShoppingText(view, { onHand: false })).toBe(
-      "1½ cups sugar\n3 eggs",
+      "1½ cups granulated sugar\n3 eggs",
     );
 
     const off = buildShoppingView(items, settings({ aisles: false }), [
@@ -638,8 +638,8 @@ describe("38d: lines from sub-recipes", () => {
     );
     expect(row(view, "water").forNote).toBe("for Simple Syrup");
     /* The sub-recipe's sugar merges with the drink's own. */
-    const sugar = row(view, "sugar");
-    expect(sugar.label).toBe("¾ cup sugar");
+    const sugar = row(view, "granulated sugar");
+    expect(sugar.label).toBe("¾ cup granulated sugar");
     expect(sugar.forNote).toBe("partly for Simple Syrup");
     expect(sugar.sources?.[0].for).toEqual([syrup]);
     expect(sugar.sources?.[1].for).toBeUndefined();

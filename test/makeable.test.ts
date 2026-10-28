@@ -501,7 +501,8 @@ describe("food (32j)", () => {
     expect(close("extra virgin olive oil", "1 cup neutral oil")).toBe(true);
     expect(close("chicken stock", "2 cups chicken broth")).toBe(true);
     expect(close("eggs", "2 egg yolks")).toBe(true);
-    expect(close("brown rice", "1 cup white rice")).toBe(true);
+    /* Not "white rice": that is `rice` since 46g, which brown rice meets. */
+    expect(close("brown rice", "1 cup jasmine rice")).toBe(true);
     expect(close("cheddar cheese", "1 cup parmesan cheese")).toBe(true);
     expect(close("parmesan", "1/2 cup grated parmesan cheese")).toBe(true);
     expect(close("garlic", "1 tsp garlic powder")).toBe(true);

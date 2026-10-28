@@ -235,6 +235,13 @@ export interface TermAssignResult {
   /** Carriers that already said so (an add they had, a remove they lacked). */
   unchanged: string[];
   /**
+   * Of the `add`s (46d): the carriers the term was put on by this call, and
+   * those that already carried it — so a reply can say "added 3, already
+   * tagged 2" from the answer instead of claiming every one.
+   */
+  added: string[];
+  alreadyTagged: string[];
+  /**
    * Slugs that name no carrier of that type: a `remove` of one that is not
    * there, or (with `force`) an `add` of one not written yet (35-D10).
    */
@@ -1377,6 +1384,8 @@ export async function assignTerm(
     updated: [],
     unchanged: [],
     missing: [],
+    added: [],
+    alreadyTagged: [],
   };
   const report = (outcome: "updated" | "unchanged" | "missing", s: string) =>
     result[outcome].push(s);
@@ -1394,7 +1403,12 @@ export async function assignTerm(
       const outcome = await retagCarrier(batchCtx, type, carrier, (tags) =>
         carries(tags, slug) ? [...tags] : [...tags, tag],
       );
-      if (outcome === "updated") added += 1;
+      if (outcome === "updated") {
+        added += 1;
+        result.added.push(carrier);
+      } else if (outcome === "unchanged") {
+        result.alreadyTagged.push(carrier);
+      }
       report(outcome, carrier);
     }
     for (const carrier of dedupe(input.remove ?? [])) {

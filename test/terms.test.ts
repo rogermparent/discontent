@@ -599,12 +599,26 @@ describe("assignTerm", () => {
       updated: ["shortbread", "linzer"],
       unchanged: [],
       missing: [],
+      added: ["shortbread", "linzer"],
+      alreadyTagged: [],
     });
     expect(await readRecipeTags("shortbread")).toEqual([
       "cookies",
       "baked",
       "christmas cookies",
     ]);
+
+    /* 46d: an add that already carried it is reported as such, not as added. */
+    const again = await assignTerm(ctx, "christmas-cookies", {
+      add: ["shortbread", "chili"],
+    });
+    expect(again).toMatchObject({
+      updated: ["chili"],
+      unchanged: ["shortbread"],
+      added: ["chili"],
+      alreadyTagged: ["shortbread"],
+    });
+    await assignTerm(ctx, "christmas-cookies", { remove: ["chili"] });
 
     /* "Cookies" and "cookies" are one term: removal matches by slug. */
     const removed = await assignTerm(ctx, "cookies", {
@@ -613,6 +627,9 @@ describe("assignTerm", () => {
     expect(removed).toMatchObject({
       updated: ["linzer"],
       unchanged: ["chili"],
+      /* A remove is neither: `added` and `alreadyTagged` split the adds. */
+      added: [],
+      alreadyTagged: [],
     });
     expect(await readRecipeTags("linzer")).toEqual(["christmas cookies"]);
   });

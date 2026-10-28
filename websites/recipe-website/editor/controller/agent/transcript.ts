@@ -51,6 +51,10 @@ export interface TranscriptStart {
   tools: string[];
   /** Claude's server tools (E6), by kind. */
   serverTools?: ServerTool["kind"][];
+  /** The server tools were the newer versions (46d: dynamic filtering). */
+  newerWebTools?: true;
+  /** The run's cost budget in USD (46d); absent when it had none. */
+  maxCostUsd?: number;
 }
 
 export interface TranscriptMessage {
@@ -69,6 +73,8 @@ export interface TranscriptEnd {
   usage: AgentUsage;
   /** The Claude API's cost in USD, estimated (Ea7); absent otherwise. */
   costEstimate?: number;
+  /** The run's cost budget in USD (46d), what a `budget:cost` stop names. */
+  maxCostUsd?: number;
   model: string;
   api: LlmApi;
   turns: number;

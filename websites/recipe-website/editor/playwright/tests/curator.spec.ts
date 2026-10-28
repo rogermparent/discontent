@@ -71,7 +71,11 @@ function nextMessage(messages: OllamaMessage[]) {
   if (/tag it/i.test(ask)) {
     return results === 0
       ? toolCall("term_assign", { slug: "braises", add: [SLUG] })
-      : { role: "assistant", content: "Tagged it **braises**." };
+      : {
+          /* 46d: a link on a host the model made up opens in the app. */
+          role: "assistant",
+          content: `Tagged [it](https://roger.recipe/recipe/${SLUG}) **braises**.`,
+        };
   }
   if (/braise/i.test(ask)) {
     if (results === 0) {
@@ -226,6 +230,8 @@ test.describe("Curator", () => {
     await expect(page.getByTestId("curator-setup")).toHaveText(
       "Running on qwen3:8b on this machine. Web search is off here: give it the URLs to read.",
     );
+    /* 46d: Claude's newer web tools are not offered to a local model. */
+    await expect(page.getByTestId("curator-newer-web-tools")).toHaveCount(0);
     await axeClean(page);
     await snapshotMain(page, "curator-idle.png");
 
@@ -294,9 +300,19 @@ test.describe("Curator", () => {
     await expect(
       changes.getByRole("link", { name: "Tag: braises" }),
     ).toHaveAttribute("href", "/tags/braises");
+    /* 46d: what the assign added, from its result. */
+    await expect(changes.getByTestId("curator-assigned")).toHaveText("added 1");
     await expect(changes.getByTestId("curator-commits")).toHaveText(
       "2 commits — see Git",
     );
+    /* 46d: the invented host's recipe link opens here, marked. */
+    const fixed = page
+      .getByTestId("curator-turn")
+      .last()
+      .getByRole("link", { name: "it (link fixed)" });
+    await expect(fixed).toHaveAttribute("href", `/recipe/${SLUG}`);
+    await expect(fixed).not.toHaveAttribute("target", "_blank");
+    await axeClean(page);
     expect(asked).toEqual([
       "Find a pork shoulder braise I don't have yet",
       "and tag it braises",

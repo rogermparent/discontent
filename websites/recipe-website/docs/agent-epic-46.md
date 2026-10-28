@@ -305,6 +305,51 @@ first run failed 17, Ta1); `import-ssrf.spec` in dev mode 2/2.
 - **The harness.** Ask (d) runs for Claude without `RECIPE_SEARCH_URL`, using Claude's server search.
 - Tests are stubbed only.
 
+#### Results (46d)
+
+**What changed.**
+
+- **A cost budget (Ea9's follow-up).** `AgentBudgets.maxCostUsd`, checked in `runAgent` before each model call against the run's `costEstimateUsd`. It is beside the turn and token checks, so the last turn's tool calls still run. The run stops before a turn when the spend has reached the cap, or when the spend plus the last turn's cost would pass it ("Stopped at the cost budget ($1.00): about $0.90 spent, and another turn like the last (about $0.45) would pass it"). Within a turn, `chatTools` gets what is left (`costBudgetUsd`) and does not continue a `pause_turn` once the turn's own estimate reaches it (Dd2). `costBudgetWords` in `llm/cost.ts` says the stop. The job sets the cap through `agentCostBudget`: `RECIPE_AGENT_MAX_COST_USD` (dollars above 0, at most 50; a leading `$` is fine), else `DEFAULT_AGENT_MAX_COST_USD` = $1. Every Claude model gets the cap. One the price table does not list is estimated at the table's highest rates (`modelPrice`, `HIGHEST_PRICE_ESTIMATE_USD_PER_MTOK`), and its job log says "estimated at the highest listed price". Only a local model has no estimate and no cap. The key is in `EDITOR_ENV_KEYS`, the CLI help and `.env.example`. The budget is recorded on the transcript's `start` and `end` records and on the job's result (`maxCostUsd`). A budget stop is also a `warn` line in the job's log (`agent.budget`). On `/curator`, the footer's status reads "Stopped at the cost budget ($1.00)", and the numbers read "about $0.42 (cap $1.00)" when the run had a budget: an estimate, which one turn can carry a little past the cap.
+- **The newer web tools, per run (Ea3; Roger: "Basic by default, allow toggle per-run").** `ANTHROPIC_WEB_SEARCH_TOOL_TYPE_NEWER` = `web_search_20260209` and `…_FETCH_…_NEWER` = `web_fetch_20260209`. Both are GA with no beta header, and no `code_execution` tool is declared beside them. `chatTools({newerWebTools})` / `runAgent({newerWebTools})` swap the server tools' `type`. The response's `container` id is kept on the turn's `raw` (`raw.container`) and sent back as `container` on a `pause_turn` continuation and on the conversation's later turns (`lastContainer`). Dynamic filtering's own `code_execution` blocks are replayed raw like every block (Ea4) but left out of `serverToolUses`, so they never show as rows. The toggle is exposed four ways:
+  - the `/curator` ask box's "Use newer web tools" checkbox (Radix `Checkbox`), shown only when a Claude model that takes them runs the curator (`CuratorSetup.newerWebTools`), and off by default;
+  - `POST /api/agent` `{newerWebTools: boolean}` (non-boolean → 400);
+  - `recipes agent --newer-web-tools` (local and `--remote`);
+  - `agent-measure.ts --newer-web-tools`.
+
+  The setting is recorded on the job's spec and result and on the transcript's `start`. A follow-up keeps its conversation's setting: `startAgentRun` reads the continued run's spec. Only the models in `NEWER_WEB_TOOLS_MODELS` (`llm/client.ts`, `takesNewerWebTools`) take them: Opus 5.5, 5, 4.8, 4.7 and 4.6; Sonnet 5.5, 5 and 4.6; Fable and Mythos 5 and 5.1; Mythos Preview. The source is platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool, read 2026-10-28: "Dynamic filtering is available with Claude 4.6 and later models and Claude Mythos Preview." `runAgentJob` is the one gate, so the route, the CLI and the harness all pass through it. Elsewhere the flag is ignored and an `agent.setting` line in the job log says why: a local model has no server tools, and a Haiku "does not take them". The container's `expires_at` is kept on the turn (`raw.containerExpiresAt`). A later turn leaves out a container that has expired, or will within a minute.
+
+- **The local prompt.** `skill-local.md` step 2: "don't have yet" or "on <site>" means `web_search`, then each hit that `recipe_search "source:<site> <dish>"` finds is dropped (`source:` filters by the site's host or label, 27d, not by URL). A `recipe_search` row is never called new. Step 6: after `term_assign`, report "already tagged N, added M" from its answer. Regenerated into `skillText.generated.ts`. Step 2 names "sallysbakingaddiction.com first" for a baked or sweet ask, the site's host as `source:` and the search see it. The skill is now 1,198 of its 1,200 estimated tokens. To make room, a few things went: step 4's "Say which and why" (step 8 says it), step 1's "Prefer a recipe already there over a new import" (now "Prefer one already there to an import"), and a few words elsewhere. The next addition needs a cut or a raised budget.
+- **`term_assign`'s answer.** `TermAssignResult` gains `added` and `alreadyTagged`, which split the `add`s (a remove is in neither). The MCP description and the local tool text name them. The write summary gets `assigned: [{term, added, alreadyTagged}]`, and `runChanges` sums those per term onto `ChangedTerm`. "What changed" puts "added 3, 2 already tagged" beside the term's chip (`assignedNote`), and the tool row reads "Tagged 1 recipe korean (2 already were)". A call that added nothing writes and commits nothing, but it still reaches "What changed": the chip says "3 already tagged", the term is marked `unchanged`, and `changeCount` leaves it out (`changesToShow` decides whether the card shows). Its row reads "3 recipes already tagged korean". A mixed call adds "; untagged 2 recipes".
+- **`/curator` links.** `fixedSitePath` handles an http(s) link whose path is `/recipe/<slug>`, `/tags/<slug>` or `/group/<slug>`. It is rewritten only when its slug is one this site's own tools answered with in the conversation (`siteSlugsOf`: every `"slug": "…"` in a tool result that is not E7-wrapped page text, and a write summary's recipes, terms and plans). Its host must also be neither this page's nor one the conversation has seen. The seen hosts come from `conversationUrls`: the person's words, tool results and the pages Claude's search found. Such a link opens in the app with Next's `Link`, followed by a muted "(link fixed)" and a `title` naming what the model wrote. A real site's `/recipe/<slug>` stays an external link, whether a search turned it up or not: `bonappetit.com/recipe/x` is never rewritten, because `x` is not this site's.
+- **Near-miss URLs** (`controller/agent/nearMiss.ts`, pure). Five tools are checked: `recipe_import`, `recipe_import_list`, `page_inspect`, `page_inspect_list` and `web_fetch`. The hint applies when one of them fails on a URL that is malformed (`URL` won't parse it, or its host has an empty or invalid label) or whose failure says the address did not resolve (`addressFailed`), and when its host is one slip from a URL the conversation has seen. A failure qualifies by its words (`Could not resolve`, `ENOTFOUND`, `EAI_AGAIN`, `getaddrinfo`, `Invalid URL`…) or by its cause's code (`ENOTFOUND`, `EAI_AGAIN`, read down the `cause` chain). undici's bare "fetch failed" no longer counts on its own, because a refused connection says it too. A slip is Levenshtein ≤ 2, or one dot label more or less. The error then gains "Did you mean <url>?" (and `error.didYouMean`). A thrown error gets the sentence too. The suggestion is the seen URL when port, path and query match, else the failed URL on the seen host. The loop applies it to the uncut result before E7's wrapping. Nothing is retried. `urlGuard.ts`, `webFetch.ts` and `bridge.ts` are untouched, since 46a owns them.
+- **The harness.** `askSkipped` (in `agentMeasure.ts`) runs ask (d) for Claude on its own server search and skips it only for a local model without `RECIPE_SEARCH_URL`. Every line now carries `costEstimateUsd` (null without a price), `maxCostUsd`, `newerWebTools` and `webSearches`.
+
+**Decisions.**
+
+- **Dd1 — The stop reason is `budget:cost`**, the brief's "cost" in the existing `budget:<name>` family (`AgentBudgetName` gains `cost`), so every surface that handles budgets handles it. A budget's end is not a failure: the job is `done`, as for the other budgets (44c).
+- **Dd2 — The cost is checked before each turn, projected, and between a turn's continuations.** A model call's cost is known only once it answers. So before a turn the run stops when the spend has reached the cap, or when the spend plus the last turn's cost would pass it. Within a turn, Claude's `pause_turn` continuations stop once the turn's estimate reaches what was left. A stopped turn keeps its content, less any server call still waiting for its result (`settledContent`), so a follow-up replays only finished calls. One model call can still overshoot (up to 16k output tokens and its searches), so the footer says "about $X (cap $1.00)".
+- **Dd3 — The newer toggle swaps the server search only.** Claude still gets our `web_fetch` (paced, 403-polite, SSRF-guarded: E6), never Anthropic's server fetch, so `web_fetch_20260209` is defined but not offered. Ea3's "beta header" does not exist: the tool reference lists none for any version, so none is sent.
+- **Dd4 — A follow-up keeps the conversation's newer tools, and cannot turn them off.** Replaying dynamic filtering's code-execution blocks to the basic tools risks a 400. A follow-up of a basic run takes the flag from its own request: the API and CLI can set it, but the page's follow-up box has no checkbox.
+- **Dd5 — Near-miss hints only on address failures.** A 403 or a 404 at a host two edits from a seen one (food.com vs food52.com) is a different site, not a slip, so it gets no hint. Neither does ECONNREFUSED: a bare "fetch failed" counts only with a resolver's cause code.
+- **Dd6 — Link fixing trusts the conversation, and needs this site's slug.** A host anyone in the conversation produced is real. A link is rewritten only when its host appears nowhere but in the model's own words and its slug is one this site's tools answered with.
+- **Dd7 — An unlisted Claude model is priced at the highest listed rates.** A new model is never cheaper than the table's dearest row, so its cap holds, or binds early. Only a model that is not Claude's (a local one) runs uncapped.
+- **Dd8 — The newer web tools are offered only where the docs say dynamic filtering runs** (Claude 4.6 and later, and Mythos Preview). The Haiku models are left out: Haiku 4.5 predates 4.6, and the page does not say that Haiku 5.5 filters. A Haiku run keeps the basic search and its log says why.
+
+**Roger to confirm.**
+
+- Dd3: the newer toggle covers web search only; Claude's server `web_fetch` stays off (E6).
+- The $1 default and the 50-dollar ceiling on `RECIPE_AGENT_MAX_COST_USD`. The Pi gets $1 unless its env sets the key.
+- Sending `container` back on later turns of a newer-tools run follows the docs' container reuse. 46k's real run is the first check that the API takes it on every turn.
+- Completeness of a local tag run (the rest of backlog row "Local tagging writes") is not done: no post-check compares the assign set with the search.
+- Dd8: Haiku 5.5 is left off the newer-tools list. The docs' "4.6 and later" may include it. Adding it is one line in `NEWER_WEB_TOOLS_MODELS`.
+- Dd7: an unlisted Claude model is estimated at Fable's rates ($10 / $50 per MTok). A cheaper new model's runs then stop early at the $1 cap.
+
+**Gates** (the finisher's run, after the review fixes and the merge of `origin/main` 00b3eb4b):
+
+- `pnpm --filter recipe-editor typecheck`: clean. `pnpm --filter recipe-website exec tsc --noEmit`: clean.
+- Full `pnpm exec vitest run`: 164 files, 3,639 tests. The first run had one failure, a test expectation (a paused turn's text is trimmed). After the fix, `llmTools.test.ts` passed 34/34.
+- Playwright, Docker build mode (`curator`, `command-palette`, `jobs`, `accessibility`): started as `46d-fin`. The result goes in the PR.
+
 ### 46e: Polish (M)
 
 - **⌘K.**
@@ -558,6 +603,100 @@ not filled here (the brief): fill them after merge.
 - **Ingredient merges.** A small code PR adds the picked groups as `NAME_SYNONYMS` / `NAME_DESCRIPTORS` rows (`common/util/ingredientNames.ts:310,348`), each with a case in `test/ingredientSynonyms.test.ts`. Re-measure step matches (Tn1). No reindex.
 - **Alternatives conversions.** Convert the picked candidates through the CLI (dry run first), as the everything-dough conversion was.
 - Revalidate after every CLI write.
+
+#### Results (46g, ingredient merges: code)
+
+Branch `agent/46g-ingredient-merges`. **Reindex needed: no.** Names are read at request time from stored lines, as in 43n: no index, aggregate or `specVersions`-pinned module computes them (`ingredientNames.ts` is not in `test/specVersions.test.ts`, and the recipe index stores lines, not names), so `indexVersion` stays `"2"`. **Deploy: yes** (Make, `/shopping`, the recipe page's "Uses", the edit form's step checks and the `inventory make` seats read the new names).
+
+**The 15 merged groups** (`common/util/ingredientNames.ts`). Each is a `NAME_SYNONYMS` row scoped by lookaheads to its own names, except ing-3:
+
+| Group  | Row                                                                                                                  | Lines it moved |
+| ------ | -------------------------------------------------------------------------------------------------------------------- | -------------- |
+| ing-3  | a line whose whole name is `sugar` reads `granulated sugar` (`BARE_NAMES`, Dg1)                                      | 86             |
+| ing-6  | `yellow` before onion(s) dropped; white onion stays                                                                  | 42             |
+| ing-7  | `all purpose white flour` → `all purpose flour`; `unbleached` before it dropped (not King Arthur's, below)           | 5              |
+| ing-10 | `ground pepper` → `pepper`; white pepper stays                                                                       | 6              |
+| ing-12 | `low` / `lower` / `less` / `reduced sodium` before soy sauce dropped                                                 | 4              |
+| ing-14 | `lean` / `extra lean` before ground beef dropped (not ground turkey)                                                 | 7              |
+| ing-15 | `chicken stock`, and low / reduced sodium chicken broth or stock → `chicken broth` (not cubes, concentrate, base)    | 34             |
+| ing-18 | `sharp`, `extra sharp`, `sharp white` before cheddar dropped (a plain `white cheddar` stays)                         | 12             |
+| ing-19 | `brick`, `block`, `brick style` before cream cheese dropped                                                          | 21             |
+| ing-21 | `canned` before pumpkin puree dropped                                                                                | 12             |
+| ing-22 | `canned` before tomato paste dropped                                                                                 | 4              |
+| ing-23 | `dark` / `unsulphured` before molasses dropped (not blackstrap or pomegranate)                                       | 9              |
+| ing-28 | the 43n `dry` row now covers sparkling wine too                                                                      | 2              |
+| ing-29 | `white` before rice dropped (not rice flour, vinegar, wine, noodles…), so raw merges with raw and cooked with cooked | 8              |
+| ing-30 | `thick`, `thick cut`, `thick sliced` before bacon dropped                                                            | 2              |
+
+Every row's merged name shelves in the aisle its old forms did (checked for each, and pinned in vitest).
+
+**Lent tails go through the table (Dg2).** 43n's Tn3: `inheritTails` builds names after `toName` has run on each part, so "granulated or coarse sugar" built `granulated sugar`, "chicken or beef stock" `chicken stock` and "instant or active dry yeast" `instant dry yeast`, and none of them met a row. Each name that gets a tail is now read through `toName` again once every tail is lent. That moved 7 lines here: 3 chicken stock, 1 onion and 43n's 3 yeast lines (now `instant yeast`, as that row meant). It does not cover a right part that a row shortens to one word, which then lends no tail (Tg1). One anchored row (`^unsulphured$` → `molasses`) covers Sally's "unsulphured or dark molasses" (8 lines).
+
+**Measured (Tn1)** on a scratch clone of the content repo (867 recipes, 8,652 lines; removed afterwards), with every line's name and shopping key and every step's "Uses" dumped before (`origin/main` `00b3eb4b`) and after:
+
+|                                    | Before | After                   |
+| ---------------------------------- | ------ | ----------------------- |
+| Lines whose name changed           | —      | 257 (248 shopping keys) |
+| Distinct names                     | 1,897  | 1,870                   |
+| Step "Uses" matches                | 7,362  | 7,363 (+11 / −10)       |
+| Near-duplicate groups (43n script) | 138    | 129                     |
+| "One word more" pairs              | 586    | 558                     |
+
+- **Steps lost (10).** Seven chicken-stock matches, from steps that say a bare "stock" (fondant potatoes ×2 and matzoh ball soup ×3 are real; "a large stock pot" and "the stock you just made" were wrong anyway). The line now goes by `broth`. Three yellow-onion matches (pork enchiladas, spicy pork bulgogi, Jamaican oxtail): each recipe also has an `onion` or `green onion` line, so the shortened name is ambiguous (D3).
+- **Steps gained (11).** Seven `chicken or beef stock` (Dg2), two soy sauce, one ground beef, one chicken broth.
+- **Direction measured both ways.** `granulated sugar` → `sugar` (the brief's direction) lost **36** step matches. Each was a Sally's-style step ("beat the butter, granulated sugar, and brown sugar") where the shortened name sat inside "brown sugar". The bare-name rule loses none (Dg1). `chicken broth` → `chicken stock` instead of the other way lost 18 and gained 4, so broth it is.
+- **Make** (each merged group's names, and the pantry staples, typed as items against every line). Typed `sugar` and the `sugar` staple still meet `granulated sugar` by its tail. `granulated sugar`, `chicken stock`, `white rice` and `ground pepper` typed now meet their merged partners' lines. `yellow onion` typed now meets what `onion` always met, red and green onion included, because Make's tail rule was already that lenient for a bare onion. One loss, expected: `chicken stock` typed no longer meets 6 lines of bare `stock` (it is `chicken broth` now, which meets `broth` lines; broth and stock stay close matches). And `brown rice` on hand now meets "white rice" outright (its tail is `rice`) rather than as a close match.
+- **Shopping** (Tn2): the content repo has no `shopping/settings.json`, so no aisle or store override is orphaned. Rows that change label: "1½ cups sugar" now reads "1½ cups granulated sugar". "6 onions" stays "6 onions", and a yellow onion line now joins that row.
+
+**Decisions**
+
+- **Dg1: a bare "sugar" is `granulated sugar`, applied to a line's whole name only.** `BARE_NAMES` (one entry) runs in `requirement()`, which every line path goes through. It never runs on a step's words or a typed inventory item. Three reasons:
+  - A step's "the sugar" stays the head of every sugar line, so it is still ambiguous beside brown sugar (D3, `stepIngredients.test` unchanged).
+  - `sugar` on hand still meets the line by its tail.
+  - "sugar snap peas" and "cinnamon sugar" are never touched, unlike a regex over every bare "sugar".
+
+  Onion took the short row instead. It cost 3 step matches, against 64 relabelled shopping rows ("6 yellow onions") and stricter Make for white-onion holders.
+
+- **Dg2: a lent tail is read through `toName` again** (above). The only extra work is for lines with a lent tail. The 43n dumps' other names are unchanged.
+- **Dg3: rows, not descriptors.** Every word the brief offered as a descriptor (`lean`, `brick`, `unsulphured`, `thick cut`, `canned`, `dry`) is a lookahead-scoped `NAME_SYNONYMS` row instead. A `NAME_DESCRIPTORS` word is dropped everywhere, and `lean ground turkey`, `brick cheese`, `canned tomato`, `dry vermouth` and `dry mustard` must stay as they are.
+- **Dg4: ing-29 merges within raw and within cooked.** The checklist said "merge within cooked and within raw, not across". The brief's example merged all four names into `rice`. The narrower reading follows the checklist and Dn4 (`cooked` stays).
+
+**Tests.** `test/ingredientSynonyms.test.ts` "the 46g merges…":
+
+- 30 merged pairs, each checked for one shopping key and for either form typed into Make meeting either line;
+- the aisle of each merged name;
+- 35 pairs that stay apart: every kept group, plus what the rows must not reach (beef broth, low-sodium beef broth, chicken stock concentrate, blackstrap and pomegranate molasses, lean ground turkey, white rice flour, sugar snap peas);
+- the Tn3 lent names;
+- a step case: "granulated sugar" beside brown sugar is found, "the sugar" is not, and "chicken broth" finds a low-sodium chicken stock line.
+
+Expected diffs in the contract suites:
+
+- `ingredientNames.test` (sugar lines → `granulated sugar`; yellow onion → `onion`; canned pumpkin puree and tomato paste; lean ground beef; sharp cheddar; a "kept" case moved from low sodium soy sauce to low sodium beef broth);
+- `shoppingView` / `shopping` (the sugar rows' key and label);
+- `makeable` (the close-tier example "white rice" → "jasmine rice").
+
+`shopping.spec` reads "¾ cup granulated sugar" and "¼ cup granulated sugar".
+
+**Baseline moved:** `shopping-modes` `shopping-plan-e2e.png`. Its Pantry row reads "1 cup granulated sugar" (was "1 cup sugar"), and nothing else differs. It was regenerated in Docker, and nothing else moved.
+
+**Gates** (through the capped heavy slot):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website exec tsc --noEmit`: both pass.
+- Full vitest: 162 files, 3,677 tests, all pass.
+- Docker build mode, e2e and mobile, on `make`, `shopping`, `shopping-modes`, `recipe-cooking-order`, `ingredient-preview`, `plan-page` and `cook-view`: 130/131. The one failure was the expected `shopping-plan` baseline. After that baseline was regenerated, `shopping-modes` passed 15/15.
+- Dev mode (the changed `shopping.spec`, in Docker): 11/11.
+
+**Roger to confirm:**
+
+- the bare-sugar rule and its label on the list ("granulated sugar");
+- a bare `stock` left apart from `chicken broth`, as it is from `broth`;
+- King Arthur's unbleached all-purpose flour (23 lines) left as its own name: it was not in ing-7's names, and merging it is one more row;
+- `pepper` (59 lines, mostly "salt and pepper") left apart from `black pepper` (176), since ing-10 named only pepper and ground pepper;
+- "white cheddar" (no sharpness) left as its own name.
+
+#### Traps (46g)
+
+- **Tg1: a row that shortens the right part of "A or B C" stops the lending.** "brown or white rice" splits into `brown` and `white rice`. The ing-29 row makes the second `rice`, one word, which lends nothing, so the line reads `brown or rice`. The corpus has one such line, and it is debris already. "unsulphured or dark molasses" had the same shape, and an anchored row fixes it. Check new shortening rows against `X or <row's words> Y` lines in the dump.
 
 ### 46k: Claude for real (after Roger adds the key)
 
