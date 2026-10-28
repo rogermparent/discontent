@@ -14,7 +14,7 @@ import {
 } from "../../controller/tagBoardPage";
 import { buildFacetModel, type FacetTerm } from "../../util/facets";
 import { ClientListItem } from "../ClientList";
-import { RecipeCardPlaceholder, RecipeGrid } from "../List/shared";
+import { RecipeCardPlaceholder, RecipeGrid, cardTime } from "../List/shared";
 import { PureRecipeImage } from "../RecipeImage/PureRecipeImage";
 import { Segmented } from "./parts";
 
@@ -217,6 +217,7 @@ export function TermRecipes({
                       ? otherTags(model, row.tags, pageTags)
                       : row.tags,
                   }}
+                  meta={cardTime(row)}
                 />
               </li>
             ))}

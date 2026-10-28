@@ -211,6 +211,58 @@ test.describe("Tag pages", () => {
     });
 
     /*
+     * 46e: a term page's cards say how long a recipe takes in place of its
+     * date — the by-term row carries `totalTime` (version "3") — and a card
+     * without a total keeps its date. The narrowed grid (the browser's
+     * cards) says the same.
+     */
+    test("cards show the total time, else the date (46e)", async ({
+      page,
+      request,
+      createApiToken,
+    }) => {
+      const token = await createApiToken();
+      const created = await request.post("/api/recipes", {
+        headers: { authorization: `Bearer ${token}` },
+        data: { name: "Pound Cake", slug: "pound-cake", tags: ["dessert"] },
+      });
+      expect(created.status()).toBe(201);
+
+      await page.goto("/tags/dessert");
+      await expect(cards(page)).toHaveCount(9);
+      const card = (name: string) =>
+        cards(page).filter({ has: page.getByText(name, { exact: true }) });
+      /* 55 minutes; 62 is an hour and two. */
+      await expect(
+        card("Gingerbread Cookies").getByTestId("card-meta"),
+      ).toHaveText("55 m");
+      await expect(card("Linzer Cookies").getByTestId("card-meta")).toHaveText(
+        "1 h 2 m",
+      );
+      /* A duration, so "55 m" is not read as metres. */
+      await expect(
+        card("Linzer Cookies").getByTestId("card-meta").locator("time"),
+      ).toHaveAttribute("datetime", "PT62M");
+      /* No total: the date, as before. */
+      await expect(card("Pound Cake").getByTestId("card-meta")).toHaveCount(0);
+      await expect(card("Pound Cake").locator("time")).toHaveAttribute(
+        "datetime",
+        /^\d{4}-\d{2}-\d{2}T/,
+      );
+
+      const cookies = page
+        .getByTestId("term-narrow")
+        .getByRole("button", { name: /^Cookies/ });
+      await expectHydrated(cookies);
+      await cookies.click();
+      await expect(cookies).toHaveAttribute("aria-pressed", "true");
+      await expect(cards(page)).toHaveCount(8);
+      await expect(card("Linzer Cookies").getByTestId("card-meta")).toHaveText(
+        "1 h 2 m",
+      );
+    });
+
+    /*
      * 43t: `dessert` is a recorded root that is no facet, so the board files
      * it under Collections, Cookies nested under it; each recipe counts once.
      */

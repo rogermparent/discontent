@@ -360,6 +360,124 @@ first run failed 17, Ta1); `import-ssrf.spec` in dev mode 2/2.
   - `TagPage/shared.tsx:339` passes `meta` with `formatTotalTime` (`util/planPage.ts:146`) to `RecipeListItem`.
   - The bump goes in its own commit.
 
+#### Results (46e)
+
+**⌘K holidays.**
+
+- `CommandPalette/holidayRows.ts` (pure): `paletteHolidays(model, count)`
+  takes the `holidays` root's children that lead somewhere (the term or
+  one under it carries something, by `/search/terms`' `count`), each with
+  its rule (`holidayRuleKey`, so an alias dates it) and the folded words of
+  its label, slug and aliases. `paletteHolidayRows(holidays, input, today)`
+  picks the rows.
+- **Empty or short input** (under 3 characters): a **Coming up** group with
+  the next 2 dated holidays within the homepage's 180-day window
+  (`withinComingUpWindow`): "Halloween · in 13 days", each to
+  `/holidays/<slug>`.
+- **While typing** (3+ characters): a **Holidays** group with up to 2
+  holidays that every free-text word starts a word of (`thanks`, `christ`,
+  an alias such as `xmas`), soonest first, undated last (no countdown). A
+  match is offered however far off it is. `halloween punch` is a search,
+  not a holiday; filter terms (`tag:`), negated words (`-cookie`) and a
+  NOT's word ("not christmas", any case) are not words (`positiveWords`).
+- **De1 (review): the rows wait for the recipes.** They are read off the
+  committed `query`, as the recipe rows are, and are not rendered while the
+  input is ahead of it or the recipes are pending (`recipesPending`). Built
+  first from the live input, a lone Holidays row was cmdk's first row, so an
+  Enter pressed inside the 180 ms debounce or before the index was ready
+  opened `/holidays/christmas` instead of the top recipe. An early Enter
+  now does nothing; the spec presses it at once, then lands on the top
+  recipe once the rows are in.
+- The group sits after Recipes, Groups, Narrow and Recent, so Enter still
+  opens the top recipe and an empty palette's Enter still re-runs the first
+  recent; with neither, the first holiday is cmdk's first row.
+- **Go to** has **Holidays** (`/holidays`, keywords "almanac", "holiday",
+  "seasonal", "calendar", "menus"), after Drinks, for readers and owners —
+  **only on a site with a holiday to offer** (De2, review): a site with no
+  `holidays` root, such as `three-recipes`, shows no row, so the palette
+  baselines did not move.
+- The candidates are memoized on `[open, model, allTerms]` and worked out
+  only while the palette is open.
+- **Export:** nothing is fetched for it. The rows come from the facet model
+  and the terms the search context already holds, and the countdown from
+  `useToday` (the dialog renders only after hydration, so there is no
+  server-day mismatch and the export never counts from the build's day).
+
+**Term-page cards with times.**
+
+- The by-term row carries `totalTime` when the recipe has a total
+  (spread, so a row without one has no key); the recipe tag taxonomy is
+  version **"3"** (stored `1.3`), in its own commit. **Reindex: automatic**
+  — the 39b index-version stamp covers taxonomies, so the site's index
+  version moved (`reindexJobs.test.ts`' pin) and every instance rebuilds
+  once at start. Fixtures regenerated in their own commit.
+- `RecipeListEntry` gains an optional `totalTime`. Only the by-term row sets
+  it; `recipesByDate` does not project it, so `/recipes` pages and their
+  hashes are unchanged (a type-only edit to `paginationConfigs.ts`, no bump).
+- The other readers of the row: `/drinks` (`DrinkCard` spreads the row, so
+  it carries the field and renders nothing new), the holiday pages and
+  `holiday_get` (`holidayRecipeOf` builds its own shape), `/tags`' board and
+  counts (slug and tags only), the homepage's season strips (`seasonPicks`
+  picks fields). None changes.
+- Cards: `RecipeList` takes a `meta` per card and `ClientListItem` a `meta`
+  line; the term page's grid, a root page's newest list and the narrowed
+  grid (the browser's cards after a Narrow chip) pass `cardTime`
+  (`List/shared.tsx`) — "1 h 2 m" (`formatTotalTime`, the plan page's short
+  form) in a `<time dateTime="PT62M">`, so "55 m" is not read as metres
+  (De3, review) — and a card with no total keeps its date. The list view is unchanged (it showed no date).
+- Prep plus cook is **not** summed into the row: a total is what the
+  recipe says (`minutesOf` in search does sum them).
+
+**Roger to confirm.**
+
+- "Short input" is under 3 characters: 1–2 typed characters still show
+  Coming up, not matches.
+- Up to 2 rows in both modes; a typed match shows even when it is months
+  away.
+- The time format is the plan page's "1 h 2 m", not "1 h 2 min".
+- A card shows only a recipe's own `totalTime`; a recipe with prep and cook
+  but no total keeps its date.
+
+**Gates** (after merging `origin/main` at 00b3eb4b, 46b):
+
+- Typechecks: `recipe-editor` ✅ and the export's `tsc --noEmit` ✅ (after
+  the review fixes and the merge; the later `positiveWords` commit passed
+  eslint and vitest).
+- Full vitest in the heavy slot: **3623 / 3623 across 164 files**. The
+  earlier run's second failure was not reproduced; its output was cut
+  before the name (one was 46b's `cliJson` flake, since fixed on main).
+- Playwright in Docker, build mode, `--update-snapshots`: command-palette,
+  tag-pages, tags-board, holidays, visual, mobile and accessibility —
+  **199 passed**. One baseline moved: `visual/git-page-e2e`, whose "index
+  version" line printed the new version (72c0224e… → 476ded83…), opened
+  and committed. The term-page baselines (`tags-term` e2e and mobile) did
+  not move — drinks-bar's recipes have no times, so the cards keep their
+  (masked) dates; opened. The palette baselines did not move (De2).
+- Dev mode once (Docker): command-palette and tag-pages — **69 passed, 1
+  flaky**: the old "live search surfaces a recipe and Enter navigates to
+  it" (three-recipes, no holidays) timed out at 5 s on its first try,
+  waiting for `/recipe/first-recipe` while `next dev` compiled the route,
+  and passed on the retry.
+- Export: `next build` against a scratch copy of drinks-bar (`○
+/search/terms`, `● /holidays/*`), served, and driven in Chromium with the
+  clock on 18 Oct 2026: Coming up `Halloween · in 13 days`, `Christmas · in
+68 days`; "almanac" offers Holidays in Go to; "christ" gives `Christmas ·
+in 68 days`, which opens `/holidays/christmas`; no `/api` request.
+
+#### Traps (46e)
+
+- **Te1 — The index version is on a baseline.** `/git` prints it, so any
+  index-version bump (46f's next) moves `visual/git-page-e2e`; regenerate
+  it in Docker with the bump.
+- **Te2 — `vitest run -u <file>` through `heavy.sh` once ran the whole
+  suite.** The file filter was not applied, and `-u` rewrote every failing
+  inline snapshot it met (here the two intended ones). Check the test diff
+  after any `-u`.
+- **Te3 — The host's Playwright browsers lag the package.** A host script
+  using the worktree's `@playwright/test` (build 1248) found no browser; it
+  ran with `executablePath` on the cached headless shell 1234. Specs are
+  unaffected (Docker).
+
 ### 46f: Per-option times for alternatives (M–L; after 46e, since both touch the index)
 
 - **Data.** Optional `prepTime` / `cookTime` / `totalTime` on a choice group, along the same path as the group's `recipeYield`:
