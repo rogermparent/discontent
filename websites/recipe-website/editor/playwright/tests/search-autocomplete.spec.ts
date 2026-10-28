@@ -11,7 +11,11 @@ import { WCAG_TAGS } from "../support/a11y";
 const SEARCH_TIMEOUT = 20_000;
 
 const searchField = (page: Page) => page.getByLabel("Search recipes");
-const ticker = (page: Page) => page.getByTestId("search-ticker");
+// Inside the visible <main>, as in `search-live.spec.ts` (42s-T1, 46b): a
+// hidden second copy of the page can linger, and a page-wide locator then
+// fails strict mode.
+const ticker = (page: Page) =>
+  page.getByRole("main").getByTestId("search-ticker");
 const suggestions = (page: Page) => page.getByTestId("query-autocomplete");
 const options = (page: Page) => page.getByTestId("query-autocomplete-option");
 /** Just the subject of each row — the hint beside it is prose, not the term. */

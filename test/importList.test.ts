@@ -40,6 +40,7 @@ import {
   SiteState,
   importList,
   inspectList,
+  recipeBySource,
   type Pacing,
 } from "../websites/recipe-website/editor/controller/curation/importList";
 import { importAndCreate } from "../websites/recipe-website/editor/controller/curation/importRecipe";
@@ -980,5 +981,40 @@ describe("the HTTP backend", () => {
     } finally {
       await new Promise<void>((resolve) => editor.close(() => resolve()));
     }
+  });
+});
+
+describe("recipeBySource: YouTube (46b)", () => {
+  it("finds a video by any spelling of its URL, and never another video", async () => {
+    await createRecipe(ctx, {
+      name: "Video Cake",
+      ingredients: ["1 egg"],
+      source: { url: "https://www.youtube.com/watch?v=AAAAAAAAAAA&t=12s" },
+    });
+    await createRecipe(ctx, {
+      name: "Short Pie",
+      ingredients: ["1 pear"],
+      source: { url: "https://youtu.be/BBBBBBBBBBB" },
+    });
+    const slugOf = async (url: string) =>
+      (await recipeBySource(ctx, url))?.slug;
+    /* Other hosts and spellings of the first video find it. */
+    for (const url of [
+      "https://youtu.be/AAAAAAAAAAA",
+      "https://m.youtube.com/watch?v=AAAAAAAAAAA",
+      "https://www.youtube.com/shorts/AAAAAAAAAAA",
+      "https://youtube.com/watch?v=AAAAAAAAAAA",
+    ]) {
+      expect(await slugOf(url), url).toBe("video-cake");
+    }
+    /* `www.youtube.com` finds the one saved from `youtu.be`. */
+    expect(await slugOf("https://www.youtube.com/watch?v=BBBBBBBBBBB")).toBe(
+      "short-pie",
+    );
+    /* The old collision: a third video is no duplicate of either. */
+    expect(
+      await slugOf("https://www.youtube.com/watch?v=CCCCCCCCCCC"),
+    ).toBeUndefined();
+    expect(await slugOf("https://youtu.be/CCCCCCCCCCC")).toBeUndefined();
   });
 });
