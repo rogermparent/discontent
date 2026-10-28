@@ -653,6 +653,8 @@ describe("the test allowance stays in tests", () => {
       "test-remotes",
       "out",
       "dist",
+      ".git",
+      ".claude",
     ]);
     const walk = async (dir: string) => {
       let entries;
@@ -679,8 +681,12 @@ describe("the test allowance stays in tests", () => {
       join(ROOT, "scripts"),
       join(ROOT, "deploy"),
       join(ROOT, ".github"),
-      ROOT,
     ]);
+    /* The root's own files (Dockerfiles, compose files, CI scripts), not
+     * its trees again — and never `.claude/worktrees`, other checkouts. */
+    for (const entry of await readdir(ROOT, { withFileTypes: true })) {
+      if (entry.isFile()) files.push(join(ROOT, entry.name));
+    }
     const allowed = new Set([
       "websites/recipe-website/editor/controller/urlGuard.ts",
       "websites/recipe-website/editor/playwright.config.ts",
