@@ -115,6 +115,71 @@ Epics 43–45's way of working, unchanged:
   - `TagPage/shared.tsx:339` passes `meta` with `formatTotalTime` (`util/planPage.ts:146`) to `RecipeListItem`.
   - The bump goes in its own commit.
 
+#### Results (46e)
+
+**⌘K holidays.**
+
+- `CommandPalette/holidayRows.ts` (pure): `paletteHolidays(model, count)`
+  takes the `holidays` root's children that lead somewhere (the term or
+  one under it carries something, by `/search/terms`' `count`), each with
+  its rule (`holidayRuleKey`, so an alias dates it) and the folded words of
+  its label, slug and aliases. `paletteHolidayRows(holidays, input, today)`
+  picks the rows.
+- **Empty or short input** (under 3 characters): a **Coming up** group with
+  the next 2 dated holidays within the homepage's 180-day window
+  (`withinComingUpWindow`): "Halloween · in 13 days", each to
+  `/holidays/<slug>`.
+- **While typing** (3+ characters): a **Holidays** group with up to 2
+  holidays that every free-text word starts a word of (`thanks`, `christ`,
+  an alias such as `xmas`), soonest first, undated last (no countdown). A
+  match is offered however far off it is. `halloween punch` is a search,
+  not a holiday; `tag:` terms are not words.
+- The group sits after Recipes, Groups, Narrow and Recent, so Enter still
+  opens the top recipe and an empty palette's Enter still re-runs the first
+  recent; with neither, the first holiday is cmdk's first row.
+- **Go to** has **Holidays** (`/holidays`, keywords "almanac", "holiday",
+  "seasonal", "calendar", "menus"), after Drinks, for readers and owners.
+- **Export:** nothing is fetched for it. The rows come from the facet model
+  and the terms the search context already holds, and the countdown from
+  `useToday` (the dialog renders only after hydration, so there is no
+  server-day mismatch and the export never counts from the build's day).
+
+**Term-page cards with times.**
+
+- The by-term row carries `totalTime` when the recipe has a total
+  (spread, so a row without one has no key); the recipe tag taxonomy is
+  version **"3"** (stored `1.3`), in its own commit. **Reindex: automatic**
+  — the 39b index-version stamp covers taxonomies, so the site's index
+  version moved (`reindexJobs.test.ts`' pin) and every instance rebuilds
+  once at start. Fixtures regenerated in their own commit.
+- `RecipeListEntry` gains an optional `totalTime`. Only the by-term row sets
+  it; `recipesByDate` does not project it, so `/recipes` pages and their
+  hashes are unchanged (a type-only edit to `paginationConfigs.ts`, no bump).
+- The other readers of the row: `/drinks` (`DrinkCard` spreads the row, so
+  it carries the field and renders nothing new), the holiday pages and
+  `holiday_get` (`holidayRecipeOf` builds its own shape), `/tags`' board and
+  counts (slug and tags only), the homepage's season strips (`seasonPicks`
+  picks fields). None changes.
+- Cards: `RecipeList` takes a `meta` per card and `ClientListItem` a `meta`
+  line; the term page's grid, a root page's newest list and the narrowed
+  grid (the browser's cards after a Narrow chip) pass `cardTime` — "1 h 2 m"
+  (`formatTotalTime`, the plan page's short form) — and a card with no
+  total keeps its date. The list view is unchanged (it showed no date).
+- Prep plus cook is **not** summed into the row: a total is what the
+  recipe says (`minutesOf` in search does sum them).
+
+**Roger to confirm.**
+
+- "Short input" is under 3 characters: 1–2 typed characters still show
+  Coming up, not matches.
+- Up to 2 rows in both modes; a typed match shows even when it is months
+  away.
+- The time format is the plan page's "1 h 2 m", not "1 h 2 min".
+- A card shows only a recipe's own `totalTime`; a recipe with prep and cook
+  but no total keeps its date.
+
+**Gates.** _(filled in after the gates)_
+
 ### 46f: Per-option times for alternatives (M–L; after 46e, since both touch the index)
 
 - **Data.** Optional `prepTime` / `cookTime` / `totalTime` on a choice group, along the same path as the group's `recipeYield`:
