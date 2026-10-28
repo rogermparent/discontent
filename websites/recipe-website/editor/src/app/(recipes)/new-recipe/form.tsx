@@ -553,6 +553,13 @@ export default function NewOrImportRecipeForm({
             ? { text: "blank" }
             : {};
 
+  /* 46h (43e1-28): typed into Start from, or picked photos — Cancel asks. */
+  const startTyped =
+    importUrl.trim() !== (initialImportUrl ?? "").trim() ||
+    pastedText.trim() !== "" ||
+    pastedSource.trim() !== "" ||
+    photos.length > 0;
+
   const wide = useWideRail();
   const copyNotice =
     copyChosen && sameSource ? (
@@ -1110,6 +1117,7 @@ export default function NewOrImportRecipeForm({
           saveLabel="Create recipe"
           baseline={baseline}
           cancelHref="/"
+          askBeforeCancel={filled || !!submissionState.formData || startTyped}
           busy={busy}
           message={submissionState.message || undefined}
           overwrite={

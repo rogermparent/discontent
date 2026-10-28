@@ -771,6 +771,43 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
         await checkNamesInOrder(page, [newRecipeTitle]);
       });
 
+      test("Cancel asks before discarding what was typed (46h, 43e1-28)", async ({
+        page,
+        baseURL,
+      }) => {
+        /* Nothing typed: Cancel is a plain link home. */
+        await expect(
+          page.getByRole("link", { name: "Cancel", exact: true }),
+        ).toBeVisible();
+
+        await page.getByLabel("Name").first().fill("Half a recipe");
+        const cancel = page.getByRole("button", {
+          name: "Cancel",
+          exact: true,
+        });
+        await cancel.click();
+        const dialog = page.getByRole("alertdialog", {
+          name: "Discard this recipe?",
+        });
+        await expect(dialog).toBeVisible();
+        /* Keep editing closes it and keeps the name. */
+        await dialog.getByRole("button", { name: "Keep editing" }).click();
+        await expect(dialog).toHaveCount(0);
+        await expect(page).toHaveURL(/\/new-recipe$/);
+        await expect(page.getByLabel("Name").first()).toHaveValue(
+          "Half a recipe",
+        );
+
+        /* Typed into Start from only: it asks too. */
+        await page.getByLabel("Name").first().clear();
+        await page
+          .getByLabel("Import from URL")
+          .fill(new URL("/uploads/naan.html", baseURL!).href);
+        await cancel.click();
+        await dialog.getByRole("link", { name: "Discard" }).click();
+        await expect(page).toHaveURL(/\/$/);
+      });
+
       test("should trim pasted instructions", async ({ page }) => {
         await expect(
           page.getByRole("heading", { name: "New Recipe" }),
