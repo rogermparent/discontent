@@ -142,6 +142,7 @@ export async function RecipeView({
                       {video && (
                         <VideoPlayer
                           src={resolveRecipeVideoSrc(slug, video)}
+                          title={`Video: ${name}`}
                           className="object-cover absolute w-full h-full inset-0"
                           /* A recipe from a several-recipe video starts at its
                        chapter (36e): YouTube's `t=` is not read by the

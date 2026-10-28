@@ -15,7 +15,11 @@ import { WCAG_TAGS } from "../support/a11y";
 
 const SEARCH_TIMEOUT = 20_000;
 
-const ticker = (page: Page) => page.getByTestId("search-ticker");
+// Inside the visible <main>, as in `search-live.spec.ts` (42s-T1, 46b): a
+// hidden second copy of the page can linger, and a page-wide locator then
+// fails strict mode.
+const ticker = (page: Page) =>
+  page.getByRole("main").getByTestId("search-ticker");
 const recentGroup = (page: Page) => page.getByTestId("palette-recent-group");
 const filterGroup = (page: Page) => page.getByTestId("palette-filter-group");
 /** PR 21b's rows that write a term into the field. Not PR 20's retired group. */

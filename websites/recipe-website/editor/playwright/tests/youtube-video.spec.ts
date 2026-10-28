@@ -94,6 +94,12 @@ test.describe("YouTube Video Support", () => {
         await page.getByLabel("Video URL").blur();
 
         await expect(page.locator("youtube-video")).toBeAttached();
+        /* The embed's iframe is named for the recipe (46b: axe's
+         * frame-title), on the form's preview and on the page. */
+        await expect(page.locator("youtube-video iframe")).toHaveAttribute(
+          "title",
+          "Video: YouTube Recipe Test",
+        );
 
         await page
           .getByRole("button", { name: "Create recipe", exact: true })
@@ -104,6 +110,10 @@ test.describe("YouTube Video Support", () => {
         await expect(page.locator("youtube-video iframe")).toHaveAttribute(
           "src",
           /https:\/\/www\.youtube\.com\/embed\/jNQXAC9IVRw/,
+        );
+        await expect(page.locator("youtube-video iframe")).toHaveAttribute(
+          "title",
+          "Video: YouTube Recipe Test",
         );
       });
 

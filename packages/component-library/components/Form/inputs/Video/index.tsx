@@ -14,6 +14,7 @@ export function VideoInput({
   id,
   clearVideoName = "clearVideo",
   initial,
+  previewTitle = "Video preview",
 }: {
   defaultVideo?: string;
   videoToImport?: string;
@@ -22,6 +23,8 @@ export function VideoInput({
   name: string;
   clearVideoName?: string;
   id?: string;
+  /** The preview player's accessible name (46b): "Video: Apple Pie". */
+  previewTitle?: string;
   /**
    * What the field held before its form remounted (a recipe fill, 45b):
    * the mode, the URL text, a picked file, the remove box. Read at mount.
@@ -259,6 +262,7 @@ export function VideoInput({
             src={previewSrc}
             className="w-full"
             poster=""
+            title={previewTitle}
           />
           {inputMode === "file" && videoPreviewURL && (
             <button

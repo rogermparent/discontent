@@ -101,13 +101,19 @@ export async function signIn(
  * signal a spec wants. Pass `scope` to target the field inside the featured-
  * recipe picker dialog. Route every spec's search through here, so the next
  * change to the search surface touches one place.
+ *
+ * The visible field only (46b): a hidden second copy of `/search` can
+ * linger while it loads (41-Th6, 42s-T1), and a strict locator then meets
+ * two fields. `fill` needs a visible field anyway.
  */
 export async function searchFor(
   page: Page,
   query: string,
   scope?: Locator,
 ): Promise<void> {
-  const field = (scope ?? page).getByLabel("Search recipes");
+  const field = (scope ?? page)
+    .getByLabel("Search recipes")
+    .filter({ visible: true });
   await field.clear();
   await field.fill(query);
   await field.press("Enter");
