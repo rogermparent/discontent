@@ -48,6 +48,7 @@ import { getIndexDirectory } from "@discontent/cms/content/database";
 import { environmentExists } from "@discontent/cms/lmdb/environmentCache";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
 import { hostnameLabel } from "recipe-website-common/util/hostnameLabel";
+import { isYouTubeHost } from "recipe-website-common/util/videoUrl";
 import {
   isVideoUrl,
   type FetchedPage,
@@ -189,12 +190,19 @@ async function existingBySource(
   ) {
     return { found, warnings: [MISSING_INDEX_WARNING] };
   }
+  /* Every YouTube host is one (46b): a `youtu.be` link finds the recipe
+   * saved from `www.youtube.com/watch?v=…`, and `m.youtube.com` the one
+   * saved from `youtu.be`. */
+  const hostKey = (host: string) => (isYouTubeHost(host) ? "youtube" : host);
   const hosts = new Set(
-    urls.map(hostnameLabel).filter((host): host is string => Boolean(host)),
+    urls
+      .map(hostnameLabel)
+      .filter((host): host is string => Boolean(host))
+      .map(hostKey),
   );
   if (hosts.size === 0) return { found, warnings: [] };
   const rows = (await readAllRecipeRows(ctx)).filter(
-    (row) => row.sourceHost && hosts.has(row.sourceHost),
+    (row) => row.sourceHost && hosts.has(hostKey(row.sourceHost)),
   );
   const details = await Promise.all(
     rows.map((row) => getRecipe(ctx, row.slug).catch(() => undefined)),
@@ -211,7 +219,8 @@ async function existingBySource(
  * The recipe already imported from `url`, if there is one (43e1: the new
  * recipe form's duplicate check at Import time) — the roundup's own
  * `existingBySource`, so the two agree on what "the same link" is
- * (`sourceUrlKey`: no hash, no trailing slash). Nothing when the index is
+ * (`sourceUrlKey`: no hash, no trailing slash, one key per YouTube video).
+ * Nothing when the index is
  * not built: the check only informs, and the slug conflict at Create still
  * stands behind it.
  */
