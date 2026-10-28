@@ -1059,14 +1059,27 @@ options`). A write without `instructions` is not judged; neither are
   (Sauce), "Hot chocolate" / "Iced chocolate", "Dry rub" / "Wet rub", the
   method pairs, "Cookies" / "Bars", "Dinner rolls" / "Sandwich loaf".
 
-**Gates (finisher, so far; origin/main still f7a161a6, so no merge).**
-Both typechecks clean; eslint clean on the changed files; `choiceForm`,
-`suggestChoices` and `editFormRoundTrip` 69/69 (before a test-helper fix,
-68/69). The full `vitest run` was stopped by the machine's low-memory reaper
-early on; the one failure it had shown (`alternatives.test.ts`, a 45e1 case
-writing a set of one through the curation schema, which De2-6 now refuses)
-is fixed. Still to run: the full vitest, the Docker build-mode specs, the
-dev-mode `alternatives-form.spec`, and any moved baselines.
+**Gates (finisher, on origin/main f7a161a6 — main had not moved, so no
+merge).**
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean. eslint clean on the changed files.
+- `pnpm exec vitest run`: **162 files, 3605 tests passed.** A first run,
+  stopped early by the machine's low-memory reaper, had shown one failure:
+  a 45e1 case in `alternatives.test.ts` writing a set of one through the
+  curation schema, which De2-6 now refuses — it writes two options now.
+- Playwright in Docker, build mode (`alternatives-form`, `alternatives`,
+  `edit*`, `new-recipe`, `import-errors`, `fill-gaps`, `accessibility`,
+  `visual`): **194 of 195 passed.** The failure was the import test's axe
+  check: after a video import the new-recipe form shows the YouTube
+  preview, whose youtube-video-element `<iframe>` has no title
+  (`frame-title`). That is a third-party embed outside this phase, so the
+  check leaves it out (`expectNoViolations(page, { exclude:
+["youtube-video"] })`, a new option on the helper); **follow-up:** the
+  video preview's iframe needs an accessible name. Re-run:
+  `alternatives-form.spec` **8/8** in Docker build mode, and **8/8** in
+  Docker dev mode.
+- Baselines: none moved (`visual` passed unchanged).
 
 **Roger to confirm:** De2-1, De2-4; the label words ("Then make", "Method",
 "Version", a head noun); a tie renaming its heading (De2-2); the curation

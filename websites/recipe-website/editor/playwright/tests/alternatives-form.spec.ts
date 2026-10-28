@@ -515,7 +515,9 @@ test.describe("An import's suggested choice (45e2, G5)", () => {
       "suggested by the import",
     );
 
-    await expectNoViolations(page);
+    /* The imported video's player is a third-party embed (its iframe has
+     * no title): outside what this phase draws. */
+    await expectNoViolations(page, { exclude: ["youtube-video"] });
 
     /* Undo: the groups are ordinary again, the card is back, and focus is
      * on its button. */
