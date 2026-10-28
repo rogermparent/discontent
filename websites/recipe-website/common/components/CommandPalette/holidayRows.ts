@@ -7,7 +7,7 @@ import {
   withinComingUpWindow,
   type CalendarDay,
 } from "../../util/holidays";
-import { fold, parseQuery } from "../SearchForm/queryLanguage";
+import { fold } from "../SearchForm/queryLanguage";
 
 /**
  * The ⌘K palette's holiday rows (46e): the next holidays on an empty or
@@ -83,6 +83,27 @@ export function paletteHolidays(
 }
 
 /**
+ * The words a reader typed *for* something: not a filter term (`tag:x`,
+ * anything with a colon), not a negated word (`-cookie`), and not the word
+ * after a NOT, in any case ("not christmas" asks for anything but).
+ */
+function positiveWords(input: string): string[] {
+  const words: string[] = [];
+  let negate = false;
+  for (const token of input.split(/\s+/)) {
+    if (!token) continue;
+    if (token.toLowerCase() === "not") {
+      negate = true;
+      continue;
+    }
+    const skip = negate || token.startsWith("-") || token.includes(":");
+    negate = false;
+    if (!skip) words.push(token.replace(/[()"]/g, ""));
+  }
+  return words;
+}
+
+/**
  * Whether every typed word starts a word of the holiday's — "thanks",
  * "christmas eve", "xmas" (an alias) — so a query that also says something
  * else ("halloween punch") is a recipe search, not a holiday.
@@ -106,9 +127,10 @@ export interface PaletteHolidayRows {
  * - an empty or short input (`HOLIDAY_MATCH_MIN`): the next
  *   `PALETTE_HOLIDAY_LIMIT` dated holidays within the homepage's coming-up
  *   window (`withinComingUpWindow`, 180 days);
- * - otherwise: the holidays every free-text word names (`tag:` and other
- *   filter terms are not words), soonest first, undated ones after — a
- *   match is offered however far off it is, since the reader asked for it.
+ * - otherwise: the holidays every typed word names (`positiveWords`:
+ *   filter terms, negated words and a NOT's word are not words), soonest
+ *   first, undated ones after — a match is offered however far off it is,
+ *   since the reader asked for it.
  */
 export function paletteHolidayRows(
   holidays: readonly PaletteHoliday[],
@@ -123,7 +145,7 @@ export function paletteHolidayRows(
       rows: withinComingUpWindow([...holidays], today).slice(0, limit),
     };
   }
-  const typed = wordsOf(parseQuery(trimmed).text);
+  const typed = wordsOf(positiveWords(trimmed).join(" "));
   if (typed.length === 0) return { mode: "match", rows: [] };
   return {
     mode: "match",
