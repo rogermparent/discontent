@@ -109,3 +109,20 @@ export function claudeCostEstimate(
     usage.webSearchRequests * WEB_SEARCH_PRICE_ESTIMATE_USD;
   return Math.round(dollars * 1_000_000) / 1_000_000;
 }
+
+/**
+ * A run's cost budget (46d): about $1 a run, Roger's figure for the Claude
+ * curator (epic 46's context), unless `RECIPE_AGENT_MAX_COST_USD` says
+ * otherwise. A model with no price gets no cap: it has no estimate to check.
+ */
+export const DEFAULT_AGENT_MAX_COST_USD = 1;
+
+/** "$1.00": a budget in dollars, to the cent. */
+export function dollarText(usd: number): string {
+  return `$${usd.toFixed(2)}`;
+}
+
+/** How a run the cost budget ended is said, everywhere (46d). */
+export function costBudgetWords(maxUsd: number): string {
+  return `Stopped at the cost budget (${dollarText(maxUsd)})`;
+}

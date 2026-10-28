@@ -81,6 +81,20 @@ export const ANTHROPIC_WEB_SEARCH_TOOL_TYPE = "web_search_20250305";
 /** Claude's web fetch tool, the basic version for the same reasons (Ea3). No beta header. */
 export const ANTHROPIC_WEB_FETCH_TOOL_TYPE = "web_fetch_20250910";
 
+/**
+ * The newer versions (46d: Roger's "basic by default, allow toggle per-run"
+ * on Ea3): dynamic filtering — Claude writes and runs code that filters the
+ * results before they reach its context, which cuts tokens on a
+ * search-heavy run. GA, no beta header, and no `code_execution` tool to
+ * declare beside them (the API runs it under the hood). The response then
+ * carries code-execution blocks, kept raw and replayed as every block is
+ * (Ea4), and a `container`, sent back on the run's later requests
+ * (`claudeToolsBody`). Not ZDR-eligible (Ea3). Chosen per run
+ * (`newerWebTools`).
+ */
+export const ANTHROPIC_WEB_SEARCH_TOOL_TYPE_NEWER = "web_search_20260209";
+export const ANTHROPIC_WEB_FETCH_TOOL_TYPE_NEWER = "web_fetch_20260209";
+
 /** The server tools' `name`s: fixed by the API. */
 export const SERVER_TOOL_NAMES: Readonly<Record<ServerTool["kind"], string>> = {
   web_search: "web_search",
@@ -118,6 +132,11 @@ export interface ChatToolsRequest {
   think?: boolean;
   /** Claude's `output_config.effort`, sent only to a model that takes it; its default when unset. */
   effort?: string;
+  /**
+   * Claude's server tools in their newer versions (46d): dynamic filtering.
+   * Ignored by the other styles, and when there are no server tools.
+   */
+  newerWebTools?: boolean;
   timeoutMs?: number;
   /** The caller's abort; default the job's. */
   signal?: AbortSignal;
@@ -374,10 +393,26 @@ function withoutAbandonedServerCalls(messages: WireMessage[]): WireMessage[] {
   });
 }
 
+/** A server tool's `type`: the basic version (Ea3), or the newer one (46d). */
+export function serverToolType(
+  kind: ServerTool["kind"],
+  newer = false,
+): string {
+  if (kind === "web_search") {
+    return newer
+      ? ANTHROPIC_WEB_SEARCH_TOOL_TYPE_NEWER
+      : ANTHROPIC_WEB_SEARCH_TOOL_TYPE;
+  }
+  return newer
+    ? ANTHROPIC_WEB_FETCH_TOOL_TYPE_NEWER
+    : ANTHROPIC_WEB_FETCH_TOOL_TYPE;
+}
+
 /** Claude's `tools`: ours with `input_schema`, then the server tools (E6). */
 export function claudeTools(
   tools: ToolSpec[],
   serverTools: ServerTool[] = [],
+  newerWebTools = false,
 ): Record<string, unknown>[] {
   const served = new Set(
     serverTools.map((tool) => SERVER_TOOL_NAMES[tool.kind]),
@@ -391,10 +426,7 @@ export function claudeTools(
         input_schema: wireSchema(tool.inputSchema),
       })),
     ...serverTools.map((tool) => ({
-      type:
-        tool.kind === "web_search"
-          ? ANTHROPIC_WEB_SEARCH_TOOL_TYPE
-          : ANTHROPIC_WEB_FETCH_TOOL_TYPE,
+      type: serverToolType(tool.kind, newerWebTools),
       name: SERVER_TOOL_NAMES[tool.kind],
       ...(tool.maxUses !== undefined ? { max_uses: tool.maxUses } : {}),
       ...(tool.allowedDomains?.length
@@ -419,9 +451,26 @@ function withCacheBreakpoint(messages: WireMessage[]): WireMessage[] {
   });
 }
 
+/**
+ * The code-execution container the conversation's newest Claude turn ran in
+ * (46d: the newer web tools' dynamic filtering), if it said one.
+ */
+export function lastContainer(messages: AgentMessage[]): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.role !== "assistant") continue;
+    if (message.raw?.api === "anthropic" && message.raw.container) {
+      return message.raw.container;
+    }
+  }
+  return undefined;
+}
+
 /** The Messages API request for a turn (before any `pause_turn` continuation). */
 export function claudeToolsBody(request: ChatToolsRequest, config: LlmConfig) {
-  const tools = claudeTools(request.tools, request.serverTools);
+  const newer = !!request.newerWebTools && !!request.serverTools?.length;
+  const tools = claudeTools(request.tools, request.serverTools, newer);
+  const container = newer ? lastContainer(request.messages) : undefined;
   return {
     model: config.model,
     max_tokens: ANTHROPIC_MAX_TOKENS,
@@ -437,7 +486,18 @@ export function claudeToolsBody(request: ChatToolsRequest, config: LlmConfig) {
     ...(request.effort && takesEffort(config.model)
       ? { output_config: { effort: request.effort } }
       : {}),
+    ...(container ? { container } : {}),
   };
+}
+
+/** A response's `container.id` (the newer web tools' code execution), if any. */
+function containerOf(body: Record<string, unknown>): string | undefined {
+  const container = body.container;
+  if (typeof container === "string" && container) return container;
+  if (isObject(container) && typeof container.id === "string" && container.id) {
+    return container.id;
+  }
+  return undefined;
 }
 
 function count(value: unknown): number {
@@ -501,6 +561,9 @@ function serverResult(content: unknown): NonNullable<ServerToolUse["result"]> {
   return { ok: false };
 }
 
+/** A code-execution block's name or type (`code_execution`, `bash_code_execution_tool_result`…). */
+const CODE_EXECUTION = /code_execution/;
+
 /**
  * A Claude turn's content blocks read: the text, our tool calls, and the
  * server tools' calls paired with their results by `tool_use_id` (a result
@@ -514,6 +577,7 @@ export function readClaudeContent(content: unknown[]): {
   const texts: string[] = [];
   const toolCalls: AgentToolCall[] = [];
   const uses = new Map<string, ServerToolUse>();
+  const hidden = new Set<string>();
   for (const block of content) {
     if (!isObject(block)) continue;
     if (block.type === "text" && typeof block.text === "string") {
@@ -527,12 +591,22 @@ export function readClaudeContent(content: unknown[]): {
       });
     } else if (block.type === "server_tool_use") {
       const id = String(block.id ?? "");
-      uses.set(id, { id, name: String(block.name ?? ""), input: block.input });
+      const name = String(block.name ?? "");
+      /* 46d: the newer web tools' own code runs (dynamic filtering) are
+       * part of the search, not a step of their own: kept raw, not shown. */
+      if (CODE_EXECUTION.test(name)) {
+        hidden.add(id);
+        continue;
+      }
+      uses.set(id, { id, name, input: block.input });
     } else if (
       typeof block.type === "string" &&
       block.type.endsWith("_tool_result") &&
       typeof block.tool_use_id === "string"
     ) {
+      if (CODE_EXECUTION.test(block.type) || hidden.has(block.tool_use_id)) {
+        continue;
+      }
       const id = block.tool_use_id;
       const use = uses.get(id) ?? {
         id,
@@ -579,6 +653,9 @@ async function claudeTurn(
   let usage = emptyUsage();
   let apiStop: unknown;
   let pauses = 0;
+  /* 46d: the newer web tools' container, carried into a continuation. */
+  let container: string | undefined =
+    "container" in base ? base.container : undefined;
   for (;;) {
     const messages =
       content.length > 0
@@ -586,7 +663,11 @@ async function claudeTurn(
         : base.messages;
     const body = await postClaude(
       config,
-      JSON.stringify({ ...base, messages }),
+      JSON.stringify({
+        ...base,
+        messages,
+        ...(container ? { container } : {}),
+      }),
       {
         timeoutMs: request.timeoutMs ?? ANTHROPIC_TIMEOUT_MS,
         signal,
@@ -595,6 +676,7 @@ async function claudeTurn(
     );
     content = content.concat(Array.isArray(body.content) ? body.content : []);
     usage = addUsage(usage, claudeUsage(body.usage));
+    if (request.newerWebTools) container = containerOf(body) ?? container;
     apiStop = body.stop_reason;
     if (apiStop !== "pause_turn" || pauses >= CLAUDE_PAUSE_CONTINUATIONS) break;
     pauses += 1;
@@ -635,7 +717,11 @@ async function claudeTurn(
       ...(read.serverToolUses.length
         ? { serverToolUses: read.serverToolUses }
         : {}),
-      raw: { api: "anthropic", content },
+      raw: {
+        api: "anthropic",
+        content,
+        ...(request.newerWebTools && container ? { container } : {}),
+      },
     },
     stop: claudeStop(apiStop),
     ...(typeof apiStop === "string" ? { apiStop } : {}),

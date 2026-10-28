@@ -44,7 +44,14 @@ import {
   type TranscriptRecord,
 } from "../websites/recipe-website/editor/controller/agent/transcript";
 import { LOCAL_AGENT_TOOLS } from "../websites/recipe-website/editor/controller/agent/prompt";
-import { ANTHROPIC_WEB_SEARCH_TOOL_TYPE } from "../websites/recipe-website/editor/controller/llm/tools";
+import {
+  ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
+  ANTHROPIC_WEB_SEARCH_TOOL_TYPE_NEWER,
+} from "../websites/recipe-website/editor/controller/llm/tools";
+import {
+  AGENT_MAX_COST_CEILING_USD,
+  agentCostBudget,
+} from "../websites/recipe-website/editor/controller/agent/job";
 import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
 import { cancelJob } from "../websites/recipe-website/editor/controller/jobs/run";
 import {
@@ -72,7 +79,12 @@ interface ModelCall {
   };
 }
 
-type Turn = { content: unknown[]; stop?: string };
+type Turn = {
+  content: unknown[];
+  stop?: string;
+  usage?: Record<string, unknown>;
+  container?: unknown;
+};
 
 const text = (value: string) => ({ type: "text", text: value });
 const toolUse = (id: string, name: string, input: unknown) => ({
@@ -108,7 +120,8 @@ function stubFetch(
             model: "claude-sonnet-5",
             content: turn.content,
             stop_reason: turn.stop ?? "end_turn",
-            usage: { input_tokens: 1000, output_tokens: 50 },
+            usage: turn.usage ?? { input_tokens: 1000, output_tokens: 50 },
+            ...(turn.container ? { container: turn.container } : {}),
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
@@ -379,6 +392,141 @@ describe("the agent job kind", () => {
       "web_search",
     );
     expect(bodies[0].messages[0].content).toContain("There is no web search");
+  });
+
+  it("stops a Claude run at its cost budget (46d): a clean stop, said in the job and the transcript", async () => {
+    vi.stubEnv("RECIPE_AGENT_MAX_COST_USD", "0.25");
+    /* Claude Sonnet 5: 100k input + 1k output tokens ≈ $0.21 a turn. */
+    const usage = { input_tokens: 100_000, output_tokens: 1_000 };
+    const calls = stubFetch([
+      {
+        content: [toolUse("toolu_c1", "recipe_search", { query: "pie" })],
+        stop: "tool_use",
+        usage,
+      },
+      {
+        content: [toolUse("toolu_c2", "recipe_search", { query: "tart" })],
+        stop: "tool_use",
+        usage,
+      },
+      { content: [text("never reached")] },
+    ]);
+    const started = await startAgentRun(ctx, { prompt: "find pies" });
+    await started.done;
+    expect(calls).toHaveLength(2);
+
+    const meta = await readJobMeta(dir, started.job);
+    /* A budget's end is not a failure (44c). */
+    expect(meta?.status).toBe("done");
+    expect(meta?.result).toMatchObject({
+      stopReason: "budget:cost",
+      maxCostUsd: 0.25,
+      error: "Stopped at the cost budget ($0.25): about $0.42 spent",
+      turns: 2,
+      toolCalls: 2,
+    });
+    const records = await transcriptOf(started.job);
+    expect(records[0]).toMatchObject({ type: "start", maxCostUsd: 0.25 });
+    expect(records.at(-1)).toMatchObject({
+      type: "end",
+      stop: "budget:cost",
+      maxCostUsd: 0.25,
+    });
+    const { lines } = await readJobLog(dir, started.job);
+    expect(JSON.stringify(lines)).toContain(
+      "Stopped at the cost budget ($0.25)",
+    );
+  });
+
+  it("gives a Claude run the newer web tools when asked, keeps them on a follow-up, and a local model ignores them (46d)", async () => {
+    const calls = stubFetch([
+      { content: [text("Searched.")], container: { id: "container_01" } },
+      { content: [text("Again.")] },
+      { content: [text("Basic.")] },
+    ]);
+    const first = await startAgentRun(ctx, {
+      prompt: "find cookies",
+      newerWebTools: true,
+    });
+    await first.done;
+    const search = (index: number) =>
+      calls[index].body.tools.filter((tool) => tool.name === "web_search");
+    expect(search(0)).toEqual([
+      {
+        type: ANTHROPIC_WEB_SEARCH_TOOL_TYPE_NEWER,
+        name: "web_search",
+        max_uses: 5,
+      },
+    ]);
+    expect((await readJobMeta(dir, first.job))?.spec).toMatchObject({
+      newerWebTools: true,
+    });
+    expect((await readJobMeta(dir, first.job))?.result).toMatchObject({
+      newerWebTools: true,
+      maxCostUsd: 1,
+    });
+    expect((await transcriptOf(first.job))[0]).toMatchObject({
+      type: "start",
+      newerWebTools: true,
+    });
+
+    /* A follow-up keeps the conversation's setting, and its container. */
+    const second = await startAgentRun(ctx, {
+      prompt: "two more",
+      runId: first.job,
+    });
+    await second.done;
+    expect(search(1)[0].type).toBe(ANTHROPIC_WEB_SEARCH_TOOL_TYPE_NEWER);
+    expect((calls[1].body as Record<string, unknown>).container).toBe(
+      "container_01",
+    );
+    expect((await readJobMeta(dir, second.job))?.spec).toMatchObject({
+      newerWebTools: true,
+    });
+
+    /* The default stays basic. */
+    const third = await startAgentRun(ctx, { prompt: "plain" });
+    await third.done;
+    expect(search(2)[0].type).toBe(ANTHROPIC_WEB_SEARCH_TOOL_TYPE);
+    expect((await readJobMeta(dir, third.job))?.spec).not.toHaveProperty(
+      "newerWebTools",
+    );
+
+    /* A local model has no server tools: ignored, and the log says so. */
+    vi.stubEnv("RECIPE_LLM_API", "openai");
+    vi.stubEnv("RECIPE_LLM_URL", "http://model.test/v1");
+    vi.stubEnv("RECIPE_LLM_API_KEY", "");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: { role: "assistant", content: "ok" },
+                  finish_reason: "stop",
+                },
+              ],
+              usage: { prompt_tokens: 9, completion_tokens: 1 },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    const local = await startAgentRun(ctx, {
+      prompt: "find cookies",
+      newerWebTools: true,
+    });
+    await local.done;
+    const result = (await readJobMeta(dir, local.job))?.result as
+      AgentJobResult | undefined;
+    expect(result?.stopReason).toBe("done");
+    expect(result).not.toHaveProperty("newerWebTools");
+    expect(result).not.toHaveProperty("maxCostUsd");
+    expect(JSON.stringify((await readJobLog(dir, local.job)).lines)).toContain(
+      "ignored newerWebTools",
+    );
   });
 
   it("follows up on a run: its transcript is the history, and the new one holds it all", async () => {
@@ -736,6 +884,50 @@ describe("the agent job kind", () => {
     await expect(readFile(file, "utf8")).rejects.toMatchObject({
       code: "ENOENT",
     });
+  });
+});
+
+describe("agentCostBudget (46d)", () => {
+  const claude = { api: "anthropic" as const, model: "claude-sonnet-5" };
+
+  it("caps a priced Claude model at $1 unless the env says otherwise", () => {
+    expect(agentCostBudget(claude, {})).toEqual({ maxCostUsd: 1 });
+    expect(
+      agentCostBudget(claude, { RECIPE_AGENT_MAX_COST_USD: "2.5" }),
+    ).toEqual({ maxCostUsd: 2.5 });
+    expect(
+      agentCostBudget(claude, { RECIPE_AGENT_MAX_COST_USD: "$0.40" }),
+    ).toEqual({ maxCostUsd: 0.4 });
+    for (const bad of [
+      "0",
+      "-1",
+      "lots",
+      String(AGENT_MAX_COST_CEILING_USD + 1),
+    ]) {
+      const budget = agentCostBudget(claude, {
+        RECIPE_AGENT_MAX_COST_USD: bad,
+      });
+      expect(budget.maxCostUsd).toBe(1);
+      expect(budget.ignored).toContain("RECIPE_AGENT_MAX_COST_USD=");
+    }
+  });
+
+  it("gives no cap to a local model or a Claude model with no price", () => {
+    expect(
+      agentCostBudget(
+        { api: "ollama", model: "qwen3:8b" },
+        { RECIPE_AGENT_MAX_COST_USD: "1" },
+      ),
+    ).toEqual({});
+    const unpriced = agentCostBudget(
+      {
+        api: "anthropic",
+        model: "claude-unknown-9",
+      },
+      {},
+    );
+    expect(unpriced.maxCostUsd).toBeUndefined();
+    expect(unpriced.unpriced).toContain("no cost budget");
   });
 });
 

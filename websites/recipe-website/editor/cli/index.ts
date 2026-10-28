@@ -230,7 +230,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   git revert <hash> [--yes]
   git restore <type> <slug> <rev> [--yes]
   git push [<remote>] [--set-upstream]
-  agent "<ask>" [--run <id>] [--max-turns 1-40] [--verbose]
+  agent "<ask>" [--run <id>] [--max-turns 1-40] [--newer-web-tools] [--verbose]
 
 Globals: --json  --content-dir <dir>  --author "Name <email>"  --help
 Remote:  --remote <url>  |  --notify [--editor-url <url>]
@@ -284,6 +284,10 @@ Environment:
                        12288 (default) or 16384; read from editor/.env too
   RECIPE_AGENT_THINK   1 to let a local model think in \`agent\` runs
                        (default 0); read from editor/.env too
+  RECIPE_AGENT_MAX_COST_USD
+                       A Claude \`agent\` run's cost budget in dollars
+                       (default 1; at most 50): the run stops at it. A
+                       local model has no cap. Read from editor/.env too
   RECIPE_AUTHOR       "Name <email>" for local commits; same as --author
   CONTENT_DIRECTORY    Local content directory; same as --content-dir
   YTDLP_PATH           yt-dlp binary for video imports (else the Settings
@@ -433,7 +437,10 @@ create, terms, groups, the shopping list, web_fetch, and web_search — as a
 job, printing the model's words and each tool call as they happen. It
 writes (one commit per tool call), so a committer is needed. \`--run <id>\`
 follows up on a run with its conversation as history; \`--max-turns\` lowers
-the 40-turn budget. With --remote the editor runs it and this follows it (a
+the 40-turn budget. A Claude run stops at its cost budget
+(RECIPE_AGENT_MAX_COST_USD, default $1); \`--newer-web-tools\` gives it
+Claude's newer web search (dynamic filtering), kept on its follow-ups and
+ignored for a local model. With --remote the editor runs it and this follows it (a
 Ctrl-C stops following, not the run: \`jobs cancel <id>\`). --json prints one
 object at the end; exit 1 when the run failed, 130 when it was cancelled.
 

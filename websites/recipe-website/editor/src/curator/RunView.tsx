@@ -16,6 +16,7 @@ import {
   type Conversation,
 } from "recipe-editor/controller/agent/conversation";
 import type { CuratorRunChanges } from "recipe-editor/controller/agent/curator";
+import { dollarText } from "recipe-editor/controller/llm/cost";
 import type { TranscriptEnd } from "recipe-editor/controller/agent/transcript";
 import {
   describeWaiting,
@@ -23,8 +24,10 @@ import {
 } from "recipe-editor/controller/jobs/timeline";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
 import { requestCancel } from "@/jobs/useJobPoll";
+import { conversationUrls } from "recipe-editor/controller/agent/nearMiss";
 import { ChangesCard } from "./ChangesCard";
 import { CuratorMarkdown } from "./CuratorMarkdown";
+import { hostsOf } from "./links";
 import { PromptForm } from "./PromptForm";
 import { ToolRows } from "./ToolRows";
 import type { AgentRunPoll } from "./useAgentRun";
@@ -45,7 +48,7 @@ export function runNumbers({
   maxTurns?: number;
   toolCalls: number;
   durationMs?: number;
-  end?: Pick<TranscriptEnd, "usage" | "costEstimate">;
+  end?: Pick<TranscriptEnd, "usage" | "costEstimate" | "maxCostUsd">;
 }): string[] {
   const parts = [
     maxTurns
@@ -62,7 +65,14 @@ export function runNumbers({
     parts.push(
       `${tokenText(input)} tokens in, ${tokenText(end.usage.outputTokens)} out`,
     );
-    if (end.costEstimate !== undefined) parts.push(costText(end.costEstimate));
+    if (end.costEstimate !== undefined) {
+      /* 46d: against the run's cost budget, when it had one. */
+      parts.push(
+        end.maxCostUsd !== undefined
+          ? `${costText(end.costEstimate)} of ${dollarText(end.maxCostUsd)}`
+          : costText(end.costEstimate),
+      );
+    }
   }
   return parts;
 }
@@ -201,6 +211,11 @@ export function RunView({
 
   const written = useMemo(
     () => runChanges(conversation.messages),
+    [conversation.messages],
+  );
+  /* 46d: the hosts the conversation has seen — a link there is a real page. */
+  const knownHosts = useMemo(
+    () => hostsOf(conversationUrls(conversation.messages)),
     [conversation.messages],
   );
   const writtenKey = `${written.commits}:${changeCount(written)}:${live}`;
@@ -345,7 +360,9 @@ export function RunView({
                   <p className="font-mono text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
                     Curator
                   </p>
-                  <CuratorMarkdown>{item.text}</CuratorMarkdown>
+                  <CuratorMarkdown knownHosts={knownHosts}>
+                    {item.text}
+                  </CuratorMarkdown>
                 </>
               ) : null}
               <ToolRows

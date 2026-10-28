@@ -47,6 +47,13 @@ export interface ChangedRecipe {
 
 export interface ChangedTerm {
   slug: string;
+  /**
+   * What `term_assign` calls did with it (46d), summed over the run: the
+   * carriers they put it on, and those that already carried it. Absent when
+   * no assign touched it (or an older transcript's did).
+   */
+  added?: number;
+  alreadyTagged?: number;
 }
 
 export interface ChangedGroup {
@@ -78,6 +85,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
+}
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 /**
@@ -129,7 +142,19 @@ class Collector {
   private readonly terms = new Set<string>();
   private readonly groups = new Set<string>();
   private readonly places = new Set<ChangedPlace>();
+  private readonly assignments = new Map<
+    string,
+    { added: number; alreadyTagged: number }
+  >();
   commits = 0;
+
+  /** A term_assign's counts (46d), summed per term. */
+  assigned(term: string, added: number, alreadyTagged: number) {
+    const known = this.assignments.get(term) ?? { added: 0, alreadyTagged: 0 };
+    known.added += added;
+    known.alreadyTagged += alreadyTagged;
+    this.assignments.set(term, known);
+  }
 
   recipe(slug: string | undefined, change: RecipeChange, name?: string) {
     if (!slug) return;
@@ -162,13 +187,19 @@ class Collector {
     for (const slug of summary.terms ?? []) this.term(slug);
     for (const slug of summary.groups ?? []) this.group(slug);
     for (const place of summary.places ?? []) this.place(place);
+    for (const item of summary.assigned ?? []) {
+      this.assigned(item.term, item.added, item.alreadyTagged);
+    }
     this.commits += summary.commits;
   }
 
   done(): RunChanges {
     return {
       recipes: [...this.recipes.values()],
-      terms: [...this.terms].map((slug) => ({ slug })),
+      terms: [...this.terms].map((slug) => ({
+        slug,
+        ...this.assignments.get(slug),
+      })),
       groups: [...this.groups].map((slug) => ({ slug })),
       places: [...this.places],
       commits: this.commits,
@@ -193,12 +224,16 @@ class Collector {
     );
     const terms = capped(done.terms.map(({ slug }) => slug));
     const groups = capped(done.groups.map(({ slug }) => slug));
+    const assigned = capped(
+      [...this.assignments].map(([term, counts]) => ({ term, ...counts })),
+    );
     return {
       commits: done.commits,
       ...(recipes.length ? { recipes } : {}),
       ...(terms.length ? { terms } : {}),
       ...(groups.length ? { groups } : {}),
       ...(done.places.length ? { places: done.places } : {}),
+      ...(assigned.length ? { assigned } : {}),
     };
   }
 }
@@ -272,16 +307,21 @@ function collect(
       return;
     }
     case "term_assign": {
-      const updated = Array.isArray(result.updated)
-        ? result.updated.filter(
-            (slug): slug is string => typeof slug === "string",
-          )
-        : [];
+      const updated = strings(result.updated);
       if (updated.length === 0) return;
-      into.term(str(result.slug) ?? str(input.slug));
+      const term = str(result.slug) ?? str(input.slug);
+      into.term(term);
       for (const slug of updated) {
         if (input.type === "group") into.group(slug);
         else into.recipe(slug, "updated");
+      }
+      /* 46d: what the call added, and what already carried the term. */
+      if (term && Array.isArray(result.added)) {
+        into.assigned(
+          term,
+          strings(result.added).length,
+          strings(result.alreadyTagged).length,
+        );
       }
       into.commits += 1;
       return;
@@ -358,6 +398,20 @@ export function runChanges(messages: readonly AgentMessage[]): RunChanges {
     collect(into, call.name, isObject(call.input) ? call.input : {}, parsed);
   }
   return into.done();
+}
+
+/**
+ * A term's assignment counts in words (46d), as "What changed" shows them:
+ * "added 3, 2 already tagged", or nothing when no `term_assign` reported
+ * them.
+ */
+export function assignedNote(
+  term: Pick<ChangedTerm, "added" | "alreadyTagged">,
+): string | undefined {
+  if (term.added === undefined) return undefined;
+  const parts = [`added ${term.added}`];
+  if (term.alreadyTagged) parts.push(`${term.alreadyTagged} already tagged`);
+  return parts.join(", ");
 }
 
 /** How many things changed: recipes, terms, plans and places. */

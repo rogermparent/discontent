@@ -8,6 +8,7 @@
  * Pure and dependency-free (type imports only): it runs in the browser.
  */
 import type { LlmApi } from "../llm/client";
+import { costBudgetWords } from "../llm/cost";
 import type {
   TranscriptEnd,
   TranscriptRecord,
@@ -346,7 +347,14 @@ export function toolPhrase(
       if (removed > 0 && added === 0) {
         return `Untagged ${plural(updated ?? removed, what)}${slug ? ` ${slug}` : ""}`;
       }
-      return `Tagged ${plural(updated ?? added, what)}${slug ? ` ${slug}` : ""}`;
+      /* 46d: the result's own split — tagged now, and already tagged. */
+      const tagged = countArray(out?.added);
+      const already = countArray(out?.alreadyTagged) ?? 0;
+      const tail =
+        already > 0
+          ? ` (${already} already ${already === 1 ? "was" : "were"})`
+          : "";
+      return `Tagged ${plural(tagged ?? updated ?? added, what)}${slug ? ` ${slug}` : ""}${tail}`;
     }
     case "group_list":
       return "Listed the plans";
@@ -436,7 +444,11 @@ export function serverToolPhrase(use: ServerToolUse): string {
  */
 export function stopWords(
   end:
-    Pick<TranscriptEnd, "stop" | "error" | "turns" | "toolCalls"> | undefined,
+    | Pick<
+        TranscriptEnd,
+        "stop" | "error" | "turns" | "toolCalls" | "maxCostUsd"
+      >
+    | undefined,
   job?: { status?: string; failure?: string },
 ): string {
   if (!end) {
@@ -463,6 +475,10 @@ export function stopWords(
       return "Stopped: ran out of time";
     case "budget:tokens":
       return "Stopped: reached the token budget";
+    case "budget:cost":
+      return end.maxCostUsd !== undefined
+        ? costBudgetWords(end.maxCostUsd)
+        : "Stopped at the cost budget";
     case "budget:context":
       return "Stopped: the conversation outgrew the model's context";
     case "error":

@@ -50,7 +50,9 @@ import {
 import {
   ANTHROPIC_CACHE_CONTROL,
   ANTHROPIC_WEB_FETCH_TOOL_TYPE,
+  ANTHROPIC_WEB_FETCH_TOOL_TYPE_NEWER,
   ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
+  ANTHROPIC_WEB_SEARCH_TOOL_TYPE_NEWER,
   CLAUDE_PAUSE_CONTINUATIONS,
   addUsage,
   chatTools,
@@ -866,6 +868,199 @@ describe("chatTools — the Claude API", () => {
     });
     expect(calls[0].body!.output_config).toEqual({ effort: "medium" });
     expect(calls[1].body).not.toHaveProperty("output_config");
+  });
+});
+
+describe("chatTools — Claude's newer web tools (46d)", () => {
+  it("sends the basic server tools by default and the newer ones when asked, with no beta header", async () => {
+    const calls = stubApi([
+      json(claudeMessage([{ type: "text", text: "ok" }])),
+    ]);
+    for (const newerWebTools of [undefined, false, true]) {
+      await chatTools({
+        system: "s",
+        messages: ASK,
+        tools: [SEARCH],
+        serverTools: [{ kind: "web_search", maxUses: 5 }],
+        config: CLAUDE,
+        ...(newerWebTools !== undefined ? { newerWebTools } : {}),
+      });
+    }
+    const serverTool = (index: number) =>
+      (calls[index].body!.tools as Record<string, unknown>[]).find(
+        (tool) => tool.name === "web_search",
+      );
+    expect(serverTool(0)).toEqual({
+      type: ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
+      name: "web_search",
+      max_uses: 5,
+    });
+    expect(serverTool(1)).toEqual(serverTool(0));
+    expect(serverTool(2)).toEqual({
+      type: ANTHROPIC_WEB_SEARCH_TOOL_TYPE_NEWER,
+      name: "web_search",
+      max_uses: 5,
+    });
+    expect(ANTHROPIC_WEB_SEARCH_TOOL_TYPE_NEWER).toBe("web_search_20260209");
+    expect(ANTHROPIC_WEB_FETCH_TOOL_TYPE_NEWER).toBe("web_fetch_20260209");
+    /* Our own tools are the same either way; no `code_execution` declared. */
+    expect(
+      (calls[2].body!.tools as Record<string, unknown>[]).map((t) => t.name),
+    ).toEqual(["recipe_search", "web_search"]);
+    for (const call of calls) {
+      expect(call.headers["anthropic-beta"]).toBeUndefined();
+      expect(call.body!.container).toBeUndefined();
+    }
+  });
+
+  it("ignores the setting with no server tools, and for a local model", async () => {
+    const calls = stubApi([
+      json(claudeMessage([{ type: "text", text: "ok" }])),
+    ]);
+    await chatTools({
+      system: "s",
+      messages: ASK,
+      tools: [SEARCH],
+      config: CLAUDE,
+      newerWebTools: true,
+    });
+    expect(
+      (calls[0].body!.tools as Record<string, unknown>[]).map((t) => t.type),
+    ).toEqual([undefined]);
+
+    const local = stubApi([
+      json({
+        model: "qwen3:8b",
+        message: { role: "assistant", content: "ok" },
+        done: true,
+        done_reason: "stop",
+        prompt_eval_count: 10,
+        eval_count: 2,
+      }),
+    ]);
+    await chatTools({
+      system: "s",
+      messages: ASK,
+      tools: [SEARCH],
+      serverTools: [{ kind: "web_search" }],
+      config: OLLAMA,
+      newerWebTools: true,
+    });
+    expect(JSON.stringify(local[0].body)).not.toContain("web_search_2026");
+  });
+
+  it("hides dynamic filtering's code runs, keeps them raw, and carries the container", async () => {
+    const codeUse = {
+      type: "server_tool_use",
+      id: "srvtoolu_code",
+      name: "code_execution",
+      input: { code: "filter(results)" },
+    };
+    const searchUse = {
+      type: "server_tool_use",
+      id: "srvtoolu_search",
+      name: "web_search",
+      input: { query: "chewy cookies" },
+      caller: { type: "code_execution_20260120", tool_id: "srvtoolu_code" },
+    };
+    const searchResult = {
+      type: "web_search_tool_result",
+      tool_use_id: "srvtoolu_search",
+      content: [
+        {
+          type: "web_search_result",
+          url: "https://sallysbakingaddiction.com/chewy-cookies/",
+          title: "Chewy Cookies",
+          encrypted_content: "opaque",
+        },
+      ],
+    };
+    const codeResult = {
+      type: "code_execution_tool_result",
+      tool_use_id: "srvtoolu_code",
+      content: {
+        type: "code_execution_result",
+        stdout: "1 hit",
+        return_code: 0,
+      },
+    };
+    const calls = stubApi([
+      () =>
+        new Response(
+          JSON.stringify({
+            ...claudeMessage(
+              [{ type: "text", text: "Searching. " }, codeUse, searchUse],
+              "pause_turn",
+            ),
+            container: {
+              id: "container_011",
+              expires_at: "2026-10-28T23:00:00Z",
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      json({
+        ...claudeMessage([
+          searchResult,
+          codeResult,
+          { type: "text", text: "One." },
+        ]),
+        container: { id: "container_011" },
+      }),
+      json(claudeMessage([{ type: "text", text: "ok" }])),
+    ]);
+    const result = await chatTools({
+      system: "s",
+      messages: ASK,
+      tools: [],
+      serverTools: [{ kind: "web_search" }],
+      config: CLAUDE,
+      newerWebTools: true,
+    });
+    /* The continuation is sent in the container the first response named. */
+    expect(calls[0].body!.container).toBeUndefined();
+    expect(calls[1].body!.container).toBe("container_011");
+    expect(result.message.serverToolUses).toEqual([
+      {
+        id: "srvtoolu_search",
+        name: "web_search",
+        input: { query: "chewy cookies" },
+        result: {
+          ok: true,
+          pages: [
+            {
+              url: "https://sallysbakingaddiction.com/chewy-cookies/",
+              title: "Chewy Cookies",
+            },
+          ],
+        },
+      },
+    ]);
+    expect(result.message.raw).toMatchObject({
+      api: "anthropic",
+      container: "container_011",
+    });
+    expect(result.message.raw!.content).toHaveLength(6);
+    /* The next turn replays every block and names the container. */
+    await chatTools({
+      system: "s",
+      messages: [...ASK, result.message, { role: "user", text: "more" }],
+      tools: [],
+      serverTools: [{ kind: "web_search" }],
+      config: CLAUDE,
+      newerWebTools: true,
+    });
+    expect(calls[2].body!.container).toBe("container_011");
+    expect(
+      (calls[2].body!.messages as { content: unknown[] }[])[1].content,
+    ).toEqual([
+      { type: "text", text: "Searching. " },
+      codeUse,
+      searchUse,
+      searchResult,
+      codeResult,
+      { type: "text", text: "One." },
+    ]);
   });
 });
 

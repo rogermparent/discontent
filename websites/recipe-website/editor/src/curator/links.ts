@@ -30,6 +30,52 @@ export function sitePath(
   }
 }
 
+/** A page of this site a model may link: a recipe, a term, a plan. */
+const SITE_PAGE = /^\/(recipe|tags|group)\/[^/]+\/?$/;
+
+/**
+ * 46d: a model sometimes writes this site's page on a host it made up —
+ * `https://roger.recipe/recipe/<slug>`, `https://your-site.com/…` (44e). Such
+ * a link — http(s), a host that is not this page's and that the
+ * conversation never saw (`knownHosts`: what the person, a tool or a search
+ * gave), a path that is `/recipe/<slug>`, `/tags/<slug>` or `/group/<slug>`
+ * — is answered as its in-app path, to be marked "link fixed". A real
+ * site's `/recipe/<slug>` that a search or a fetch found stays as it is.
+ * Anything else is `undefined`.
+ */
+export function fixedSitePath(
+  href: string | undefined,
+  knownHosts: ReadonlySet<string>,
+  origin: string | undefined = typeof window === "undefined"
+    ? undefined
+    : window.location.origin,
+): string | undefined {
+  if (!href || !/^https?:\/\//i.test(href.trim())) return undefined;
+  let url: URL;
+  try {
+    url = new URL(href.trim());
+  } catch {
+    return undefined;
+  }
+  if (origin && url.origin === origin) return undefined;
+  if (knownHosts.has(url.hostname.toLowerCase())) return undefined;
+  if (!SITE_PAGE.test(url.pathname)) return undefined;
+  return `${url.pathname}${url.hash}`;
+}
+
+/** The hosts of a list of URLs, lowercased (what `fixedSitePath` leaves alone). */
+export function hostsOf(urls: readonly string[]): Set<string> {
+  const hosts = new Set<string>();
+  for (const url of urls) {
+    try {
+      hosts.add(new URL(url).hostname.toLowerCase());
+    } catch {
+      /* Not a URL a link could be compared with. */
+    }
+  }
+  return hosts;
+}
+
 /** The most of an input or a result a disclosure shows. */
 export const DETAIL_MAX_CHARS = 6_000;
 

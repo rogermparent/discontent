@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@discontent/component-library/components/ui/button";
+import { Checkbox } from "@discontent/component-library/components/ui/checkbox";
 import type {
   CuratorRunRow,
   CuratorSetup,
@@ -28,15 +29,26 @@ export const CURATOR_EXAMPLES = [
  * `POST /api/agent` (44c): the new run's id, or why it was refused (no
  * model, an ask over the cap, a run still live — the editor's own words).
  */
-async function startRun(
+export async function startRun(
   prompt: string,
-  runId?: string,
+  {
+    runId,
+    newerWebTools,
+  }: {
+    runId?: string;
+    /** 46d: Claude's newer web tools for this run (a follow-up keeps its own). */
+    newerWebTools?: boolean;
+  } = {},
 ): Promise<{ job: string } | { error: string }> {
   try {
     const response = await fetch("/api/agent", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt, ...(runId ? { runId } : {}) }),
+      body: JSON.stringify({
+        prompt,
+        ...(runId ? { runId } : {}),
+        ...(newerWebTools ? { newerWebTools: true } : {}),
+      }),
     });
     const body = (await response.json().catch(() => undefined)) as
       { job?: string; error?: { message?: string } } | undefined;
@@ -77,6 +89,8 @@ export function CuratorApp({
   const [draft, setDraft] = useState(prompt ?? "");
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string>();
+  /* 46d: Claude's newer web tools, off by default (Ea3), per run. */
+  const [newerWebTools, setNewerWebTools] = useState(false);
   const [following, setFollowing] = useState(false);
   const [followError, setFollowError] = useState<string>();
   /* A follow-up just started from this run: keep it on screen meanwhile. */
@@ -110,7 +124,9 @@ export function CuratorApp({
   const start = async () => {
     setStarting(true);
     setStartError(undefined);
-    const answer = await startRun(draft.trim());
+    const answer = await startRun(draft.trim(), {
+      newerWebTools: setup.api === "anthropic" && newerWebTools,
+    });
     setStarting(false);
     if ("error" in answer) {
       setStartError(answer.error);
@@ -125,7 +141,8 @@ export function CuratorApp({
     if (!run) return false;
     setFollowing(true);
     setFollowError(undefined);
-    const answer = await startRun(text.trim(), run);
+    /* The run's own setting carries over on the server (46d). */
+    const answer = await startRun(text.trim(), { runId: run });
     setFollowing(false);
     if ("error" in answer) {
       setFollowError(answer.error);
@@ -205,6 +222,32 @@ export function CuratorApp({
             placeholder="Find, fetch, import — ask in plain words"
             {...(startError ? { error: startError } : {})}
           >
+            {setup.api === "anthropic" && (
+              <div
+                className="flex items-start gap-2"
+                data-testid="curator-newer-web-tools"
+              >
+                <Checkbox
+                  id="curator-newer-web-tools"
+                  className="mt-0.5"
+                  checked={newerWebTools}
+                  onCheckedChange={(value) => setNewerWebTools(value === true)}
+                  aria-describedby="curator-newer-web-tools-hint"
+                />
+                <div className="flex flex-col gap-0.5">
+                  <label htmlFor="curator-newer-web-tools" className="text-sm">
+                    Use newer web tools
+                  </label>
+                  <p
+                    id="curator-newer-web-tools-hint"
+                    className="text-xs text-muted-foreground"
+                  >
+                    Claude&apos;s web search with dynamic filtering: fewer
+                    tokens on a search-heavy ask. Its follow-ups keep it.
+                  </p>
+                </div>
+              </div>
+            )}
             <div className="flex flex-col gap-1.5">
               <p
                 className="text-xs text-muted-foreground"

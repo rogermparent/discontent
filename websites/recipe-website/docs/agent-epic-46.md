@@ -105,6 +105,43 @@ Epics 43–45's way of working, unchanged:
 - **The harness.** Ask (d) runs for Claude without `RECIPE_SEARCH_URL`, using Claude's server search.
 - Tests are stubbed only.
 
+#### Results (46d)
+
+**What changed.**
+
+- **A cost budget (Ea9's follow-up).** `AgentBudgets.maxCostUsd`, checked in `runAgent` before each model call against the run's `costEstimateUsd`. It is beside the turn and token checks, so the last turn's tool calls still run. Crossing it ends the run `budget:cost` with "Stopped at the cost budget ($1.00): about $1.02 spent" (`costBudgetWords` in `llm/cost.ts`). The job sets it through `agentCostBudget`: `RECIPE_AGENT_MAX_COST_USD` (dollars above 0, at most 50; a leading `$` is fine), else `DEFAULT_AGENT_MAX_COST_USD` = $1. Only a Claude model the price table lists gets a budget. A local model gets none, and neither does an unlisted Claude model, which is logged as unpriced. The key is in `EDITOR_ENV_KEYS`, the CLI help and `.env.example`. The budget is recorded on the transcript's `start` and `end` records and on the job's result (`maxCostUsd`). A budget stop is also a `warn` line in the job's log (`agent.budget`). On `/curator`, the footer's status reads "Stopped at the cost budget ($1.00)", and the numbers read "about $0.42 of $1.00" when the run had a budget.
+- **The newer web tools, per run (Ea3; Roger: "Basic by default, allow toggle per-run").** `ANTHROPIC_WEB_SEARCH_TOOL_TYPE_NEWER` = `web_search_20260209` and `…_FETCH_…_NEWER` = `web_fetch_20260209`. Both are GA with no beta header, and no `code_execution` tool is declared beside them. `chatTools({newerWebTools})` / `runAgent({newerWebTools})` swap the server tools' `type`. The response's `container` id is kept on the turn's `raw` (`raw.container`) and sent back as `container` on a `pause_turn` continuation and on the conversation's later turns (`lastContainer`). Dynamic filtering's own `code_execution` blocks are replayed raw like every block (Ea4) but left out of `serverToolUses`, so they never show as rows. The toggle is exposed four ways:
+  - the `/curator` ask box's "Use newer web tools" checkbox (Radix `Checkbox`), shown only when Claude runs the curator and off by default;
+  - `POST /api/agent` `{newerWebTools: boolean}` (non-boolean → 400);
+  - `recipes agent --newer-web-tools` (local and `--remote`);
+  - `agent-measure.ts --newer-web-tools`.
+
+  The setting is recorded on the job's spec and result and on the transcript's `start`. A follow-up keeps its conversation's setting: `startAgentRun` reads the continued run's spec. A local model has no server tools, so the setting is ignored, and an `agent.setting` line in the job log says so.
+
+- **The local prompt.** `skill-local.md` step 2: "don't have yet" or "on <site>" means `web_search`, then each hit that `recipe_search "source:<site> <dish>"` finds is dropped (`source:` filters by the site's host or label, 27d, not by URL). A `recipe_search` row is never called new. Step 6: after `term_assign`, report "already tagged N, added M" from its answer. Regenerated into `skillText.generated.ts`. The skill is now 1,196 of its 1,200 estimated tokens: to make room, step 4's "Say which and why" (step 8 says it) and a few words elsewhere went. The next addition needs a cut or a raised budget.
+- **`term_assign`'s answer.** `TermAssignResult` gains `added` and `alreadyTagged`, which split the `add`s (a remove is in neither). The MCP description and the local tool text name them. The write summary gets `assigned: [{term, added, alreadyTagged}]`, and `runChanges` sums those per term onto `ChangedTerm`. "What changed" puts "added 3, 2 already tagged" beside the term's chip (`assignedNote`), and the tool row reads "Tagged 1 recipe korean (2 already were)". A call that added nothing still writes nothing and claims nothing.
+- **`/curator` links.** `fixedSitePath` handles an http(s) link whose host is neither this page's nor any host the conversation has seen and whose path is `/recipe/<slug>`, `/tags/<slug>` or `/group/<slug>`. The seen hosts come from `conversationUrls`: the person's words, tool results and the pages Claude's search found. Such a link opens in the app with Next's `Link`, followed by a muted "(link fixed)" and a `title` naming what the model wrote. A real site's `/recipe/<slug>` that a search or fetch turned up stays an external link.
+- **Near-miss URLs** (`controller/agent/nearMiss.ts`, pure). Five tools are checked: `recipe_import`, `recipe_import_list`, `page_inspect`, `page_inspect_list` and `web_fetch`. The hint applies when one of them fails on a URL that is malformed (`URL` won't parse it, or its host has an empty or invalid label) or whose error says the address failed (`Could not resolve`, `fetch failed`, `ENOTFOUND`, `Invalid URL`…), and when its host is one slip from a URL the conversation has seen. A slip is Levenshtein ≤ 2, or one dot label more or less. The error then gains "Did you mean <url>?" (and `error.didYouMean`). A thrown error gets the sentence too. The suggestion is the seen URL when port, path and query match, else the failed URL on the seen host. The loop applies it to the uncut result before E7's wrapping. Nothing is retried. `urlGuard.ts`, `webFetch.ts` and `bridge.ts` are untouched, since 46a owns them.
+- **The harness.** `askSkipped` (in `agentMeasure.ts`) runs ask (d) for Claude on its own server search and skips it only for a local model without `RECIPE_SEARCH_URL`. Every line now carries `costEstimateUsd` (null without a price), `maxCostUsd`, `newerWebTools` and `webSearches`.
+
+**Decisions.**
+
+- **Dd1 — The stop reason is `budget:cost`**, the brief's "cost" in the existing `budget:<name>` family (`AgentBudgetName` gains `cost`), so every surface that handles budgets handles it. A budget's end is not a failure: the job is `done`, as for the other budgets (44c).
+- **Dd2 — The cost is checked before a model call, never mid-turn.** A turn's cost is known only once it answers. One turn can overshoot (Sonnet 5 at 150k context is about $0.30 a turn at worst), and the stop says how much was spent.
+- **Dd3 — The newer toggle swaps the server search only.** Claude still gets our `web_fetch` (paced, 403-polite, SSRF-guarded: E6), never Anthropic's server fetch, so `web_fetch_20260209` is defined but not offered. Ea3's "beta header" does not exist: the tool reference lists none for any version, so none is sent.
+- **Dd4 — A follow-up keeps the conversation's newer tools, and cannot turn them off.** Replaying dynamic filtering's code-execution blocks to the basic tools risks a 400. A follow-up of a basic run takes the flag from its own request: the API and CLI can set it, but the page's follow-up box has no checkbox.
+- **Dd5 — Near-miss hints only on address failures.** A 403 or a 404 at a host two edits from a seen one (food.com vs food52.com) is a different site, not a slip, so it gets no hint.
+- **Dd6 — Link fixing trusts the conversation.** A host anyone in the conversation produced is real. Only a host that appears nowhere but in the model's own words is "invented".
+
+**Roger to confirm.**
+
+- Dd3: the newer toggle covers web search only; Claude's server `web_fetch` stays off (E6).
+- The $1 default and the 50-dollar ceiling on `RECIPE_AGENT_MAX_COST_USD`. The Pi gets $1 unless its env sets the key.
+- Sending `container` back on later turns of a newer-tools run follows the docs' container reuse. 46k's real run is the first check that the API takes it on every turn.
+- Completeness of a local tag run (the rest of backlog row "Local tagging writes") is not done: no post-check compares the assign set with the search.
+
+**Gates.** _(filled in below once run)_
+
 ### 46e: Polish (M)
 
 - **⌘K.**

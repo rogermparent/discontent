@@ -12,7 +12,8 @@
  * - **Budgets** (E3, Ea9) are checked before the thing they pay for:
  *   turns and tokens before a model call, tool calls before a tool call;
  *   wall time throughout — its timer aborts the model call or the tool in
- *   flight. A stop leaves no call unanswered: each call it cut off gets a
+ *   flight; a priced run's estimated cost before a model call too (46d,
+ *   `maxCostUsd`). A stop leaves no call unanswered: each call it cut off gets a
  *   "not run" result, so the transcript can be continued as it is. A tool
  *   still running at a stop gets `TOOL_SETTLE_GRACE_MS` to settle, and its
  *   real result is kept if it does (Ea12).
@@ -47,8 +48,10 @@ import {
   type ChatToolsRequest,
   type ChatToolsResult,
 } from "../llm/tools";
+import { costBudgetWords, dollarText } from "../llm/cost";
 import { jobContext, type JobContext, type JobRun } from "../jobs/context";
 import { writeSummary } from "./changes";
+import { nearMissHint, withNearMissHint } from "./nearMiss";
 import type {
   AgentBudgetName,
   AgentBudgets,
@@ -72,8 +75,14 @@ interface CallOutcome {
   summary?: AgentWriteSummary;
 }
 
-/** E3's defaults: 40 turns; the others generous enough not to bind a sensible run (Ea9). */
-export const DEFAULT_AGENT_BUDGETS: Readonly<Required<AgentBudgets>> = {
+/**
+ * E3's defaults: 40 turns; the others generous enough not to bind a sensible
+ * run (Ea9). The cost budget has no default here: the job sets it for a
+ * priced model (`agentCostBudget`, 46d), and unset means no cap.
+ */
+export const DEFAULT_AGENT_BUDGETS: Readonly<
+  Required<Omit<AgentBudgets, "maxCostUsd">>
+> = {
   maxTurns: 40,
   maxToolCalls: 80,
   maxWallMs: 20 * 60_000,
@@ -146,6 +155,11 @@ export interface RunAgentOptions {
   think?: boolean;
   /** Claude's effort. */
   effort?: string;
+  /**
+   * Claude's newer server web tools (46d, Ea3's per-run toggle): dynamic
+   * filtering. Ignored by the other styles.
+   */
+  newerWebTools?: boolean;
   /** The run's job: steps per turn and per tool call, the `gpu` tier. */
   job?: JobRun;
   /** How long a tool may still settle after a stop (`TOOL_SETTLE_GRACE_MS`). */
@@ -475,6 +489,7 @@ const BUDGET_WORDS: Record<AgentBudgetName, string> = {
   tool_calls: "the tool-call budget",
   wall_time: "the wall-time budget",
   tokens: "the token budget",
+  cost: "the cost budget",
   context: "the model's context",
 };
 
@@ -608,6 +623,19 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     if (usage.outputTokens >= budgets.maxOutputTokens) {
       return budgetStop("tokens", `${budgets.maxOutputTokens} output tokens`);
     }
+    /* 46d: a priced run's estimate against its cost budget. A turn can
+     * overshoot it (its cost is known only once it is done); the run stops
+     * before the next one. A model with no price has no estimate: no cap. */
+    if (
+      budgets.maxCostUsd !== undefined &&
+      usage.costEstimateUsd !== undefined &&
+      usage.costEstimateUsd >= budgets.maxCostUsd
+    ) {
+      return finish(
+        "budget:cost",
+        `${costBudgetWords(budgets.maxCostUsd)}: about ${dollarText(usage.costEstimateUsd)} spent`,
+      );
+    }
 
     const turn = turns + 1;
     const trim = trimToFit(options.system, specs, messages, contextTokens);
@@ -652,6 +680,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
             ...(options.numCtx !== undefined ? { numCtx: options.numCtx } : {}),
             ...(options.think !== undefined ? { think: options.think } : {}),
             ...(options.effort ? { effort: options.effort } : {}),
+            ...(options.newerWebTools ? { newerWebTools: true } : {}),
             signal,
             ...(job ? { job } : {}),
             step,
@@ -743,6 +772,12 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
               job,
               resultCap: capChars,
               settleMs: options.toolSettleMs ?? TOOL_SETTLE_GRACE_MS,
+              /* 46d: a URL that failed and is one slip from one the
+               * conversation has seen names that one (never retried). */
+              hint: (result) =>
+                withNearMissHint(call.name, call.input, result, messages),
+              thrownHint: (message) =>
+                nearMissHint(call.name, call.input, message, messages),
             });
             if (ran.isError) step.fail(cap(ran.content, 200));
             return ran;
@@ -846,7 +881,17 @@ async function runCall(
     job,
     resultCap,
     settleMs,
-  }: { job: JobContext | undefined; resultCap: number; settleMs: number },
+    hint = (result) => result,
+    thrownHint = () => undefined,
+  }: {
+    job: JobContext | undefined;
+    resultCap: number;
+    settleMs: number;
+    /** A result as the model should read it (46d's near-miss URL). */
+    hint?: (result: unknown) => unknown;
+    /** A sentence to add to a thrown error's message, if any (46d). */
+    thrownHint?: (message: string) => string | undefined;
+  },
 ): Promise<CallOutcome> {
   const fail = (message: string): CallOutcome => ({
     content: errorContent(message),
@@ -873,7 +918,8 @@ async function runCall(
    * The result as the model reads it: serialized, capped, wrapped (E7) —
    * and, for a write that wrote, its summary from the uncut result (44d).
    */
-  const present = (result: unknown): CallOutcome => {
+  const present = (raw: unknown): CallOutcome => {
+    const result = hint(raw);
     let serialized: string;
     try {
       serialized = serialize(result);
@@ -892,8 +938,11 @@ async function runCall(
       ...(summary ? { summary } : {}),
     };
   };
-  const failed = (error: unknown) =>
-    fail(`${tool.name} failed: ${(error as Error)?.message ?? String(error)}`);
+  const failed = (error: unknown) => {
+    const message = `${tool.name} failed: ${(error as Error)?.message ?? String(error)}`;
+    const extra = thrownHint(message);
+    return fail(extra ? `${message} ${extra}` : message);
+  };
 
   let running: Promise<unknown>;
   try {
