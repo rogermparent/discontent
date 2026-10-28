@@ -967,3 +967,80 @@ test.describe("Command palette — a facet row over a half-typed word", () => {
     await expect.poll(() => caretOf(page)).toBe("tag:cookies ".length);
   });
 });
+
+/**
+ * Holidays in the palette (46e), on `drinks-bar` — Halloween and Christmas,
+ * both carried — with the browser's clock frozen on Sunday 18 October 2026,
+ * noon (holidays.spec's day): 13 days to Halloween, 68 to Christmas. The
+ * countdown is the browser's, so the export's palette counts the same.
+ */
+test.describe("Command palette — holidays", () => {
+  const SUNDAY = new Date(2026, 9, 18, 12);
+  const holidayGroup = (page: Page) =>
+    page.getByTestId("palette-holidays-group");
+
+  test.beforeEach(async ({ page, resetData }) => {
+    await resetData("drinks-bar");
+    await page.clock.setFixedTime(SUNDAY);
+  });
+
+  /** Home, with the terms in: the rows are there the moment it opens. */
+  async function openWithTerms(page: Page) {
+    const terms = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/search/terms" && response.ok(),
+    );
+    await page.goto("/");
+    await terms;
+    await openPalette(page);
+  }
+
+  test("an empty palette counts down to the next two, and Enter opens the first", async ({
+    page,
+  }) => {
+    await openWithTerms(page);
+    const options = holidayGroup(page).getByRole("option");
+    await expect(options).toHaveText([
+      "Halloween · in 13 days",
+      "Christmas · in 68 days",
+    ]);
+    await expect(holidayGroup(page)).toContainText("Coming up");
+    /* No recents: the first holiday is cmdk's first row. */
+    await expect(options.first()).toHaveAttribute("data-selected", "true");
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/holidays\/halloween$/);
+  });
+
+  test("typing names a holiday, and the row opens its menu", async ({
+    page,
+  }) => {
+    await openWithTerms(page);
+    await paletteSearch(page, "christmas");
+    const options = holidayGroup(page).getByRole("option");
+    await expect(options).toHaveText(["Christmas · in 68 days"]);
+    await expect(holidayGroup(page)).toContainText("Holidays");
+
+    /* Words that say something else are a search, not a holiday. */
+    await paletteSearch(page, "halloween punch");
+    await expect(holidayGroup(page)).toHaveCount(0);
+
+    await paletteSearch(page, "christ");
+    await holidayGroup(page).getByRole("option").first().click();
+    await expect(page).toHaveURL(/\/holidays\/christmas$/);
+  });
+
+  test("Go to has the almanac", async ({ page }) => {
+    await openWithTerms(page);
+    await paletteSearch(page, "almanac");
+    await page.getByRole("option", { name: "Holidays", exact: true }).click();
+    await expect(page).toHaveURL(/\/holidays$/);
+  });
+
+  test("the holiday rows are WCAG2AA-clean", async ({ page }) => {
+    await openWithTerms(page);
+    await expect(holidayGroup(page).getByRole("option")).toHaveCount(2);
+    await axeClean(page);
+    await page.emulateMedia({ colorScheme: "dark" });
+    await axeClean(page);
+  });
+});

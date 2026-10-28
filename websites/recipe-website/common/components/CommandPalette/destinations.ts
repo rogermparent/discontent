@@ -7,6 +7,7 @@ import {
   Star,
   CalendarDays,
   Martini,
+  CalendarHeart,
   Store,
   Palette,
   ListTree,
@@ -95,6 +96,14 @@ export const NAV_DESTINATIONS: NavDestination[] = [
     icon: Martini,
     group: "Browse",
     keywords: ["bar", "cocktails", "mix", "spirits"],
+  },
+  /* The almanac (42e), and each holiday's menu under it (46e). */
+  {
+    name: "Holidays",
+    href: "/holidays",
+    icon: CalendarHeart,
+    group: "Browse",
+    keywords: ["almanac", "holiday", "seasonal", "calendar", "menus"],
   },
   {
     name: "What can I make?",
