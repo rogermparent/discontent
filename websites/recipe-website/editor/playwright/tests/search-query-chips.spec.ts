@@ -7,8 +7,14 @@ import {
 
 const SEARCH_TIMEOUT = 20_000;
 
-const searchField = (page: Page) => page.getByLabel("Search recipes");
-const ticker = (page: Page) => page.getByTestId("search-ticker");
+// The field too (46b: the second copy met `fill` once in ten runs).
+const searchField = (page: Page) =>
+  page.getByRole("main").getByLabel("Search recipes");
+// Inside the visible <main>, as in `search-live.spec.ts` (42s-T1, 46b): a
+// hidden second copy of the page can linger, and a page-wide locator then
+// fails strict mode.
+const ticker = (page: Page) =>
+  page.getByRole("main").getByTestId("search-ticker");
 const chips = (page: Page) => page.getByTestId("query-chips");
 /** Every chip's face, in DOM order — the atom each one stands for. */
 const chipFaces = (page: Page) => chips(page).getByTestId("query-chip-face");

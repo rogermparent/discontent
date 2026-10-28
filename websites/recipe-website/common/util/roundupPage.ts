@@ -29,6 +29,7 @@ import { fromHtml } from "hast-util-from-html";
 import type { Element, Root } from "hast";
 import { getDomain } from "tldts";
 import { parseJsonLd } from "./pageMetadata";
+import { youTubeSourceKey } from "./videoUrl";
 import {
   articleRoot,
   attr,
@@ -97,6 +98,11 @@ export function canonicalItemUrl(
  * Two URLs name the same page when their keys match: the host without `www.`,
  * the path without a trailing slash, the scheme, query and fragment ignored.
  * How `existing` matches a list item to a recipe's `source.url`.
+ *
+ * A YouTube video is the exception (46b): its id is in the query
+ * (`watch?v=…`) or the path (`youtu.be/…`, `shorts/…`), so every spelling
+ * keys as `youtube.com/watch/<id>` — dropping the query had keyed every
+ * `watch?v=` link as `youtube.com/watch`, one duplicate of all the others.
  */
 export function sourceUrlKey(raw: string): string | undefined {
   let url: URL;
@@ -106,6 +112,8 @@ export function sourceUrlKey(raw: string): string | undefined {
     return;
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return;
+  const video = youTubeSourceKey(url.href);
+  if (video) return video;
   const host = url.hostname.toLowerCase().replace(/^www\./, "");
   const path = url.pathname.replace(COMMENT_PAGE, "").replace(/\/+$/, "");
   return `${host}${path}`;

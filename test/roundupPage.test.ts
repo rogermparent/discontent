@@ -18,6 +18,11 @@ import {
   siteKey,
   sourceUrlKey,
 } from "../websites/recipe-website/common/util/roundupPage";
+import {
+  isYouTubeHost,
+  youTubeSourceKey,
+  youTubeVideoId,
+} from "../websites/recipe-website/common/util/videoUrl";
 
 const FIXTURES = join(__dirname, "fixtures/roundups");
 
@@ -49,6 +54,61 @@ describe("URL helpers", () => {
     ]) {
       expect(sourceUrlKey(variant), variant).toBe(key);
     }
+  });
+
+  it("keys every spelling of one YouTube video alike, and two videos apart (46b)", () => {
+    const key = "youtube.com/watch/dQw4w9WgXcQ";
+    for (const variant of [
+      "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "https://youtube.com/watch?v=dQw4w9WgXcQ&t=42s",
+      "http://m.youtube.com/watch?feature=share&v=dQw4w9WgXcQ",
+      "https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=RD",
+      "https://youtu.be/dQw4w9WgXcQ",
+      "https://youtu.be/dQw4w9WgXcQ?si=abc&t=10",
+      "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+      "https://youtube.com/shorts/dQw4w9WgXcQ/",
+      "https://www.youtube.com/embed/dQw4w9WgXcQ?start=5",
+      "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+      "https://www.youtube.com/live/dQw4w9WgXcQ",
+      "https://WWW.YouTube.com/watch?v=dQw4w9WgXcQ#comments",
+    ]) {
+      expect(sourceUrlKey(variant), variant).toBe(key);
+      expect(youTubeVideoId(variant), variant).toBe("dQw4w9WgXcQ");
+    }
+    /* The old collision, both ways: two videos were one key,
+     * `youtube.com/watch`, so each read as a duplicate of the other. */
+    const a = sourceUrlKey("https://www.youtube.com/watch?v=AAAAAAAAAAA");
+    const b = sourceUrlKey("https://www.youtube.com/watch?v=BBBBBBBBBBB");
+    expect(a).toBe("youtube.com/watch/AAAAAAAAAAA");
+    expect(b).toBe("youtube.com/watch/BBBBBBBBBBB");
+    expect(a).not.toBe(b);
+    expect(sourceUrlKey("https://youtu.be/BBBBBBBBBBB")).toBe(b);
+    expect(sourceUrlKey("https://youtu.be/AAAAAAAAAAA")).not.toBe(b);
+  });
+
+  it("keys a YouTube page that names no video by its path, as before", () => {
+    expect(youTubeVideoId("https://www.youtube.com/@SallysBaking")).toBe(
+      undefined,
+    );
+    expect(sourceUrlKey("https://www.youtube.com/@SallysBaking/")).toBe(
+      "youtube.com/@SallysBaking",
+    );
+    expect(sourceUrlKey("https://www.youtube.com/watch")).toBe(
+      "youtube.com/watch",
+    );
+    expect(sourceUrlKey("https://www.youtube.com/playlist?list=PL1")).toBe(
+      "youtube.com/playlist",
+    );
+    /* Not YouTube: a look-alike host keeps the old key. */
+    expect(youTubeSourceKey("https://notyoutube.com/watch?v=dQw4w9WgXcQ")).toBe(
+      undefined,
+    );
+    expect(sourceUrlKey("https://notyoutube.com/watch?v=dQw4w9WgXcQ")).toBe(
+      "notyoutube.com/watch",
+    );
+    expect(isYouTubeHost("m.youtube.com")).toBe(true);
+    expect(isYouTubeHost("youtu.be")).toBe(true);
+    expect(isYouTubeHost("vimeo.com")).toBe(false);
   });
 
   it("paces a CDN with its site, and keeps two local ports apart", () => {

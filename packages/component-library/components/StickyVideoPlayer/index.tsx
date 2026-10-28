@@ -11,6 +11,7 @@ export function StickyVideoPlayer({
   nonStickyClassName = "relative",
   videoClassName = "object-cover w-full h-full",
   poster,
+  title,
   children,
 }: {
   src: string;
@@ -20,6 +21,8 @@ export function StickyVideoPlayer({
   videoClassName?: string;
   children?: ReactNode;
   poster?: string;
+  /** The embed's accessible name (`VideoPlayer`'s `title`, 46b). */
+  title?: string;
 }) {
   const [sticky, setSticky] = useState(false);
 
@@ -31,6 +34,7 @@ export function StickyVideoPlayer({
       <VideoPlayer
         src={src}
         poster={poster}
+        title={title}
         className={videoClassName}
         onPlaying={() => {
           setSticky(true);

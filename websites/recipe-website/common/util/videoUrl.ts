@@ -49,6 +49,56 @@ export function isYouTubeUrl(url: string): boolean {
   return !!host && /(^|\.)(youtube\.com|youtu\.be)$/.test(host);
 }
 
+/**
+ * A YouTube host as a source URL can carry it: `youtube.com` and its
+ * subdomains (`www.`, `m.`, `music.`), `youtu.be`, and the privacy-mode
+ * embed host `youtube-nocookie.com`.
+ */
+export function isYouTubeHost(host: string): boolean {
+  return /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/.test(
+    host.toLowerCase(),
+  );
+}
+
+/** The path prefixes that name a video by the segment after them. */
+const YOUTUBE_ID_PATHS = new Set(["shorts", "embed", "live", "v", "e"]);
+
+/** A YouTube video id: letters, digits, `-` and `_` (eleven, in practice). */
+const YOUTUBE_ID = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * The video id in any spelling of a YouTube video URL — `watch?v=<id>`,
+ * `youtu.be/<id>`, `shorts/<id>`, `embed/<id>`, `live/<id>`, on any YouTube
+ * host — or `undefined` for anything else (a channel, a playlist, another
+ * site, text that is not a URL).
+ */
+export function youTubeVideoId(url: string): string | undefined {
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return undefined;
+  }
+  if (!isYouTubeHost(parsed.hostname)) return undefined;
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  let id: string | null | undefined;
+  if (/(^|\.)youtu\.be$/i.test(parsed.hostname)) id = segments[0];
+  else if (segments[0] === "watch") id = parsed.searchParams.get("v");
+  else if (YOUTUBE_ID_PATHS.has(segments[0] ?? "")) id = segments[1];
+  return id && YOUTUBE_ID.test(id) ? id : undefined;
+}
+
+/**
+ * One key per YouTube video, whichever way its URL is spelled (46b):
+ * `youtube.com/watch/<id>`. `sourceUrlKey` uses it, so `watch?v=A` and
+ * `youtu.be/A` are one source and `watch?v=A` and `watch?v=B` are two.
+ * `undefined` when `url` names no YouTube video.
+ */
+export function youTubeSourceKey(url: string): string | undefined {
+  const id = youTubeVideoId(url);
+  return id ? `youtube.com/watch/${id}` : undefined;
+}
+
 /** Vimeo itself (`vimeo.com`, `player.vimeo.com`). */
 export function isVimeoUrl(url: string): boolean {
   const host = hostname(url);
