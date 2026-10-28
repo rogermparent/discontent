@@ -90,8 +90,10 @@ prefix** ("cookie" finds "cookies", not the other way round). A row needs
 most, then tags, ingredients and description, and ties go newest first. So
 `lime gin` puts the gin-and-lime drinks first and the rest after. Use a few
 key words, not a sentence, and narrow with typed terms. Read `tag_list`
-before inventing a tag. Typed terms: `tag:x`, `-tag:x`, `ingredient:x`,
-`name:x`, `description:x`, `source:x` (a site's name or host, e.g.
+before inventing a tag. Typed terms: `tag:x`, `-tag:x`, `ingredient:x`
+(`ingredient:any-bean`: any traditional bean, lentils and split peas, never
+green beans; `ingredient:~"black beans"`: black beans in any form — canned,
+dried, cooked), `name:x`, `description:x`, `source:x` (a site's name or host, e.g.
 `source:imbibe`), `group:x` (a group's slug or name, sub-groups included),
 `time:<=45` (bare `time:30` means ≤ 30), `before:`/`after:`,
 `AND`/`OR`/`NOT`, parentheses. A recipe with no timing never matches a

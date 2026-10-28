@@ -22,7 +22,7 @@
  * Pure, and safe in the browser: the `/make` page runs it over the whole
  * corpus on the client.
  */
-import { fold } from "../components/SearchForm/queryLanguage";
+import { fold } from "./fold";
 import { detectHeading } from "./detectHeading";
 import {
   joinMixedNumbers,

@@ -70,15 +70,13 @@ describe("the bean family (42m)", () => {
     expect(beanKindOf("Garbanzos")).toBe("chickpea");
   });
 
-  it("leaves out green beans, lentils and the beans that aren't pulses (Dm1)", () => {
+  it("leaves out green beans and the beans that aren't pulses (Dm1)", () => {
     for (const line of [
       "1 lb green beans, trimmed",
       "1 cup wax beans",
       "1 cup string beans",
       "1 cup runner beans",
       "1 cup edamame",
-      "1 cup lentils",
-      "1 cup split peas",
       "1 cup green peas",
       "1 cup bean sprouts",
       "1 vanilla bean",
@@ -95,7 +93,13 @@ describe("the bean family (42m)", () => {
       expect(lineKind(line), line).toBeUndefined();
     }
     expect(beanKindOf("green beans")).toBeUndefined();
-    expect(beanKindOf("lentils")).toBeUndefined();
+  });
+
+  it("takes in lentils and split peas since 46h (43-Dm1–Dm4)", () => {
+    expect(lineKind("1 cup lentils")).toBe("lentil");
+    expect(lineKind("1 cup dried green lentils")).toBe("lentil");
+    expect(lineKind("1 cup split peas")).toBe("split pea");
+    expect(beanKindOf("lentils")).toBe("lentil");
   });
 
   it("counts an A-or-B line only when both are beans", () => {
@@ -104,6 +108,9 @@ describe("the bean family (42m)", () => {
     ).toBe(true);
     expect(
       isBeanLine(parseIngredientLine("1 cup chickpeas or lentils")[0]),
+    ).toBe(true);
+    expect(
+      isBeanLine(parseIngredientLine("1 cup chickpeas or green beans")[0]),
     ).toBe(false);
   });
 

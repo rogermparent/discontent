@@ -151,14 +151,18 @@ describe("`any bean` meets every family bean (42m2)", () => {
     }
   });
 
-  it("never meets green, wax or vanilla beans, lentils or refried beans", () => {
+  it("meets lentils and split peas since 46h (the traditional beans)", () => {
+    expect(meets("1 cup lentils")).toBe(true);
+    expect(meets("1 cup split peas")).toBe(true);
+  });
+
+  it("never meets green, wax or vanilla beans or refried beans", () => {
     for (const line of [
       "1 lb green beans, trimmed",
       "1 cup wax beans",
       "1 cup string beans",
       "1 cup edamame",
-      "1 cup lentils",
-      "1 cup split peas",
+      "1 cup green peas",
       "1 cup bean sprouts",
       "1 vanilla bean",
       "1 cup coffee beans",

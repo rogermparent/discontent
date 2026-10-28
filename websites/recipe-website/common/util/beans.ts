@@ -16,9 +16,14 @@
  * `low-sodium`). Exact on purpose: a tail rule would let `beans` claim green
  * beans, vanilla beans and coffee beans.
  *
+ * **The traditional beans** (46h, Roger's 43-Dm1–Dm4 pick: "some sort of
+ * bean tag which specifically covers all traditional beans (black, kidney,
+ * etc)"): since 46h lentils and split peas are members too — dried pulses
+ * that a bean salad or soup trades for — and the family is also search's
+ * `ingredient:any-bean` (`ingredientQuery.ts`).
+ *
  * Left out (42m, Dm1): green, string, wax and runner beans (a vegetable),
- * edamame and soybeans, lentils and split peas (cooked differently — a
- * possible family of their own later), bean sprouts, coffee, cocoa, vanilla
+ * green peas, edamame and soybeans, bean sprouts, coffee, cocoa, vanilla
  * and jelly beans, refried, baked and chili beans (sauced), bean paste, and
  * romano beans (a borlotti in one country, a flat green bean in another).
  *
@@ -80,6 +85,20 @@ export const BEAN_KINDS: Record<string, string[]> = {
   pea: ["black-eyed peas", "black-eyed beans", "cowpeas"],
   mung: ["mung beans"],
   fava: ["fava beans", "broad beans", "fava"],
+  /* 46h: lentils and split peas join (they were left out at 42m). */
+  lentil: [
+    "lentils",
+    "red lentils",
+    "green lentils",
+    "brown lentils",
+    "black lentils",
+    "beluga lentils",
+    "french lentils",
+    "french green lentils",
+    "puy lentils",
+    "yellow lentils",
+  ],
+  "split pea": ["split peas", "yellow split peas", "green split peas"],
   any: [
     "beans",
     "mixed beans",
