@@ -27,8 +27,13 @@
  * stored in the job store, transcribed by the vision model, then read as
  * pasted text is. With no vision model configured that is `usage`, and an
  * upload over `MAX_UPLOAD_BYTES` is a 413 — both before the body is read.
+ *
+ * A `url` or `image` the SSRF guard refuses — a local or private address,
+ * or a name that resolves to one — answers 422 `url_refused` before a job
+ * starts (46a); a redirect to one is refused by the fetch itself.
  */
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
+import { assertFetchableUrl } from "recipe-editor/controller/guardedFetch";
 import {
   errorResponse,
   readJsonBody,
@@ -159,6 +164,9 @@ export async function POST(request: Request) {
       importTarget(
         parseInput(ImportRequestSchema, await readJsonBody(request)),
       );
+    /* 46a: a private address is refused before a job starts. */
+    if (target.kind === "url") await assertFetchableUrl(target.url);
+    if (target.options.image) await assertFetchableUrl(target.options.image);
     /* A job (epic 37): the answer is the same, plus its `job` id. */
     let result;
     if (target.kind === "photos") {

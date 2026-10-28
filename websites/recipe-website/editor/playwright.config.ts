@@ -143,6 +143,22 @@ export default defineConfig({
        * no spec ever reaches a real SearXNG.
        */
       RECIPE_SEARCH_URL: "",
+      /*
+       * 46a: the importer's SSRF guard refuses loopback, so the fixture
+       * pages this server serves itself (`/uploads/*.html`) are let through
+       * — this server's own host and port, exactly, and nothing else. The
+       * guard reads it under `TEST_MODE` only (`controller/urlGuard.ts`);
+       * `test/urlGuard.test.ts` checks no production path sets it.
+       */
+      RECIPE_TEST_FETCH_ALLOW: `localhost:${PORT},127.0.0.1:${PORT}`,
+      /*
+       * And the guard's own DNS lookup answers every name with a public
+       * documentation address: in the Playwright image a lookup takes ~5 s,
+       * and the guard's on top of `fetch`'s own pushed a fixture's real
+       * image host (kingarthurbaking.com) and yt-dlp's YouTube URL past the
+       * specs' 10 s request timeouts. `fetch` still resolves for real.
+       */
+      RECIPE_TEST_DNS: "*=203.0.113.10",
     },
   },
 });

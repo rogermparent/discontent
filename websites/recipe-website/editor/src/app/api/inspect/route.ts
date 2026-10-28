@@ -8,9 +8,12 @@
  *
  * Authenticated although it writes nothing: it makes this server fetch an
  * arbitrary URL (and run yt-dlp on one), which is not a door to leave open to
- * guests the way the public reads are.
+ * guests the way the public reads are. A URL the SSRF guard refuses — a
+ * local or private address, or a name that resolves to one — answers 422
+ * `url_refused` before a job starts (46a).
  */
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
+import { assertFetchableUrl } from "recipe-editor/controller/guardedFetch";
 import { ValidationError } from "recipe-editor/controller/curation/errors";
 import {
   errorResponse,
@@ -36,6 +39,7 @@ export async function POST(request: Request) {
     if (!URL.canParse(url)) {
       throw new ValidationError(`"${url}" is not a URL`);
     }
+    await assertFetchableUrl(url);
     /* A job (epic 37): the answer carries its `job` id. */
     return Response.json(
       await runSpec({

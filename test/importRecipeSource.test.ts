@@ -20,7 +20,15 @@ import {
   suggestTags,
   SUGGESTED_TAGS_LIMIT,
 } from "recipe-website-common/util/importRecipeData";
+import { markCheckedFetch } from "recipe-website-common/util/politeFetch";
 import { siteLabel } from "recipe-website-common/util/siteNames";
+
+/*
+ * 46a: the importer takes a `CheckedFetch` — the editor's guarded fetch.
+ * These cases are about mapping, not the guard (`urlGuard.test.ts`), so
+ * theirs is the stubbed global `fetch`, as before.
+ */
+const fetcher = markCheckedFetch((url, init) => fetch(url, init));
 
 const PAGE_URL = "https://www.example.com/recipes/naan";
 
@@ -88,7 +96,7 @@ describe("importRecipeData source", () => {
   it("asks for the page plainly first", async () => {
     /* Cloudflare challenges a Chrome UA from Node (A Couple Cooks, 25e). */
     const fetchStub = stubFetch(recipeHtml({ author: "Pooja Makhijani" }));
-    const imported = await importRecipeData(PAGE_URL);
+    const imported = await importRecipeData(PAGE_URL, { fetcher });
     expect(imported?.name).toBe("Naan");
     expect(fetchStub).toHaveBeenCalledTimes(1);
     const [url, init] = fetchStub.mock.calls[0] as unknown as [
@@ -117,7 +125,7 @@ describe("importRecipeData source", () => {
     vi.useFakeTimers();
     const fetchStub = forbiddenThenOk();
     vi.stubGlobal("fetch", fetchStub);
-    const pending = importRecipeData(PAGE_URL);
+    const pending = importRecipeData(PAGE_URL, { fetcher });
     /* The polite gap: nothing more goes to the host until it has passed. */
     await vi.advanceTimersByTimeAsync(DEFAULT_403_DELAY_MS - 1);
     expect(fetchStub).toHaveBeenCalledTimes(1);
@@ -139,7 +147,10 @@ describe("importRecipeData source", () => {
   it("retries at once for the browser form (delayMs: 0)", async () => {
     const fetchStub = forbiddenThenOk();
     vi.stubGlobal("fetch", fetchStub);
-    const imported = await importRecipeData(PAGE_URL, { delayMs: 0 });
+    const imported = await importRecipeData(PAGE_URL, {
+      retry: { delayMs: 0 },
+      fetcher,
+    });
     expect(imported?.name).toBe("Naan");
     expect(fetchStub).toHaveBeenCalledTimes(2);
   });
@@ -148,7 +159,7 @@ describe("importRecipeData source", () => {
     vi.stubEnv("RECIPE_FETCH_403_DELAY_MS", "off");
     const fetchStub = forbiddenThenOk();
     vi.stubGlobal("fetch", fetchStub);
-    expect(await importRecipeData(PAGE_URL)).toBeUndefined();
+    expect(await importRecipeData(PAGE_URL, { fetcher })).toBeUndefined();
     expect(fetchStub).toHaveBeenCalledTimes(1);
     vi.unstubAllEnvs();
   });
@@ -179,7 +190,7 @@ describe("importRecipeData source", () => {
       text: async () => "<html>Gone</html>",
     }));
     vi.stubGlobal("fetch", fetchStub);
-    expect(await importRecipeData(PAGE_URL)).toBeUndefined();
+    expect(await importRecipeData(PAGE_URL, { fetcher })).toBeUndefined();
     expect(fetchStub).toHaveBeenCalledTimes(1);
   });
 
@@ -195,7 +206,7 @@ describe("importRecipeData source", () => {
         ],
       }),
     );
-    const imported = await importRecipeData(PAGE_URL);
+    const imported = await importRecipeData(PAGE_URL, { fetcher });
     expect(imported?.ingredients?.map((line) => line.ingredient)).toEqual([
       '<Multiplyable baseNumber="1 1/2" /> oz. white rum',
       '<Multiplyable baseNumber="3/4" /> oz lime juice',
@@ -205,7 +216,7 @@ describe("importRecipeData source", () => {
 
   it("carries an author given as a string", async () => {
     stubFetch(recipeHtml({ author: "Pooja Makhijani" }));
-    const imported = await importRecipeData(PAGE_URL);
+    const imported = await importRecipeData(PAGE_URL, { fetcher });
     expect(imported?.source).toEqual({
       url: PAGE_URL,
       name: "example.com",
@@ -217,7 +228,7 @@ describe("importRecipeData source", () => {
     stubFetch(
       recipeHtml({ author: { "@type": "Person", name: "Pooja Makhijani" } }),
     );
-    const imported = await importRecipeData(PAGE_URL);
+    const imported = await importRecipeData(PAGE_URL, { fetcher });
     expect(imported?.source?.author).toBe("Pooja Makhijani");
   });
 
@@ -230,7 +241,7 @@ describe("importRecipeData source", () => {
         ],
       }),
     );
-    const imported = await importRecipeData(PAGE_URL);
+    const imported = await importRecipeData(PAGE_URL, { fetcher });
     expect(imported?.source?.author).toBe("Pooja Makhijani");
   });
 
@@ -241,7 +252,7 @@ describe("importRecipeData source", () => {
         publisher: { "@type": "Organization", name: "King Arthur Baking" },
       }),
     );
-    const imported = await importRecipeData(PAGE_URL);
+    const imported = await importRecipeData(PAGE_URL, { fetcher });
     expect(imported?.source).toEqual({
       url: PAGE_URL,
       name: "King Arthur Baking",
@@ -251,7 +262,7 @@ describe("importRecipeData source", () => {
 
   it("falls back to the hostname without `www.` when there is no publisher", async () => {
     stubFetch(recipeHtml());
-    const imported = await importRecipeData(PAGE_URL);
+    const imported = await importRecipeData(PAGE_URL, { fetcher });
     expect(imported?.source).toEqual({
       url: PAGE_URL,
       name: "example.com",
@@ -266,7 +277,7 @@ describe("importRecipeData source", () => {
         '<html><head><meta property="og:site_name" content="Example &amp; Co">',
       ),
     );
-    const imported = await importRecipeData(PAGE_URL);
+    const imported = await importRecipeData(PAGE_URL, { fetcher });
     expect(imported?.source?.name).toBe("Example & Co");
   });
 
@@ -277,14 +288,14 @@ describe("importRecipeData source", () => {
         '<html><head><meta property="og:site_name" content="KAB">',
       ),
     );
-    const imported = await importRecipeData(PAGE_URL);
+    const imported = await importRecipeData(PAGE_URL, { fetcher });
     expect(imported?.source?.name).toBe("King Arthur Baking");
   });
 
   it("names a known site with neither a publisher nor a site name (26d)", async () => {
     stubFetch(recipeHtml());
     const url = "https://www.acouplecooks.com/paper-plane-cocktail/";
-    const imported = await importRecipeData(url);
+    const imported = await importRecipeData(url, { fetcher });
     expect(imported?.source).toEqual({
       url,
       name: "A Couple Cooks",
@@ -294,7 +305,7 @@ describe("importRecipeData source", () => {
 
   it("no longer prefixes the description with 'Imported from' (D7)", async () => {
     stubFetch(recipeHtml());
-    const imported = await importRecipeData(PAGE_URL);
+    const imported = await importRecipeData(PAGE_URL, { fetcher });
     expect(imported?.description).toBe(
       "South Asia's classic yeasted flatbread.",
     );
@@ -303,14 +314,14 @@ describe("importRecipeData source", () => {
 
   it("leaves the description empty when the page carries none", async () => {
     stubFetch(recipeHtml({ description: undefined }));
-    const imported = await importRecipeData(PAGE_URL);
+    const imported = await importRecipeData(PAGE_URL, { fetcher });
     expect(imported?.description).toBeUndefined();
   });
 
   it("cites a video URL without fetching it, and writes no description", async () => {
     const fetchStub = stubFetch("");
     const videoUrl = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
-    const imported = await importRecipeData(videoUrl);
+    const imported = await importRecipeData(videoUrl, { fetcher });
     expect(fetchStub).not.toHaveBeenCalled();
     expect(imported?.source).toEqual({
       url: videoUrl,
@@ -336,28 +347,42 @@ describe("importRecipeData mapping (26a)", () => {
 
   it("maps recipeYield from a number, a string, or a self-repeating array", async () => {
     stubFetch(recipeHtml({ recipeYield: 10 }));
-    expect((await importRecipeData(PAGE_URL))?.recipeYield).toBe("10");
+    expect((await importRecipeData(PAGE_URL, { fetcher }))?.recipeYield).toBe(
+      "10",
+    );
     stubFetch(recipeHtml({ recipeYield: "4 servings" }));
-    expect((await importRecipeData(PAGE_URL))?.recipeYield).toBe("4 servings");
+    expect((await importRecipeData(PAGE_URL, { fetcher }))?.recipeYield).toBe(
+      "4 servings",
+    );
     stubFetch(recipeHtml({ recipeYield: ["8", "8 flatbreads"] }));
-    expect((await importRecipeData(PAGE_URL))?.recipeYield).toBe(
+    expect((await importRecipeData(PAGE_URL, { fetcher }))?.recipeYield).toBe(
       "8 flatbreads",
     );
     stubFetch(recipeHtml({ recipeYield: ["2"] }));
-    expect((await importRecipeData(PAGE_URL))?.recipeYield).toBe("2");
+    expect((await importRecipeData(PAGE_URL, { fetcher }))?.recipeYield).toBe(
+      "2",
+    );
   });
 
   it("drops Imbibe's bare-number yield, and keeps one that says what it counts (27c)", async () => {
     const imbibe = "https://imbibemagazine.com/recipe/daiquiri/";
     stubFetch(recipeHtml({ recipeYield: "10" }));
-    expect((await importRecipeData(imbibe))?.recipeYield).toBeUndefined();
+    expect(
+      (await importRecipeData(imbibe, { fetcher }))?.recipeYield,
+    ).toBeUndefined();
     stubFetch(recipeHtml({ recipeYield: 4 }));
-    expect((await importRecipeData(imbibe))?.recipeYield).toBeUndefined();
+    expect(
+      (await importRecipeData(imbibe, { fetcher }))?.recipeYield,
+    ).toBeUndefined();
     stubFetch(recipeHtml({ recipeYield: "2 drinks" }));
-    expect((await importRecipeData(imbibe))?.recipeYield).toBe("2 drinks");
+    expect((await importRecipeData(imbibe, { fetcher }))?.recipeYield).toBe(
+      "2 drinks",
+    );
     /* Every other site's bare number stands, as above. */
     stubFetch(recipeHtml({ recipeYield: "10" }));
-    expect((await importRecipeData(PAGE_URL))?.recipeYield).toBe("10");
+    expect((await importRecipeData(PAGE_URL, { fetcher }))?.recipeYield).toBe(
+      "10",
+    );
   });
 
   it("splits instructions given as one string into steps", async () => {
@@ -368,7 +393,9 @@ describe("importRecipeData mapping (26a)", () => {
           "Add all ingredients to a mixing glass with ice. Stir until chilled. Strain into a rocks glass over a large cube.",
       }),
     );
-    expect((await importRecipeData(PAGE_URL))?.instructions).toEqual([
+    expect(
+      (await importRecipeData(PAGE_URL, { fetcher }))?.instructions,
+    ).toEqual([
       { text: "Add all ingredients to a mixing glass with ice." },
       { text: "Stir until chilled." },
       { text: "Strain into a rocks glass over a large cube." },
@@ -379,10 +406,9 @@ describe("importRecipeData mapping (26a)", () => {
         recipeInstructions: "<p>Shake hard.</p><p>Double strain. Garnish.</p>",
       }),
     );
-    expect((await importRecipeData(PAGE_URL))?.instructions).toEqual([
-      { text: "Shake hard." },
-      { text: "Double strain. Garnish." },
-    ]);
+    expect(
+      (await importRecipeData(PAGE_URL, { fetcher }))?.instructions,
+    ).toEqual([{ text: "Shake hard." }, { text: "Double strain. Garnish." }]);
   });
 
   it("drops an empty step, an empty section, and flattens a nameless one (45d)", async () => {
@@ -416,7 +442,9 @@ describe("importRecipeData mapping (26a)", () => {
         ],
       }),
     );
-    expect((await importRecipeData(PAGE_URL))?.instructions).toEqual([
+    expect(
+      (await importRecipeData(PAGE_URL, { fetcher }))?.instructions,
+    ).toEqual([
       {
         name: "LARGE LOAF:",
         instructions: [
@@ -438,7 +466,7 @@ describe("importRecipeData mapping (26a)", () => {
       "</head><body></body></html>",
     ].join("");
     stubFetch(html);
-    expect((await importRecipeData(PAGE_URL))?.name).toBe("Naan");
+    expect((await importRecipeData(PAGE_URL, { fetcher }))?.name).toBe("Naan");
   });
 
   it("takes the best-ranked image, not image[0]", async () => {
@@ -448,7 +476,7 @@ describe("importRecipeData mapping (26a)", () => {
         image: [`${base}-225x225.jpg`, `${base}-500x375.jpg`, `${base}.jpg`],
       }),
     );
-    const imported = await importRecipeData(PAGE_URL);
+    const imported = await importRecipeData(PAGE_URL, { fetcher });
     expect(imported?.imageImportUrl).toBe(`${base}.jpg`);
     expect(imported?.images?.map((image) => image.url)).toEqual([
       `${base}.jpg`,
@@ -467,7 +495,7 @@ describe("importRecipeData mapping (26a)", () => {
         "</head><body></body></html>",
       ].join(""),
     );
-    expect(await importRecipeData(PAGE_URL)).toEqual({
+    expect(await importRecipeData(PAGE_URL, { fetcher })).toEqual({
       partial: true,
       name: "Paper Plane Cocktail Recipe",
       description: "A modern classic.",
@@ -486,7 +514,7 @@ describe("importRecipeData mapping (26a)", () => {
         "</head><body></body></html>",
       ].join(""),
     );
-    expect((await importRecipeData(PAGE_URL))?.name).toBe(
+    expect((await importRecipeData(PAGE_URL, { fetcher }))?.name).toBe(
       "Paper Plane Cocktail Recipe",
     );
   });
@@ -500,7 +528,7 @@ describe("importRecipeData mapping (26a)", () => {
           "<html><head><title>Page not found</title></head></html>",
       })),
     );
-    expect(await importRecipeData(PAGE_URL)).toBeUndefined();
+    expect(await importRecipeData(PAGE_URL, { fetcher })).toBeUndefined();
   });
 });
 
@@ -559,14 +587,14 @@ describe("suggestedTags", () => {
     stubFetch(
       recipeHtml({ recipeCategory: ["Drinks"], keywords: "gin, sour" }),
     );
-    const imported = await importRecipeData(PAGE_URL);
+    const imported = await importRecipeData(PAGE_URL, { fetcher });
     expect(imported?.suggestedTags).toEqual(["drinks", "gin", "sour"]);
     expect(imported?.tags).toBeUndefined();
   });
 
   it("is absent when the page offers no signals", async () => {
     stubFetch(recipeHtml());
-    const imported = await importRecipeData(PAGE_URL);
+    const imported = await importRecipeData(PAGE_URL, { fetcher });
     expect(imported && "suggestedTags" in imported).toBe(false);
   });
 });

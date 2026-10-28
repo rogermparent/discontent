@@ -6,8 +6,8 @@
  * - **No private addresses (SSRF).** The host is refused when it is local
  *   or private by name or literal (`urlGuard.ts`), and when any address it
  *   resolves to is (a DNS lookup before each request) — at the start and at
- *   every redirect hop, which this follows itself (`redirect: "manual"`, at
- *   most `maxRedirects`). A name that resolves publicly and then privately
+ *   every redirect hop, which `guardedFetch` follows itself (46a;
+ *   `redirect: "manual"`, at most `maxRedirects`). A name that resolves publicly and then privately
  *   between the lookup and the connection (DNS rebinding) is not caught: the
  *   editor stays on `fetch` with no dispatcher of its own (Eb4).
  * - **Polite** (30-D5): one request on the site's queue (`SitePacer`, per
@@ -31,10 +31,12 @@
  */
 import { z } from "zod";
 import {
-  forbiddenRetryFromEnv,
+  fetchRetrying403,
   RECIPE_FETCH_HEADERS,
   type ForbiddenRetry,
 } from "recipe-website-common/util/politeFetch";
+import { UrlRefusedError } from "../../curation/errors";
+import { checkedFetch, FetchChainError } from "../../guardedFetch";
 import {
   realPacing,
   SiteDroppedError,
@@ -49,9 +51,9 @@ import {
   toolInputSchema,
   type ToolErrorObject,
 } from "./schema";
-import { urlRefusal, type UrlGuardOptions } from "./urlGuard";
+import { urlRefusal, type UrlGuardOptions } from "../../urlGuard";
 
-export { isBlockedAddress } from "./urlGuard";
+export { isBlockedAddress } from "../../urlGuard";
 
 /** About 2k tokens: room for a recipe card in qwen's 12k context (40a). */
 export const WEB_FETCH_DEFAULT_CHARS = 8_000;
@@ -67,8 +69,6 @@ export const WEB_FETCH_TIMEOUT_MS = 30_000;
 export const WEB_FETCH_QUEUE_TIMEOUT_MS = 120_000;
 export const WEB_FETCH_MAX_REDIRECTS = 5;
 export const WEB_FETCH_MAX_LINKS = 50;
-
-const REDIRECT = new Set([301, 302, 303, 307, 308]);
 
 export interface WebFetchOptions extends UrlGuardOptions {
   /** `maxChars` when the model gives none; default `WEB_FETCH_DEFAULT_CHARS`. */
@@ -240,20 +240,13 @@ export async function webFetch(
   /*
    * The pacer's waits — the queue, the polite gap, a 403's gap — end at the
    * run's stop or at the queue deadline; a request's own clock starts when
-   * it is sent (`send`), so waiting never eats it (Eb5).
+   * it is sent (each hop's `timeoutMs`), so waiting never eats it (Eb5).
    */
   const deadline = AbortSignal.timeout(queueTimeoutMs);
   const pacer = new SitePacer(options.pacing ?? realPacing(), {
     ...ctx.job,
     signal: AbortSignal.any([ctx.signal, deadline]),
   });
-  const send = (href: string, headers?: Record<string, string>) =>
-    fetch(href, {
-      redirect: "manual",
-      signal: AbortSignal.any([ctx.signal, AbortSignal.timeout(timeoutMs)]),
-      ...(headers ? { headers } : {}),
-    });
-
   /*
    * The whole redirect chain is one request on the first URL's site queue,
    * as the importer's fetch is (its redirects are followed inside one paced
@@ -269,56 +262,52 @@ export async function webFetch(
     | { refused: ToolErrorObject }
     | { failed: unknown; at: string; inGap: boolean }
     | { response: Response; finalUrl: string };
+  const guard = {
+    ...(options.allowHosts ? { allowHosts: options.allowHosts } : {}),
+    ...(options.lookup ? { lookup: options.lookup } : {}),
+  };
   const follow = async (retry: ForbiddenRetry): Promise<Chain> => {
-    let current = new URL(input.url);
-    let retried = false;
+    /* Where the chain is: the first URL, then each hop as it is asked. */
+    let at = input.url;
     let inGap = false;
+    /*
+     * 46a: the chain is `guardedFetch`'s — each hop checked before it is
+     * asked for, a refusal fetching nothing there — and the polite 403
+     * retry `fetchRetrying403`'s, once a call, as a browser, after the
+     * pacer's `beforeRetry` (never the environment's delay).
+     */
+    const fetcher = checkedFetch({
+      ...guard,
+      maxRedirects,
+      timeoutMs,
+      onHop: (href) => {
+        at = href;
+      },
+    });
     try {
-      for (let hop = 0; ; hop += 1) {
-        /* The first URL was checked before it queued (below). */
-        const refused =
-          hop > 0 && (await urlRefusal(current, { ...options, hop }));
-        if (refused) return { refused };
-        let response = await send(current.href);
-        /* The polite 403 retry (epic 31): once a call, as a browser. */
-        if (
-          response.status === 403 &&
-          !retried &&
-          forbiddenRetryFromEnv().enabled
-        ) {
-          retried = true;
-          await cancelBody(response);
-          inGap = true;
-          await retry.beforeRetry?.();
-          inGap = false;
-          response = await send(current.href, RECIPE_FETCH_HEADERS);
-          retry.afterRetry?.(response);
-        }
-        const location = response.headers.get("location");
-        if (!REDIRECT.has(response.status) || !location) {
-          return { response, finalUrl: current.href };
-        }
-        await cancelBody(response);
-        if (hop >= maxRedirects) {
-          return {
-            refused: toolError(
-              "fetch_failed",
-              `${input.url} redirected more than ${maxRedirects} times`,
-            ),
-          };
-        }
-        if (!URL.canParse(location, current)) {
-          return {
-            refused: toolError(
-              "fetch_failed",
-              `${current.href} redirected to an unreadable location`,
-            ),
-          };
-        }
-        current = new URL(location, current);
-      }
+      const response = await fetchRetrying403(
+        fetcher,
+        input.url,
+        { signal: ctx.signal },
+        RECIPE_FETCH_HEADERS,
+        {
+          beforeRetry: async () => {
+            inGap = true;
+            await retry.beforeRetry?.();
+            inGap = false;
+          },
+          ...(retry.afterRetry ? { afterRetry: retry.afterRetry } : {}),
+        },
+      );
+      return { response, finalUrl: at };
     } catch (failed) {
-      return { failed, at: current.href, inGap };
+      if (failed instanceof UrlRefusedError) {
+        return { refused: toolError(failed.toolCode, failed.detail) };
+      }
+      if (failed instanceof FetchChainError) {
+        return { refused: toolError("fetch_failed", failed.message) };
+      }
+      return { failed, at, inGap };
     }
   };
 
@@ -329,7 +318,7 @@ export async function webFetch(
     );
 
   const first = await urlRefusal(new URL(input.url), options);
-  if (first) return first;
+  if (first) return toolError(first.code, first.message);
   let chain: Chain;
   try {
     chain = await pacer.request(
