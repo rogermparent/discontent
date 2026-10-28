@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ReactNode } from "react";
 import { Badge } from "@discontent/component-library/components/ui/badge";
 import { tagSearchHref } from "../SearchForm/queryLanguage";
+import { formatTotalTime } from "../../util/planPage";
 
 /** Max tag chips a plain (non-search) card shows before collapsing to "+N". */
 const MAX_CARD_TAG_HINTS = 2;
@@ -154,6 +155,18 @@ export function RecipeCardMeta({ children }: { children: ReactNode }) {
       {children}
     </span>
   );
+}
+
+/**
+ * A recipe card's time in place of its date (46e: term-page cards) — "1 h
+ * 15 m" in the plan page's short form, as a `<time>` with an ISO duration
+ * (`PT75M`) so "55 m" is not read as metres — or `undefined` without a
+ * total, and the card shows its date as before.
+ */
+export function cardTime(recipe: { totalTime?: number }): ReactNode {
+  const minutes = recipe.totalTime;
+  if (!minutes) return undefined;
+  return <time dateTime={`PT${minutes}M`}>{formatTotalTime(minutes)}</time>;
 }
 
 // Recipe date display with formatting — mono/tabular, matching the house

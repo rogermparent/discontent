@@ -178,7 +178,8 @@ export const TERM_NOT_SAVED = "The term was not saved.";
  * - `slug_conflict` is the **slug** (the engine's `SlugConflictError` or the
  *   seat's own), and `slugConflict` carries the taken slug as the recipe form
  *   has it.
- * - `import_failed` is the **image**: the URL could not be fetched.
+ * - `import_failed` is the **image**: the URL could not be fetched; so is
+ *   `url_refused` (46a), an image address inside the network.
  * - `validation` files each issue under its path's field; an issue with no
  *   field (and a validation error with no issues at all) is the message.
  * - Anything else — `not_found` for a record deleted under the form, an
@@ -208,6 +209,8 @@ export function termFormStateFromError(
       add("slug", body.message);
       break;
     case "import_failed":
+    /* 46a: an image address inside the network. */
+    case "url_refused":
       add("image", body.message);
       break;
     case "validation":

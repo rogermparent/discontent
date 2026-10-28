@@ -59,6 +59,14 @@ export type CurationErrorCode =
    */
   | "term_in_use"
   | "import_failed"
+  /**
+   * A URL this server will not fetch (46a, the SSRF guard): another scheme,
+   * a local or private address, a name that resolves to one, or a redirect
+   * to any of those. 422 over HTTP — the body parsed, and the address it
+   * names is one the importer declines to read. Not retryable: the same URL
+   * is refused again.
+   */
+  | "url_refused"
   | "no_git_identity"
   /**
    * The content directory is not a git repository, so there is no history to
@@ -338,6 +346,24 @@ export class ImportError extends CurationError {
   constructor(message: string) {
     super("import_failed", message);
     this.name = "ImportError";
+  }
+}
+
+/**
+ * The SSRF guard refused a URL (46a): `guardedFetch` throws it for the URL
+ * asked for and for every redirect hop, the import routes before a job
+ * starts. The message is a plain sentence for a person; `detail` is the
+ * guard's own (`urlGuard.ts`), and `toolCode` the agent's code for it
+ * (`forbidden`, or `usage` for another scheme asked for).
+ */
+export class UrlRefusedError extends CurationError {
+  constructor(
+    message: string,
+    public readonly detail: string,
+    public readonly toolCode: "usage" | "forbidden",
+  ) {
+    super("url_refused", message);
+    this.name = "UrlRefusedError";
   }
 }
 

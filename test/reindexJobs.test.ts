@@ -138,7 +138,7 @@ describe("computeIndexVersion (39-D1)", () => {
    * spec change that moved it is the one you meant.
    */
   it("pins this site's version", () => {
-    expect(base).toMatchInlineSnapshot(`"72c0224ea752c76e"`);
+    expect(base).toMatchInlineSnapshot(`"476ded83c1218a49"`);
   });
 
   /*

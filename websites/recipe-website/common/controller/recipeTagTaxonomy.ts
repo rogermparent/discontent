@@ -50,13 +50,19 @@ export const recipeTagTaxonomy: TaxonomyConfig<
    * Bump this when `project` or `slugOf` changes what it produces, for the
    * reason `recipesByDate.version` spells out at length: a hash over
    * `fn.toString()` is not build-stable (F16).
+   *
+   * `"3"` (46e): the rows gained `totalTime`. Since 39b the index-version
+   * stamp covers taxonomies, so every instance rebuilds once at start — no
+   * manual reindex.
    */
-  version: "2",
+  version: "3",
   /*
    * The same five fields the paginated pages carry, so `RecipeList` renders a
    * tag page and a `/recipes` page from identical rows — and, more to the
    * point, so the by-term record stays the size it already was. It is the
-   * single lever on that record's growth (F8b's ~150 KB threshold, T9).
+   * single lever on that record's growth (F8b's ~150 KB threshold, T9). One
+   * more since 46e, `totalTime`: about 16 bytes on a timed row, in records
+   * keyed per term since 24g.
    *
    * `image` and `tags` are **spread rather than assigned**, which is the one
    * place this is deliberately *not* what `recipesByTag` did: that fold wrote
@@ -66,6 +72,10 @@ export const recipeTagTaxonomy: TaxonomyConfig<
    * here only because the version bump above rewrites the whole record anyway.
    * Spreading is the shape a *future* field can be added in without moving
    * every row again.
+   *
+   * `totalTime` is that future field (46e): set only when the recipe has a
+   * total, so a term page's card can say "1 h 15 m" in place of the date.
+   * Prep plus cook is not summed here — a total is what the recipe says.
    */
   project: ({ key: [date], value, id }) => ({
     slug: id,
@@ -73,6 +83,7 @@ export const recipeTagTaxonomy: TaxonomyConfig<
     name: value.name,
     ...(value.image ? { image: value.image } : {}),
     ...(value.tags ? { tags: value.tags } : {}),
+    ...(value.totalTime ? { totalTime: value.totalTime } : {}),
   }),
 };
 

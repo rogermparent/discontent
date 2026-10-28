@@ -430,7 +430,14 @@ describe("the harness's SSRF allowance (Ee6)", () => {
         else if (/\.(ts|tsx)$/.test(entry.name)) files.push(path);
       }
     };
-    for (const dir of ["src", "cli", "mcp", "controller/jobs"]) {
+    /* 46a: and the curation layer, which the importer's guard serves. */
+    for (const dir of [
+      "src",
+      "cli",
+      "mcp",
+      "controller/jobs",
+      "controller/curation",
+    ]) {
       await walk(join(EDITOR, dir));
     }
     expect(files.length).toBeGreaterThan(50);

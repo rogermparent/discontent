@@ -143,7 +143,9 @@ author?}` and `imageImportUrl` set to the best image. `tags`, `slug` and
 **Reject a candidate when:**
 
 - the call fails with `code: "import_failed"` (the page could not be fetched
-  at all), or `status` is not 2xx, or there is no `draft`;
+  at all) or `code: "url_refused"` or `"forbidden"` (the address is, or
+  redirects to, one inside the network — never retry it), or `status` is
+  not 2xx, or there is no `draft`;
 - `draft.ingredients` or `draft.instructions` is empty or absent and you are
   not going to fill them in (see partial pages below);
 - `draft.totalTime` exceeds the ask's limit — or is missing while the ask has

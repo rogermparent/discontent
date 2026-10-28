@@ -82,8 +82,14 @@ export function RecipeListItem({
 
 export default function RecipeList({
   recipes,
+  meta,
 }: {
   recipes: MassagedRecipeEntry[];
+  /**
+   * Each card's line in place of the date (46e: a term page's time), or
+   * `undefined` to keep the date. Absent: every card shows its date.
+   */
+  meta?: (entry: MassagedRecipeEntry) => ReactNode | undefined;
 }) {
   return (
     <RecipeGrid>
@@ -97,6 +103,7 @@ export default function RecipeList({
               name={name}
               image={image}
               tags={tags}
+              meta={meta?.(entry)}
             />
           </li>
         );

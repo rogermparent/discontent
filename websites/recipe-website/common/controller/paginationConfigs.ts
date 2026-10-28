@@ -24,6 +24,13 @@ export interface RecipeListEntry {
   name: string;
   image?: string;
   tags?: string[];
+  /**
+   * Total minutes, when the recipe has them — carried by the **by-term** row
+   * only (46e: term-page cards show the time in place of the date). This
+   * index's `project` below does not set it, so its pages and their hashes
+   * are unchanged.
+   */
+  totalTime?: number;
 }
 
 /**
