@@ -28,7 +28,7 @@ import {
 import { EmptyState } from "../EmptyState";
 import { GroupThumbnail } from "../GroupThumbnail";
 import RecipeList from "../List";
-import { RecipeCardPlaceholder } from "../List/shared";
+import { RecipeCardPlaceholder, cardTime } from "../List/shared";
 import { RecipeImage } from "../RecipeImage";
 import { TermImage } from "../TermImage";
 import { PageMain } from "recipe-website-common/components/PageLayout";
@@ -400,7 +400,7 @@ export function TermPageBody({
           recipeCount={term.recipeCount}
           shownCount={recipes.length}
           searchHref={`/search?q=${query}`}
-          grid={<RecipeList recipes={cards} />}
+          grid={<RecipeList recipes={cards} meta={cardTime} />}
         />
       ) : (
         /*
@@ -634,6 +634,7 @@ export function RootTermBody({
             ...recipe,
             tags: otherTags(model, recipe.tags, pageTags),
           }))}
+          meta={cardTime}
         />
         {term.recipeCount > term.recipes.length && (
           <p className="my-2 text-sm">

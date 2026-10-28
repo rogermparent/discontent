@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useTransition,
@@ -15,6 +16,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
   Bot,
+  CalendarHeart,
   Sun,
   Moon,
   Monitor,
@@ -64,6 +66,10 @@ import {
 import { useShortcutModifier } from "./shortcutModifier";
 import { groupKindLabel } from "../../util/groupKindLabel";
 import { CURATOR_DESTINATION, NAV_DESTINATIONS } from "./destinations";
+import { paletteHolidayRows, paletteHolidays } from "./holidayRows";
+import { useToday } from "../Homepage/useToday";
+import { ALMANAC_HREF, holidayHref } from "../HolidaysPage/shared";
+import { countdownLabel, parseDayKey } from "../../util/holidays";
 import { PaletteAskRegistry, type PaletteAskHandler } from "./askSlot";
 
 /** The Ask row's cmdk `value` (43q). */
@@ -274,6 +280,13 @@ export function CommandPalette({
   } = useSearch();
   const model = useFacetModel();
   const modifier = useShortcutModifier();
+  /*
+   * The browser's day (46e), for the holiday rows' countdowns. The dialog's
+   * content renders only once opened, after hydration, so the server's
+   * `null` never reaches a row; a static export counts from the reader's
+   * day, never the build's.
+   */
+  const browserDay = useToday(null);
 
   const [open, setOpen] = useState(false);
   // Input value is local (drives the field as-you-type); the debounced write to
@@ -475,6 +488,13 @@ export function CommandPalette({
     return haystack.includes(q);
   };
 
+  /* The holidays the palette may offer (46e), worked out while it is open. */
+  const holidayCandidates = useMemo(() => {
+    if (!open) return [];
+    const counts = new Map(allTerms.map((term) => [term.slug, term.count]));
+    return paletteHolidays(model, (slug) => counts.get(slug) ?? 0);
+  }, [open, model, allTerms]);
+
   /* The curator (44d) joins the owner rows after New Recipe once the
    * editor's slot offers its hand-off (a model is set up). */
   const destinations = askHandler?.curator
@@ -484,7 +504,10 @@ export function CommandPalette({
     : NAV_DESTINATIONS;
   const navItems = destinations.filter(
     (dest) =>
-      (isOwner || !dest.ownerOnly) && matchesQuery(dest.name, dest.keywords),
+      (isOwner || !dest.ownerOnly) &&
+      /* The almanac only on a site with holidays to show (46e). */
+      (dest.href !== ALMANAC_HREF || holidayCandidates.length > 0) &&
+      matchesQuery(dest.name, dest.keywords),
   );
 
   const themeActions = [
@@ -619,6 +642,23 @@ export function CommandPalette({
     const edit = insertTagTerm(value, caret, tag, tagWordMatch(tag, allTerms));
     insertTerm(edit.value, edit.caret);
   };
+
+  /*
+   * Holidays (46e): the next ones on an empty or short input ("Halloween ·
+   * in 13 days"), the ones the words name while typing — each to its menu.
+   * From the terms the search context already holds (`/search/terms`), so
+   * the export's palette has them with no fetch of its own.
+   *
+   * Read off the committed `query`, as the recipe rows are, and held back
+   * while the input is ahead of it or the recipes are on their way: a
+   * holiday row alone in the list is cmdk's first row, so an Enter pressed
+   * before the recipes land would open the holiday instead of the top
+   * recipe (46e review).
+   */
+  const holidays =
+    browserDay && trimmed === query && !recipesPending
+      ? paletteHolidayRows(holidayCandidates, query, parseDayKey(browserDay))
+      : undefined;
 
   // RECENT leads the empty palette: with nothing typed, the last few committed
   // queries are the most useful thing to offer.
@@ -1101,6 +1141,38 @@ export function CommandPalette({
                 <Trash2 className="size-4 shrink-0 text-muted-foreground" />
                 <span>Clear recent searches</span>
               </CommandItem>
+            </CommandGroup>
+          )}
+
+          {/*
+            After the recipes, groups and recents, for the Groups rows'
+            reason: Enter opens the top recipe, and an empty palette's Enter
+            re-runs the first recent. With neither, the first holiday is
+            cmdk's first row, so Enter opens its menu.
+          */}
+          {holidays && holidays.rows.length > 0 && (
+            <CommandGroup
+              heading={holidays.mode === "coming-up" ? "Coming up" : "Holidays"}
+              data-testid="palette-holidays-group"
+            >
+              {holidays.rows.map((holiday) => (
+                <CommandItem
+                  key={holiday.slug}
+                  value={`holiday:${holiday.slug}`}
+                  onSelect={() => go(holidayHref(holiday.slug))}
+                >
+                  <CalendarHeart className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate">
+                    {holiday.label}
+                    {holiday.days !== undefined && (
+                      <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                        {" · "}
+                        {countdownLabel(holiday.days)}
+                      </span>
+                    )}
+                  </span>
+                </CommandItem>
+              ))}
             </CommandGroup>
           )}
 

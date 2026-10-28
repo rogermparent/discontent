@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { MassagedRecipeEntry } from "../../controller/data/read";
 import { PureRecipeImage } from "../RecipeImage/PureRecipeImage";
 import {
@@ -6,6 +7,7 @@ import {
   RecipeCardImageContainer,
   RecipeCardName,
   RecipeCardDate,
+  RecipeCardMeta,
   RecipeCardPlaceholder,
   RecipeCardTagHint,
   RecipeGrid,
@@ -14,8 +16,11 @@ import {
 
 export function ClientListItem({
   recipe: { slug, date, name, image, tags },
+  meta,
 }: {
   recipe: MassagedRecipeEntry;
+  /** A line in place of the date (46e: a term page's time). */
+  meta?: ReactNode;
 }) {
   return (
     <RecipeCard>
@@ -36,7 +41,11 @@ export function ClientListItem({
           )}
         </RecipeCardImageContainer>
         <RecipeCardName>{name}</RecipeCardName>
-        {date && <RecipeCardDate date={date} />}
+        {meta !== undefined ? (
+          <RecipeCardMeta>{meta}</RecipeCardMeta>
+        ) : (
+          date && <RecipeCardDate date={date} />
+        )}
       </RecipeCardLink>
       <RecipeCardTagHint tags={tags} />
     </RecipeCard>
