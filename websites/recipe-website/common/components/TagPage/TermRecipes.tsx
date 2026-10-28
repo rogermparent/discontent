@@ -13,6 +13,7 @@ import {
   spelledTagQuery,
 } from "../../controller/tagBoardPage";
 import { buildFacetModel, type FacetTerm } from "../../util/facets";
+import { cardTime } from "../../util/planPage";
 import { ClientListItem } from "../ClientList";
 import { RecipeCardPlaceholder, RecipeGrid } from "../List/shared";
 import { PureRecipeImage } from "../RecipeImage/PureRecipeImage";
@@ -217,6 +218,7 @@ export function TermRecipes({
                       ? otherTags(model, row.tags, pageTags)
                       : row.tags,
                   }}
+                  meta={cardTime(row)}
                 />
               </li>
             ))}

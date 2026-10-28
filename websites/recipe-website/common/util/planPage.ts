@@ -150,6 +150,14 @@ export function formatTotalTime(minutes: number): string {
   return rest === 0 ? `${hours} h` : `${hours} h ${rest} m`;
 }
 
+/**
+ * A recipe card's time (46e: term-page cards), "1 h 15 m", or `undefined`
+ * without a total — the card then shows its date, as before.
+ */
+export function cardTime(recipe: { totalTime?: number }): string | undefined {
+  return recipe.totalTime ? formatTotalTime(recipe.totalTime) : undefined;
+}
+
 /** A row's multiplier: a number, 1 when unset or unreadable. */
 export function scaleNumber(scale: string | undefined): number {
   const parsed = parseScale(scale);

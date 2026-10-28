@@ -34,6 +34,7 @@ import { TermImage } from "../TermImage";
 import { PageMain } from "recipe-website-common/components/PageLayout";
 import { groupCountLabel } from "../../util/groupCountLabel";
 import { groupKindLabel } from "../../util/groupKindLabel";
+import { cardTime } from "../../util/planPage";
 import { TagBoard } from "./Board";
 import { HolidayWhen } from "./HolidayWhen";
 import { Leader } from "./parts";
@@ -400,7 +401,7 @@ export function TermPageBody({
           recipeCount={term.recipeCount}
           shownCount={recipes.length}
           searchHref={`/search?q=${query}`}
-          grid={<RecipeList recipes={cards} />}
+          grid={<RecipeList recipes={cards} meta={cardTime} />}
         />
       ) : (
         /*
@@ -634,6 +635,7 @@ export function RootTermBody({
             ...recipe,
             tags: otherTags(model, recipe.tags, pageTags),
           }))}
+          meta={cardTime}
         />
         {term.recipeCount > term.recipes.length && (
           <p className="my-2 text-sm">
