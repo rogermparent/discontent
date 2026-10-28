@@ -445,6 +445,112 @@ in 68 days`, which opens `/holidays/christmas`; no `/api` request.
   - When the recipe-level times are 0 and the default option has times, the index and the search `time:` filter use the default path's times (a projection change, bumping the index version per 39b). Record that decision.
 - **Content follow-up (46g).** Fill everything-dough's option times from its steps, marked in the doc.
 
+#### Results (46f)
+
+**Option times.**
+
+- A choice group may carry `prepTime` / `cookTime` / `totalTime` (whole
+  minutes), along every path its `recipeYield` takes: `types.ts`, the
+  curation schema (`OptionMinutesSchema`: an integer ≥ 0, a 0 dropped so it
+  is never stored), `parseFormData` (each option's hours and minutes, both
+  blank → no time; a plain group's leftover times ride in hidden
+  `…minutes` inputs), and the model (`ChoiceOption.times`,
+  `ShownPath.times`, `optionTimesOf`, `pathTimes`).
+- **Df1 — an option's times are the whole recipe's when it is made, read
+  as one block.** An option that states any time replaces all three of the
+  recipe's on its path (one it leaves out goes absent, and the page's
+  "total = prep + cook" fallback applies to the option's own); an option
+  with none leaves the recipe's standing. Not added to the recipe's: the
+  dough's rise is the option's to include. With two sets, the last set
+  whose chosen option has times wins, as the yield does. "All" shows the
+  recipe's own (as the yield does). **Roger to confirm.**
+- **The form.** Each option card has "Option prep time", "Option cook
+  time" and "Option total time" — the recipe Times section's
+  `DurationInput`s — in a group named "Times for Bagels", with the note
+  "Optional: the whole recipe's times when this option is made." Editing
+  one works the set (45e2's rules apply); "Not a choice" drops the times
+  with the yield. `choiceChecks` gains `optionTimeProblem`: in a worked-on
+  set, and on every curation write (De2-6), an option's total may not be
+  shorter than its own prep or cook time ("The total time of “Bagels” (20
+  min) is shorter than its cook time (25 min)", field `totalTime`). A set
+  as stored is never judged (43-D4).
+- **The round trip** (`editFormRoundTrip.test.tsx`): a timed set and a
+  plain group with leftover times save byte for byte, key order included
+  (`name, instructions, choice, recipeYield, prepTime, cookTime,
+totalTime` — the curation schema's shape order and `parseFormData`'s).
+- **Readers.** `recipeOnPath` maps the chosen option's times (JSON-LD,
+  `planRecipeView`'s rows and run-sheet times, the sub-plan rows: the
+  default option's, G2). The recipe page's meta strip draws a Prep / Cook /
+  Total cell when the recipe or any option has that time (Total when an
+  option has any), and `PathTime` fills it from the reader's path after
+  hydration — so a pick changes the values, never the strip's shape (U1;
+  a path with none says "—"). A recipe with no option times renders
+  exactly as before (the static cells, no client component). Plans, the
+  cook list and the run sheet read `planRecipeView`, so `GroupDetailPage/`
+  was not touched.
+- **Df2 — the index (39b).** `indexTimes(recipe)`: a recipe that states no
+  times of its own (all three 0 or absent) carries its default option's in
+  the index value, so `time:` and the cards that read the value (term-page
+  cards via the by-term row, `/search`'s card meta) see them; a recipe with any
+  time of its own keeps exactly its own. `recipeContentConfig.indexVersion`
+  is **"3"**: **reindex: automatic** — every instance rebuilds once at its
+  next start. The site's index version moved (`reindexJobs.test.ts` pin
+  `4a3e71b1227164cb`) and with it `visual/git-page` (Te1). No fixture
+  moved: no fixture recipe has option times.
+- **Docs.** The curator skill (regenerated `skillText.generated.ts`) and
+  the MCP `CHOICE_DESCRIPTION` (`recipe_create` / `recipe_update`)
+  describe option times. 59 tools / 45 pre-approved, unchanged.
+
+**Look for alternatives with the model** (45-De2-1).
+
+- On the edit page only, in the Steps section beside "Make a choice of
+  groups…" (shown when it is: two adjacent groups in no set). The form
+  is shared, so the edit page provides a `ModelChoicesProvider`
+  (`Form/Instructions/modelChoices.tsx`) with its two server actions
+  (`edit/choicesActions.ts`); /new-recipe and the export have none, and
+  show nothing.
+- With no model set up the button is disabled and the line beside it
+  says why ("No model is set up in this editor, so none can be asked (no
+  local model configured (RECIPE_LLM_URL))."), linked by
+  `aria-describedby`.
+- **A `choices` job** (`JOB_KIND_NAMES`, label "look for alternatives in
+  <slug>", resources `gpu` only, step `llm.choices` "Model looks for
+  alternatives"): one `chatJson` call (`controller/llm/detectChoices.ts`)
+  through the GPU line for a local model, as every call. The spec carries
+  the steps as the form holds them, as an outline
+  (`common/util/choiceOutline.ts`: each entry's group name and first line,
+  plain, cut at 120 characters, at most 80 entries, and whether it is
+  already in a choice), so a Retry asks the same question.
+- The answer `{sets: [{label, groups}]}` is zod-checked, then grounded
+  (`groundChoiceSets`): entry numbers (1-based, as listed) that name no
+  entry, a step, an unnamed group, one already in a choice, a repeat or
+  one an earlier set took are dropped one by one; a set left with fewer
+  than two, or not adjacent, or with a label blank or over 40 characters,
+  is dropped whole. A bad answer, a failed call or nothing left is
+  "nothing found", with what was dropped said after it.
+- **Df3 — the outcome comes back through the fill's bounded long-poll
+  for every look** (`keepUnstored` / `waitUnstored`, 15 s per ask, 10
+  minutes in all), not a live panel: one small call, and the status line
+  links the job (`/jobs/<id>`) while it asks.
+- The sets land as 45e2's cards marked **"suggested by the model"** (each
+  look's after the import's, each card with its own mark; one already
+  offered is not offered twice), focus on the first card's "Make it a
+  choice"; accepted, the set wears the same mark, "Not saved yet." and
+  Undo until Save (G5). Never applied by itself. `suggestChoices` stays
+  the import's and the fill's default.
+- The stand-in model (`fixtures/llm/standInModel.ts`, `choicesAnswer`)
+  proposes the first run of open groups after a shared start, plus entry
+  99 for the grounding to drop.
+
+**Roger to confirm.** Df1 (an option's times replace the recipe's, as a
+block, and "All" shows the recipe's own); Df2 (the default's times stand
+in only when the recipe states none); the model action disabled with its
+reason rather than hidden when no model is set up; the model's answer
+numbered 1-based.
+
+**Content follow-up (orchestrator).** everything-dough's option times are
+not filled here (the brief): fill them after merge.
+
 ### 46g: Content and picks (S–M; after 46c's answers or defaults, and 46f for the dough times)
 
 - **Cuisine terms.** `korean` and `filipino` as children of `cuisine`, assigned to bo ssam, bulgogi, adobo and any others found by search.
