@@ -137,6 +137,12 @@ export interface ChatToolsRequest {
    * Ignored by the other styles, and when there are no server tools.
    */
   newerWebTools?: boolean;
+  /**
+   * What is left of the run's cost budget, in USD (46d). Claude only: once
+   * this turn's own estimate reaches it, a `pause_turn` is not continued —
+   * the turn ends there, its content so far kept, with `costStopped`.
+   */
+  costBudgetUsd?: number;
   timeoutMs?: number;
   /** The caller's abort; default the job's. */
   signal?: AbortSignal;
@@ -165,6 +171,11 @@ export interface ChatToolsResult {
   durationMs: number;
   /** Ollama only: the cold start. */
   loadMs?: number;
+  /**
+   * The turn was still paused when its estimate reached `costBudgetUsd`, so
+   * it was not continued (46d): the run stops at its cost budget.
+   */
+  costStopped?: true;
 }
 
 /** No tokens yet. */
@@ -451,16 +462,43 @@ function withCacheBreakpoint(messages: WireMessage[]): WireMessage[] {
   });
 }
 
+/** A container this close to its `expires_at` is taken as expired (46d). */
+export const CONTAINER_EXPIRY_MARGIN_MS = 60_000;
+
+/** Whether a container that expires at `expiresAt` (ISO) is still usable at `now`. */
+export function containerLive(
+  expiresAt: string | undefined,
+  now = Date.now(),
+): boolean {
+  if (!expiresAt) return true;
+  const at = Date.parse(expiresAt);
+  return !Number.isFinite(at) || at - now > CONTAINER_EXPIRY_MARGIN_MS;
+}
+
 /**
  * The code-execution container the conversation's newest Claude turn ran in
- * (46d: the newer web tools' dynamic filtering), if it said one.
+ * (46d: the newer web tools' dynamic filtering), if it said one and it has
+ * not expired: a follow-up an hour later starts without one.
  */
-export function lastContainer(messages: AgentMessage[]): string | undefined {
+export function lastContainer(
+  messages: AgentMessage[],
+  now = Date.now(),
+): string | undefined {
+  return lastContainerRef(messages, now)?.id;
+}
+
+function lastContainerRef(
+  messages: AgentMessage[],
+  now = Date.now(),
+): ContainerRef | undefined {
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index];
     if (message.role !== "assistant") continue;
     if (message.raw?.api === "anthropic" && message.raw.container) {
-      return message.raw.container;
+      const expiresAt = message.raw.containerExpiresAt;
+      return containerLive(expiresAt, now)
+        ? { id: message.raw.container, ...(expiresAt ? { expiresAt } : {}) }
+        : undefined;
     }
   }
   return undefined;
@@ -490,14 +528,38 @@ export function claudeToolsBody(request: ChatToolsRequest, config: LlmConfig) {
   };
 }
 
-/** A response's `container.id` (the newer web tools' code execution), if any. */
-function containerOf(body: Record<string, unknown>): string | undefined {
+/** A code-execution container: its id and, when the API said, its expiry. */
+interface ContainerRef {
+  id: string;
+  expiresAt?: string;
+}
+
+/**
+ * A response's `container` (the newer web tools' code execution), if any:
+ * its `id` and `expires_at`. A response naming the same container without
+ * an expiry keeps the one `before` had.
+ */
+function containerOf(
+  body: Record<string, unknown>,
+  before: ContainerRef | undefined,
+): ContainerRef | undefined {
   const container = body.container;
-  if (typeof container === "string" && container) return container;
-  if (isObject(container) && typeof container.id === "string" && container.id) {
-    return container.id;
+  let id: string | undefined;
+  let expiresAt: string | undefined;
+  if (typeof container === "string" && container) id = container;
+  else if (
+    isObject(container) &&
+    typeof container.id === "string" &&
+    container.id
+  ) {
+    id = container.id;
+    if (typeof container.expires_at === "string" && container.expires_at) {
+      expiresAt = container.expires_at;
+    }
   }
-  return undefined;
+  if (!id) return before;
+  expiresAt ??= before?.id === id ? before.expiresAt : undefined;
+  return { id, ...(expiresAt ? { expiresAt } : {}) };
 }
 
 function count(value: unknown): number {
@@ -624,6 +686,48 @@ export function readClaudeContent(content: unknown[]): {
   };
 }
 
+/**
+ * A paused turn's content without its unfinished server calls (46d): a
+ * `server_tool_use` whose result has not come, anything its code run called
+ * (`caller.tool_id`), and the results of those. What a turn stopped at the
+ * cost budget keeps, so a follow-up replays only finished calls.
+ */
+export function settledContent(content: unknown[]): unknown[] {
+  const answered = new Set<string>();
+  for (const block of content) {
+    if (isObject(block) && typeof block.tool_use_id === "string") {
+      answered.add(block.tool_use_id);
+    }
+  }
+  const dropped = new Set<string>();
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const block of content) {
+      if (!isObject(block) || block.type !== "server_tool_use") continue;
+      const id = String(block.id ?? "");
+      if (dropped.has(id)) continue;
+      const caller = isObject(block.caller) ? block.caller.tool_id : undefined;
+      if (
+        !answered.has(id) ||
+        (typeof caller === "string" && dropped.has(caller))
+      ) {
+        dropped.add(id);
+        changed = true;
+      }
+    }
+  }
+  return content.filter(
+    (block) =>
+      !isObject(block) ||
+      !(
+        (block.type === "server_tool_use" &&
+          dropped.has(String(block.id ?? ""))) ||
+        (typeof block.tool_use_id === "string" &&
+          dropped.has(block.tool_use_id))
+      ),
+  );
+}
+
 function claudeStop(stop: unknown): ChatToolsStop {
   switch (stop) {
     case "end_turn":
@@ -653,9 +757,12 @@ async function claudeTurn(
   let usage = emptyUsage();
   let apiStop: unknown;
   let pauses = 0;
+  let costStopped = false;
   /* 46d: the newer web tools' container, carried into a continuation. */
-  let container: string | undefined =
-    "container" in base ? base.container : undefined;
+  let container: ContainerRef | undefined =
+    "container" in base && base.container
+      ? lastContainerRef(request.messages)
+      : undefined;
   for (;;) {
     const messages =
       content.length > 0
@@ -666,7 +773,7 @@ async function claudeTurn(
       JSON.stringify({
         ...base,
         messages,
-        ...(container ? { container } : {}),
+        ...(container ? { container: container.id } : {}),
       }),
       {
         timeoutMs: request.timeoutMs ?? ANTHROPIC_TIMEOUT_MS,
@@ -676,9 +783,23 @@ async function claudeTurn(
     );
     content = content.concat(Array.isArray(body.content) ? body.content : []);
     usage = addUsage(usage, claudeUsage(body.usage));
-    if (request.newerWebTools) container = containerOf(body) ?? container;
+    if (request.newerWebTools) container = containerOf(body, container);
     apiStop = body.stop_reason;
     if (apiStop !== "pause_turn" || pauses >= CLAUDE_PAUSE_CONTINUATIONS) break;
+    /* 46d: a paused turn is not continued past the run's cost budget. */
+    if (request.costBudgetUsd !== undefined) {
+      const spent = claudeCostEstimate(config.model, usage);
+      if (spent !== undefined && spent >= request.costBudgetUsd) {
+        costStopped = true;
+        content = settledContent(content);
+        request.step?.log.warn(
+          "llm.pause",
+          `${modelLabel(config)} paused its turn (pause_turn); not continued: the run's cost budget is spent`,
+          { pauses, costEstimateUsd: spent },
+        );
+        break;
+      }
+    }
     pauses += 1;
     request.step?.log.info(
       "llm.pause",
@@ -720,7 +841,14 @@ async function claudeTurn(
       raw: {
         api: "anthropic",
         content,
-        ...(request.newerWebTools && container ? { container } : {}),
+        ...(request.newerWebTools && container
+          ? {
+              container: container.id,
+              ...(container.expiresAt
+                ? { containerExpiresAt: container.expiresAt }
+                : {}),
+            }
+          : {}),
       },
     },
     stop: claudeStop(apiStop),
@@ -729,6 +857,7 @@ async function claudeTurn(
     model: config.model,
     api: "anthropic",
     durationMs,
+    ...(costStopped ? { costStopped: true as const } : {}),
   };
 }
 

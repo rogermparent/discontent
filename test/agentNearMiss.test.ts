@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  addressFailed,
   conversationUrls,
   hostsNear,
   levenshtein,
@@ -144,10 +145,53 @@ describe("nearMissHint and withNearMissHint", () => {
       nearMissHint(
         "page_inspect",
         { url: "http://127.0.0.2:4567/recipes/lemon-garlic-chicken-thighs/" },
-        "Could not fetch http://127.0.0.2:4567/…: fetch failed",
+        "Could not resolve 127.0.0.2",
         messages,
       ),
     ).toBe(`Did you mean ${FIXTURE}?`);
+    /* undici's bare "fetch failed": a hint only when the cause is the
+     * resolver's (ENOTFOUND, EAI_AGAIN), never a refused connection. */
+    const fetchFailed = (code: string) =>
+      new TypeError("fetch failed", {
+        cause: Object.assign(new Error(`getaddr ${code}`), { code }),
+      });
+    const slippedHost = "https://sallysbakingadiction.com/chewy-cookies/";
+    const sallys: AgentMessage[] = [
+      { role: "user", text: "From https://sallysbakingaddiction.com/ please" },
+    ];
+    for (const code of ["ENOTFOUND", "EAI_AGAIN"]) {
+      expect(
+        nearMissHint(
+          "web_fetch",
+          { url: slippedHost },
+          "web_fetch failed: fetch failed",
+          sallys,
+          fetchFailed(code),
+        ),
+      ).toBe("Did you mean https://sallysbakingaddiction.com/chewy-cookies/?");
+    }
+    for (const cause of [fetchFailed("ECONNREFUSED"), undefined]) {
+      expect(
+        nearMissHint(
+          "web_fetch",
+          { url: slippedHost },
+          "web_fetch failed: fetch failed",
+          sallys,
+          cause,
+        ),
+      ).toBeUndefined();
+    }
+    expect(
+      nearMissHint(
+        "page_inspect",
+        { url: "http://127.0.0.2:4567/recipes/lemon-garlic-chicken-thighs/" },
+        "Could not fetch http://127.0.0.2:4567/…: fetch failed",
+        messages,
+        fetchFailed("ECONNREFUSED"),
+      ),
+    ).toBeUndefined();
+    expect(addressFailed("fetch failed")).toBe(false);
+    expect(addressFailed("getaddrinfo ENOTFOUND x.example")).toBe(true);
     /* It parsed and failed for another reason: a 404 is not a slip. */
     expect(
       nearMissHint(

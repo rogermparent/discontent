@@ -439,8 +439,8 @@ writes (one commit per tool call), so a committer is needed. \`--run <id>\`
 follows up on a run with its conversation as history; \`--max-turns\` lowers
 the 40-turn budget. A Claude run stops at its cost budget
 (RECIPE_AGENT_MAX_COST_USD, default $1); \`--newer-web-tools\` gives it
-Claude's newer web search (dynamic filtering), kept on its follow-ups and
-ignored for a local model. With --remote the editor runs it and this follows it (a
+Claude's newer web search (dynamic filtering) on a model that has it (4.6 or
+later, not Haiku), kept on its follow-ups and ignored elsewhere. With --remote the editor runs it and this follows it (a
 Ctrl-C stops following, not the run: \`jobs cancel <id>\`). --json prints one
 object at the end; exit 1 when the run failed, 130 when it was cancelled.
 

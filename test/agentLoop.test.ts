@@ -503,7 +503,12 @@ describe("runAgent — the loop", () => {
     const inspect = tool(
       "page_inspect",
       async () => {
-        throw new Error("Could not fetch http://exampel.com/a: fetch failed");
+        /* The thrown error's cause is the resolver's: the hint applies. */
+        throw new Error("Could not fetch http://exampel.com/a: fetch failed", {
+          cause: Object.assign(new Error("getaddrinfo"), {
+            code: "ENOTFOUND",
+          }),
+        });
       },
       {
         untrusted: true,
@@ -655,13 +660,14 @@ describe("runAgent — budgets and cancel", () => {
 
   it("stops at the cost budget (46d) once a priced run's estimate crosses it", async () => {
     const search = tool("recipe_search");
-    /* Each turn costs $0.45: under $1.00 after two, over it after three. */
-    const priced = () => {
-      const turn = answer("", [call("recipe_search", { query: "q" })]);
-      return { ...turn, usage: { ...turn.usage, costEstimateUsd: 0.45 } };
-    };
+    /* One turn costs $1.20: over the $1.00 cap before the second. */
+    const { model } = scripted([
+      () => {
+        const turn = answer("", [call("recipe_search", { query: "q" })]);
+        return { ...turn, usage: { ...turn.usage, costEstimateUsd: 1.2 } };
+      },
+    ]);
     const events: AgentEvent[] = [];
-    const { model } = scripted([priced]);
     const result = await runAgent({
       system: "s",
       prompt: "p",
@@ -671,19 +677,84 @@ describe("runAgent — budgets and cancel", () => {
       budgets: { maxCostUsd: 1 },
       onEvent: (event) => events.push(event),
     });
-    expect(result).toMatchObject({ stopReason: "budget:cost", turns: 3 });
-    expect(result.usage.costEstimateUsd).toBeCloseTo(1.35);
+    expect(result).toMatchObject({ stopReason: "budget:cost", turns: 1 });
     expect(result.error).toBe(
-      "Stopped at the cost budget ($1.00): about $1.35 spent",
+      "Stopped at the cost budget ($1.00): about $1.20 spent",
     );
     /* The last turn's calls ran: the stop came before the next model call. */
-    expect(search.inputs).toHaveLength(3);
-    expect(model).toHaveBeenCalledTimes(3);
+    expect(search.inputs).toHaveLength(1);
+    expect(model).toHaveBeenCalledTimes(1);
     expect(everyCallAnswered(result.transcript)).toBe(true);
     expect(events.at(-1)).toMatchObject({
       type: "stop",
       stopReason: "budget:cost",
     });
+  });
+
+  it("stops before a turn the last one's cost says would pass the cap (46d)", async () => {
+    const search = tool("recipe_search");
+    /* Each turn costs $0.45: $0.90 after two, and a third would make $1.35. */
+    const priced = () => {
+      const turn = answer("", [call("recipe_search", { query: "q" })]);
+      return { ...turn, usage: { ...turn.usage, costEstimateUsd: 0.45 } };
+    };
+    const { model, requests } = scripted([priced]);
+    const result = await runAgent({
+      system: "s",
+      prompt: "p",
+      tools: [search],
+      config: OLLAMA,
+      model,
+      budgets: { maxCostUsd: 1 },
+    });
+    expect(result).toMatchObject({ stopReason: "budget:cost", turns: 2 });
+    expect(result.usage.costEstimateUsd).toBeCloseTo(0.9);
+    expect(result.error).toBe(
+      "Stopped at the cost budget ($1.00): about $0.90 spent, and another turn like the last (about $0.45) would pass it",
+    );
+    expect(model).toHaveBeenCalledTimes(2);
+    /* Each turn is told what is left of the budget. */
+    expect(requests[0].costBudgetUsd).toBe(1);
+    expect(requests[1].costBudgetUsd).toBeCloseTo(0.55);
+  });
+
+  it("stops at once when a turn's continuations stopped at the cost budget (46d)", async () => {
+    const search = tool("recipe_search");
+    const { model } = scripted([
+      () => {
+        const turn = answer("Found two so far.");
+        return {
+          ...turn,
+          stop: "pause" as const,
+          apiStop: "pause_turn",
+          costStopped: true as const,
+          usage: { ...turn.usage, costEstimateUsd: 1.05 },
+        };
+      },
+    ]);
+    const result = await runAgent({
+      system: "s",
+      prompt: "p",
+      tools: [search],
+      config: OLLAMA,
+      model,
+      budgets: { maxCostUsd: 1 },
+    });
+    expect(result).toMatchObject({
+      stopReason: "budget:cost",
+      turns: 1,
+      text: "Found two so far.",
+    });
+    expect(result.error).toBe(
+      "Stopped at the cost budget ($1.00): about $1.05 spent, the last turn stopped part-way",
+    );
+    /* The turn's words so far are kept in the transcript. */
+    expect(
+      result.transcript.some(
+        (message) =>
+          message.role === "assistant" && message.text === "Found two so far.",
+      ),
+    ).toBe(true);
   });
 
   it("never stops on cost for a model with no price, or with no cost budget", async () => {

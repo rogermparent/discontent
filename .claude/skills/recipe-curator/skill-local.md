@@ -14,8 +14,8 @@ Every tool answers JSON; a failure is `{error: {code, message}}`: read it and wo
 
 ## Workflow
 
-1. **Search the site first**: `recipe_search {"query": "ingredient:tahini", "limit": 50}`. Rows are `{slug, name, tags}`; `total` counts them all. Typed terms: `tag:x`, `-tag:x`, `ingredient:x`, `name:x`, `source:x`, `time:<=30`; free words match at a word start. Prefer a recipe already there over a new import.
-2. **Find candidates** only when the ask wants new recipes: the person's URLs, or `web_search`. "Don't have yet" or "on <site>": `web_search`, then drop each hit that `recipe_search {"query": "source:<site> <dish>"}` finds. A `recipe_search` row is never new. Baked or sweet: Sally's first. At most 8.
+1. **Search the site first**: `recipe_search {"query": "ingredient:tahini", "limit": 50}`. Rows are `{slug, name, tags}`; `total` counts them all. Typed terms: `tag:x`, `-tag:x`, `ingredient:x`, `name:x`, `source:x`, `time:<=30`; free words match at a word start. Prefer one already there to an import.
+2. **Find candidates** only when the ask wants new recipes: the person's URLs, or `web_search`. "Don't have yet" or "on <site>": `web_search`, then drop each hit that `recipe_search {"query": "source:<site> <dish>"}` finds. A `recipe_search` row is never new. Baked or sweet: sallysbakingaddiction.com first. At most 8.
 3. **Inspect** each: `page_inspect {"url": "…"}` writes nothing; it answers `{status, partial, draft, suggestedTags, images}`.
 4. **Reject** a page when the call fails, `status` is not 2xx, `partial` is true, the draft has no ingredients or no instructions, or its `totalTime` is over the ask's limit (or missing when the ask has one).
 5. **Import**: `recipe_import {"url": "…", "tags": ["main", "chicken"]}` writes it, its source kept. Or edit the draft and `recipe_create {"recipe": {…}, "dryRun": true}`, then again without `dryRun`; keep `source` exactly as the draft has it. `existing` or `slug_conflict`: already here, use that slug.

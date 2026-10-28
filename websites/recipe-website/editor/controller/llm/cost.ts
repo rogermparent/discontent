@@ -2,7 +2,9 @@
  * What a Claude API run costs, estimated (44a, Ea7). An estimate and named
  * so: the prices are copied from platform.claude.com/docs/en/about-claude/
  * pricing as it read on 2026-10-21, and Anthropic's invoice is the truth.
- * A model the table does not list gets no estimate rather than a guess.
+ * A Claude model the table does not list (a new one) is estimated at the
+ * table's highest rates (46d), so a run's cost budget still holds; any
+ * other model (a local one) gets no estimate.
  */
 import type { AgentUsage } from "../agent/types";
 
@@ -74,6 +76,23 @@ export const CLAUDE_PRICE_ESTIMATE_USD_PER_MTOK: Readonly<
 /** Web search: $10 per 1,000 searches (web fetch costs only its tokens). */
 export const WEB_SEARCH_PRICE_ESTIMATE_USD = 0.01;
 
+/**
+ * The table's highest rate of each kind (46d): what an unlisted Claude model
+ * is estimated at — never less than it could cost.
+ */
+export const HIGHEST_PRICE_ESTIMATE_USD_PER_MTOK: Readonly<PriceEstimate> =
+  (() => {
+    const prices = Object.values(CLAUDE_PRICE_ESTIMATE_USD_PER_MTOK);
+    const most = (key: keyof PriceEstimate) =>
+      Math.max(...prices.map((price) => price[key]));
+    return {
+      input: most("input"),
+      output: most("output"),
+      cacheWrite: most("cacheWrite"),
+      cacheRead: most("cacheRead"),
+    };
+  })();
+
 /** `claude-opus-4-5-20251101` → `claude-opus-4-5`: the table's key. */
 export function modelPriceKey(model: string): string {
   return model
@@ -83,9 +102,26 @@ export function modelPriceKey(model: string): string {
 }
 
 /**
+ * How `model` is priced (46d): its row of the table (`listed`), the
+ * table's highest rates for a Claude model it does not list (`highest`),
+ * or `undefined` for any other model — a local one has no price.
+ */
+export function modelPrice(
+  model: string,
+): { price: PriceEstimate; basis: "listed" | "highest" } | undefined {
+  const key = modelPriceKey(model);
+  const listed = CLAUDE_PRICE_ESTIMATE_USD_PER_MTOK[key];
+  if (listed) return { price: listed, basis: "listed" };
+  if (key.startsWith("claude-")) {
+    return { price: HIGHEST_PRICE_ESTIMATE_USD_PER_MTOK, basis: "highest" };
+  }
+  return undefined;
+}
+
+/**
  * A turn's (or a run's) estimated cost in USD, or `undefined` for a model
- * the table does not list. `inputTokens` is the uncached input, as the
- * Messages API reports it beside the cache counts.
+ * with no price (`modelPrice`: not Claude's). `inputTokens` is the uncached
+ * input, as the Messages API reports it beside the cache counts.
  */
 export function claudeCostEstimate(
   model: string,
@@ -98,7 +134,7 @@ export function claudeCostEstimate(
     | "webSearchRequests"
   >,
 ): number | undefined {
-  const price = CLAUDE_PRICE_ESTIMATE_USD_PER_MTOK[modelPriceKey(model)];
+  const price = modelPrice(model)?.price;
   if (!price) return undefined;
   const dollars =
     (usage.inputTokens * price.input +

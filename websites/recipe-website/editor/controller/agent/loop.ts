@@ -568,6 +568,8 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
   let toolCalls = 0;
   let trimmedTotal = 0;
   let text = "";
+  /* 46d: the newest turn's estimated cost, the next turn's projection. */
+  let lastTurnCost = 0;
 
   /** Why a signal aborted: the caller's cancel, or the wall-time budget. */
   const abortedStop = (): { stopReason: AgentStopReason; error?: string } =>
@@ -623,18 +625,28 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     if (usage.outputTokens >= budgets.maxOutputTokens) {
       return budgetStop("tokens", `${budgets.maxOutputTokens} output tokens`);
     }
-    /* 46d: a priced run's estimate against its cost budget. A turn can
-     * overshoot it (its cost is known only once it is done); the run stops
-     * before the next one. A model with no price has no estimate: no cap. */
+    /* 46d: a priced run's estimate against its cost budget, before each
+     * turn: spent, or spent plus what the last turn cost (the next one is
+     * likely as dear) past the cap. Within a turn, `costBudgetUsd` stops
+     * Claude's `pause_turn` continuations. A model with no price has no
+     * estimate: no cap. */
     if (
       budgets.maxCostUsd !== undefined &&
-      usage.costEstimateUsd !== undefined &&
-      usage.costEstimateUsd >= budgets.maxCostUsd
+      usage.costEstimateUsd !== undefined
     ) {
-      return finish(
-        "budget:cost",
-        `${costBudgetWords(budgets.maxCostUsd)}: about ${dollarText(usage.costEstimateUsd)} spent`,
-      );
+      const spent = usage.costEstimateUsd;
+      if (spent >= budgets.maxCostUsd) {
+        return finish(
+          "budget:cost",
+          `${costBudgetWords(budgets.maxCostUsd)}: about ${dollarText(spent)} spent`,
+        );
+      }
+      if (spent + lastTurnCost > budgets.maxCostUsd) {
+        return finish(
+          "budget:cost",
+          `${costBudgetWords(budgets.maxCostUsd)}: about ${dollarText(spent)} spent, and another turn like the last (about ${dollarText(lastTurnCost)}) would pass it`,
+        );
+      }
     }
 
     const turn = turns + 1;
@@ -681,6 +693,14 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
             ...(options.think !== undefined ? { think: options.think } : {}),
             ...(options.effort ? { effort: options.effort } : {}),
             ...(options.newerWebTools ? { newerWebTools: true } : {}),
+            ...(budgets.maxCostUsd !== undefined
+              ? {
+                  costBudgetUsd: Math.max(
+                    0,
+                    budgets.maxCostUsd - (usage.costEstimateUsd ?? 0),
+                  ),
+                }
+              : {}),
             signal,
             ...(job ? { job } : {}),
             step,
@@ -702,6 +722,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
     }
 
     usage = addUsage(usage, result.usage);
+    lastTurnCost = result.usage.costEstimateUsd ?? 0;
     add(result.message);
     text = result.message.text;
     emit({
@@ -715,6 +736,14 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
       durationMs: result.durationMs,
     });
 
+    /* 46d: the turn's continuations stopped at the cost budget; what it
+     * said so far is kept above. */
+    if (result.costStopped && budgets.maxCostUsd !== undefined) {
+      return finish(
+        "budget:cost",
+        `${costBudgetWords(budgets.maxCostUsd)}: about ${dollarText(usage.costEstimateUsd ?? 0)} spent, the last turn stopped part-way`,
+      );
+    }
     if (result.stop === "max_tokens") {
       return finish(
         "error",
@@ -776,8 +805,8 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
                * conversation has seen names that one (never retried). */
               hint: (result) =>
                 withNearMissHint(call.name, call.input, result, messages),
-              thrownHint: (message) =>
-                nearMissHint(call.name, call.input, message, messages),
+              thrownHint: (message, error) =>
+                nearMissHint(call.name, call.input, message, messages, error),
             });
             if (ran.isError) step.fail(cap(ran.content, 200));
             return ran;
@@ -890,7 +919,7 @@ async function runCall(
     /** A result as the model should read it (46d's near-miss URL). */
     hint?: (result: unknown) => unknown;
     /** A sentence to add to a thrown error's message, if any (46d). */
-    thrownHint?: (message: string) => string | undefined;
+    thrownHint?: (message: string, error: unknown) => string | undefined;
   },
 ): Promise<CallOutcome> {
   const fail = (message: string): CallOutcome => ({
@@ -940,7 +969,7 @@ async function runCall(
   };
   const failed = (error: unknown) => {
     const message = `${tool.name} failed: ${(error as Error)?.message ?? String(error)}`;
-    const extra = thrownHint(message);
+    const extra = thrownHint(message, error);
     return fail(extra ? `${message} ${extra}` : message);
   };
 

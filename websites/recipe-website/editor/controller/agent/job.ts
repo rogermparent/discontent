@@ -33,9 +33,13 @@ import { createLocalBackend } from "../../cli/backend/local";
 import type { CurationContext } from "../curation/context";
 import { UsageError } from "../curation/errors";
 import type { JobContext } from "../jobs/context";
-import { LLM_NUM_CTX, llmConfig, type LlmApi } from "../llm/client";
-import { DEFAULT_AGENT_MAX_COST_USD, claudeCostEstimate } from "../llm/cost";
-import { emptyUsage } from "../llm/tools";
+import {
+  LLM_NUM_CTX,
+  llmConfig,
+  takesNewerWebTools,
+  type LlmApi,
+} from "../llm/client";
+import { DEFAULT_AGENT_MAX_COST_USD, modelPrice } from "../llm/cost";
 import { AGENT_PROMPT_MAX } from "./follow";
 import { runAgent } from "./loop";
 import {
@@ -181,7 +185,11 @@ export const AGENT_MAX_COST_CEILING_USD = 50;
 export interface AgentCostBudget {
   /** The cap in USD; absent for a model with no price (no estimate to check). */
   maxCostUsd?: number;
-  /** Why there is no cap, when the model is Claude's but has no price. */
+  /**
+   * Why there is no cap (a model on Claude's API with no price at all), or
+   * how an unlisted Claude model is priced for it (46d: the highest listed
+   * rates) — said in the job's log.
+   */
   unpriced?: string;
   /** A `RECIPE_AGENT_MAX_COST_USD` that was not understood (the default is used). */
   ignored?: string;
@@ -190,33 +198,42 @@ export interface AgentCostBudget {
 /**
  * The cost budget a run gets (46d): `RECIPE_AGENT_MAX_COST_USD` (a number of
  * dollars above 0, at most `AGENT_MAX_COST_CEILING_USD`), else
- * `DEFAULT_AGENT_MAX_COST_USD` ($1) — for the Claude API with a model the
- * price table lists. A local model, or a Claude model with no price, has no
- * estimate and so no cap. A value it does not take falls back to the
- * default and is said in the log, as `agentLocalOptions` does.
+ * `DEFAULT_AGENT_MAX_COST_USD` ($1) — for every Claude model. One the price
+ * table does not list is estimated at its highest rates (`modelPrice`), so
+ * it keeps the cap, and the log says so. Only a local model has no estimate
+ * and so no cap. A value it does not take falls back to the default and is
+ * said in the log, as `agentLocalOptions` does.
  */
 export function agentCostBudget(
   config: { api: LlmApi; model: string },
   env: NodeJS.ProcessEnv = process.env,
 ): AgentCostBudget {
   if (config.api !== "anthropic") return {};
-  if (claudeCostEstimate(config.model, emptyUsage()) === undefined) {
+  const priced = modelPrice(config.model);
+  if (!priced) {
     return {
       unpriced: `${config.model} has no price in the estimate table: this run has no cost budget`,
     };
   }
+  const highest =
+    priced.basis === "highest"
+      ? {
+          unpriced: `${config.model} is not in the price table: its cost is estimated at the highest listed price`,
+        }
+      : {};
   const text = env.RECIPE_AGENT_MAX_COST_USD?.trim();
-  if (!text) return { maxCostUsd: DEFAULT_AGENT_MAX_COST_USD };
+  if (!text) return { maxCostUsd: DEFAULT_AGENT_MAX_COST_USD, ...highest };
   const value = Number(text.replace(/^\$/, ""));
   if (
     Number.isFinite(value) &&
     value > 0 &&
     value <= AGENT_MAX_COST_CEILING_USD
   ) {
-    return { maxCostUsd: value };
+    return { maxCostUsd: value, ...highest };
   }
   return {
     maxCostUsd: DEFAULT_AGENT_MAX_COST_USD,
+    ...highest,
     ignored: `RECIPE_AGENT_MAX_COST_USD=${text.slice(0, 20)} (takes dollars above 0, at most ${AGENT_MAX_COST_CEILING_USD})`,
   };
 }
@@ -331,8 +348,11 @@ export async function runAgentJob(
   const system = agentSystemPrompt(config.api, { now: new Date(), search });
   const local = config.api === "anthropic" ? undefined : agentLocalOptions();
   const cost = agentCostBudget(config);
-  /* 46d: Claude's newer server tools, per run; a local model has none. */
-  const newerWebTools = spec.newerWebTools === true && serverTools.length > 0;
+  /* 46d: Claude's newer server tools, per run, on a model that takes them;
+   * a local model has no server tools at all. */
+  const newerTaken = takesNewerWebTools(config.model);
+  const newerWebTools =
+    spec.newerWebTools === true && serverTools.length > 0 && newerTaken;
 
   writer.write({
     type: "start",
@@ -370,7 +390,9 @@ export async function runAgentJob(
   if (spec.newerWebTools === true && !newerWebTools) {
     job.log.info(
       "agent.setting",
-      "ignored newerWebTools: they are Claude's server tools, and this model has none",
+      serverTools.length === 0
+        ? "ignored newerWebTools: they are Claude's server tools, and this model has none"
+        : `ignored newerWebTools: ${config.model} does not take them (dynamic filtering needs Claude 4.6 or later, not Haiku); the basic web search is used`,
     );
   }
 

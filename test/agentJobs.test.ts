@@ -52,6 +52,7 @@ import {
   AGENT_MAX_COST_CEILING_USD,
   agentCostBudget,
 } from "../websites/recipe-website/editor/controller/agent/job";
+import { takesNewerWebTools } from "../websites/recipe-website/editor/controller/llm/client";
 import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
 import { cancelJob } from "../websites/recipe-website/editor/controller/jobs/run";
 import {
@@ -413,7 +414,8 @@ describe("the agent job kind", () => {
     ]);
     const started = await startAgentRun(ctx, { prompt: "find pies" });
     await started.done;
-    expect(calls).toHaveLength(2);
+    /* $0.21 spent, and a turn like it would pass $0.25: no second call. */
+    expect(calls).toHaveLength(1);
 
     const meta = await readJobMeta(dir, started.job);
     /* A budget's end is not a failure (44c). */
@@ -421,9 +423,10 @@ describe("the agent job kind", () => {
     expect(meta?.result).toMatchObject({
       stopReason: "budget:cost",
       maxCostUsd: 0.25,
-      error: "Stopped at the cost budget ($0.25): about $0.42 spent",
-      turns: 2,
-      toolCalls: 2,
+      error:
+        "Stopped at the cost budget ($0.25): about $0.21 spent, and another turn like the last (about $0.21) would pass it",
+      turns: 1,
+      toolCalls: 1,
     });
     const records = await transcriptOf(started.job);
     expect(records[0]).toMatchObject({ type: "start", maxCostUsd: 0.25 });
@@ -443,6 +446,7 @@ describe("the agent job kind", () => {
       { content: [text("Searched.")], container: { id: "container_01" } },
       { content: [text("Again.")] },
       { content: [text("Basic.")] },
+      { content: [text("Haiku.")] },
     ]);
     const first = await startAgentRun(ctx, {
       prompt: "find cookies",
@@ -491,6 +495,28 @@ describe("the agent job kind", () => {
     expect((await readJobMeta(dir, third.job))?.spec).not.toHaveProperty(
       "newerWebTools",
     );
+
+    /* 46d: a Haiku does not take them: the basic search, and the log says why. */
+    vi.stubEnv("RECIPE_LLM_MODEL", "claude-haiku-4-5");
+    const haiku = await startAgentRun(ctx, {
+      prompt: "find cookies",
+      newerWebTools: true,
+    });
+    await haiku.done;
+    expect(search(3)[0].type).toBe(ANTHROPIC_WEB_SEARCH_TOOL_TYPE);
+    expect(calls[3].body as Record<string, unknown>).not.toHaveProperty(
+      "container",
+    );
+    expect((await readJobMeta(dir, haiku.job))?.result).not.toHaveProperty(
+      "newerWebTools",
+    );
+    expect(JSON.stringify((await readJobLog(dir, haiku.job)).lines)).toContain(
+      "ignored newerWebTools: claude-haiku-4-5 does not take them",
+    );
+    expect(takesNewerWebTools("claude-haiku-5-5")).toBe(false);
+    expect(takesNewerWebTools("claude-opus-4-6")).toBe(true);
+    expect(takesNewerWebTools("claude-sonnet-4-5-20250929")).toBe(false);
+    vi.stubEnv("RECIPE_LLM_MODEL", "claude-sonnet-5");
 
     /* A local model has no server tools: ignored, and the log says so. */
     vi.stubEnv("RECIPE_LLM_API", "openai");
@@ -912,22 +938,37 @@ describe("agentCostBudget (46d)", () => {
     }
   });
 
-  it("gives no cap to a local model or a Claude model with no price", () => {
+  it("gives no cap to a local model", () => {
     expect(
       agentCostBudget(
         { api: "ollama", model: "qwen3:8b" },
         { RECIPE_AGENT_MAX_COST_USD: "1" },
       ),
     ).toEqual({});
+    /* A model on Claude's API that is not Claude's has no price at all. */
     const unpriced = agentCostBudget(
-      {
-        api: "anthropic",
-        model: "claude-unknown-9",
-      },
+      { api: "anthropic", model: "mystery-model" },
       {},
     );
     expect(unpriced.maxCostUsd).toBeUndefined();
     expect(unpriced.unpriced).toContain("no cost budget");
+  });
+
+  it("keeps the cap for an unlisted Claude model, priced at the highest listed rates", () => {
+    const unlisted = agentCostBudget(
+      { api: "anthropic", model: "claude-unknown-9" },
+      {},
+    );
+    expect(unlisted.maxCostUsd).toBe(1);
+    expect(unlisted.unpriced).toContain(
+      "estimated at the highest listed price",
+    );
+    expect(
+      agentCostBudget(
+        { api: "anthropic", model: "claude-unknown-9" },
+        { RECIPE_AGENT_MAX_COST_USD: "2" },
+      ).maxCostUsd,
+    ).toBe(2);
   });
 });
 

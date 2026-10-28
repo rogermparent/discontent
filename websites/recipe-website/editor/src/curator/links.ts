@@ -2,6 +2,7 @@
  * The curator page's small pure helpers (44d): which links stay in the
  * app, and how a tool's input or result reads in its disclosure.
  */
+import type { AgentMessage } from "recipe-editor/controller/agent/types";
 
 /**
  * Which of the curator's links stay in the app: a site path (`/recipe/x`,
@@ -31,21 +32,38 @@ export function sitePath(
 }
 
 /** A page of this site a model may link: a recipe, a term, a plan. */
-const SITE_PAGE = /^\/(recipe|tags|group)\/[^/]+\/?$/;
+const SITE_PAGE = /^\/(recipe|tags|group)\/([^/]+)\/?$/;
+
+/**
+ * What a conversation tells a link of: the hosts it has seen (`hostsOf`
+ * over `conversationUrls`), and the slugs of this site its own tools
+ * answered with (`siteSlugsOf`).
+ */
+export interface LinkKnown {
+  hosts: ReadonlySet<string>;
+  slugs: ReadonlySet<string>;
+}
+
+export const NOTHING_KNOWN: LinkKnown = {
+  hosts: new Set(),
+  slugs: new Set(),
+};
 
 /**
  * 46d: a model sometimes writes this site's page on a host it made up —
  * `https://roger.recipe/recipe/<slug>`, `https://your-site.com/…` (44e). Such
- * a link — http(s), a host that is not this page's and that the
- * conversation never saw (`knownHosts`: what the person, a tool or a search
- * gave), a path that is `/recipe/<slug>`, `/tags/<slug>` or `/group/<slug>`
- * — is answered as its in-app path, to be marked "link fixed". A real
- * site's `/recipe/<slug>` that a search or a fetch found stays as it is.
- * Anything else is `undefined`.
+ * a link is answered as its in-app path, to be marked "link fixed", only
+ * when all of these hold: it is http(s); its host is not this page's and
+ * not one the conversation saw (`known.hosts`: what the person, a tool or a
+ * search gave); its path is `/recipe/<slug>`, `/tags/<slug>` or
+ * `/group/<slug>`; and that slug is one this site's tools answered with
+ * this conversation (`known.slugs`) — a recipe, term or plan of this site.
+ * A real site's `/recipe/<slug>` (`bonappetit.com/recipe/x`) stays as it
+ * is. Anything else is `undefined`.
  */
 export function fixedSitePath(
   href: string | undefined,
-  knownHosts: ReadonlySet<string>,
+  known: LinkKnown,
   origin: string | undefined = typeof window === "undefined"
     ? undefined
     : window.location.origin,
@@ -58,9 +76,46 @@ export function fixedSitePath(
     return undefined;
   }
   if (origin && url.origin === origin) return undefined;
-  if (knownHosts.has(url.hostname.toLowerCase())) return undefined;
-  if (!SITE_PAGE.test(url.pathname)) return undefined;
+  if (known.hosts.has(url.hostname.toLowerCase())) return undefined;
+  const page = SITE_PAGE.exec(url.pathname);
+  if (!page) return undefined;
+  let slug: string;
+  try {
+    slug = decodeURIComponent(page[2]);
+  } catch {
+    return undefined;
+  }
+  if (!known.slugs.has(slug)) return undefined;
   return `${url.pathname}${url.hash}`;
+}
+
+const SLUG_FIELD = /"slug"\s*:\s*"([^"\\]+)"/g;
+
+/**
+ * The slugs of this site the conversation's own tools answered with (46d):
+ * every `"slug": "…"` in a tool's result (a recipe row, a term, a plan, an
+ * import's new recipe — read as text, so a result cut for the context still
+ * counts), and the recipes, terms and plans a write's summary names. A
+ * result wrapped as a web page's text (E7) is a page's words, not this
+ * site's, and is skipped.
+ */
+export function siteSlugsOf(messages: readonly AgentMessage[]): Set<string> {
+  const slugs = new Set<string>();
+  for (const message of messages) {
+    if (message.role !== "tool" || message.isError) continue;
+    if (!message.content.trimStart().startsWith("<untrusted")) {
+      for (const match of message.content.matchAll(SLUG_FIELD)) {
+        slugs.add(match[1]);
+      }
+    }
+    const summary = message.summary;
+    if (summary) {
+      for (const recipe of summary.recipes ?? []) slugs.add(recipe.slug);
+      for (const slug of summary.terms ?? []) slugs.add(slug);
+      for (const slug of summary.groups ?? []) slugs.add(slug);
+    }
+  }
+  return slugs;
 }
 
 /** The hosts of a list of URLs, lowercased (what `fixedSitePath` leaves alone). */

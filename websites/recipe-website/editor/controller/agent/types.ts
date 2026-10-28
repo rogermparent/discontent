@@ -114,6 +114,11 @@ export interface AgentAssistantMessage {
      * tools' dynamic filtering), sent back on the run's later requests.
      */
     container?: string;
+    /**
+     * When that container expires (the API's `container.expires_at`): a
+     * later turn after it starts without one (46d).
+     */
+    containerExpiresAt?: string;
   };
 }
 

@@ -2,8 +2,9 @@
  * `POST /api/agent` `{prompt, runId?, maxTurns?, newerWebTools?}` — start a
  * run of the editor's agent, or follow up on one (epic 44, 44c).
  * `newerWebTools: true` (46d) gives a Claude run the newer server web tools
- * (dynamic filtering); a follow-up of such a run keeps them, and a local
- * model ignores the flag (its job log says so).
+ * (dynamic filtering) on a model that takes them (`takesNewerWebTools`); a
+ * follow-up of such a run keeps them, and any other model — a Haiku, a
+ * local one — ignores the flag (its job log says so).
  *
  * A run is an `agent` job (E2): the configured model with the curator's
  * tools, in this editor's process. Answers 202 at once with `{job, status:

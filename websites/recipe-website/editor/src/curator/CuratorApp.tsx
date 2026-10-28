@@ -125,7 +125,7 @@ export function CuratorApp({
     setStarting(true);
     setStartError(undefined);
     const answer = await startRun(draft.trim(), {
-      newerWebTools: setup.api === "anthropic" && newerWebTools,
+      newerWebTools: setup.newerWebTools && newerWebTools,
     });
     setStarting(false);
     if ("error" in answer) {
@@ -222,7 +222,7 @@ export function CuratorApp({
             placeholder="Find, fetch, import — ask in plain words"
             {...(startError ? { error: startError } : {})}
           >
-            {setup.api === "anthropic" && (
+            {setup.newerWebTools && (
               <div
                 className="flex items-start gap-2"
                 data-testid="curator-newer-web-tools"

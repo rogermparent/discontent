@@ -29,9 +29,38 @@ export const NEAR_MISS_TOOLS: Readonly<Record<string, string>> = {
 /** At most this many edits between two hosts for one to be a slip of the other. */
 export const NEAR_MISS_MAX_EDITS = 2;
 
-/** An error that says the address itself failed: it did not resolve or parse. */
+/**
+ * An error that says the address itself failed: it did not resolve or
+ * parse. Not undici's bare "fetch failed", which a refused connection, a
+ * reset or a bad certificate says too: that counts only with a
+ * `RESOLVE_CODES` cause (`addressFailed`).
+ */
 const ADDRESS_FAILURE =
-  /could not resolve|ENOTFOUND|EAI_AGAIN|getaddrinfo|fetch failed|invalid url|not a valid url|invalid hostname/i;
+  /could not resolve|ENOTFOUND|EAI_AGAIN|getaddrinfo|invalid url|not a valid url|invalid hostname/i;
+
+/** The cause codes of a name that did not resolve (Node's `dns`). */
+const RESOLVE_CODES = new Set(["ENOTFOUND", "EAI_AGAIN"]);
+
+/** An error's code, or its cause's, its cause's cause's… (a few deep). */
+function causeCodes(error: unknown): string[] {
+  const codes: string[] = [];
+  let at: unknown = error;
+  for (let depth = 0; depth < 4 && isObject(at); depth++) {
+    if (typeof at.code === "string") codes.push(at.code);
+    at = (at as { cause?: unknown }).cause;
+  }
+  return codes;
+}
+
+/**
+ * Whether a failure says the address itself failed (46d): its words say so
+ * (`ADDRESS_FAILURE`), or its cause's code is a resolver's. ECONNREFUSED,
+ * a 403 or a timeout is not a slip of the address.
+ */
+export function addressFailed(message: string, cause?: unknown): boolean {
+  if (ADDRESS_FAILURE.test(message)) return true;
+  return causeCodes(cause).some((code) => RESOLVE_CODES.has(code));
+}
 
 const URL_IN_TEXT = /https?:\/\/[^\s"'<>()[\]{}\\`|^]+/gi;
 
@@ -173,18 +202,20 @@ function urlArgument(tool: string, input: unknown): string | undefined {
 
 /**
  * "Did you mean …?" for a failed call to a checked tool, or nothing: its URL
- * is malformed or `message` says the address failed, and a seen URL is a slip
- * away. `messages` is the conversation before this call's result.
+ * is malformed or the failure says the address failed (`addressFailed`:
+ * `message`, or `cause`'s code), and a seen URL is a slip away. `messages`
+ * is the conversation before this call's result.
  */
 export function nearMissHint(
   tool: string,
   input: unknown,
   message: string,
   messages: readonly AgentMessage[],
+  cause?: unknown,
 ): string | undefined {
   const url = urlArgument(tool, input);
   if (!url) return undefined;
-  if (!malformedUrl(url) && !ADDRESS_FAILURE.test(message)) return undefined;
+  if (!malformedUrl(url) && !addressFailed(message, cause)) return undefined;
   const meant = nearMissUrl(url, conversationUrls(messages));
   return meant ? `Did you mean ${meant}?` : undefined;
 }
@@ -203,7 +234,7 @@ export function withNearMissHint(
   if (!isObject(result) || !isObject(result.error)) return result;
   const error = result.error;
   const message = typeof error.message === "string" ? error.message : "";
-  const hint = nearMissHint(tool, input, message, messages);
+  const hint = nearMissHint(tool, input, message, messages, error);
   if (!hint) return result;
   const meant = hint.slice("Did you mean ".length, -1);
   return {

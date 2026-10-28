@@ -47,7 +47,7 @@ function stubStart() {
   return fetchMock;
 }
 
-function renderApp(api: "anthropic" | "local") {
+function renderApp(api: "anthropic" | "local", newerWebTools = true) {
   return render(
     <CuratorApp
       setup={{
@@ -57,6 +57,7 @@ function renderApp(api: "anthropic" | "local") {
             : "qwen3:8b on this machine",
         api,
         search: api === "anthropic",
+        newerWebTools: api === "anthropic" && newerWebTools,
       }}
       runs={[]}
       maxPrompt={4_000}
@@ -107,6 +108,16 @@ describe("the newer web tools toggle (46d)", () => {
       prompt: "find two more",
       newerWebTools: true,
     });
+  });
+
+  it("is not offered for a Claude model without them (a Haiku)", async () => {
+    const fetchMock = stubStart();
+    renderApp("anthropic", false);
+    expect(
+      screen.queryByRole("checkbox", { name: "Use newer web tools" }),
+    ).toBeNull();
+    await ask("find a braise");
+    expect(sentBody(fetchMock)).toEqual({ prompt: "find a braise" });
   });
 
   it("is not offered for a local model, which never sends it", async () => {

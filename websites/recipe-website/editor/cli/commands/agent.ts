@@ -13,8 +13,8 @@
  * - `--run <id>` follows up on a run: its conversation is the history.
  * - `--max-turns N` lowers E3's 40.
  * - `--newer-web-tools` (46d) gives a Claude run the newer server web
- *   tools (dynamic filtering); a follow-up keeps its conversation's, and a
- *   local model ignores it (the job log says so).
+ *   tools (dynamic filtering) on a model that takes them; a follow-up keeps
+ *   its conversation's, and any other model ignores it (the job log says so).
  *
  * A Claude run stops at its cost budget (46d: `RECIPE_AGENT_MAX_COST_USD`,
  * default $1) with `stopReason: "budget:cost"`.
