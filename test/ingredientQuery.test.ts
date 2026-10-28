@@ -53,11 +53,6 @@ describe("the traditional-bean family (46h, 43-Dm1–Dm4)", () => {
     "1/2 cup adzuki beans",
     "1 cup mung beans",
     "1 cup black-eyed peas",
-    "1 cup lentils",
-    "1 cup red lentils",
-    "1 cup French green lentils",
-    "1 cup split peas",
-    "1 cup yellow split peas",
     "1 can mixed beans",
   ];
   const NOT_BEANS = [
@@ -73,20 +68,25 @@ describe("the traditional-bean family (46h, 43-Dm1–Dm4)", () => {
     "1 can refried beans",
     "1 tbsp black bean paste",
     "1 cup lentil pasta",
+    /* 46h Dh3, as amended: Roger named the traditional beans. */
+    "1 cup lentils",
+    "1 cup red lentils",
+    "1 cup split peas",
+    "1 cup yellow split peas",
   ];
 
-  it("names every traditional bean, lentils and split peas included", () => {
+  it("names every traditional bean", () => {
     for (const line of BEANS) {
       expect(lineMatchesIngredient(line, "bean", "any-bean"), line).toBe(true);
     }
-    expect(beanKindOf("lentils")).toBe("lentil");
-    expect(beanKindOf("split peas")).toBe("split pea");
   });
 
-  it("never green, vanilla, coffee or jelly beans", () => {
+  it("never green, vanilla, coffee or jelly beans, lentils or split peas", () => {
     for (const line of NOT_BEANS) {
       expect(lineMatchesIngredient(line, "bean", "any-bean"), line).toBe(false);
     }
+    expect(beanKindOf("lentils")).toBeUndefined();
+    expect(beanKindOf("split peas")).toBeUndefined();
   });
 
   it("is ingredient:any-bean in search, in every spelling", () => {
@@ -107,7 +107,9 @@ describe("the traditional-bean family (46h, 43-Dm1–Dm4)", () => {
     }
     /* Negated, it keeps the recipes with no family bean. */
     expect(finds("-ingredient:any-bean", ["1 lb green beans"])).toBe(true);
-    expect(finds("-ingredient:any-bean", ["1 cup lentils"])).toBe(false);
+    expect(finds("-ingredient:any-bean", ["1 cup cannellini beans"])).toBe(
+      false,
+    );
     /* `bean*`-style text still finds every "bean…" word, green beans too. */
     expect(finds("ingredient:bean", ["1 lb green beans"])).toBe(true);
   });
@@ -117,14 +119,16 @@ describe("the traditional-bean family (46h, 43-Dm1–Dm4)", () => {
     expect(anyBean.label).toBe("Any bean (black, kidney, chickpea…)");
     expect(matcherOf("any-bean")?.id).toBe("bean");
     const item = parseInventoryItem("any bean");
-    const [lentils] = parseIngredientLine("1 cup brown lentils");
+    const [chickpeas] = parseIngredientLine("1 can chickpeas");
     const [green] = parseIngredientLine("1 lb green beans");
-    expect(satisfies(item, lentils)).toBe(true);
+    const [lentils] = parseIngredientLine("1 cup brown lentils");
+    expect(satisfies(item, chickpeas)).toBe(true);
     expect(satisfies(item, green)).toBe(false);
-    /* `bean*` stays a plain word match: green beans yes, lentils no. */
+    expect(satisfies(item, lentils)).toBe(false);
+    /* `bean*` stays a plain word match: green beans yes, chickpeas no. */
     const prefix = parseInventoryItem("bean*");
     expect(satisfies(prefix, green)).toBe(true);
-    expect(satisfies(prefix, lentils)).toBe(false);
+    expect(satisfies(prefix, chickpeas)).toBe(false);
   });
 
   it("is offered first after ingredient: for bea… or any…", () => {
@@ -195,6 +199,26 @@ describe('the "any form" match, ingredient:~X (46h, 43-Dn2)', () => {
     );
     expect(finds("ingredient:~corn", ["1 cup frozen corn"])).toBe(true);
     expect(finds("ingredient:~corn", ["1 cup corn tortillas"])).toBe(false);
+  });
+
+  it("reads what was typed as a line's name is, 46g's merges included", () => {
+    /* BARE_NAMES: a line's bare "sugar" is granulated sugar (46g ing-3), so
+       the typed target is read the same way. */
+    for (const query of [
+      "ingredient:~sugar",
+      'ingredient:~"granulated sugar"',
+    ]) {
+      expect(finds(query, ["1 cup sugar"]), query).toBe(true);
+      expect(finds(query, ["1 cup granulated sugar"]), query).toBe(true);
+      expect(finds(query, ["1 cup brown sugar"]), query).toBe(false);
+    }
+    /* A NAME_SYNONYMS row (ing-15): low-sodium stock is chicken broth. */
+    expect(
+      finds('ingredient:~"chicken broth"', ["4 cups low-sodium chicken stock"]),
+    ).toBe(true);
+    expect(
+      finds('ingredient:~"chicken broth"', ["1 cup canned chicken broth"]),
+    ).toBe(true);
   });
 
   it("drops a lone ~ while it is typed, and keeps one word", () => {

@@ -59,11 +59,17 @@ const STATUS_LABEL: Record<RoundupOutcome["status"], string> = {
 export default function RoundupImport({
   terms = [],
   onRunningChange,
+  onTouchedChange,
   hidden = false,
 }: {
   /** The vocabulary, offered for the term: the slug is the value. */
   terms?: { slug: string; label: string }[];
   onRunningChange?: (running: boolean) => void;
+  /**
+   * 46h review (43e1-28): a roundup URL typed or a list read — the new
+   * recipe's Cancel asks before discarding it.
+   */
+  onTouchedChange?: (touched: boolean) => void;
   /**
    * 43e1: one of Start from's ways in, so it stays mounted (a run going on)
    * while another way is chosen — hidden, not unmounted.
@@ -119,6 +125,11 @@ export default function RoundupImport({
     },
     [],
   );
+
+  const touched = url.trim() !== "" || list !== null;
+  useEffect(() => {
+    onTouchedChange?.(touched);
+  }, [touched, onTouchedChange]);
 
   const withTerm = term.trim().length > 0;
   const picked = (list?.items ?? []).filter(

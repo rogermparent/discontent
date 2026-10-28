@@ -417,6 +417,16 @@ function lineName(name: IngredientName): IngredientName {
   return kind ? { ...name, words: kind.split(" ") } : name;
 }
 
+/**
+ * A searched-for name read the way a line's name is (46h review): `toName`
+ * and then `BARE_NAMES`, so `ingredient:~sugar` asks for the granulated
+ * sugar that "1 cup sugar" is read as. For a query only — a typed inventory
+ * item keeps its bare word (see `BARE_NAMES`).
+ */
+export function queryName(text: string): IngredientName {
+  return lineName(toName(text));
+}
+
 const NAME_SYNONYM_RES: [RegExp, string][] = NAME_SYNONYMS.map(([from, to]) => [
   new RegExp(`\\b(?:${from})\\b`, "g"),
   to,

@@ -85,6 +85,24 @@ export const DRINK_STYLE_ONLY_SLUGS: readonly string[] =
     (slug) => !DRINK_STRENGTH_METHOD_SLUGS.includes(slug),
   );
 
+/** The methods alone: how a drink is mixed (the edit form's Method). */
+export const DRINK_METHOD_SLUGS: readonly string[] = [
+  "shaken",
+  "stirred",
+  "built",
+];
+
+/**
+ * Every non-family child, the styles proper first (46h review): what a
+ * drink is says more on a card than how it was mixed, so a shaken batch
+ * punch reads "Batch". Strength and method follow, for a drink with no
+ * style.
+ */
+const DRINK_META_ORDER: readonly string[] = [
+  ...DRINK_STYLE_ONLY_SLUGS,
+  ...DRINK_STYLE_SLUGS.filter((slug) => !DRINK_STYLE_ONLY_SLUGS.includes(slug)),
+];
+
 /** How many families the index's Classics column lists before "All". */
 export const CLASSICS_LIMIT = 24;
 /** Drinks kept per holiday: its cards, then the names of "Also: …". */
@@ -355,8 +373,8 @@ export function drinksPageData({
 
 /**
  * A drink's meta line, "Tequila · Sour": the first base, then the first
- * style (`DRINK_STYLE_SLUGS`' order), by the tags it carries. Empty when
- * neither is tagged. Pure, so the server's cards and the browser's Pour now
+ * style proper (`DRINK_STYLE_ONLY_SLUGS`), or failing one its strength or
+ * method ("Shaken"), by the tags it carries. Empty when neither is tagged. Pure, so the server's cards and the browser's Pour now
  * rows say the same.
  */
 export function drinkMeta(
@@ -365,7 +383,7 @@ export function drinkMeta(
 ): string[] {
   const slugs = (tags ?? []).map((tag) => tagSlug(tag));
   const base = slugs.map((slug) => lookup.bases[slug]).find(Boolean);
-  const style = DRINK_STYLE_SLUGS.find(
+  const style = DRINK_META_ORDER.find(
     (slug) => slugs.includes(slug) && lookup.styles[slug],
   );
   return [base, style && lookup.styles[style]].filter(

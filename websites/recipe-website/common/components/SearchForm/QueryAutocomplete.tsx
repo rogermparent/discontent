@@ -289,7 +289,7 @@ export function ingredientOptions(
     options.push({
       key: `ingredient:${ANY_BEAN_VALUE}`,
       label: ANY_BEAN_LABEL,
-      hint: "every traditional bean, lentils and split peas — never green or vanilla beans",
+      hint: "black, kidney, chickpea and every traditional bean — never green or vanilla beans",
       replacement: `ingredient:${ANY_BEAN_VALUE}`,
     });
   }

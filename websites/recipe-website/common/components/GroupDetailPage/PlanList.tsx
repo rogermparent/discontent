@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useId, useMemo, useState, useTransition, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 import {
   ChevronDown,
   Ellipsis,
@@ -663,6 +671,17 @@ export function PlanList({
   const [refreshing, startRefresh] = useTransition();
   const busy = saving || refreshing;
   const [error, setError] = useState<string>();
+  /*
+   * A merge written (46h review): "Try to merge" goes with the error it sat
+   * beside, so focus moves to the list's heading rather than to nothing.
+   */
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const focusAfterMerge = useRef(false);
+  useEffect(() => {
+    if (!focusAfterMerge.current || error) return;
+    focusAfterMerge.current = false;
+    headingRef.current?.focus();
+  }, [error]);
   const changes = editor ? draftChanges(draft, items) : 0;
   /* The rows' names by `recipe:<slug>` / `group:<slug>`, for a merge's lines. */
   const baseNames = useMemo(() => {
@@ -716,7 +735,14 @@ export function PlanList({
       className="flex min-w-0 flex-[999_1_560px] flex-col"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-b border-border pb-2">
-        <h2 className="font-display text-xl font-semibold tracking-[-0.025em]">
+        <h2
+          ref={headingRef}
+          tabIndex={-1}
+          className={cn(
+            "font-display text-xl font-semibold tracking-[-0.025em]",
+            FOCUS,
+          )}
+        >
           In order
         </h2>
         {changes > 0 ? (
@@ -775,6 +801,7 @@ export function PlanList({
               }))}
               baseNames={baseNames}
               onMerged={() => {
+                focusAfterMerge.current = true;
                 setError(undefined);
                 startRefresh(() => router.refresh());
               }}

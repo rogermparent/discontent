@@ -798,8 +798,22 @@ Serve this matzoh ball soup as part of a Hanukkah menu or whenever you need a wa
           "Half a recipe",
         );
 
-        /* Typed into Start from only: it asks too. */
+        /* A roundup URL typed in the picker asks too (46h review). */
         await page.getByLabel("Name").first().clear();
+        await page.getByRole("radio", { name: "Roundup", exact: true }).check();
+        await page
+          .getByLabel("Roundup URL", { exact: true })
+          .fill(new URL("/uploads/roundup.html", baseURL!).href);
+        await cancel.click();
+        await expect(dialog).toBeVisible();
+        await dialog.getByRole("button", { name: "Keep editing" }).click();
+        await page.getByLabel("Roundup URL", { exact: true }).clear();
+        await expect(
+          page.getByRole("link", { name: "Cancel", exact: true }),
+        ).toBeVisible();
+        await page.getByRole("radio", { name: "A link", exact: true }).check();
+
+        /* Typed into Start from only: it asks too. */
         await page
           .getByLabel("Import from URL")
           .fill(new URL("/uploads/naan.html", baseURL!).href);

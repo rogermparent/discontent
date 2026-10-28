@@ -8,8 +8,9 @@
  * - **`ingredient:any-bean`** (also `"any bean"`, `any-beans`): a line with
  *   a name in the traditional-bean family (`beans.ts`: black, kidney,
  *   pinto, navy, cannellini, chickpea, lima, borlotti, adzuki, mung,
- *   lentils, split peas, black-eyed peas…) — never green, vanilla, coffee or
- *   jelly beans. The same family as Make's `any bean` matcher.
+ *   black-eyed peas…) — never green, vanilla, coffee or jelly beans, nor
+ *   lentils or split peas (46h Dh3). The same family as Make's `any bean`
+ *   matcher.
  * - **`ingredient:~X`** — "X in any form": a line whose name is X once the
  *   words that say what form it is bought or kept in are read past —
  *   canned, cooked, frozen, drained, rinsed, thawed, soaked… (`dried` and
@@ -32,7 +33,7 @@ import { beanKind } from "./beans";
 import { fold } from "./fold";
 import {
   parseIngredientLine,
-  toName,
+  queryName,
   type IngredientName,
 } from "./ingredientNames";
 
@@ -124,11 +125,15 @@ export function lineNames(line: string): IngredientName[] {
 
 const targetKeys = new Map<string, string>();
 
-/** The formless key of what was typed after `~`, memoized. */
+/**
+ * The formless key of what was typed after `~`, memoized. Read as a line's
+ * name is (`queryName`: `BARE_NAMES` too), so `~sugar` meets "1 cup sugar",
+ * which the parser reads as granulated sugar.
+ */
 function targetKey(value: string): string {
   let key = targetKeys.get(value);
   if (key === undefined) {
-    key = formlessKey(toName(value));
+    key = formlessKey(queryName(value));
     if (targetKeys.size >= 1_000) targetKeys.clear();
     targetKeys.set(value, key);
   }

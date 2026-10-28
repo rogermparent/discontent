@@ -6,8 +6,8 @@
  * editor's saved list, Import / export, `recipes inventory add …`:
  *
  * - **A family** (42m2): `any bean` is "I have beans, any kind" — every
- *   member of an exact list (`beans.ts`, 42m's Dm1; the traditional beans,
- *   lentils and split peas included, since 46h). `matcherOf` also reads
+ *   member of an exact list (`beans.ts`, 42m's Dm1: the traditional beans;
+ *   lentils and split peas still out, 46h Dh3). `matcherOf` also reads
  *   `bean`, `beans`, `any beans`, `all beans`, `any kind of beans` and
  *   `beans (any kind)`; `canonicalItem` turns each into `any bean` when it is
  *   added (Dm2-6), so a bare "beans" never strictly meets green, vanilla or

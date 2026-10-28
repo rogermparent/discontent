@@ -422,6 +422,10 @@ test.describe("Meal plan: plan at home", () => {
     await conflict.getByLabel("Yours: 3×").check();
     await saveMerged.click();
     await expect(dialog).toHaveCount(0);
+    /* The trigger went with the error: focus lands on the list's heading. */
+    await expect(
+      list.getByRole("heading", { name: "In order", exact: true }),
+    ).toBeFocused();
 
     await expect(rows(page).getByRole("link")).toHaveText([
       "Gingerbread Cookies",

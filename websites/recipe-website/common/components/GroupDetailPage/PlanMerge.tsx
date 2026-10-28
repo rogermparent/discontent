@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import {
   DialogClose,
@@ -140,6 +140,8 @@ export function PlanMerge({
   const [error, setError] = useState<string>();
   const [note, setNote] = useState<string>();
   const [saving, setSaving] = useState(false);
+  /* Written: the trigger goes with the dialog, so focus goes elsewhere. */
+  const merged = useRef(false);
 
   /* Read the stored rows: on opening, and again if they moved meanwhile. */
   async function read() {
@@ -190,6 +192,7 @@ export function PlanMerge({
         planItemsKey(stored.items),
       );
       if (!("error" in result)) {
+        merged.current = true;
         setOpen(false);
         onMerged();
       } else if (result.error === PLAN_CHANGED) {
@@ -224,6 +227,10 @@ export function PlanMerge({
       <DialogContent
         className="max-h-[90vh] overflow-y-auto sm:max-w-xl"
         data-testid="plan-merge"
+        onCloseAutoFocus={(event) => {
+          /* The page moves focus to the plan's heading (`onMerged`). */
+          if (merged.current) event.preventDefault();
+        }}
       >
         <DialogHeader>
           <DialogTitle>Merge with the stored plan</DialogTitle>

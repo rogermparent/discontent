@@ -9,9 +9,9 @@
  *
  * - **Rows** are matched to the base by what they point at: base rows by
  *   index for mine (the draft only reorders, rescales and removes base
- *   rows), and by recipe or plan slug for theirs — the n-th row naming a
- *   slug is the base's n-th row naming it (a plan may cook one recipe on
- *   two days).
+ *   rows), and by recipe or plan slug for theirs — a slug's rows paired by
+ *   label and note first, then by occurrence (a plan may cook one recipe on
+ *   two days; `matchToBase`).
  * - **Fields** (label, note, scale): a field one side changed takes that
  *   side's value; one both sides changed alike takes it; one both changed
  *   differently is a **conflict**, which the person answers.
@@ -103,23 +103,42 @@ function shown(field: MergeField, item: GroupItem): string {
   return value ? `“${value}”` : "none";
 }
 
-/** Each row of `other` → the base index it is, by slug and occurrence. */
+/**
+ * Each row of `other` → the base index it is. Rows are paired within a slug
+ * (a plan may cook one recipe on two days), most telling first (46h
+ * review): the same label and note, then the same label, then the same
+ * note, and only the rest by occurrence — so a row removed or inserted
+ * before a same-slug row doesn't shift the pairing (Chili Mon and Chili
+ * Thu, with Mon removed elsewhere, leave Thu paired with Thu).
+ */
 function matchToBase(
   base: readonly GroupItem[],
   other: readonly GroupItem[],
 ): (number | undefined)[] {
-  const slots = new Map<string, number[]>();
-  base.forEach((item, index) => {
-    const key = refKey(item);
-    slots.set(key, [...(slots.get(key) ?? []), index]);
-  });
-  const used = new Map<string, number>();
-  return other.map((item) => {
-    const key = refKey(item);
-    const n = used.get(key) ?? 0;
-    used.set(key, n + 1);
-    return slots.get(key)?.[n];
-  });
+  const out: (number | undefined)[] = other.map(() => undefined);
+  const taken = new Set<number>();
+  const passes: ((a: GroupItem, b: GroupItem) => boolean)[] = [
+    (a, b) =>
+      (text(a.label) !== "" || text(a.note) !== "") &&
+      text(a.label) === text(b.label) &&
+      text(a.note) === text(b.note),
+    (a, b) => text(a.label) !== "" && text(a.label) === text(b.label),
+    (a, b) => text(a.note) !== "" && text(a.note) === text(b.note),
+    () => true,
+  ];
+  for (const pairs of passes) {
+    other.forEach((item, i) => {
+      if (out[i] !== undefined) return;
+      const key = refKey(item);
+      const index = base.findIndex(
+        (row, b) => !taken.has(b) && refKey(row) === key && pairs(row, item),
+      );
+      if (index === -1) return;
+      out[i] = index;
+      taken.add(index);
+    });
+  }
+  return out;
 }
 
 /** One side's rows against the base: positions and changed fields. */

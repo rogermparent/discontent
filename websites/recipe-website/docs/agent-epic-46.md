@@ -614,8 +614,9 @@ The seven picks from 46c's checklist that changed a default
    alert dialog, "Discard this recipe?" (Keep editing / Discard), when the
    form counts a change, an import filled it, a failed Create reloaded it,
    or the Start from fields were typed in (URL, pasted text, its source,
-   photos). Untouched, and on the edit page, Cancel is the plain link it
-   was. `RecipeFormRail`'s `askBeforeCancel`.
+   photos, the roundup picker's URL or a list it read). Untouched, and on
+   the edit page, Cancel is the plain link it was. `RecipeFormRail`'s
+   `askBeforeCancel`.
 4. **43-Df2 — stirred and built are methods.** `DRINK_STRENGTH_METHOD_SLUGS`
    (now in `drinksPage.ts`, re-exported by `facets.ts`) is zero-proof,
    low-abv, shaken, stirred, built; Style is sour, highball, collins, batch,
@@ -626,14 +627,18 @@ The seven picks from 46c's checklist that changed a default
    Method control (shake → shaken, stir → stirred, build → built) is
    unchanged; its wording says "method tag". The curator skill (and
    `skill-local.md`) tags the method's tag for every method and "a style
-   where one fits". Tag data unchanged.
+   where one fits". A drink card's meta line (`drinkMeta`) names a style
+   proper before a method ("Batch" for a shaken punch, "Shaken" only with
+   no style), and a holiday menu groups its drinks by the styles proper and
+   then strength (zero-proof, low-ABV), never by method — a drink tagged
+   only `shaken` goes under More (`menuStyles`: the page, `holiday_get` and
+   the CLI's Drinks section). Tag data unchanged.
 5. **43-Dm1–Dm4 + 43-Dn2 — the traditional beans and "any form".**
-   - **The family** (`beans.ts`) takes in lentils (red, green, brown,
-     black/beluga, French/Puy, yellow) and split peas: black, kidney,
-     pinto, navy, cannellini, great northern, chickpea/garbanzo,
+   - **The family** (`beans.ts`) is 42m's, unchanged (Dh3, amended): black,
+     kidney, pinto, navy, cannellini, great northern, chickpea/garbanzo,
      lima/butter, borlotti/cranberry, adzuki, mung, fava, black-eyed peas,
-     mixed beans, lentils, split peas. Never green, string, wax or runner
-     beans, green peas, edamame/soy, sprouts, vanilla, coffee, cocoa,
+     mixed beans. Never green, string, wax or runner beans, green peas,
+     edamame/soy, lentils, split peas, sprouts, vanilla, coffee, cocoa,
      jelly, refried, baked or chili beans.
    - **Make:** it stays `any bean`'s meaning (saved lists keep working;
      `bean*` stays a plain word match). The add field offers it as "Any
@@ -648,7 +653,11 @@ The seven picks from 46c's checklist that changed a default
      `ingredient:~"black beans"` meets "1 can black beans", "1 cup dried
      black beans", "2 cups cooked black beans", never "black bean soup" or
      "black bean paste", and `~garbanzos` meets "1 can chickpeas"
-     (synonyms). Every other `ingredient:` value keeps its text meaning.
+     (synonyms). What was typed is read as a line's name is, 46g's
+     `BARE_NAMES` included (`queryName`), so `~sugar` meets "1 cup sugar"
+     (read as granulated sugar) and "1 cup granulated sugar", and
+     `~"chicken broth"` meets low-sodium chicken stock. Every other
+     `ingredient:` value keeps its text meaning.
      The completion offers the family first for "bea…" / "any…" and keeps
      a typed `~` ("in any form — canned, dried, cooked"). The CLI and MCP
      `recipe_search` share `matchesFilter`, so they read both; the
@@ -671,10 +680,14 @@ The seven picks from 46c's checklist that changed a default
    then writes through the same Save, checked against the rows it merged
    with (a plan that moved again is read again: "The plan changed again
    — this is the newest."). The merge is pure (`util/planMerge.ts`):
-   draft rows match the base by index, stored rows by slug and occurrence
-   (a recipe planned twice); a side's own change wins, alike changes
-   merge; the reordering side's order leads and the other side's
-   additions follow the row they follow there.
+   draft rows match the base by index; stored rows match within a slug by
+   label and note first (same label and note, then same label, then same
+   note) and by occurrence only for the rest, so a recipe planned twice
+   keeps its pairing when the other side removes or inserts one of its
+   rows. A side's own change wins, alike changes merge; the reordering
+   side's order leads and the other side's additions follow the row they
+   follow there. After Save merged, focus moves to the list's "In order"
+   heading (the trigger goes with the error it sat beside).
 7. **43-Dp2-1 — the run sheet on every plan.** `hasRunSheet` is every plan
    with a row, so the switch offers Plan / Run sheet / Cook on a week of
    dinners too; its columns already said "bake not set", "chill not set",
@@ -689,8 +702,11 @@ The seven picks from 46c's checklist that changed a default
 - **Dh2 — form words are read past only at the front** of a name and only
   inside `~`: "dry" is not one (dry vermouth is not vermouth), and
   "dried"/"fresh" were already dropped by `toName`.
-- **Dh3 — lentils and split peas join the bean family** (Roger's list); 42m
-  had left them out as "cooked differently". Edamame and soybeans stay out.
+- **Dh3 — the bean family stays 42m's** (amended by the orchestrator after
+  review; the first cut added lentils and split peas). Roger said
+  "traditional beans (black, kidney, etc)", and widening the family would
+  silently change every saved `any bean` list on /make. Lentils, split
+  peas, edamame and soybeans stay out.
 - **Dh4 — an empty plan has no run sheet** (nothing to run); every plan
   with a row has one.
 - **Dh5 — "optional for X"** names only recipes whose lines were all
@@ -699,9 +715,24 @@ The seven picks from 46c's checklist that changed a default
   which to keep"); an unanswered conflict would keep the stored side, but
   Save merged is disabled until none is left.
 
-**Roger to confirm:** Dh1 (the `~` spelling), Dh3 (edamame/soy still out
-of the family), Dh4, and /drinks' Strength & method sitting under Style in
-one column rather than a fourth column.
+#### Review fixes (finisher, after merging main at 8c2008d2)
+
+- `~sugar` matched nothing after 46g: the typed target now goes through
+  `queryName` (`toName` + `BARE_NAMES`, exported from `ingredientNames.ts`).
+- The plan merge mispaired a recipe planned twice: `matchToBase` pairs by
+  label and note before occurrence (`planMerge.test` +1, both probes).
+- Methods read as styles in `drinkMeta` and `menuStyles` (see 4).
+- Focus after Save merged lands on the "In order" heading (`plan-page`
+  spec asserts it).
+- Dh3 amended: lentils and split peas out again.
+- The roundup picker's typed URL or read list counts in Cancel's check
+  (`RoundupImport`'s `onTouchedChange`; `new-recipe` spec).
+
+**Roger to confirm:** Dh1 (the `~` spelling), Dh3 (lentils / split peas /
+edamame / soybeans as beans?), Dh4, a holiday menu grouping drinks by
+style then strength (zero-proof, low-ABV) with method-only drinks under
+More, and /drinks' Strength & method sitting under Style in one column
+rather than a fourth column.
 
 ### 46k: Claude for real (after Roger adds the key)
 

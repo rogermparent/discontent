@@ -218,7 +218,7 @@ describe("resolvePlanMerge — the rows a Save merged writes", () => {
     ).toEqual(["b", "a", "group:week2", "c"]);
   });
 
-  it("matches a recipe planned twice by its occurrence", () => {
+  it("falls back to occurrence for a relabelled twice-planned recipe", () => {
     const base: GroupItem[] = [
       { recipe: "a", label: "Mon" },
       { recipe: "a", label: "Thu" },
@@ -238,6 +238,48 @@ describe("resolvePlanMerge — the rows a Save merged writes", () => {
     expect(merged).toEqual([
       { recipe: "a", label: "Mon", scale: "2" },
       { recipe: "a", label: "Thursday" },
+    ]);
+  });
+
+  it("pairs a recipe planned twice by label before occurrence", () => {
+    const base: GroupItem[] = [
+      { recipe: "a", label: "Mon" },
+      { recipe: "a", label: "Thu" },
+    ];
+    const nameOf = () => "Chili";
+    /* Theirs removed Mon; mine noted Thu: one Thu, my note, no conflict. */
+    const removed: PlanMergeInput = {
+      base,
+      mine: [
+        { item: base[0], base: 0 },
+        { item: { ...base[1], note: "Leftovers" }, base: 1 },
+      ],
+      theirs: [{ recipe: "a", label: "Thu" }],
+      nameOf,
+    };
+    expect(planMerge(removed).conflicts).toEqual([]);
+    expect(resolvePlanMerge(removed)).toEqual([
+      { recipe: "a", label: "Thu", note: "Leftovers" },
+    ]);
+    /* Theirs put Chili Sun before Mon; mine noted Mon: the note stays on Mon. */
+    const inserted: PlanMergeInput = {
+      base,
+      mine: [
+        { item: { ...base[0], note: "Double it" }, base: 0 },
+        { item: base[1], base: 1 },
+      ],
+      theirs: [
+        { recipe: "a", label: "Sun" },
+        { recipe: "a", label: "Mon" },
+        { recipe: "a", label: "Thu" },
+      ],
+      nameOf,
+    };
+    expect(planMerge(inserted).conflicts).toEqual([]);
+    expect(resolvePlanMerge(inserted)).toEqual([
+      { recipe: "a", label: "Sun" },
+      { recipe: "a", label: "Mon", note: "Double it" },
+      { recipe: "a", label: "Thu" },
     ]);
   });
 

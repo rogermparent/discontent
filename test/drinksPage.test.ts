@@ -121,6 +121,13 @@ describe("drinksPageData", () => {
       "Highball",
     ]);
     expect(drinkMeta(undefined, data.meta)).toEqual([]);
+    /* 46h review: a style proper before a method, whatever the tag order. */
+    expect(
+      drinkMeta(["tequila", "shaken", "batch"], {
+        bases: { tequila: "Tequila" },
+        styles: { shaken: "Shaken", batch: "Batch" },
+      }),
+    ).toEqual(["Tequila", "Batch"]);
     expect(data.meta).toEqual({
       bases: { tequila: "Tequila", gin: "Gin", tea: "Tea" },
       styles: { shaken: "Shaken", sour: "Sour", highball: "Highball" },
