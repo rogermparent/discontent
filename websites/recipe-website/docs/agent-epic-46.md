@@ -210,6 +210,13 @@ does `http://localtest.me:9/x` (real DNS: "localtest.me resolves to ::1").
 `192.168.x`) is now refused, page and links (the old `roundupPage.ts:877`
 allowance is gone outside tests).
 
+Gates (after the review fixes and the merge of `origin/main` with 46b):
+both typechecks clean; vitest 3636/3636 in 163 files; Docker build mode on
+`fill-gaps`, `import-errors`, `import-roundup`, `import-ssrf`, `jobs`,
+`new-recipe-duplicate-slug`, `new-recipe`, `photo-import`, `ytdlp-import`,
+`multi-recipe` and `api-write` (inspect and roundup routes) 110/110 (the
+first run failed 17, Ta1); `import-ssrf.spec` in dev mode 2/2.
+
 #### Traps (46a)
 
 - **Ta1 — The guard's DNS lookup doubles a slow resolver.** In the
