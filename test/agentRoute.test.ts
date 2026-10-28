@@ -192,6 +192,40 @@ describe("POST /api/agent", () => {
     expect((await view(started.job)).status).toBe(401);
   });
 
+  it("takes newerWebTools (46d): the run's request carries the newer search, recorded on the job", async () => {
+    const bodies: { tools: { name: string; type?: string }[] }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: string | URL, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return new Response(
+          JSON.stringify({
+            id: "msg_1",
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "ok" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 100, output_tokens: 5 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }),
+    );
+    const response = await post({
+      prompt: "find cookies",
+      newerWebTools: true,
+    });
+    expect(response.status).toBe(202);
+    const { job } = await response.json();
+    await Promise.all(afterTasks);
+    expect(
+      bodies[0].tools.find((tool) => tool.name === "web_search")?.type,
+    ).toBe("web_search_20260209");
+    const seen = await (await view(job)).json();
+    expect(seen.meta.spec).toMatchObject({ newerWebTools: true });
+    expect(seen.meta.result).toMatchObject({ newerWebTools: true });
+  });
+
   it("is 400 with no model configured, and 413 for an ask over 4,000 characters", async () => {
     stubModel();
     expect((await post({ prompt: "x".repeat(4_001) })).status).toBe(413);
@@ -200,6 +234,10 @@ describe("POST /api/agent", () => {
     expect((await post({ prompt: "" })).status).toBe(400);
     expect((await post({ prompt: "hi", extra: 1 })).status).toBe(400);
     expect((await post({ prompt: "hi", maxTurns: 41 })).status).toBe(400);
+    /* 46d: the newer web tools are a boolean. */
+    expect((await post({ prompt: "hi", newerWebTools: "yes" })).status).toBe(
+      400,
+    );
 
     vi.stubEnv("RECIPE_LLM_API", "");
     vi.stubEnv("RECIPE_LLM_URL", "");

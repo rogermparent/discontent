@@ -107,6 +107,43 @@ export function takesEffort(model: string): boolean {
   return EFFORT_MODELS.has(model);
 }
 
+/**
+ * The models that take Claude's newer web tools (46d: `web_search_20260209`,
+ * dynamic filtering). platform.claude.com/docs/en/agents-and-tools/
+ * tool-use/web-search-tool, read 2026-10-28: "Dynamic filtering is available
+ * with Claude 4.6 and later models and Claude Mythos Preview" — the page's
+ * model list names Opus 5.5, 5, 4.8, 4.7 and 4.6, Sonnet 5.5, 5 and 4.6,
+ * Fable and Mythos 5 and 5.1, and Mythos Preview among them. The Haiku
+ * models are left out on purpose (Haiku 4.5 predates 4.6; the page does not
+ * say Haiku 5.5 filters): a run there keeps the basic tools and its log says
+ * why. Keyed without a date suffix; unknown is no.
+ */
+export const NEWER_WEB_TOOLS_MODELS: ReadonlySet<string> = new Set([
+  "claude-fable-5-1",
+  "claude-mythos-5-1",
+  "claude-fable-5",
+  "claude-mythos-5",
+  "claude-mythos-preview",
+  "claude-opus-5-5",
+  "claude-opus-5",
+  "claude-opus-4-8",
+  "claude-opus-4-7",
+  "claude-opus-4-6",
+  "claude-sonnet-5-5",
+  "claude-sonnet-5",
+  "claude-sonnet-4-6",
+]);
+
+/** Whether `model` takes the newer web tools (`NEWER_WEB_TOOLS_MODELS`; a date suffix is dropped). */
+export function takesNewerWebTools(model: string): boolean {
+  return NEWER_WEB_TOOLS_MODELS.has(
+    model
+      .trim()
+      .toLowerCase()
+      .replace(/-\d{8}$/, ""),
+  );
+}
+
 /** The key's variable: explicit, so a shell's `ANTHROPIC_API_KEY` is never used by accident. */
 export const LLM_API_KEY_ENV = "RECIPE_LLM_API_KEY";
 

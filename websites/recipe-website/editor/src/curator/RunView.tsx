@@ -6,6 +6,7 @@ import { Button } from "@discontent/component-library/components/ui/button";
 import { cn } from "@discontent/component-library/lib/utils";
 import {
   changeCount,
+  changesToShow,
   runChanges,
 } from "recipe-editor/controller/agent/changes";
 import {
@@ -16,6 +17,7 @@ import {
   type Conversation,
 } from "recipe-editor/controller/agent/conversation";
 import type { CuratorRunChanges } from "recipe-editor/controller/agent/curator";
+import { dollarText } from "recipe-editor/controller/llm/cost";
 import type { TranscriptEnd } from "recipe-editor/controller/agent/transcript";
 import {
   describeWaiting,
@@ -23,8 +25,10 @@ import {
 } from "recipe-editor/controller/jobs/timeline";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
 import { requestCancel } from "@/jobs/useJobPoll";
+import { conversationUrls } from "recipe-editor/controller/agent/nearMiss";
 import { ChangesCard } from "./ChangesCard";
 import { CuratorMarkdown } from "./CuratorMarkdown";
+import { hostsOf, siteSlugsOf } from "./links";
 import { PromptForm } from "./PromptForm";
 import { ToolRows } from "./ToolRows";
 import type { AgentRunPoll } from "./useAgentRun";
@@ -45,7 +49,7 @@ export function runNumbers({
   maxTurns?: number;
   toolCalls: number;
   durationMs?: number;
-  end?: Pick<TranscriptEnd, "usage" | "costEstimate">;
+  end?: Pick<TranscriptEnd, "usage" | "costEstimate" | "maxCostUsd">;
 }): string[] {
   const parts = [
     maxTurns
@@ -62,7 +66,15 @@ export function runNumbers({
     parts.push(
       `${tokenText(input)} tokens in, ${tokenText(end.usage.outputTokens)} out`,
     );
-    if (end.costEstimate !== undefined) parts.push(costText(end.costEstimate));
+    if (end.costEstimate !== undefined) {
+      /* 46d: beside the run's cost budget, when it had one — "about $0.42
+       * (cap $1.00)": an estimate, and a turn can carry it a little past. */
+      parts.push(
+        end.maxCostUsd !== undefined
+          ? `${costText(end.costEstimate)} (cap ${dollarText(end.maxCostUsd)})`
+          : costText(end.costEstimate),
+      );
+    }
   }
   return parts;
 }
@@ -203,11 +215,20 @@ export function RunView({
     () => runChanges(conversation.messages),
     [conversation.messages],
   );
-  const writtenKey = `${written.commits}:${changeCount(written)}:${live}`;
+  /* 46d: the hosts the conversation has seen — a link there is a real
+   * page — and the slugs this site's tools answered with. */
+  const known = useMemo(
+    () => ({
+      hosts: hostsOf(conversationUrls(conversation.messages)),
+      slugs: siteSlugsOf(conversation.messages),
+    }),
+    [conversation.messages],
+  );
+  const writtenKey = `${written.commits}:${changeCount(written)}:${written.terms.length}:${live}`;
   const changes = useRunChanges(
     poll.shown === id ? id : undefined,
     writtenKey,
-    written.commits > 0 || changeCount(written) > 0,
+    changesToShow(written),
     carryFrom,
   );
 
@@ -345,7 +366,7 @@ export function RunView({
                   <p className="font-mono text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
                     Curator
                   </p>
-                  <CuratorMarkdown>{item.text}</CuratorMarkdown>
+                  <CuratorMarkdown known={known}>{item.text}</CuratorMarkdown>
                 </>
               ) : null}
               <ToolRows
@@ -358,7 +379,7 @@ export function RunView({
         })}
       </ol>
 
-      {changes && changeCount(changes) + changes.commits > 0 ? (
+      {changes && changesToShow(changes) ? (
         <ChangesCard changes={changes} />
       ) : null}
 

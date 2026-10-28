@@ -19,6 +19,12 @@ export interface AgentRunInput {
   runId?: string;
   /** A lower turn budget than E3's 40. */
   maxTurns?: number;
+  /**
+   * Claude's newer server web tools (46d): dynamic filtering. Off by
+   * default; a follow-up of a run that had them keeps them. Ignored for a
+   * local model.
+   */
+  newerWebTools?: boolean;
 }
 
 export interface AgentStartResult {

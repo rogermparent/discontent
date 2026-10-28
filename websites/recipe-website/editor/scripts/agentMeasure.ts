@@ -41,6 +41,22 @@ export function askPrompt(id: AskId, fixtureUrl: string): string {
   }
 }
 
+/**
+ * Why an ask is not run, or nothing. Ask (d) needs a web search: Claude
+ * brings its own server-side one (46d — it used to be skipped without
+ * `RECIPE_SEARCH_URL` for Claude too), a local model needs SearXNG's.
+ */
+export function askSkipped(
+  ask: AskId,
+  api: string,
+  env: Record<string, string | undefined>,
+): string | undefined {
+  if (ask !== "d" || api === "anthropic") return undefined;
+  return env.RECIPE_SEARCH_URL?.trim()
+    ? undefined
+    : "RECIPE_SEARCH_URL is not set (a local model's web search)";
+}
+
 /** A flag's whole number from 1 to `max`, or nothing (a usage error). */
 export function positiveInt(text: string, max: number): number | undefined {
   if (!/^\d+$/.test(text.trim())) return undefined;

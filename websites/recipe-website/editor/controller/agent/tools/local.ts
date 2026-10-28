@@ -93,7 +93,7 @@ export const LOCAL_TOOL_TEXT: Partial<Record<LocalToolName, LocalToolText>> = {
   },
   term_assign: {
     description:
-      "Put a term on the recipes in `add` (take it off those in `remove`), one commit: {slug, tag, updated, unchanged, missing}. A slug that is no recipe is refused (unknown_recipe), nothing written.",
+      "Put a term on the recipes in `add` (take it off those in `remove`), one commit: {slug, tag, added, alreadyTagged, updated, unchanged, missing}; `added` were tagged now, `alreadyTagged` already were. A slug that is no recipe is refused (unknown_recipe), nothing written.",
     omit: ["force", "type"],
     /* `type: "group"` would tag groups, which a local run has no tools for. */
     refuse: [{ arg: "force" }, { arg: "type", allowed: "recipe" }],

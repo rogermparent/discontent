@@ -8,14 +8,17 @@
  *   pnpm --filter recipe-editor exec tsx scripts/agent-measure.ts \
  *     --content-dir /scratch/content-clone --model qwen3:8b \
  *     [--think] [--num-ctx 12288|16384] [--asks a,b,c,d] [--repeat N] \
- *     [--max-turns N] [--jobs-dir DIR] [--out runs.jsonl] [--verbose]
+ *     [--max-turns N] [--newer-web-tools] [--jobs-dir DIR] [--out runs.jsonl] [--verbose]
  *
  * The asks (`agentMeasure.ts`): (a) gochujang, a read; (b) tahini →
  * `middle-eastern` if the term exists, a read and a conditional write; (c)
  * import the fixture page `test/fixtures/agent/lemon-garlic-chicken-thighs.html`,
  * served here on 127.0.0.1, and tag it; (d) two Sally's cookie recipes not
- * on the site, listed — only when `RECIPE_SEARCH_URL` is set (else its
- * line says `skipped`).
+ * on the site, listed — for Claude with its own server-side search (46d),
+ * for a local model only when `RECIPE_SEARCH_URL` is set (else its line says
+ * `skipped`). `--newer-web-tools` gives Claude's runs the newer web tools
+ * (46d); each line records the run's estimated cost (`costEstimateUsd`,
+ * null for a model with no price), its budget and its web searches.
  *
  * Each run is an `agent` job exactly as the editor runs one —
  * `runAgentJob`: the same system prompt, tools, `num_ctx` and `think`
@@ -88,6 +91,7 @@ import {
   callRecords,
   checkGochujang,
   checkImport,
+  askSkipped,
   checkSallysList,
   checkTahini,
   contentDirectoryRefusal,
@@ -303,6 +307,8 @@ interface Settings {
   origin: string;
   start: string;
   maxTurns?: number;
+  /** 46d: Claude's newer web tools for every run (`--newer-web-tools`). */
+  newerWebTools: boolean;
   verbose: boolean;
 }
 
@@ -367,6 +373,7 @@ async function measure(
     contentDirectory: ctx.contentDirectory,
     prompt,
     ...(settings.maxTurns ? { maxTurns: settings.maxTurns } : {}),
+    ...(settings.newerWebTools ? { newerWebTools: true } : {}),
   };
   const began = Date.now();
   let outcome: { job: string; result: AgentJobResult } | undefined;
@@ -491,9 +498,11 @@ async function measure(
       in: result?.usage.inputTokens ?? 0,
       out: result?.usage.outputTokens ?? 0,
     },
-    ...(result?.usage.costEstimateUsd !== undefined
-      ? { costEstimateUsd: result.usage.costEstimateUsd }
-      : {}),
+    /* 46d: every run's cost, null for a model with no price (a local one). */
+    costEstimateUsd: result?.usage.costEstimateUsd ?? null,
+    maxCostUsd: result?.maxCostUsd ?? null,
+    newerWebTools: result?.newerWebTools === true,
+    webSearches: result?.usage.webSearchRequests ?? 0,
     trimmed: result?.trimmed ?? 0,
     written,
     commits: facts.commits,
@@ -518,7 +527,7 @@ async function main() {
   const model = flag("model");
   if (!given || !model) {
     fail(
-      "usage: tsx scripts/agent-measure.ts --content-dir <clone> --model <name> [--think] [--num-ctx N] [--asks a,b,c,d] [--repeat N] [--max-turns N] [--jobs-dir DIR] [--out file.jsonl] [--verbose]",
+      "usage: tsx scripts/agent-measure.ts --content-dir <clone> --model <name> [--think] [--num-ctx N] [--asks a,b,c,d] [--repeat N] [--max-turns N] [--newer-web-tools] [--jobs-dir DIR] [--out file.jsonl] [--verbose]",
     );
   }
   const contentDirectory = await checkedContentDirectory(given);
@@ -607,6 +616,7 @@ async function main() {
     origin,
     start,
     ...(maxTurns ? { maxTurns } : {}),
+    newerWebTools: has("newer-web-tools"),
     verbose: has("verbose"),
   };
   console.error(
@@ -617,13 +627,14 @@ async function main() {
     for (const ask of asks) {
       for (let index = 0; index < repeat; index += 1) {
         let line: Record<string, unknown>;
-        if (ask === "d" && !process.env.RECIPE_SEARCH_URL) {
+        const skipped = askSkipped(ask, config.api, process.env);
+        if (skipped) {
           line = {
             at: new Date().toISOString(),
             model: config.model,
             ask,
             run: index + 1,
-            skipped: "RECIPE_SEARCH_URL is not set",
+            skipped,
           };
         } else {
           console.error(`agent-measure: ask ${ask}, run ${index + 1}…`);
