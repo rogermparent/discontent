@@ -24,7 +24,7 @@ is a symlink to it (and is gitignored here). Never commit anything under
 ## Curating recipes
 
 The `recipe-curator` skill (`.claude/skills/recipe-curator/`) imports, cites,
-groups and features recipes through the **`recipes` MCP server** — `.mcp.json`
+groups and features recipes (and sets a recipe's `choice` alternatives, documented there) through the **`recipes` MCP server** — `.mcp.json`
 registers its 59 tools, `.claude/settings.json` pre-approves its 45
 non-destructive ones, and the skill's frontmatter lists the same 45. Held back,
 deliberately (the other 14):
@@ -213,6 +213,16 @@ survives a cleared context.
   default, 12,288 stays, bulk tagging and web search go to Claude). No
   reindex; 23 "Roger to confirm" items and Roger's steps (SearXNG, workstation
   update, Pi deploy) are in the Close-out.
+- `websites/recipe-website/docs/agent-epic-45.md` — epic 45: a quieter tag
+  picker (45a: chips, a field and suggestions as you type), the edit page's
+  "Fill gaps from the source" with marked estimates (45b: `fillGaps`,
+  `estimateTimes`, the `fill` job, `pnpm recipes fill`), import errors that
+  say what and where plus blank rows dropped (45d), and alternatives — a
+  `choice` set of parallel sections the reader picks one of (45e1: the
+  data, the recipe page, cook view, shopping, Make and `indexVersion` "2";
+  45e2: the form's choice sets, ties and marked suggestions). Reindex
+  automatic; the workstation and Pi run 45e1 (`f7a161a6`), not yet 45e2; 18
+  "Roger to confirm" items and Roger's steps are in the Close-out.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
