@@ -15,6 +15,7 @@ export function TextInput({
   value,
   disabled,
   describedBy,
+  invalid,
 }: {
   name: string;
   id?: string;
@@ -29,6 +30,8 @@ export function TextInput({
   disabled?: boolean;
   /** Ids of the elements that describe the field (`aria-describedby`). */
   describedBy?: string;
+  /** The field has a problem (`aria-invalid`). */
+  invalid?: boolean;
 }) {
   return (
     <FieldWrapper label={label} id={id}>
@@ -45,6 +48,7 @@ export function TextInput({
         value={value}
         disabled={disabled}
         aria-describedby={describedBy || undefined}
+        aria-invalid={invalid || undefined}
       />
     </FieldWrapper>
   );

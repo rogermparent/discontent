@@ -344,6 +344,17 @@ const LLM_DESCRIPTION =
   "of its ingredient lines were found on the page; under half and its reading is " +
   "dropped (`discarded`), under 90% the result stays `partial`. Spot-check it " +
   "against the page. A model call takes ~5–45 s; `force` with no model is import_failed.";
+/** Alternatives on recipe_create / recipe_update (45e, G1). */
+const CHOICE_DESCRIPTION =
+  "Alternatives: consecutive instruction groups with the same `choice` (the set's " +
+  'label, e.g. "Then make") are one set the reader picks one option of; each ' +
+  "group's `name` is an option, unique in its set; a set needs two or more, two " +
+  "sets need different labels, and the first option is the default. A choice " +
+  'group may carry its own `recipeYield` ("8 bagels"). An ingredient heading ' +
+  'with the same `choice` and a name matching an option\'s ("For the bagels" ' +
+  "for `Bagels`) holds that option's extra lines, up to the next heading. An " +
+  "import's `suggestedChoices` are hints only: set `choice` yourself when it fits. " +
+  "Instructions that break these rules are refused as `validation`.";
 const IDEMPOTENT_WRITE = { readOnlyHint: false, idempotentHint: true } as const;
 const DESTRUCTIVE_WRITE = {
   readOnlyHint: false,
@@ -545,7 +556,10 @@ export function recipeToolDefinitions(
         "a create-ready `draft` (plain ingredient lines, the best image URL, the " +
         "source) to edit and pass to recipe_create, the raw JSON-LD Recipe node, the " +
         "page's SEO metadata, up to ten ranked `images` to choose from, the page's own " +
-        "categories and keywords as `suggestedTags` (hints, never applied), and — for a " +
+        "categories and keywords as `suggestedTags` (hints, never applied), " +
+        "`suggestedChoices: [{label, groups}]` when sibling step groups look like " +
+        "alternatives (`groups` index `draft.instructions`; a hint, never applied — " +
+        "see recipe_create), and — for a " +
         "video host — yt-dlp's `video` metadata (full description, chapters, " +
         "thumbnails). `partial: true` means the page had no Recipe node: the draft is " +
         "only its title, description and image. A video holding several recipes adds " +
@@ -569,7 +583,10 @@ export function recipeToolDefinitions(
       description:
         "Fetch a page, extract its recipe and write it, keeping the source as " +
         "provenance. `dryRun` returns what would be written — and a create-ready " +
-        "`draft` — without writing it. `image` replaces the page's best image URL. " +
+        "`draft` — without writing it. Either may answer `suggestedChoices`, " +
+        "as page_inspect does (after a create, its indexes count the written " +
+        "recipe's instructions): `choice` is never set by an import. " +
+        "`image` replaces the page's best image URL. " +
         "A page with no Recipe node is refused unless `allowPartial`. " +
         LLM_DESCRIPTION +
         " Pasted text instead of `url`: `text` (a YouTube description, an email, a " +
@@ -704,7 +721,9 @@ export function recipeToolDefinitions(
       title: "Create a recipe",
       description:
         "Write a new recipe. Ingredients and instructions accept prose strings as well " +
-        "as objects. `overwrite` replaces an existing recipe at the same slug. " +
+        "as objects. " +
+        CHOICE_DESCRIPTION +
+        " `overwrite` replaces an existing recipe at the same slug. " +
         "`dryRun` validates and returns the resolved slug, whether it is taken, the " +
         "record that would be stored and the image's filename — writing nothing.",
       inputSchema: z.strictObject({
@@ -732,7 +751,9 @@ export function recipeToolDefinitions(
         "Patch a recipe: an omitted key is left alone, an explicit null clears it. " +
         "`patch.slug` renames (and moves the page); every group item and featured " +
         "entry naming the old slug is rewritten in the same commit. `dryRun` returns " +
-        "the record the patch would produce without writing it.",
+        "the record the patch would produce without writing it. " +
+        CHOICE_DESCRIPTION +
+        " A patch's `instructions` (or `ingredients`) replaces the whole list.",
       inputSchema: z.strictObject({
         slug: Slug,
         patch: RecipePatchSchema,
@@ -1435,7 +1456,11 @@ export function recipeToolDefinitions(
         "slug: every recipe in it, nested plans included, each at its row's " +
         "scale) or `items` (lines typed by hand, like `paper towels` or `2 " +
         'lemons`). `scale` multiplies a recipe or a whole plan (`"2"`, ' +
-        '`"1/2"`). Adding the same recipe twice adds it twice. A plan\'s missing ' +
+        '`"1/2"`). A recipe with alternatives (step groups with a `choice`) ' +
+        "adds its default option's extra lines; `picks` (with `recipe` only) " +
+        "names others as slugs of the set's label and the option's name " +
+        '(`{"then-make": "bagels"}`), or `"all"` for every option; a plan ' +
+        "adds the defaults. Adding the same recipe twice adds it twice. A plan's missing " +
         "recipes and sub-groups are skipped and named in `missing` and `warnings`.",
       inputSchema: ShoppingAddSchema,
       annotations: WRITES,

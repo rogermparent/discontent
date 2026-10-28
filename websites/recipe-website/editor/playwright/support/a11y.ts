@@ -75,7 +75,18 @@ export async function expectMode(page: Page, mode: Mode): Promise<void> {
   }
 }
 
-export async function expectNoViolations(page: Page): Promise<void> {
-  const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+/**
+ * No WCAG violations on the page. `exclude` leaves out selectors the page
+ * does not own — a third-party embed such as youtube-video-element's
+ * `<iframe>`, which carries no title (45e2: the new-recipe form after a
+ * video import shows one).
+ */
+export async function expectNoViolations(
+  page: Page,
+  { exclude = [] }: { exclude?: string[] } = {},
+): Promise<void> {
+  let builder = new AxeBuilder({ page }).withTags(WCAG_TAGS);
+  for (const selector of exclude) builder = builder.exclude(selector);
+  const results = await builder.analyze();
   expect(results.violations).toEqual([]);
 }

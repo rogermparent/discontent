@@ -493,3 +493,127 @@ describe("alternatives survive a save with no changes (45e1, 43-D4)", () => {
     );
   });
 });
+
+/* 45e2: stored data that breaks a form rule still saves unchanged (43-D4):
+ * a lone group with a `choice` (an ordinary group to the reader), and two
+ * sets that share a label. Their problems show only once worked on. */
+const LONE_CHOICE: Partial<ImportedRecipe> = {
+  name: "Lone Choice",
+  date: 1_760_400_000_000,
+  ingredients: [{ ingredient: "Flour" }],
+  instructions: [
+    { name: "Dough", instructions: [{ text: "Mix and rise." }] },
+    {
+      name: "Bagels",
+      instructions: [{ text: "Shape, boil and bake." }],
+      choice: "Then make",
+      recipeYield: "8 bagels",
+    },
+  ],
+};
+
+const SHARED_LABEL: Partial<ImportedRecipe> = {
+  name: "Shared Label",
+  date: 1_760_400_000_000,
+  ingredients: [
+    { ingredient: "Butter" },
+    { ingredient: "For the glaze", type: "heading", choice: "Frosting" },
+    { ingredient: "Icing sugar" },
+  ],
+  instructions: [
+    { name: "Cake", instructions: [{ text: "Bake the cake." }] },
+    {
+      name: "Cream cheese",
+      instructions: [{ text: "Beat the cream cheese." }],
+      choice: "Frosting",
+    },
+    {
+      name: "Buttercream",
+      instructions: [{ text: "Beat the butter." }],
+      choice: "Frosting",
+    },
+    { text: "Chill the cake." },
+    {
+      name: "Ganache",
+      instructions: [{ text: "Melt the chocolate." }],
+      choice: "Frosting",
+    },
+    {
+      name: "Glaze",
+      instructions: [{ text: "Whisk the glaze." }],
+      choice: "Frosting",
+    },
+  ],
+};
+
+describe("stored sets that break a form rule save unchanged (45e2, 43-D4)", () => {
+  it("a lone group with a choice is an ordinary group that keeps its keys", async () => {
+    const { container } = renderForm(LONE_CHOICE, "lone-choice");
+    await settle();
+    expect(container.querySelectorAll("[data-testid=choice-set]")).toHaveLength(
+      0,
+    );
+    expect(JSON.stringify(post(container).instructions)).toBe(
+      JSON.stringify(LONE_CHOICE.instructions),
+    );
+  });
+
+  it("two sets of one label save as they were, problems unshown", async () => {
+    const { container } = renderForm(SHARED_LABEL, "shared-label");
+    await settle();
+    expect(container.querySelectorAll("[data-testid=choice-set]")).toHaveLength(
+      2,
+    );
+    expect(container.querySelector("[data-testid=choice-problems]")).toBe(null);
+    const data = post(container);
+    expect(JSON.stringify(data.instructions)).toBe(
+      JSON.stringify(SHARED_LABEL.instructions),
+    );
+    expect(JSON.stringify(data.ingredients)).toBe(
+      JSON.stringify(SHARED_LABEL.ingredients),
+    );
+  });
+
+  it("worked on, a set shows its problem and the save is refused", async () => {
+    const { container } = renderForm(SHARED_LABEL, "shared-label");
+    await settle();
+    const yields = screen.getAllByLabelText("Option yield");
+    act(() => {
+      fireEvent.change(yields[2], { target: { value: "1 cake" } });
+    });
+    await settle();
+    expect(
+      container.querySelector("[data-testid=choice-problems]")?.textContent,
+    ).toBe("Two choices are called “Frosting”: give each its own label");
+    const form = container.querySelector("form#recipe-form") as HTMLFormElement;
+    expect(parseRecipeFormData(new FormData(form)).success).toBe(false);
+  });
+});
+
+describe("a set's label typed key by key (45e2 review)", () => {
+  it("cleared and retyped, its headings follow once, on blur", async () => {
+    const { container } = renderForm(EVERYTHING_DOUGH, "everything-dough");
+    await settle();
+    const label = screen.getByLabelText("Choice label");
+    for (const value of ["Then mak", "T", "", "B", "Bake"]) {
+      act(() => {
+        fireEvent.change(label, { target: { value } });
+      });
+    }
+    act(() => {
+      fireEvent.blur(label);
+    });
+    await settle();
+    const data = post(container);
+    expect(
+      data.ingredients
+        ?.filter((line) => line.type === "heading")
+        .map((line) => line.choice),
+    ).toEqual([undefined, "Bake", "Bake"]);
+    expect(
+      data.instructions?.map((entry) =>
+        "choice" in entry ? entry.choice : undefined,
+      ),
+    ).toEqual([undefined, "Bake", "Bake", undefined]);
+  });
+});

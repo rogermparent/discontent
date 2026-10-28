@@ -15,9 +15,50 @@ import { PasteField, ParsedLine } from "../PasteField";
 import { detectHeading } from "../../../util/detectHeading";
 import { useRecipeForm } from "../formContext";
 import { ArrayItemControls } from "@discontent/component-library/components/Form/ArrayItemControls";
-import { createContext, useContext, useMemo } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useStore } from "@tanstack/react-form";
 import { Check } from "lucide-react";
+import { Checkbox } from "@discontent/component-library/components/ui/checkbox";
+import type { Ingredient } from "../../../controller/types";
+import {
+  choiceProblems,
+  choiceRuns,
+  runOf,
+  type ChoiceRun,
+} from "../../../util/choiceChecks";
+import {
+  freeLabel,
+  labelKey,
+  type SuggestedChoice,
+} from "../../../util/suggestChoices";
+import { useStableKeys } from "../stableKeys";
+import {
+  labelProblem,
+  labelTaken,
+  makeChoice,
+  moveOption,
+  moveTarget,
+  notChoice,
+  relabel,
+  retieHeadings,
+  selectionProblem,
+  settleLabel,
+  suggestionFits,
+} from "./choiceEdits";
+import {
+  ChoiceSetBlock,
+  ChoiceSuggestionCard,
+  MakeChoicePanel,
+  type FieldProblems,
+} from "./ChoiceSet";
 import {
   flatSteps,
   ingredientChipLabel,
@@ -174,9 +215,18 @@ function InstructionFields({
 function InstructionGroupFields({
   namePrefix,
   entry,
+  nameLabel = "Name",
+  nameProblems,
+  onNameEdit,
 }: {
   namePrefix: TopLevelPrefix;
   entry: number;
+  /** "Option name" on an option of a set (45e2). */
+  nameLabel?: string;
+  /** An option's name problems, linked to its field (45e2). */
+  nameProblems?: FieldProblems;
+  /** The name was typed in (an option's set is worked on). */
+  onNameEdit?: () => void;
 }) {
   const form = useRecipeForm();
   return (
@@ -184,11 +234,16 @@ function InstructionGroupFields({
       <form.Field name={`${namePrefix}.name`}>
         {(field) => (
           <TextInput
-            label="Name"
+            label={nameLabel}
             name={`${namePrefix}.name`}
             value={(field.state.value as string) ?? ""}
-            onChange={(e) => field.handleChange(e.target.value)}
+            onChange={(e) => {
+              onNameEdit?.();
+              field.handleChange(e.target.value);
+            }}
             onBlur={field.handleBlur}
+            describedBy={nameProblems?.describedBy}
+            invalid={nameProblems?.invalid}
           />
         )}
       </form.Field>
@@ -244,7 +299,11 @@ function InstructionGroupFields({
   );
 }
 
-/** A group's `choice` and `recipeYield` (45e) as hidden inputs, when set. */
+/**
+ * A plain group's leftover `choice` / `recipeYield` (45e) as hidden inputs,
+ * so an unchanged save keeps them (43-D4). A group in a set posts its own
+ * from its option card (`ChoiceSet`).
+ */
 function GroupChoiceInputs({
   index,
   group,
@@ -284,16 +343,22 @@ function entryIsGroup(entry: InstructionEntry | undefined): boolean {
  */
 function InstructionEntryFields({
   index,
+  focusKey,
   onInsert,
   onMoveUp,
   onMoveDown,
   onRemove,
+  select,
 }: {
   index: number;
+  /** The entry's focus name (45e2: focus lands here after "Not a choice"). */
+  focusKey?: string;
   onInsert: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
   onRemove: () => void;
+  /** A group's "Include in the choice" box while groups are ticked (45e2). */
+  select?: ReactNode;
 }) {
   const form = useRecipeForm();
   return (
@@ -315,15 +380,14 @@ function InstructionEntryFields({
           }
         };
         return (
-          <li className="flex flex-col my-1">
+          <li className="flex flex-col my-1" data-focus={focusKey}>
             {isGroup ? (
               <>
+                {select}
                 <InstructionGroupFields
                   namePrefix={`instructions[${index}]`}
                   entry={index}
                 />
-                {/* 45e: an option's set and yield ride along unedited, so a
-                    save with no changes keeps them; 45e2 gives them controls. */}
                 <GroupChoiceInputs
                   index={index}
                   group={entry as InstructionGroup}
@@ -415,9 +479,46 @@ function assembleInstructions(lines: ParsedLine[]): InstructionEntry[] {
   return entries;
 }
 
+/** A suggestion's state in the form: offered, taken (until Save) or put away. */
+type SuggestionStatus = "offered" | "accepted" | "dismissed";
+
+interface SuggestionState {
+  status: SuggestionStatus;
+  /** The set it became, while accepted: its mark follows the set, not its label. */
+  set?: string;
+}
+
+/** `[start, end)` as a list. */
+function span(start: number, end: number): number[] {
+  return Array.from({ length: end - start }, (_, offset) => start + offset);
+}
+
+/**
+ * The element a focus name points at, or the first control inside it: an
+ * input that isn't hidden, a button, a textarea or anything focusable.
+ */
+function focusable(element: Element | null): HTMLElement | undefined {
+  if (!(element instanceof HTMLElement)) return undefined;
+  const usable = (node: HTMLElement) =>
+    !(node as HTMLButtonElement).disabled &&
+    !(node instanceof HTMLInputElement && node.type === "hidden");
+  if (
+    element.matches("input, button, textarea, select, [tabindex]") &&
+    usable(element)
+  ) {
+    return element;
+  }
+  const inner = element.querySelectorAll<HTMLElement>(
+    "input, button, textarea, select, [contenteditable='true'], [tabindex]",
+  );
+  return Array.from(inner).find(usable);
+}
+
 export function InstructionsListInput({
   id,
   label,
+  suggestedChoices,
+  suggestedBy = "suggested by the import",
 }: {
   name?: string;
   id: string;
@@ -425,6 +526,13 @@ export function InstructionsListInput({
   defaultValue?: InstructionEntry[];
   placeholder?: string;
   errors?: unknown;
+  /**
+   * Sets an import (or a fill) proposes (45e2, G5): offered as marked cards,
+   * applied to the form only when the person accepts, stored only on Save.
+   */
+  suggestedChoices?: readonly SuggestedChoice[];
+  /** The mark's words: "suggested by the import". */
+  suggestedBy?: string;
 }) {
   const form = useRecipeForm();
   const ingredients = useStore(form.store, (state) => state.values.ingredients);
@@ -452,57 +560,437 @@ export function InstructionsListInput({
   );
   const hasSteps = flatSteps(instructions).some((step) => step.text.trim());
 
+  /*
+   * 45e2: each entry's stable key, the sets the person has worked on (entry
+   * key → set id: their bounds and their rules, `choiceChecks`), the sets as
+   * the form holds them, and what the worked-on ones break.
+   */
+  const { keys, claim } = useStableKeys(instructions, "step");
+  const [worked, setWorked] = useState<ReadonlyMap<string, string>>(
+    () => new Map(),
+  );
+  const sets = useMemo(
+    () => keys.map((key) => worked.get(key)),
+    [keys, worked],
+  );
+  const runs = useMemo(
+    () => choiceRuns(instructions, sets),
+    [instructions, sets],
+  );
+  const problems = useMemo(
+    () => choiceProblems(instructions, sets),
+    [instructions, sets],
+  );
+  const setCount = useRef(0);
+  /* The label each set's headings are tied under, from before its label
+   * was typed in (by the set's key): they move once it settles. */
+  const tiedAs = useRef(new Map<string, string>());
+  /** A set's stable key: its id once worked on, else its first entry's. */
+  const blockKey = (run: ChoiceRun) => run.set ?? `set:${keys[run.start]}`;
+  const assign = (indexes: readonly number[], set: string | undefined) => {
+    const entryKeys = indexes.map((index) => keys[index]);
+    setWorked((old) => {
+      const next = new Map(old);
+      for (const key of entryKeys) {
+        if (set === undefined) next.delete(key);
+        else next.set(key, set);
+      }
+      return next;
+    });
+  };
+  /** The set worked on from now: its rules apply, its bounds are its own. */
+  const work = (run: ChoiceRun): string => {
+    if (run.set !== undefined) return run.set;
+    const set = blockKey(run);
+    assign(span(run.start, run.end), set);
+    return set;
+  };
+  const newSet = () => `new-${++setCount.current}`;
+
+  /* Where focus goes after an edit (45e2): a `data-focus` name, tried in
+   * order, once the edit has rendered. */
+  const container = useRef<HTMLDivElement>(null);
+  const focusNext = useRef<string[]>([]);
+  const requestFocus = (...targets: string[]) => {
+    focusNext.current = targets;
+  };
+  useEffect(() => {
+    const targets = focusNext.current;
+    if (!targets.length) return;
+    focusNext.current = [];
+    for (const target of targets) {
+      const element = focusable(
+        container.current?.querySelector(
+          `[data-focus="${CSS.escape(target)}"]`,
+        ) ?? null,
+      );
+      if (element) {
+        element.focus();
+        return;
+      }
+    }
+  });
+
+  const setInstructions = (next: InstructionEntry[]) =>
+    form.setFieldValue("instructions", next);
+  const setIngredients = (next: Ingredient[]) => {
+    const old = form.state.values.ingredients;
+    if (next.length === old.length && next.every((line, i) => line === old[i]))
+      return;
+    form.setFieldValue("ingredients", next);
+  };
+  /** A set's headings untied, by its label and the one they wait under. */
+  const untie = (run: ChoiceRun) => {
+    let lines = form.state.values.ingredients;
+    for (const from of new Set([
+      run.label,
+      tiedAs.current.get(blockKey(run)),
+    ])) {
+      if (from === undefined || labelTaken(runs, from, run)) continue;
+      lines = retieHeadings(lines, from, undefined);
+    }
+    tiedAs.current.delete(blockKey(run));
+    setIngredients(lines);
+  };
+
+  /* "Make these a choice": groups ticked (by key), the label typed. */
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [newLabel, setNewLabel] = useState("");
+  const [tried, setTried] = useState(false);
+  const eligible = (index: number) =>
+    entryIsGroup(instructions[index]) && !runOf(runs, index);
+  const canSelect = instructions.some(
+    (_, index) => eligible(index) && eligible(index + 1),
+  );
+  const selectedIndexes = selected
+    .map((key) => keys.indexOf(key))
+    .filter((index) => index >= 0);
+  const selectProblem =
+    selectionProblem(instructions, selectedIndexes, runs) ??
+    labelProblem(runs, newLabel);
+  const stopSelecting = () => {
+    setSelecting(false);
+    setSelected([]);
+    setNewLabel("");
+    setTried(false);
+  };
+
+  /* An import's suggestions, each offered, accepted or put away. */
+  const [statuses, setStatuses] = useState<SuggestionState[]>(() =>
+    (suggestedChoices ?? []).map(() => ({ status: "offered" })),
+  );
+  const setStatus = (index: number, state: SuggestionState) =>
+    setStatuses((list) => list.map((old, i) => (i === index ? state : old)));
+  /** The accepted suggestion a set is: by the set's id, whatever its label. */
+  const acceptedAs = (run: ChoiceRun) =>
+    run.set === undefined
+      ? -1
+      : statuses.findIndex(
+          (state) => state.status === "accepted" && state.set === run.set,
+        );
+  const offered = (index: number) =>
+    statuses[index]?.status === "offered" &&
+    suggestionFits(instructions, (suggestedChoices ?? [])[index]);
+  /** A label for an accepted suggestion no set has yet: "Then make 2". */
+  const suggestionLabel = (suggestion: SuggestedChoice) => {
+    const taken = new Set<string>();
+    for (const entry of instructions) {
+      const choice = entryIsGroup(entry)
+        ? (entry as InstructionGroup).choice?.trim()
+        : undefined;
+      if (choice) taken.add(labelKey(choice));
+    }
+    return freeLabel(suggestion.label, taken);
+  };
+
+  /** An option's fields; typing its name works its set. */
+  const renderGroup = (run: ChoiceRun) =>
+    function renderOption(index: number, nameProblems: FieldProblems) {
+      return (
+        <InstructionGroupFields
+          namePrefix={`instructions[${index}]`}
+          entry={index}
+          nameLabel="Option name"
+          nameProblems={nameProblems}
+          onNameEdit={() => {
+            work(run);
+          }}
+        />
+      );
+    };
+
+  const setBlock = (run: ChoiceRun) => {
+    const key = blockKey(run);
+    const accepted = acceptedAs(run);
+    const firstKey = keys[run.start];
+    return (
+      <ChoiceSetBlock
+        key={key}
+        run={run}
+        blockKey={key}
+        groups={instructions.slice(run.start, run.end) as InstructionGroup[]}
+        optionKeys={keys.slice(run.start, run.end)}
+        problems={problems.filter(
+          (problem) => problem.index >= run.start && problem.index < run.end,
+        )}
+        suggestedBy={accepted >= 0 ? suggestedBy : undefined}
+        onUndo={() => {
+          setInstructions(notChoice(form.state.values.instructions, run));
+          untie(run);
+          assign(span(run.start, run.end), undefined);
+          setStatus(accepted, { status: "offered" });
+          requestFocus(`suggestion:${accepted}`, `entry:${firstKey}`);
+        }}
+        renderGroup={renderGroup(run)}
+        onLabel={(value) => {
+          if (!tiedAs.current.has(key)) tiedAs.current.set(key, run.label);
+          work(run);
+          setInstructions(relabel(form.state.values.instructions, run, value));
+        }}
+        onSettle={() => {
+          const from = tiedAs.current.get(key);
+          if (from === undefined) return;
+          const settled = settleLabel(
+            form.state.values.ingredients,
+            runs,
+            run,
+            from,
+          );
+          tiedAs.current.set(key, settled.tiedAs);
+          setIngredients(settled.ingredients);
+        }}
+        onNotChoice={() => {
+          setInstructions(notChoice(form.state.values.instructions, run));
+          untie(run);
+          assign(span(run.start, run.end), undefined);
+          if (accepted >= 0) setStatus(accepted, { status: "dismissed" });
+          requestFocus(`entry:${firstKey}`);
+        }}
+        onMove={(from, to, direction) => {
+          work(run);
+          setInstructions(
+            moveOption(form.state.values.instructions, run, from, to),
+          );
+          const moved = keys[from];
+          requestFocus(
+            `card:${moved}:${direction}`,
+            `card:${moved}:${direction === "up" ? "down" : "up"}`,
+          );
+        }}
+        onRemove={(index) => {
+          work(run);
+          setInstructions(
+            form.state.values.instructions.filter((_, i) => i !== index),
+          );
+          /* The card that takes its place, else the one before, else the
+           * entry after the set. */
+          const after = index + 1 < run.end ? keys[index + 1] : undefined;
+          const before = index - 1 >= run.start ? keys[index - 1] : undefined;
+          requestFocus(
+            ...(after ? [`card:${after}:name`] : []),
+            ...(before ? [`card:${before}:name`] : []),
+            ...(keys[run.end] ? [`entry:${keys[run.end]}`] : []),
+            "add-step",
+          );
+        }}
+        onYield={(index, value) => {
+          work(run);
+          const list = form.state.values.instructions;
+          const { recipeYield: _old, ...rest } = list[
+            index
+          ] as InstructionGroup;
+          void _old;
+          setInstructions(
+            list.map((entry, i) =>
+              i === index
+                ? value
+                  ? { ...rest, recipeYield: value }
+                  : rest
+                : entry,
+            ),
+          );
+        }}
+        onAdd={() => {
+          const set = work(run);
+          const option: InstructionGroup = {
+            name: "",
+            choice: run.label,
+            instructions: [{ text: "" }],
+          };
+          const optionKey = claim(option);
+          setWorked((old) => new Map(old).set(optionKey, set));
+          const next = [...form.state.values.instructions];
+          next.splice(run.end, 0, option);
+          setInstructions(next);
+          requestFocus(`card:${optionKey}:name`);
+        }}
+      />
+    );
+  };
+
   return (
     <StepInfoContext.Provider value={info}>
       <FieldWrapper label={label} id={id}>
-        <form.Field name="instructions" mode="array">
-          {(arrayField) => {
-            const items =
-              (arrayField.state.value as InstructionEntry[] | undefined) ?? [];
-            return (
-              <>
-                <PasteField
-                  itemName="Instructions"
-                  pasteAreaId="instructions-paste-area"
-                  parseToLines={parseInstructionLines}
-                  assemble={assembleInstructions}
-                  onImport={(values) =>
-                    form.setFieldValue(
-                      "instructions",
-                      values as InstructionEntry[],
-                    )
-                  }
-                />
-                <ul>
-                  {items.map((_, index) => (
-                    <InstructionEntryFields
-                      key={index}
-                      index={index}
-                      onInsert={() =>
-                        arrayField.insertValue(index, { text: "" })
-                      }
-                      onMoveUp={() =>
-                        index > 0 && arrayField.moveValue(index, index - 1)
-                      }
-                      onMoveDown={() =>
-                        index < items.length - 1 &&
-                        arrayField.moveValue(index, index + 1)
-                      }
-                      onRemove={() => arrayField.removeValue(index)}
+        <div ref={container}>
+          <form.Field name="instructions" mode="array">
+            {(arrayField) => {
+              const items =
+                (arrayField.state.value as InstructionEntry[] | undefined) ??
+                [];
+              /* Each row: an ordinary entry, or a set from its first option. */
+              const starts: number[] = [];
+              for (let at = 0; at < items.length;) {
+                starts.push(at);
+                at = runOf(runs, at)?.end ?? at + 1;
+              }
+              const rows = starts.map((index) => {
+                const run = runOf(runs, index);
+                if (run) return setBlock(run);
+                const entry = items[index];
+                const key = keys[index];
+                const groupName = entryIsGroup(entry)
+                  ? (entry as InstructionGroup).name?.trim() || "this group"
+                  : "";
+                return (
+                  <InstructionEntryFields
+                    key={index}
+                    index={index}
+                    focusKey={key ? `entry:${key}` : undefined}
+                    select={
+                      selecting && eligible(index) ? (
+                        <label className="mb-1 flex min-h-6 items-center gap-2 text-sm font-medium">
+                          <Checkbox
+                            checked={selected.includes(key)}
+                            onCheckedChange={(checked) =>
+                              setSelected((list) =>
+                                checked
+                                  ? [...list, key]
+                                  : list.filter((other) => other !== key),
+                              )
+                            }
+                          />
+                          Include “{groupName}” in the choice
+                        </label>
+                      ) : undefined
+                    }
+                    onInsert={() => arrayField.insertValue(index, { text: "" })}
+                    onMoveUp={() => {
+                      const to = moveTarget(items, index, true, runs);
+                      if (to !== undefined) arrayField.moveValue(index, to);
+                    }}
+                    onMoveDown={() => {
+                      const to = moveTarget(items, index, false, runs);
+                      if (to !== undefined) arrayField.moveValue(index, to);
+                    }}
+                    onRemove={() => arrayField.removeValue(index)}
+                  />
+                );
+              });
+              return (
+                <>
+                  {(suggestedChoices ?? []).map((suggestion, index) =>
+                    offered(index) ? (
+                      <ChoiceSuggestionCard
+                        key={`suggestion-${index}`}
+                        suggestion={suggestion}
+                        focusKey={`suggestion:${index}`}
+                        names={suggestion.groups.map(
+                          (group) => (items[group] as InstructionGroup).name,
+                        )}
+                        suggestedBy={suggestedBy}
+                        onAccept={() => {
+                          const set = newSet();
+                          setInstructions(
+                            makeChoice(
+                              form.state.values.instructions,
+                              suggestion.groups,
+                              suggestionLabel(suggestion),
+                            ),
+                          );
+                          assign(suggestion.groups, set);
+                          setStatus(index, { status: "accepted", set });
+                          requestFocus(`label:${set}`);
+                        }}
+                        onDismiss={() => {
+                          setStatus(index, { status: "dismissed" });
+                          /* The next card still offered, else the first of
+                           * its groups. */
+                          const next = (suggestedChoices ?? []).findIndex(
+                            (_, other) => other !== index && offered(other),
+                          );
+                          requestFocus(
+                            ...(next >= 0 ? [`suggestion:${next}`] : []),
+                            `entry:${keys[suggestion.groups[0]]}`,
+                          );
+                        }}
+                      />
+                    ) : null,
+                  )}
+                  <PasteField
+                    itemName="Instructions"
+                    pasteAreaId="instructions-paste-area"
+                    parseToLines={parseInstructionLines}
+                    assemble={assembleInstructions}
+                    onImport={(values) =>
+                      form.setFieldValue(
+                        "instructions",
+                        values as InstructionEntry[],
+                      )
+                    }
+                  />
+                  <ul>{rows}</ul>
+                  {selecting ? (
+                    <MakeChoicePanel
+                      label={newLabel}
+                      onLabel={setNewLabel}
+                      problem={tried ? selectProblem : undefined}
+                      count={selectedIndexes.length}
+                      onMake={() => {
+                        if (selectProblem) {
+                          setTried(true);
+                          return;
+                        }
+                        const set = newSet();
+                        setInstructions(
+                          makeChoice(items, selectedIndexes, newLabel),
+                        );
+                        assign(selectedIndexes, set);
+                        stopSelecting();
+                        requestFocus(`label:${set}`);
+                      }}
+                      onCancel={() => {
+                        stopSelecting();
+                        requestFocus("start", "add-step");
+                      }}
                     />
-                  ))}
-                </ul>
-                <Button
-                  variant="outline"
-                  className="mx-0.5 my-1 w-full"
-                  onClick={() => arrayField.pushValue({ text: "" })}
-                >
-                  Add Instruction
-                </Button>
-              </>
-            );
-          }}
-        </form.Field>
+                  ) : null}
+                  <Button
+                    variant="outline"
+                    className="mx-0.5 my-1 w-full"
+                    data-focus="add-step"
+                    onClick={() => arrayField.pushValue({ text: "" })}
+                  >
+                    Add Instruction
+                  </Button>
+                  {canSelect && !selecting ? (
+                    <Button
+                      variant="ghost"
+                      className="mx-0.5 my-1 self-start max-sm:h-11"
+                      data-focus="start"
+                      onClick={() => {
+                        setSelecting(true);
+                        requestFocus("panel");
+                      }}
+                    >
+                      Make a choice of groups…
+                    </Button>
+                  ) : null}
+                </>
+              );
+            }}
+          </form.Field>
+        </div>
       </FieldWrapper>
       {hasSteps && ingredients.some((line) => line.ingredient?.trim()) ? (
         <p

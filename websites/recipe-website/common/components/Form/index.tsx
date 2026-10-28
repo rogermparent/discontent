@@ -444,7 +444,12 @@ export default function RecipeFields({
         aside={<StepsCount />}
         errors={sectionErrors(state, STEP_ERRORS)}
       >
-        <InstructionsListInput label="" id="recipe-form-instructions" />
+        <InstructionsListInput
+          label=""
+          id="recipe-form-instructions"
+          suggestedChoices={recipe?.suggestedChoices}
+          suggestedBy={fill ? "suggested by the fill" : undefined}
+        />
         <Timelines />
       </FormSection>
       <FormSection

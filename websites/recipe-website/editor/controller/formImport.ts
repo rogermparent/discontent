@@ -31,6 +31,7 @@ import type { StoredPhoto } from "./jobs/photos";
 import { fetchPageStep, parsePage, videoLinkStep } from "./jobs/steps";
 import { PHOTO_TEXT_LABEL } from "./photoLimits";
 import { withoutBlankRows } from "recipe-website-common/util/blankRows";
+import { suggestChoices } from "recipe-website-common/util/suggestChoices";
 
 export interface RecipeActionState {
   url?: string;
@@ -84,6 +85,17 @@ function fromPageBatch(readings: readonly SplitReading[]): boolean {
   return readings.length > 0 && readings.every((reading) => !reading.llm);
 }
 
+/**
+ * The form's recipe with the sets it looks like it holds (45e2, G5): a
+ * suggestion the Steps section offers, marked; `choice` is never set here.
+ */
+function withSuggestedChoices(
+  recipe: Partial<ImportedRecipe>,
+): Partial<ImportedRecipe> {
+  const suggestedChoices = suggestChoices(recipe.instructions);
+  return suggestedChoices.length ? { ...recipe, suggestedChoices } : recipe;
+}
+
 function withLlm(
   url: string | undefined,
   { recipe, llm, warnings, recipes, leftOut }: ApplyLlmResult,
@@ -92,7 +104,7 @@ function withLlm(
   return {
     ...(url ? { url } : {}),
     /* 45d: an empty line or step is no row — the form would refuse it. */
-    recipe: recipe && withoutBlankRows(recipe),
+    recipe: recipe && withSuggestedChoices(withoutBlankRows(recipe)),
     ...(message ? { message } : {}),
     ...(llm ? { llm } : {}),
     ...(warnings.length > 0 ? { warnings } : {}),

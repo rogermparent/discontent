@@ -28,6 +28,10 @@ import {
   type ImportedRecipe,
   type JsonLdNode,
 } from "recipe-website-common/util/importRecipeData";
+import {
+  suggestChoices,
+  type SuggestedChoice,
+} from "recipe-website-common/util/suggestChoices";
 import { jobContext, type JobRun } from "../jobs/context";
 import { fetchPageStep, parsePage } from "../jobs/steps";
 import type { PageMeta } from "recipe-website-common/util/pageMetadata";
@@ -88,6 +92,12 @@ export interface InspectResult {
    * (26d). Never in `draft`: the curator picks them against `tag_list`.
    */
   suggestedTags?: string[];
+  /**
+   * The draft's step groups that look like alternatives (45e2): `groups`
+   * index `draft.instructions`. Never in `draft`: set `choice` to `label`
+   * on those groups to take one.
+   */
+  suggestedChoices?: SuggestedChoice[];
   /** The raw Recipe node, cut at `JSON_LD_LIMIT` characters (then a string). */
   jsonLd?: JsonLdNode | string;
   meta?: PageMeta;
@@ -234,6 +244,17 @@ function toVideo(meta: YtdlpMetadata): InspectVideo {
  * and no `draft`, because what the page *does* say is the useful part.
  */
 export async function inspectUrl(
+  rawUrl: string,
+  options: { llm?: LlmMode } = {},
+  run?: JobRun,
+): Promise<InspectResult> {
+  const result = await readUrl(rawUrl, options, run);
+  /* 45e2: the draft's groups that look like alternatives, as a hint. */
+  const suggestedChoices = suggestChoices(result.draft?.instructions);
+  return suggestedChoices.length ? { ...result, suggestedChoices } : result;
+}
+
+async function readUrl(
   rawUrl: string,
   { llm: mode }: { llm?: LlmMode } = {},
   run?: JobRun,

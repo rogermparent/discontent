@@ -40,8 +40,12 @@ function choiceOf(entry: InstructionEntry): string {
     : "";
 }
 
-/** How a heading and an option name meet: `sectionKey`, else the slug. */
-function nameKey(text: string): string {
+/**
+ * How a heading and an option name meet: `sectionKey`, else the slug
+ * ("For the bagels" and "Bagels" are both `bagel`). The edit form ties a
+ * heading to an option by this (45e2).
+ */
+export function nameKey(text: string): string {
   return sectionKey(text) || choiceSlug(stripMarkup(text));
 }
 

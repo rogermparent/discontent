@@ -3,6 +3,7 @@ import parseFormData from "@discontent/cms/forms/parseFormData";
 import checkboxSchema from "@discontent/cms/forms/schema/checkbox";
 import dateEpochSchema from "@discontent/cms/forms/schema/dateEpoch";
 import { normalizeTags } from "recipe-website-common/controller/normalizeTags";
+import { choiceProblems } from "recipe-website-common/util/choiceChecks";
 import {
   DRINK_METHODS,
   type DrinkSpec,
@@ -220,6 +221,18 @@ const instructionsSchema = z
   .transform((entries, ctx): InstructionEntry[] | undefined => {
     if (!entries) return undefined;
     const kept: InstructionEntry[] = [];
+    /* 45e2: the entries as the sets read them (`choiceProblems`), each with
+     * its posted index — a refused one too, so a set keeps its options —
+     * and the worked-on set it is an option of (its posted `choiceSet`;
+     * none for a set as stored, which no rule judges: 43-D4). */
+    const shape: InstructionEntry[] = [];
+    const posted: number[] = [];
+    const sets: (string | undefined)[] = [];
+    const shaped = (entry: InstructionEntry, index: number, set?: string) => {
+      shape.push(entry);
+      posted.push(index);
+      sets.push(set);
+    };
     let step = 0;
     entries.forEach((value: unknown, index) => {
       const entry = rowOf(value);
@@ -232,6 +245,7 @@ const instructionsSchema = z
         const text = textOf(entry.text);
         if (!text.trim()) {
           if (name.trim()) {
+            shaped({ text }, index);
             ctx.addIssue({
               code: "custom",
               path: [index, "text"],
@@ -240,9 +254,18 @@ const instructionsSchema = z
           }
           return;
         }
+        shaped({ text }, index);
         kept.push({ name: name || undefined, text });
         return;
       }
+      /* 45e2: in a set when `choice` was posted, even blank (a label being
+       * typed): a worked-on set's rules are `choiceProblems`', below. */
+      const posting =
+        entry.choice === undefined ? undefined : textOf(entry.choice);
+      const set =
+        posting !== undefined && textOf(entry.choiceSet).trim()
+          ? textOf(entry.choiceSet).trim()
+          : undefined;
       const before = step;
       const steps: Instruction[] = [];
       let refused = false;
@@ -268,8 +291,19 @@ const instructionsSchema = z
         }
         steps.push({ name: childName || undefined, text });
       });
+      if (!name.trim() && steps.length === 0 && !refused) return;
+      shaped(
+        {
+          name,
+          instructions: [],
+          ...(posting !== undefined ? { choice: posting } : {}),
+        },
+        index,
+        set,
+      );
       if (!name.trim()) {
-        if (steps.length === 0 && !refused) return;
+        /* A worked-on option's missing name is said as the set's (below). */
+        if (set !== undefined) return;
         ctx.addIssue({
           code: "custom",
           path: [index, "name"],
@@ -291,7 +325,7 @@ const instructionsSchema = z
       }
       /* 45e: an option's set and yield ride along in hidden inputs, so a
          save with no changes keeps them (43-D4); 45e2 edits them. */
-      const choice = textOf(entry.choice).trim();
+      const choice = (posting ?? "").trim();
       const optionYield = textOf(entry.recipeYield);
       kept.push({
         name,
@@ -300,6 +334,13 @@ const instructionsSchema = z
         ...(optionYield.trim() ? { recipeYield: optionYield } : {}),
       });
     });
+    for (const problem of choiceProblems(shape, sets)) {
+      ctx.addIssue({
+        code: "custom",
+        path: [posted[problem.index], problem.field],
+        message: problem.message,
+      });
+    }
     return kept.length ? kept : undefined;
   });
 

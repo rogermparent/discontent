@@ -18,6 +18,7 @@ import {
 } from "../../../util/ingredientGrammar";
 import { createIngredient } from "../../../util/parseIngredients";
 import { detectHeading } from "../../../util/detectHeading";
+import { nameKey } from "../../../util/readChoices";
 import type { Ingredient } from "../../../controller/types";
 
 const MULTIPLYABLE_RE = /<Multiplyable\s+baseNumber="([^"]*)"\s*\/>/g;
@@ -256,6 +257,15 @@ export function linesFromText(
   previous: readonly Ingredient[],
 ): Ingredient[] {
   const unused = previous.map((line) => ({ line, used: false }));
+  /* 45e2: a heading tied to an option (`choice`) whose text was edited —
+   * "For the bagels" to "For the bagels:" or "Bagels" — keeps its tie when
+   * its name still meets the old one's (`nameKey`, how the tie pairs). The
+   * text has no syntax for a tie: the name is the tie. */
+  const ties = previous.flatMap((line) =>
+    line.type === "heading" && line.choice
+      ? [{ key: nameKey(plainLine(line.ingredient)), choice: line.choice }]
+      : [],
+  );
   return text
     .split(/\n+/)
     .map((raw) => raw.trim())
@@ -269,7 +279,11 @@ export function linesFromText(
         match.used = true;
         return match.line;
       }
-      return markLine(raw) ?? { ingredient: raw };
+      const line = markLine(raw) ?? { ingredient: raw };
+      if (line.type !== "heading" || line.choice) return line;
+      const key = nameKey(plainLine(line.ingredient));
+      const tie = key ? ties.find((entry) => entry.key === key) : undefined;
+      return tie ? { ...line, choice: tie.choice } : line;
     })
     .filter((line) => line.ingredient);
 }

@@ -90,6 +90,10 @@ import {
 import { RecipeInputSchema, parseInput, type RecipeInput } from "./schema";
 import { pacedRequest } from "./sitePacing";
 import { withoutBlankRows } from "recipe-website-common/util/blankRows";
+import {
+  suggestChoices,
+  type SuggestedChoice,
+} from "recipe-website-common/util/suggestChoices";
 import { withDescriptionRecipe } from "../descriptionRecipe";
 
 export interface ImportDryRunResult {
@@ -115,6 +119,12 @@ export interface ImportDryRunResult {
   draft: RecipeDraft;
   /** The page's own category signals (26d) — see `InspectResult`. */
   suggestedTags?: string[];
+  /**
+   * Step groups that look like alternatives (45e2): `groups` index
+   * `draft.instructions`. Never applied — the draft carries no `choice`;
+   * set each group's `choice` to `label` in recipe_create to take one.
+   */
+  suggestedChoices?: SuggestedChoice[];
   image?: ImageProbe;
   video?: string;
   /** The local model's part (epic 36), whenever it was asked. */
@@ -134,6 +144,11 @@ export interface ImportCreateResult extends RecipeWriteResult {
   photos?: number;
   /** The local model's part (epic 36), whenever it was asked. */
   llm?: LlmImportInfo;
+  /**
+   * Step groups of the written recipe that look like alternatives (45e2):
+   * written without `choice`; recipe_update sets it if they are.
+   */
+  suggestedChoices?: SuggestedChoice[];
 }
 
 /** One recipe of a several-recipe import (36e). */
@@ -693,6 +708,14 @@ async function finishImport(
           { image: true },
         ),
     });
+    const draft = {
+      ...toDraft(imported),
+      name: input.name,
+      ...(slug ? { slug } : {}),
+      ...(input.tags ? { tags: input.tags } : {}),
+      ...(input.imageImportUrl ? { imageImportUrl: input.imageImportUrl } : {}),
+    };
+    const suggestedChoices = suggestChoices(draft.instructions);
     return {
       dryRun: true,
       ...(url ? { url } : {}),
@@ -706,18 +729,11 @@ async function finishImport(
       slug: resolveCreateSlug(input),
       ...(partial ? { partial: true as const } : {}),
       recipe: data,
-      draft: {
-        ...toDraft(imported),
-        name: input.name,
-        ...(slug ? { slug } : {}),
-        ...(input.tags ? { tags: input.tags } : {}),
-        ...(input.imageImportUrl
-          ? { imageImportUrl: input.imageImportUrl }
-          : {}),
-      },
+      draft,
       ...(imported.suggestedTags?.length
         ? { suggestedTags: imported.suggestedTags }
         : {}),
+      ...(suggestedChoices.length ? { suggestedChoices } : {}),
       ...(probe ? { image: probe } : {}),
       ...(data.video ? { video: data.video } : {}),
       ...(llm ? { llm } : {}),
@@ -746,11 +762,13 @@ async function finishImport(
     job,
   );
   const allWarnings = [...llmWarnings, ...(result.warnings ?? [])];
+  const suggestedChoices = suggestChoices(input.instructions);
   return {
     ...result,
     ...(photos ? { photos } : {}),
     ...(input.source ? { source: input.source } : {}),
     ...(llm ? { llm } : {}),
+    ...(suggestedChoices.length ? { suggestedChoices } : {}),
     ...(allWarnings.length > 0 ? { warnings: allWarnings } : {}),
   };
 }
