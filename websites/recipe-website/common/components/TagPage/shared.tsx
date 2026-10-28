@@ -28,13 +28,12 @@ import {
 import { EmptyState } from "../EmptyState";
 import { GroupThumbnail } from "../GroupThumbnail";
 import RecipeList from "../List";
-import { RecipeCardPlaceholder } from "../List/shared";
+import { RecipeCardPlaceholder, cardTime } from "../List/shared";
 import { RecipeImage } from "../RecipeImage";
 import { TermImage } from "../TermImage";
 import { PageMain } from "recipe-website-common/components/PageLayout";
 import { groupCountLabel } from "../../util/groupCountLabel";
 import { groupKindLabel } from "../../util/groupKindLabel";
-import { cardTime } from "../../util/planPage";
 import { TagBoard } from "./Board";
 import { HolidayWhen } from "./HolidayWhen";
 import { Leader } from "./parts";

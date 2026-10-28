@@ -239,10 +239,16 @@ test.describe("Tag pages", () => {
       await expect(card("Linzer Cookies").getByTestId("card-meta")).toHaveText(
         "1 h 2 m",
       );
+      /* A duration, so "55 m" is not read as metres. */
+      await expect(
+        card("Linzer Cookies").getByTestId("card-meta").locator("time"),
+      ).toHaveAttribute("datetime", "PT62M");
       /* No total: the date, as before. */
       await expect(card("Pound Cake").getByTestId("card-meta")).toHaveCount(0);
-      await expect(card("Pound Cake").locator("time")).toHaveCount(1);
-      await expect(card("Linzer Cookies").locator("time")).toHaveCount(0);
+      await expect(card("Pound Cake").locator("time")).toHaveAttribute(
+        "datetime",
+        /^\d{4}-\d{2}-\d{2}T/,
+      );
 
       const cookies = page
         .getByTestId("term-narrow")

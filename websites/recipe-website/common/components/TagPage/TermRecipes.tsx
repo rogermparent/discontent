@@ -13,9 +13,8 @@ import {
   spelledTagQuery,
 } from "../../controller/tagBoardPage";
 import { buildFacetModel, type FacetTerm } from "../../util/facets";
-import { cardTime } from "../../util/planPage";
 import { ClientListItem } from "../ClientList";
-import { RecipeCardPlaceholder, RecipeGrid } from "../List/shared";
+import { RecipeCardPlaceholder, RecipeGrid, cardTime } from "../List/shared";
 import { PureRecipeImage } from "../RecipeImage/PureRecipeImage";
 import { Segmented } from "./parts";
 

@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useTransition,
@@ -67,7 +68,7 @@ import { groupKindLabel } from "../../util/groupKindLabel";
 import { CURATOR_DESTINATION, NAV_DESTINATIONS } from "./destinations";
 import { paletteHolidayRows, paletteHolidays } from "./holidayRows";
 import { useToday } from "../Homepage/useToday";
-import { holidayHref } from "../HolidaysPage/shared";
+import { ALMANAC_HREF, holidayHref } from "../HolidaysPage/shared";
 import { countdownLabel, parseDayKey } from "../../util/holidays";
 import { PaletteAskRegistry, type PaletteAskHandler } from "./askSlot";
 
@@ -487,6 +488,13 @@ export function CommandPalette({
     return haystack.includes(q);
   };
 
+  /* The holidays the palette may offer (46e), worked out while it is open. */
+  const holidayCandidates = useMemo(() => {
+    if (!open) return [];
+    const counts = new Map(allTerms.map((term) => [term.slug, term.count]));
+    return paletteHolidays(model, (slug) => counts.get(slug) ?? 0);
+  }, [open, model, allTerms]);
+
   /* The curator (44d) joins the owner rows after New Recipe once the
    * editor's slot offers its hand-off (a model is set up). */
   const destinations = askHandler?.curator
@@ -496,7 +504,10 @@ export function CommandPalette({
     : NAV_DESTINATIONS;
   const navItems = destinations.filter(
     (dest) =>
-      (isOwner || !dest.ownerOnly) && matchesQuery(dest.name, dest.keywords),
+      (isOwner || !dest.ownerOnly) &&
+      /* The almanac only on a site with holidays to show (46e). */
+      (dest.href !== ALMANAC_HREF || holidayCandidates.length > 0) &&
+      matchesQuery(dest.name, dest.keywords),
   );
 
   const themeActions = [
@@ -637,15 +648,17 @@ export function CommandPalette({
    * in 13 days"), the ones the words name while typing — each to its menu.
    * From the terms the search context already holds (`/search/terms`), so
    * the export's palette has them with no fetch of its own.
+   *
+   * Read off the committed `query`, as the recipe rows are, and held back
+   * while the input is ahead of it or the recipes are on their way: a
+   * holiday row alone in the list is cmdk's first row, so an Enter pressed
+   * before the recipes land would open the holiday instead of the top
+   * recipe (46e review).
    */
-  const termCounts = new Map(allTerms.map((term) => [term.slug, term.count]));
-  const holidays = browserDay
-    ? paletteHolidayRows(
-        paletteHolidays(model, (slug) => termCounts.get(slug) ?? 0),
-        value,
-        parseDayKey(browserDay),
-      )
-    : undefined;
+  const holidays =
+    browserDay && trimmed === query && !recipesPending
+      ? paletteHolidayRows(holidayCandidates, query, parseDayKey(browserDay))
+      : undefined;
 
   // RECENT leads the empty palette: with nothing typed, the last few committed
   // queries are the most useful thing to offer.

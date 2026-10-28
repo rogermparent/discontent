@@ -210,6 +210,10 @@ test.describe("Command palette", () => {
     ).toHaveCount(0);
     // Reader destinations are present.
     await expect(page.getByRole("option", { name: "Saved" })).toBeVisible();
+    // No holidays on this site, so no almanac (46e).
+    await expect(
+      page.getByRole("option", { name: "Holidays", exact: true }),
+    ).toHaveCount(0);
   });
 
   test("navigates via a 'Go to' destination", async ({ page }) => {
@@ -1027,6 +1031,30 @@ test.describe("Command palette — holidays", () => {
     await paletteSearch(page, "christ");
     await holidayGroup(page).getByRole("option").first().click();
     await expect(page).toHaveURL(/\/holidays\/christmas$/);
+  });
+
+  /*
+   * The holiday rows wait for the recipes (46e review): read off the
+   * committed query, and held back while the recipes are on their way. A
+   * holiday row alone in the list would be cmdk's first row, and an Enter
+   * pressed before the recipes landed would open the holiday.
+   */
+  test("an Enter before the recipes land never opens a holiday", async ({
+    page,
+  }) => {
+    await openWithTerms(page);
+    await paletteInput(page).fill("christmas");
+    await page.keyboard.press("Enter");
+
+    const top = recipeRow(page, "Chamomile Collins");
+    await expect(top).toBeVisible({ timeout: SEARCH_TIMEOUT });
+    expect(new URL(page.url()).pathname).toBe("/");
+    await expect(holidayGroup(page).getByRole("option")).toHaveText([
+      "Christmas · in 68 days",
+    ]);
+    await expect(top).toHaveAttribute("data-selected", "true");
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/recipe\/chamomile-collins$/);
   });
 
   test("Go to has the almanac", async ({ page }) => {

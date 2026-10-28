@@ -190,6 +190,13 @@ describe("paletteHolidayRows", () => {
       mode: "match",
       rows: [],
     });
+    /* A negated word is not a word either (46e review). */
+    expect(paletteHolidayRows(holidays, "-christmas", at).rows).toEqual([]);
+    expect(paletteHolidayRows(holidays, "NOT christmas", at).rows).toEqual([]);
+    expect(paletteHolidayRows(holidays, "not christmas", at).rows).toEqual([]);
+    expect(
+      slugs(paletteHolidayRows(holidays, "christmas -cookie", at).rows),
+    ).toEqual(["christmas-eve", "xmas"]);
     /* An empty-carrier holiday never comes back by name. */
     expect(paletteHolidayRows(holidays, "valentine", at).rows).toEqual([]);
   });
