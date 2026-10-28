@@ -364,9 +364,13 @@ describe("the CLI as a process", () => {
   /*
    * 25d. A bare `inventory` is `inventory list` — the one table command with
    * a default — and the items are positionals, quoted when they have spaces.
+   *
+   * 46b: this was one case of eleven processes inside 30 s, which flaked on a
+   * loaded machine; it is three now, run in order on the one content
+   * directory, so the two `make` cases see the two items added here.
    */
   it(
-    "keeps the inventory: bare list, add, and make as one object each",
+    "keeps the inventory: bare list and add, a matcher as text",
     async () => {
       const empty = await run(["inventory", "--json"]);
       expect(empty.exitCode).toBe(0);
@@ -391,8 +395,15 @@ describe("the CLI as a process", () => {
       });
       const again = await run(["inventory", "add", "beans", "--json"]);
       expect(JSON.parse(again.stdout)).toMatchObject({ changed: false });
-      await run(["inventory", "remove", "any bean", "--json"]);
+      const removed = await run(["inventory", "remove", "any bean", "--json"]);
+      expect(removed.exitCode).toBe(0);
+    },
+    TIMEOUT,
+  );
 
+  it(
+    "makes from the inventory as one object, the staples on or off",
+    async () => {
       const make = await run(["inventory", "make", "-tag:drink", "--json"]);
       expect(make.exitCode).toBe(0);
       expect(JSON.parse(make.stdout)).toMatchObject({
@@ -414,7 +425,13 @@ describe("the CLI as a process", () => {
         query: "-tag:drink",
         staples: false,
       });
+    },
+    TIMEOUT,
+  );
 
+  it(
+    "makes with --query, --feature and the saved staples, and refuses a usage error",
+    async () => {
       /*
        * 41i: `--query` (a dashed value after a space too) and a repeatable
        * `--feature`, as /make features; the editor's saved staples, from a

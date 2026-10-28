@@ -215,6 +215,45 @@ allowance is gone outside tests).
 - **The iframe title.** Add a `title` prop to `packages/component-library/components/VideoPlayer`, set on the shadow-root iframe once it loads. Pass the recipe name (form preview: `Form/inputs/Video/index.tsx:257`; page: `View/index.tsx:143`). Remove the axe `exclude` in `alternatives-form.spec.ts:520` and keep the option.
 - **Flaky tests.** Split `test/cliJson.test.ts:368-473` into separate cases, or give it its own timeout. Scope the ticker locators to `getByRole("main")` in `search-query-chips.spec.ts:11`, `search-autocomplete.spec.ts:14` and `command-palette.spec.ts:18`.
 
+#### Results (46b)
+
+- **YouTube keys.** `common/util/videoUrl.ts` has three new helpers: `isYouTubeHost`, `youTubeVideoId` and `youTubeSourceKey`. Every spelling of a YouTube video URL keys as `youtube.com/watch/<id>`:
+  - `watch?v=` (wherever `v` falls in the query);
+  - `youtu.be/<id>`;
+  - `shorts/`, `embed/`, `live/`, `v/` and `e/`;
+  - the `www.`, `m.` and `music.` hosts and `youtube-nocookie.com`.
+
+  `sourceUrlKey` asks for the video key first. Everything else keys exactly as before, including a YouTube page that names no video: a channel, a playlist, or a bare `/watch`. Before this, every `watch?v=` link keyed as `youtube.com/watch`, so each YouTube import read as a duplicate of all the others. `existingBySource` now treats every YouTube host as one host, both for the URLs asked about and for each index row's `sourceHost`. A `youtu.be` link therefore finds the recipe saved from `www.youtube.com`, and the other way round. `recipeBySource` (the form's duplicate check) inherits both changes.
+
+- **Roundups and picks are unchanged.** `SKIP_SITES` already drops `youtube.com` and `youtu.be` items, and `canonicalItemUrl` drops the query, so roundup dedupe, self-links and pick matching never meet a video key. The existing roundup and pick tests pass unchanged.
+- **The iframe title.** `VideoPlayer` takes a `title` prop and sets it on the embed's iframe inside the open shadow root.
+  - **How it finds the iframe.** A MutationObserver watches the shadow root (`childList`, `subtree`) from mount, and again from `loadstart` and `loadedmetadata`. `youtube-video-element` 1.9.0 dispatches `loadstart` before it writes the iframe, and rewrites the shadow root for each new `src`, so a one-shot query would miss it.
+  - **Where it goes.** The title goes on the iframe only. On the player element it would be a tooltip over the whole video. A native `<video>` has no shadow root and gets nothing.
+  - **Callers.** `StickyVideoPlayer` passes the title through. `VideoInput` has a `previewTitle` prop, which defaults to "Video preview". The form passes `Video: <live name>` and the recipe page passes `Video: <name>`.
+  - **Specs.** `alternatives-form.spec` checks axe with no exclusion. The `exclude` option stays in `a11y.ts`, which nothing passes now. `youtube-video.spec`'s manual-entry case asserts the title on both the preview and the page.
+  - **Portfolio** uses none of these components.
+- **Flaky tests.**
+  - `cliJson`'s "keeps the inventory…" is now three cases of 5, 2 and 3 processes. They run in order on the one content directory, so both `make` cases still see the two items added by the first. Every assertion is kept, plus an exit-code check on the remove.
+  - `search-query-chips`, `search-autocomplete` and `command-palette` read the ticker inside `<main>`, as `search-live` does (42s-T1).
+- **Backlog.** Four rows struck: the iframe title, "one video, two URLs" (De1-9), the cliJson timeout, and the search-query-chips tickers.
+- **Gates.**
+  - `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website exec tsc --noEmit`: both pass.
+  - Full vitest: 162 files, 3610 tests, all pass.
+  - Docker build mode on `alternatives-form`, `youtube-video`, `ytdlp-import`, `new-recipe`, `search-query-chips`, `search-autocomplete`, `command-palette` and `accessibility`: 205/205 pass, none flaky.
+  - The ticker specs (`search-query-chips`, `search-autocomplete`, `command-palette`) at `--repeat-each=10` in Docker build mode, first run: 679/680, with 1 flaky. The flake was the same class of failure on the search field instead of the ticker (see Gb1). After that fix, a second run: 680/680, none flaky.
+  - The three split `cliJson` inventory cases, 10 runs in one capped job: 10/10 runs pass, 3 tests each, about 32–36 s of test time per run.
+  - Dev mode: `youtube-video.spec` was queued for the heavy slot for more than 50 minutes behind another session's long render, so this gate is CI's `next dev` Recipe shards, which run it.
+
+#### Traps (46b)
+
+- **Gb1. The hidden second copy of `/search` holds its search field too.** It isn't only the ticker. The first 10× repeat failed once in 680 runs, at `search-query-chips:196`: `fill` on `getByLabel("Search recipes")` resolved to two inputs, and the second sat in a hidden "Loading recipes…" copy. That is the 41-Th6 / 42s-T1 class. Two fixes:
+  - `searchFor` in `support/helpers.ts` now takes only the visible field (`filter({ visible: true })`). `fill` needs a visible field anyway, so no caller changes meaning.
+  - `search-query-chips` and `search-autocomplete` read their `searchField` inside `<main>`, the same way as the ticker.
+
+  `search-live.spec` still reads its field page-wide. It hasn't been seen to fail, and it is left as it is.
+
+- **The iframe appears after `loadstart`.** `youtube-video-element` dispatches `loadstart` and only then rewrites its shadow root. Each new `src` replaces the iframe as well. A title set once, on an event, is lost, so watch the shadow root instead.
+
 ### 46c: Decisions checklist (S; the orchestrator builds it)
 
 - **The page.** An artifact page, "Open decisions", with the `db` capability, so picks persist and the orchestrator reads them back with `ArtifactData`. Load `artifact-capabilities` and `artifact-design` first.

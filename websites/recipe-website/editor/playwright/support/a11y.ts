@@ -77,9 +77,9 @@ export async function expectMode(page: Page, mode: Mode): Promise<void> {
 
 /**
  * No WCAG violations on the page. `exclude` leaves out selectors the page
- * does not own — a third-party embed such as youtube-video-element's
- * `<iframe>`, which carries no title (45e2: the new-recipe form after a
- * video import shows one).
+ * does not own — a third-party embed. Kept, though nothing passes it since
+ * 46b: youtube-video-element's `<iframe>` had no title (45e2), and
+ * `VideoPlayer` now names it.
  */
 export async function expectNoViolations(
   page: Page,

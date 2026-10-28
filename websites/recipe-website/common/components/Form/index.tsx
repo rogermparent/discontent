@@ -421,6 +421,11 @@ export default function RecipeFields({
           name="video"
           defaultVideo={resolveRecipeVideoSrc(slug, video)}
           videoToImport={videoImportUrl}
+          previewTitle={
+            currentName?.trim()
+              ? `Video: ${currentName.trim()}`
+              : "Video preview"
+          }
           initial={
             pictures
               ? {
