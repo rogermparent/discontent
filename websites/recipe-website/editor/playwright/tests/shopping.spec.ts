@@ -262,14 +262,17 @@ test.describe("Shopping list", () => {
     );
     await page.goto("/shopping");
     await listReady(page);
-    /* The syrup's sugar and water merge with the lemonade's own. */
-    await expect(page.getByLabel("¾ cup sugar", { exact: true })).toBeVisible();
+    /* The syrup's sugar and water merge with the lemonade's own (a bare
+     * sugar is granulated, 46g). */
+    await expect(
+      page.getByLabel("¾ cup granulated sugar", { exact: true }),
+    ).toBeVisible();
     await expect(
       page.getByLabel("4½ cups water", { exact: true }),
     ).toBeVisible();
     /* The linking line itself is no row (the notes name the syrup). */
     await expect(list(page)).not.toContainText("batch Simple Syrup");
-    const sugar = rows(page).filter({ hasText: "¾ cup sugar" });
+    const sugar = rows(page).filter({ hasText: "¾ cup granulated sugar" });
     await expect(sugar.getByTestId("shopping-row-note")).toHaveText(
       "partly for Simple Syrup",
     );
@@ -301,7 +304,9 @@ test.describe("Shopping list", () => {
     await removeThese.click();
     await question.getByRole("button", { name: "Remove", exact: true }).click();
     /* The lemonade's own sugar and water stay, no longer noted. */
-    await expect(page.getByLabel("¼ cup sugar", { exact: true })).toBeVisible();
+    await expect(
+      page.getByLabel("¼ cup granulated sugar", { exact: true }),
+    ).toBeVisible();
     await expect(
       page.getByLabel("4 cups water", { exact: true }),
     ).toBeVisible();

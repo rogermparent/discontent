@@ -47,6 +47,19 @@ export interface ChangedRecipe {
 
 export interface ChangedTerm {
   slug: string;
+  /**
+   * What `term_assign` calls did with it (46d), summed over the run: the
+   * carriers they put it on, and those that already carried it. Absent when
+   * no assign touched it (or an older transcript's did).
+   */
+  added?: number;
+  alreadyTagged?: number;
+  /**
+   * Nothing was written to it (46d): its only `term_assign` calls found
+   * every recipe already tagged. Shown with its "N already tagged", never
+   * counted as a change.
+   */
+  unchanged?: true;
 }
 
 export interface ChangedGroup {
@@ -78,6 +91,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
+}
+
+function strings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 /**
@@ -129,7 +148,19 @@ class Collector {
   private readonly terms = new Set<string>();
   private readonly groups = new Set<string>();
   private readonly places = new Set<ChangedPlace>();
+  private readonly assignments = new Map<
+    string,
+    { added: number; alreadyTagged: number }
+  >();
   commits = 0;
+
+  /** A term_assign's counts (46d), summed per term. */
+  assigned(term: string, added: number, alreadyTagged: number) {
+    const known = this.assignments.get(term) ?? { added: 0, alreadyTagged: 0 };
+    known.added += added;
+    known.alreadyTagged += alreadyTagged;
+    this.assignments.set(term, known);
+  }
 
   recipe(slug: string | undefined, change: RecipeChange, name?: string) {
     if (!slug) return;
@@ -162,13 +193,30 @@ class Collector {
     for (const slug of summary.terms ?? []) this.term(slug);
     for (const slug of summary.groups ?? []) this.group(slug);
     for (const place of summary.places ?? []) this.place(place);
+    for (const item of summary.assigned ?? []) {
+      this.assigned(item.term, item.added, item.alreadyTagged);
+    }
     this.commits += summary.commits;
   }
 
   done(): RunChanges {
+    /* 46d: a term only an all-already-tagged assign touched is listed too. */
+    const untouched = [...this.assignments.keys()].filter(
+      (slug) => !this.terms.has(slug),
+    );
     return {
       recipes: [...this.recipes.values()],
-      terms: [...this.terms].map((slug) => ({ slug })),
+      terms: [
+        ...[...this.terms].map((slug) => ({
+          slug,
+          ...this.assignments.get(slug),
+        })),
+        ...untouched.map((slug) => ({
+          slug,
+          ...this.assignments.get(slug),
+          unchanged: true as const,
+        })),
+      ],
       groups: [...this.groups].map((slug) => ({ slug })),
       places: [...this.places],
       commits: this.commits,
@@ -181,7 +229,8 @@ class Collector {
     if (
       done.commits === 0 &&
       done.recipes.length + done.terms.length + done.groups.length === 0 &&
-      done.places.length === 0
+      done.places.length === 0 &&
+      this.assignments.size === 0
     ) {
       return undefined;
     }
@@ -191,14 +240,20 @@ class Collector {
         ? { ...recipe, name: `${recipe.name.slice(0, SUMMARY_NAME_MAX)}…` }
         : recipe,
     );
-    const terms = capped(done.terms.map(({ slug }) => slug));
+    const terms = capped(
+      done.terms.filter((term) => !term.unchanged).map(({ slug }) => slug),
+    );
     const groups = capped(done.groups.map(({ slug }) => slug));
+    const assigned = capped(
+      [...this.assignments].map(([term, counts]) => ({ term, ...counts })),
+    );
     return {
       commits: done.commits,
       ...(recipes.length ? { recipes } : {}),
       ...(terms.length ? { terms } : {}),
       ...(groups.length ? { groups } : {}),
       ...(done.places.length ? { places: done.places } : {}),
+      ...(assigned.length ? { assigned } : {}),
     };
   }
 }
@@ -272,13 +327,19 @@ function collect(
       return;
     }
     case "term_assign": {
-      const updated = Array.isArray(result.updated)
-        ? result.updated.filter(
-            (slug): slug is string => typeof slug === "string",
-          )
-        : [];
+      const updated = strings(result.updated);
+      const term = str(result.slug) ?? str(input.slug);
+      /* 46d: what the call added, and what already carried the term — said
+       * even when it added nothing (and so wrote and committed nothing). */
+      if (term && Array.isArray(result.added)) {
+        into.assigned(
+          term,
+          strings(result.added).length,
+          strings(result.alreadyTagged).length,
+        );
+      }
       if (updated.length === 0) return;
-      into.term(str(result.slug) ?? str(input.slug));
+      into.term(term);
       for (const slug of updated) {
         if (input.type === "group") into.group(slug);
         else into.recipe(slug, "updated");
@@ -360,12 +421,40 @@ export function runChanges(messages: readonly AgentMessage[]): RunChanges {
   return into.done();
 }
 
-/** How many things changed: recipes, terms, plans and places. */
+/**
+ * A term's assignment counts in words (46d), as "What changed" shows them:
+ * "added 3, 2 already tagged", or nothing when no `term_assign` reported
+ * them.
+ */
+export function assignedNote(
+  term: Pick<ChangedTerm, "added" | "alreadyTagged">,
+): string | undefined {
+  if (term.added === undefined) return undefined;
+  if (term.added === 0 && term.alreadyTagged) {
+    return `${term.alreadyTagged} already tagged`;
+  }
+  const parts = [`added ${term.added}`];
+  if (term.alreadyTagged) parts.push(`${term.alreadyTagged} already tagged`);
+  return parts.join(", ");
+}
+
+/** How many things changed: recipes, terms, plans and places (a term nothing was written to is not one). */
 export function changeCount(changes: RunChanges): number {
   return (
     changes.recipes.length +
-    changes.terms.length +
+    changes.terms.filter((term) => !term.unchanged).length +
     changes.groups.length +
     changes.places.length
+  );
+}
+
+/**
+ * Whether "What changed" has anything to say (46d): a change, a commit, or
+ * a `term_assign` that found recipes already tagged.
+ */
+export function changesToShow(changes: RunChanges): boolean {
+  return (
+    changeCount(changes) + changes.commits > 0 ||
+    changes.terms.some((term) => (term.alreadyTagged ?? 0) > 0)
   );
 }

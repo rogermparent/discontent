@@ -484,6 +484,71 @@ describe("runAgent — the loop", () => {
     });
   });
 
+  it("names a near-miss URL in an import's error, and never retries it (46d)", async () => {
+    const seen = "http://127.0.0.1:4567/recipes/lemon/";
+    const slipped = "http://127.0.0.0.1:4567/recipes/lemon/";
+    const importer = tool(
+      "recipe_import",
+      async () => ({
+        error: { code: "import_failed", message: "Invalid URL" },
+      }),
+      {
+        inputSchema: {
+          type: "object",
+          properties: { url: { type: "string" } },
+          required: ["url"],
+        },
+      },
+    );
+    const inspect = tool(
+      "page_inspect",
+      async () => {
+        /* The thrown error's cause is the resolver's: the hint applies. */
+        throw new Error("Could not fetch http://exampel.com/a: fetch failed", {
+          cause: Object.assign(new Error("getaddrinfo"), {
+            code: "ENOTFOUND",
+          }),
+        });
+      },
+      {
+        untrusted: true,
+        inputSchema: {
+          type: "object",
+          properties: { url: { type: "string" } },
+          required: ["url"],
+        },
+      },
+    );
+    const { model } = scripted([
+      () => answer("", [call("recipe_import", { url: slipped })]),
+      () => answer("", [call("page_inspect", { url: "http://exampel.com/a" })]),
+      () => answer("I could not reach it."),
+    ]);
+    const result = await runAgent({
+      system: "s",
+      prompt: `Import this and https://example.com/a: ${seen}`,
+      tools: [importer, inspect],
+      config: OLLAMA,
+      model,
+    });
+    expect(result.stopReason).toBe("done");
+    /* Each tool ran once: the hint is the model's to act on. */
+    expect(importer.inputs).toEqual([{ url: slipped }]);
+    expect(inspect.inputs).toHaveLength(1);
+    const [imported, inspected] = toolResults(result.transcript);
+    expect(JSON.parse(imported.content)).toEqual({
+      error: {
+        code: "import_failed",
+        message: `Invalid URL. Did you mean ${seen}?`,
+        didYouMean: seen,
+      },
+    });
+    expect(inspected.isError).toBe(true);
+    expect(JSON.parse(inspected.content).error).toBe(
+      "page_inspect failed: Could not fetch http://exampel.com/a: fetch failed Did you mean https://example.com/a?",
+    );
+  });
+
   it("keeps going after a listener throws", async () => {
     const { model } = scripted([() => answer("fine")]);
     const result = await runAgent({
@@ -591,6 +656,144 @@ describe("runAgent — budgets and cancel", () => {
       budgets: { maxOutputTokens: 1000 },
     });
     expect(output).toMatchObject({ stopReason: "budget:tokens", turns: 2 });
+  });
+
+  it("stops at the cost budget (46d) once a priced run's estimate crosses it", async () => {
+    const search = tool("recipe_search");
+    /* One turn costs $1.20: over the $1.00 cap before the second. */
+    const { model } = scripted([
+      () => {
+        const turn = answer("", [call("recipe_search", { query: "q" })]);
+        return { ...turn, usage: { ...turn.usage, costEstimateUsd: 1.2 } };
+      },
+    ]);
+    const events: AgentEvent[] = [];
+    const result = await runAgent({
+      system: "s",
+      prompt: "p",
+      tools: [search],
+      config: OLLAMA,
+      model,
+      budgets: { maxCostUsd: 1 },
+      onEvent: (event) => events.push(event),
+    });
+    expect(result).toMatchObject({ stopReason: "budget:cost", turns: 1 });
+    expect(result.error).toBe(
+      "Stopped at the cost budget ($1.00): about $1.20 spent",
+    );
+    /* The last turn's calls ran: the stop came before the next model call. */
+    expect(search.inputs).toHaveLength(1);
+    expect(model).toHaveBeenCalledTimes(1);
+    expect(everyCallAnswered(result.transcript)).toBe(true);
+    expect(events.at(-1)).toMatchObject({
+      type: "stop",
+      stopReason: "budget:cost",
+    });
+  });
+
+  it("stops before a turn the last one's cost says would pass the cap (46d)", async () => {
+    const search = tool("recipe_search");
+    /* Each turn costs $0.45: $0.90 after two, and a third would make $1.35. */
+    const priced = () => {
+      const turn = answer("", [call("recipe_search", { query: "q" })]);
+      return { ...turn, usage: { ...turn.usage, costEstimateUsd: 0.45 } };
+    };
+    const { model, requests } = scripted([priced]);
+    const result = await runAgent({
+      system: "s",
+      prompt: "p",
+      tools: [search],
+      config: OLLAMA,
+      model,
+      budgets: { maxCostUsd: 1 },
+    });
+    expect(result).toMatchObject({ stopReason: "budget:cost", turns: 2 });
+    expect(result.usage.costEstimateUsd).toBeCloseTo(0.9);
+    expect(result.error).toBe(
+      "Stopped at the cost budget ($1.00): about $0.90 spent, and another turn like the last (about $0.45) would pass it",
+    );
+    expect(model).toHaveBeenCalledTimes(2);
+    /* Each turn is told what is left of the budget. */
+    expect(requests[0].costBudgetUsd).toBe(1);
+    expect(requests[1].costBudgetUsd).toBeCloseTo(0.55);
+  });
+
+  it("stops at once when a turn's continuations stopped at the cost budget (46d)", async () => {
+    const search = tool("recipe_search");
+    const { model } = scripted([
+      () => {
+        const turn = answer("Found two so far.");
+        return {
+          ...turn,
+          stop: "pause" as const,
+          apiStop: "pause_turn",
+          costStopped: true as const,
+          usage: { ...turn.usage, costEstimateUsd: 1.05 },
+        };
+      },
+    ]);
+    const result = await runAgent({
+      system: "s",
+      prompt: "p",
+      tools: [search],
+      config: OLLAMA,
+      model,
+      budgets: { maxCostUsd: 1 },
+    });
+    expect(result).toMatchObject({
+      stopReason: "budget:cost",
+      turns: 1,
+      text: "Found two so far.",
+    });
+    expect(result.error).toBe(
+      "Stopped at the cost budget ($1.00): about $1.05 spent, the last turn stopped part-way",
+    );
+    /* The turn's words so far are kept in the transcript. */
+    expect(
+      result.transcript.some(
+        (message) =>
+          message.role === "assistant" && message.text === "Found two so far.",
+      ),
+    ).toBe(true);
+  });
+
+  it("never stops on cost for a model with no price, or with no cost budget", async () => {
+    const turns = (n: number) =>
+      scripted([
+        ...Array.from(
+          { length: n - 1 },
+          () => () => answer("", [call("recipe_search", { query: "q" })]),
+        ),
+        () => answer("done"),
+      ]);
+    /* A local model: its usage has no estimate, so a budget cannot bind. */
+    const local = await runAgent({
+      system: "s",
+      prompt: "p",
+      tools: [tool("recipe_search")],
+      config: OLLAMA,
+      model: turns(4).model,
+      budgets: { maxCostUsd: 0.000001 },
+    });
+    expect(local).toMatchObject({ stopReason: "done", turns: 4 });
+    expect(local.usage.costEstimateUsd).toBeUndefined();
+
+    /* A priced run with no budget set runs on. */
+    const { model } = scripted([
+      () => {
+        const turn = answer("", [call("recipe_search", { query: "q" })]);
+        return { ...turn, usage: { ...turn.usage, costEstimateUsd: 5 } };
+      },
+      () => answer("done"),
+    ]);
+    const unbudgeted = await runAgent({
+      system: "s",
+      prompt: "p",
+      tools: [tool("recipe_search")],
+      config: OLLAMA,
+      model,
+    });
+    expect(unbudgeted).toMatchObject({ stopReason: "done", turns: 2 });
   });
 
   it("stops at the wall-time budget during a model call that never returns", async () => {

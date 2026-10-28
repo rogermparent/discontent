@@ -4,7 +4,10 @@ import Link from "next/link";
 import { Badge } from "@discontent/component-library/components/ui/badge";
 import { ClientListItem } from "recipe-website-common/components/ClientList";
 import { RecipeGrid } from "recipe-website-common/components/List/shared";
-import type { ChangedPlace } from "recipe-editor/controller/agent/changes";
+import {
+  assignedNote,
+  type ChangedPlace,
+} from "recipe-editor/controller/agent/changes";
 import type {
   CuratorChangedRecipe,
   CuratorRunChanges,
@@ -89,12 +92,20 @@ export function ChangesCard({ changes }: { changes: CuratorRunChanges }) {
       recipes: changes.recipes.filter((recipe) => recipe.change === change),
     }))
     .filter((kind) => kind.recipes.length > 0);
-  const chips = [
+  const chips: {
+    key: string;
+    label: string;
+    href: string;
+    kind: string | undefined;
+    /** 46d: a term's "added 3, 2 already tagged". */
+    note?: string;
+  }[] = [
     ...changes.terms.map((term) => ({
       key: `term:${term.slug}`,
       label: term.slug,
       href: `/tags/${term.slug}`,
       kind: "Tag",
+      note: assignedNote(term),
     })),
     ...changes.groups.map((group) => ({
       key: `group:${group.slug}`,
@@ -146,6 +157,14 @@ export function ChangesCard({ changes }: { changes: CuratorRunChanges }) {
                       {chip.kind ? `${chip.kind}: ${chip.label}` : chip.label}
                     </Link>
                   </Badge>
+                  {chip.note ? (
+                    <span
+                      className="ml-1.5 text-xs text-muted-foreground"
+                      data-testid="curator-assigned"
+                    >
+                      {chip.note}
+                    </span>
+                  ) : null}
                 </li>
               ))}
             </ul>

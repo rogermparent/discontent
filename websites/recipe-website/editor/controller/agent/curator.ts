@@ -15,7 +15,7 @@
  *   away is marked `missing`).
  */
 import { getRecipeBySlug } from "recipe-website-common/controller/data/read";
-import { llmConfig } from "../llm/client";
+import { llmConfig, takesNewerWebTools } from "../llm/client";
 import { jobsDirectory } from "../jobs/location";
 import {
   LIVE_STATUSES,
@@ -44,6 +44,11 @@ export interface CuratorSetup {
   api: "anthropic" | "local";
   /** Whether the curator can search the web (E6). */
   search: boolean;
+  /**
+   * Whether a run can take Claude's newer web tools (46d): Claude, on a
+   * model that has them (`takesNewerWebTools`). The ask box's checkbox.
+   */
+  newerWebTools: boolean;
 }
 
 /** What runs the curator here, or `undefined` with no model (no page, Ec9). */
@@ -58,6 +63,8 @@ export function curatorSetup(
     api: config.api === "anthropic" ? "anthropic" : "local",
     search:
       config.api === "anthropic" || (!!searchUrl && URL.canParse(searchUrl)),
+    newerWebTools:
+      config.api === "anthropic" && takesNewerWebTools(config.model),
   };
 }
 

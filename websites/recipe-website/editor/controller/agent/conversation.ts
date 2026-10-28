@@ -8,6 +8,7 @@
  * Pure and dependency-free (type imports only): it runs in the browser.
  */
 import type { LlmApi } from "../llm/client";
+import { costBudgetWords } from "../llm/cost";
 import type {
   TranscriptEnd,
   TranscriptRecord,
@@ -340,13 +341,31 @@ export function toolPhrase(
         : "Renamed a term";
     case "term_assign": {
       const what = input.type === "group" ? "plan" : "recipe";
+      const name = slug ? ` ${slug}` : "";
       const updated = countArray(out?.updated);
-      const added = countArray(input.add) ?? 0;
-      const removed = countArray(input.remove) ?? 0;
-      if (removed > 0 && added === 0) {
-        return `Untagged ${plural(updated ?? removed, what)}${slug ? ` ${slug}` : ""}`;
+      const adds = countArray(input.add) ?? 0;
+      const removes = countArray(input.remove) ?? 0;
+      if (removes > 0 && adds === 0) {
+        return `Untagged ${plural(updated ?? removes, what)}${name}`;
       }
-      return `Tagged ${plural(updated ?? added, what)}${slug ? ` ${slug}` : ""}`;
+      /* 46d: the result's own split — tagged now, and already tagged; the
+       * rest of `updated` is what a remove took off. */
+      const tagged = countArray(out?.added);
+      const already = countArray(out?.alreadyTagged) ?? 0;
+      const untagged =
+        tagged !== undefined && updated !== undefined
+          ? Math.max(0, updated - tagged)
+          : removes;
+      const tagCount = tagged ?? (removes > 0 ? adds : (updated ?? adds));
+      const head =
+        tagCount === 0 && already > 0
+          ? `${plural(already, what)} already tagged${name}`
+          : `Tagged ${plural(tagCount, what)}${name}${
+              already > 0
+                ? ` (${already} already ${already === 1 ? "was" : "were"})`
+                : ""
+            }`;
+      return removes > 0 ? `${head}; untagged ${plural(untagged, what)}` : head;
     }
     case "group_list":
       return "Listed the plans";
@@ -436,7 +455,11 @@ export function serverToolPhrase(use: ServerToolUse): string {
  */
 export function stopWords(
   end:
-    Pick<TranscriptEnd, "stop" | "error" | "turns" | "toolCalls"> | undefined,
+    | Pick<
+        TranscriptEnd,
+        "stop" | "error" | "turns" | "toolCalls" | "maxCostUsd"
+      >
+    | undefined,
   job?: { status?: string; failure?: string },
 ): string {
   if (!end) {
@@ -463,6 +486,10 @@ export function stopWords(
       return "Stopped: ran out of time";
     case "budget:tokens":
       return "Stopped: reached the token budget";
+    case "budget:cost":
+      return end.maxCostUsd !== undefined
+        ? costBudgetWords(end.maxCostUsd)
+        : "Stopped at the cost budget";
     case "budget:context":
       return "Stopped: the conversation outgrew the model's context";
     case "error":

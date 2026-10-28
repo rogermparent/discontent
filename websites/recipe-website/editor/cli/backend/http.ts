@@ -815,6 +815,7 @@ export function createHttpBackend({
           prompt: input.prompt,
           ...(input.runId ? { runId: input.runId } : {}),
           ...(input.maxTurns ? { maxTurns: input.maxTurns } : {}),
+          ...(input.newerWebTools ? { newerWebTools: true } : {}),
         },
       });
       const every = pollMs ?? agentFollowMs();
