@@ -498,6 +498,100 @@ in 68 days`, which opens `/holidays/christmas`; no `/api` request.
 - **Alternatives conversions.** Convert the picked candidates through the CLI (dry run first), as the everything-dough conversion was.
 - Revalidate after every CLI write.
 
+#### Results (46g, ingredient merges: code)
+
+Branch `agent/46g-ingredient-merges`. **Reindex needed: no.** Names are read at request time from stored lines, as in 43n: no index, aggregate or `specVersions`-pinned module computes them (`ingredientNames.ts` is not in `test/specVersions.test.ts`, and the recipe index stores lines, not names), so `indexVersion` stays `"2"`. **Deploy: yes** (Make, `/shopping`, the recipe page's "Uses", the edit form's step checks and the `inventory make` seats read the new names).
+
+**The 15 merged groups** (`common/util/ingredientNames.ts`). Each is a `NAME_SYNONYMS` row scoped by lookaheads to its own names, except ing-3:
+
+| Group  | Row                                                                                                                  | Lines it moved |
+| ------ | -------------------------------------------------------------------------------------------------------------------- | -------------- |
+| ing-3  | a line whose whole name is `sugar` reads `granulated sugar` (`BARE_NAMES`, Dg1)                                      | 86             |
+| ing-6  | `yellow` before onion(s) dropped; white onion stays                                                                  | 42             |
+| ing-7  | `all purpose white flour` → `all purpose flour`; `unbleached` before it dropped (not King Arthur's, below)           | 5              |
+| ing-10 | `ground pepper` → `pepper`; white pepper stays                                                                       | 6              |
+| ing-12 | `low` / `lower` / `less` / `reduced sodium` before soy sauce dropped                                                 | 4              |
+| ing-14 | `lean` / `extra lean` before ground beef dropped (not ground turkey)                                                 | 7              |
+| ing-15 | `chicken stock`, and low / reduced sodium chicken broth or stock → `chicken broth` (not cubes, concentrate, base)    | 34             |
+| ing-18 | `sharp`, `extra sharp`, `sharp white` before cheddar dropped (a plain `white cheddar` stays)                         | 12             |
+| ing-19 | `brick`, `block`, `brick style` before cream cheese dropped                                                          | 21             |
+| ing-21 | `canned` before pumpkin puree dropped                                                                                | 12             |
+| ing-22 | `canned` before tomato paste dropped                                                                                 | 4              |
+| ing-23 | `dark` / `unsulphured` before molasses dropped (not blackstrap or pomegranate)                                       | 9              |
+| ing-28 | the 43n `dry` row now covers sparkling wine too                                                                      | 2              |
+| ing-29 | `white` before rice dropped (not rice flour, vinegar, wine, noodles…), so raw merges with raw and cooked with cooked | 8              |
+| ing-30 | `thick`, `thick cut`, `thick sliced` before bacon dropped                                                            | 2              |
+
+Every row's merged name shelves in the aisle its old forms did (checked for each, and pinned in vitest).
+
+**Lent tails go through the table (Dg2).** 43n's Tn3: `inheritTails` builds names after `toName` has run on each part, so "granulated or coarse sugar" built `granulated sugar`, "chicken or beef stock" `chicken stock` and "instant or active dry yeast" `instant dry yeast`, and none of them met a row. Each name that gets a tail is now read through `toName` again once every tail is lent. That moved 7 lines here: 3 chicken stock, 1 onion and 43n's 3 yeast lines (now `instant yeast`, as that row meant). It does not cover a right part that a row shortens to one word, which then lends no tail (Tg1). One anchored row (`^unsulphured$` → `molasses`) covers Sally's "unsulphured or dark molasses" (8 lines).
+
+**Measured (Tn1)** on a scratch clone of the content repo (867 recipes, 8,652 lines; removed afterwards), with every line's name and shopping key and every step's "Uses" dumped before (`origin/main` `00b3eb4b`) and after:
+
+|                                    | Before | After                   |
+| ---------------------------------- | ------ | ----------------------- |
+| Lines whose name changed           | —      | 257 (248 shopping keys) |
+| Distinct names                     | 1,897  | 1,870                   |
+| Step "Uses" matches                | 7,362  | 7,363 (+11 / −10)       |
+| Near-duplicate groups (43n script) | 138    | 129                     |
+| "One word more" pairs              | 586    | 558                     |
+
+- **Steps lost (10).** Seven chicken-stock matches, from steps that say a bare "stock" (fondant potatoes ×2 and matzoh ball soup ×3 are real; "a large stock pot" and "the stock you just made" were wrong anyway). The line now goes by `broth`. Three yellow-onion matches (pork enchiladas, spicy pork bulgogi, Jamaican oxtail): each recipe also has an `onion` or `green onion` line, so the shortened name is ambiguous (D3).
+- **Steps gained (11).** Seven `chicken or beef stock` (Dg2), two soy sauce, one ground beef, one chicken broth.
+- **Direction measured both ways.** `granulated sugar` → `sugar` (the brief's direction) lost **36** step matches. Each was a Sally's-style step ("beat the butter, granulated sugar, and brown sugar") where the shortened name sat inside "brown sugar". The bare-name rule loses none (Dg1). `chicken broth` → `chicken stock` instead of the other way lost 18 and gained 4, so broth it is.
+- **Make** (each merged group's names, and the pantry staples, typed as items against every line). Typed `sugar` and the `sugar` staple still meet `granulated sugar` by its tail. `granulated sugar`, `chicken stock`, `white rice` and `ground pepper` typed now meet their merged partners' lines. `yellow onion` typed now meets what `onion` always met, red and green onion included, because Make's tail rule was already that lenient for a bare onion. One loss, expected: `chicken stock` typed no longer meets 6 lines of bare `stock` (it is `chicken broth` now, which meets `broth` lines; broth and stock stay close matches). And `brown rice` on hand now meets "white rice" outright (its tail is `rice`) rather than as a close match.
+- **Shopping** (Tn2): the content repo has no `shopping/settings.json`, so no aisle or store override is orphaned. Rows that change label: "1½ cups sugar" now reads "1½ cups granulated sugar". "6 onions" stays "6 onions", and a yellow onion line now joins that row.
+
+**Decisions**
+
+- **Dg1: a bare "sugar" is `granulated sugar`, applied to a line's whole name only.** `BARE_NAMES` (one entry) runs in `requirement()`, which every line path goes through. It never runs on a step's words or a typed inventory item. Three reasons:
+  - A step's "the sugar" stays the head of every sugar line, so it is still ambiguous beside brown sugar (D3, `stepIngredients.test` unchanged).
+  - `sugar` on hand still meets the line by its tail.
+  - "sugar snap peas" and "cinnamon sugar" are never touched, unlike a regex over every bare "sugar".
+
+  Onion took the short row instead. It cost 3 step matches, against 64 relabelled shopping rows ("6 yellow onions") and stricter Make for white-onion holders.
+
+- **Dg2: a lent tail is read through `toName` again** (above). The only extra work is for lines with a lent tail. The 43n dumps' other names are unchanged.
+- **Dg3: rows, not descriptors.** Every word the brief offered as a descriptor (`lean`, `brick`, `unsulphured`, `thick cut`, `canned`, `dry`) is a lookahead-scoped `NAME_SYNONYMS` row instead. A `NAME_DESCRIPTORS` word is dropped everywhere, and `lean ground turkey`, `brick cheese`, `canned tomato`, `dry vermouth` and `dry mustard` must stay as they are.
+- **Dg4: ing-29 merges within raw and within cooked.** The checklist said "merge within cooked and within raw, not across". The brief's example merged all four names into `rice`. The narrower reading follows the checklist and Dn4 (`cooked` stays).
+
+**Tests.** `test/ingredientSynonyms.test.ts` "the 46g merges…":
+
+- 30 merged pairs, each checked for one shopping key and for either form typed into Make meeting either line;
+- the aisle of each merged name;
+- 35 pairs that stay apart: every kept group, plus what the rows must not reach (beef broth, low-sodium beef broth, chicken stock concentrate, blackstrap and pomegranate molasses, lean ground turkey, white rice flour, sugar snap peas);
+- the Tn3 lent names;
+- a step case: "granulated sugar" beside brown sugar is found, "the sugar" is not, and "chicken broth" finds a low-sodium chicken stock line.
+
+Expected diffs in the contract suites:
+
+- `ingredientNames.test` (sugar lines → `granulated sugar`; yellow onion → `onion`; canned pumpkin puree and tomato paste; lean ground beef; sharp cheddar; a "kept" case moved from low sodium soy sauce to low sodium beef broth);
+- `shoppingView` / `shopping` (the sugar rows' key and label);
+- `makeable` (the close-tier example "white rice" → "jasmine rice").
+
+`shopping.spec` reads "¾ cup granulated sugar" and "¼ cup granulated sugar".
+
+**Baseline moved:** `shopping-modes` `shopping-plan-e2e.png`. Its Pantry row reads "1 cup granulated sugar" (was "1 cup sugar"), and nothing else differs. It was regenerated in Docker, and nothing else moved.
+
+**Gates** (through the capped heavy slot):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website exec tsc --noEmit`: both pass.
+- Full vitest: 162 files, 3,677 tests, all pass.
+- Docker build mode, e2e and mobile, on `make`, `shopping`, `shopping-modes`, `recipe-cooking-order`, `ingredient-preview`, `plan-page` and `cook-view`: 130/131. The one failure was the expected `shopping-plan` baseline. After that baseline was regenerated, `shopping-modes` passed 15/15.
+- Dev mode (the changed `shopping.spec`, in Docker): 11/11.
+
+**Roger to confirm:**
+
+- the bare-sugar rule and its label on the list ("granulated sugar");
+- a bare `stock` left apart from `chicken broth`, as it is from `broth`;
+- King Arthur's unbleached all-purpose flour (23 lines) left as its own name: it was not in ing-7's names, and merging it is one more row;
+- `pepper` (59 lines, mostly "salt and pepper") left apart from `black pepper` (176), since ing-10 named only pepper and ground pepper;
+- "white cheddar" (no sharpness) left as its own name.
+
+#### Traps (46g)
+
+- **Tg1: a row that shortens the right part of "A or B C" stops the lending.** "brown or white rice" splits into `brown` and `white rice`. The ing-29 row makes the second `rice`, one word, which lends nothing, so the line reads `brown or rice`. The corpus has one such line, and it is debris already. "unsulphured or dark molasses" had the same shape, and an anchored row fixes it. Check new shortening rows against `X or <row's words> Y` lines in the dump.
+
 ### 46k: Claude for real (after Roger adds the key)
 
 - **Roger's step.** Add `RECIPE_LLM_API=anthropic` and `RECIPE_LLM_API_KEY=…` (optionally `RECIPE_LLM_MODEL=claude-sonnet-5`) to `~/.config/recipe-deploy/uraninite.env`, mode 600.
