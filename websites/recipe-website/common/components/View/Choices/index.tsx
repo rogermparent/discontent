@@ -271,9 +271,9 @@ export function PathYield({ recipeYield }: { recipeYield?: string }) {
 }
 
 /**
- * A meta strip time (46f): the chosen option's when it states any, the
- * recipe's otherwise (`pathTimes`, the total falling back to prep plus
- * cook as the page always has). The cell is the server's — present when
+ * A meta strip time (46f): the chosen option's when it states that one,
+ * the recipe's otherwise (`pathTimes`, Df1: field by field, a missing
+ * total being prep plus cook). The cell is the server's — present when
  * the recipe or any option has the time — so a pick changes only its
  * value, never the strip's shape (U1); a path with no such time says "—".
  */

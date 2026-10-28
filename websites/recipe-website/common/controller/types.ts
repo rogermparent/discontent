@@ -37,8 +37,8 @@ export interface InstructionGroup {
   recipeYield?: string;
   /**
    * A choice group's own times, in minutes (46f): the whole recipe's when
-   * this option is made, as its yield is. Read as one block — an option
-   * with any of them replaces the recipe's three when chosen.
+   * this option is made, as its yield is. Each replaces only that one of
+   * the recipe's when chosen; a total left out is prep + cook (Df1).
    */
   prepTime?: number;
   cookTime?: number;

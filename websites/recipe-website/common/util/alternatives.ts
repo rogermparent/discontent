@@ -34,17 +34,16 @@ export interface ChoiceOption {
   /** The option's own yield ("8 bagels"), when its group has one. */
   yield?: string;
   /**
-   * The option's own times in minutes (46f), when its group has any: the
-   * recipe's three when it is chosen, as a block (`OptionTimes`).
+   * The option's own times in minutes (46f), when its group has any: each
+   * replaces that one of the recipe's when it is chosen (`pathTimes`).
    */
   times?: OptionTimes;
 }
 
 /**
  * An option's times (46f), in minutes — the whole recipe's when the option
- * is made, as its yield is the recipe's. Only the ones it states; one with
- * any replaces all three of the recipe's on its path (`pathTimes`), so a
- * "Bagels" total never sits beside the dough's own prep time.
+ * is made, as its yield is the recipe's. Only the ones it states; each
+ * replaces only that field of the recipe's on its path (`pathTimes`, Df1).
  */
 export interface OptionTimes {
   prepTime?: number;
@@ -73,22 +72,26 @@ export function optionTimesOf(
 }
 
 /**
- * The times a path shows (46f): the chosen option's when it states any,
- * else the recipe's own — each read with the page's rule that a missing
- * total is prep plus cook.
+ * The times a path shows (46f, Df1), in minutes, 0 for none. The chosen
+ * options' stated prep, cook and total each replace only that field of the
+ * recipe's. A total the options leave out is the path's prep + cook when
+ * they stated prep or cook and both are known, and none when one is not
+ * (the recipe's own total would be a different dish's). With no option
+ * times the recipe reads as the page always has: a missing total is prep
+ * plus cook.
  */
 export function pathTimes(
   recipe: OptionTimes,
   times: OptionTimes | undefined,
 ): { prepTime: number; cookTime: number; totalTime: number } {
-  const from = times ?? recipe;
-  const prepTime = from.prepTime || 0;
-  const cookTime = from.cookTime || 0;
-  return {
-    prepTime,
-    cookTime,
-    totalTime: from.totalTime || prepTime + cookTime,
-  };
+  const prepTime = times?.prepTime || recipe.prepTime || 0;
+  const cookTime = times?.cookTime || recipe.cookTime || 0;
+  let totalTime: number;
+  if (times?.totalTime) totalTime = times.totalTime;
+  else if (times?.prepTime || times?.cookTime) {
+    totalTime = prepTime && cookTime ? prepTime + cookTime : 0;
+  } else totalTime = recipe.totalTime || prepTime + cookTime;
+  return { prepTime, cookTime, totalTime };
 }
 
 export interface ChoiceSet {
@@ -353,8 +356,9 @@ export interface ShownPath {
   /** The yield the chosen options name, if any (the last set's that has one). */
   yield?: string;
   /**
-   * The times the chosen options state, if any (46f): the last set's whose
-   * chosen option has some, as the yield. Absent under "All".
+   * The times the chosen options state, if any (46f): field by field, a
+   * later set's over an earlier's (`pathTimes` reads them against the
+   * recipe's). Absent under "All".
    */
   times?: OptionTimes;
 }
@@ -484,7 +488,7 @@ export function shownPath(choices: Choices, picks?: Picks): ShownPath {
         for (const line of option.ingredientLines) lines[line] = false;
       } else if (pick !== ALL_OPTIONS) {
         if (option.yield) shownYield = option.yield;
-        if (option.times) shownTimes = option.times;
+        if (option.times) shownTimes = { ...shownTimes, ...option.times };
       }
     }
   }

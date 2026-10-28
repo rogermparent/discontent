@@ -12,7 +12,7 @@ import {
 import { walkGroupRecipes } from "../../util/groupShoppingWalk";
 import { isDrinkRecipe } from "../../util/drinkCount";
 import { readPlanTimes } from "../../util/planTimes";
-import { recipeOnPath } from "../../util/readChoices";
+import { recipeOnPath, timesOnPath } from "../../util/readChoices";
 import type {
   PlanHoliday,
   PlanPageData,
@@ -52,12 +52,15 @@ function ingredientCount(recipe: Recipe): number {
  */
 export function planRecipeView(slug: string, stored: Recipe): PlanRecipeView {
   const recipe = recipeOnPath(stored);
+  /* The total the recipe page shows (46f, Df1): prep + cook when the
+     recipe states no total, the default option's times field by field. */
+  const { totalTime } = timesOnPath(stored);
   return {
     slug,
     name: recipe.name,
     date: recipe.date,
     ...(recipe.image ? { image: recipe.image } : {}),
-    ...(recipe.totalTime ? { totalTime: recipe.totalTime } : {}),
+    ...(totalTime ? { totalTime } : {}),
     ...(recipe.recipeYield?.trim()
       ? { yieldText: recipe.recipeYield.trim() }
       : {}),

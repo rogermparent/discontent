@@ -450,10 +450,11 @@ test.describe("Alternatives and the shopping list (45e1)", () => {
 });
 
 /*
- * 46f: an option's own times. A dough that states no times of its own,
- * then Bagels (prep 45, cook 20, total 2 h 15) and Pretzels (total 1 h 30)
- * and Pizza (none): the meta strip shows the picked option's, in cells the
- * server drew, and the index carries the default's for `time:`.
+ * 46f: an option's own times. A dough that states only a prep time of its
+ * own (15 min), then Bagels (prep 45, cook 20, total 2 h 15), Pretzels
+ * (total 1 h 30) and Pizza (none): the meta strip shows the picked option's
+ * field by field over the recipe's (Df1), in cells the server drew, and the
+ * index carries the default path's for `time:` (Df2).
  */
 const TIMED = "timed-dough-test";
 
@@ -463,6 +464,7 @@ async function writeTimedDough(request: Request, token: string) {
     data: {
       name: "Timed Dough",
       slug: TIMED,
+      prepTime: 15,
       ingredients: ["500 g bread flour", "350 g warm water"],
       instructions: [
         {
@@ -523,17 +525,20 @@ test.describe("Option times (46f)", () => {
     await expect(metaCell(page, "Cook")).toHaveText("20 min");
     await expect(metaCell(page, "Total")).toHaveText("2 hr 15 min");
 
+    /* Pretzels states only a total: the recipe's prep stands beside it. */
     await option(page, "Pretzels").click();
     await expect(metaCell(page, "Total")).toHaveText("1 hr 30 min");
-    await expect(metaCell(page, "Prep")).toHaveText("—");
+    await expect(metaCell(page, "Prep")).toHaveText("15 min");
     await expect(metaCell(page, "Cook")).toHaveText("—");
     await expect(cells).toHaveCount(3);
 
-    /* An option with no times, and All, show the recipe's own: none. */
+    /* An option with no times, and All, show the recipe's own: a total of
+       prep + cook, as the page always reads it. */
     await option(page, "Pizza").click();
-    await expect(metaCell(page, "Total")).toHaveText("—");
+    await expect(metaCell(page, "Prep")).toHaveText("15 min");
+    await expect(metaCell(page, "Total")).toHaveText("15 min");
     await option(page, "All").click();
-    await expect(metaCell(page, "Total")).toHaveText("—");
+    await expect(metaCell(page, "Total")).toHaveText("15 min");
     await expect(cells).toHaveCount(3);
   });
 

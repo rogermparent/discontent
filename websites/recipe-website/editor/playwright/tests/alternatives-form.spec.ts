@@ -468,7 +468,7 @@ test.describe("Alternatives in the edit form (45e2)", () => {
       exact: true,
     });
     await expect(times).toContainText(
-      "Optional: the whole recipe’s times when this option is made.",
+      "Times here replace the recipe’s for this option; a total is prep + cook if you leave it blank.",
     );
     await times.getByTitle("Option prep time Minutes").fill("40");
     await times.getByTitle("Option cook time Minutes").fill("25");
@@ -476,8 +476,18 @@ test.describe("Alternatives in the edit form (45e2)", () => {
     await expect(set.getByTestId("choice-problems")).toHaveText(
       "The total time of “Bagels” (20 min) is shorter than its cook time (25 min)",
     );
+    /* The problem is tied to the option's total, as a name problem is. */
+    const totalMinutes = times.getByTitle("Option total time Minutes");
+    await expect(totalMinutes).toHaveAttribute("aria-invalid", "true");
+    await expect(totalMinutes).toHaveAccessibleDescription(
+      "The total time of “Bagels” (20 min) is shorter than its cook time (25 min)",
+    );
+    await expect(
+      times.getByTitle("Option cook time Minutes"),
+    ).not.toHaveAttribute("aria-invalid", "true");
     await times.getByTitle("Option total time Hours").fill("2");
     await expect(set.getByTestId("choice-problems")).toHaveCount(0);
+    await expect(totalMinutes).not.toHaveAttribute("aria-invalid", "true");
 
     await save(page, CHOSEN);
     /* The default option's times in the meta strip. */

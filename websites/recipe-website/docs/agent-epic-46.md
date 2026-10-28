@@ -501,31 +501,55 @@ in 68 days`, which opens `/holidays/christmas`; no `/api` request.
   blank → no time; a plain group's leftover times ride in hidden
   `…minutes` inputs), and the model (`ChoiceOption.times`,
   `ShownPath.times`, `optionTimesOf`, `pathTimes`).
-- **Df1 — an option's times are the whole recipe's when it is made, read
-  as one block.** An option that states any time replaces all three of the
-  recipe's on its path (one it leaves out goes absent, and the page's
-  "total = prep + cook" fallback applies to the option's own); an option
-  with none leaves the recipe's standing. Not added to the recipe's: the
-  dough's rise is the option's to include. With two sets, the last set
-  whose chosen option has times wins, as the yield does. "All" shows the
-  recipe's own (as the yield does). **Roger to confirm.**
+- **Df1 — an option's times override the recipe's field by field**
+  (changed at review by the orchestrator; the first draft read them as one
+  block, which showed prep "—" beside a recipe that has one, and a total
+  of the option's cook alone). On the chosen path:
+  - an option's stated prep, cook and total each replace only that one of
+    the recipe's;
+  - a total the option leaves out, when it states prep or cook, is the
+    path's prep + cook when both are known, and none otherwise (the
+    recipe's own total belongs to a different dish);
+  - an option with no times leaves the recipe's three standing, read as
+    the page always has (a missing total is prep + cook).
+
+  Not added to the recipe's: the dough's rise is the option's to include.
+  With two sets, the chosen options' times merge field by field, a later
+  set's over an earlier's. "All" shows the recipe's own (as the yield
+  does). One function says it (`pathTimes`); `recipeOnPath` maps it (a
+  time the path has none of goes absent) and `timesOnPath` gives the
+  page's numbers to the readers that show a total. Example: recipe prep
+  30 / total 120, option cook 25 → the page shows prep 30, cook 25, total
+  55 (the draft showed prep "—", cook 25, total 25, while the index said
+  120). **Roger to confirm.**
+
 - **The form.** Each option card has "Option prep time", "Option cook
   time" and "Option total time" — the recipe Times section's
   `DurationInput`s — in a group named "Times for Bagels", with the note
-  "Optional: the whole recipe's times when this option is made." Editing
+  "Times here replace the recipe's for this option; a total is prep + cook
+  if you leave it blank." Editing
   one works the set (45e2's rules apply); "Not a choice" drops the times
   with the yield. `choiceChecks` gains `optionTimeProblem`: in a worked-on
   set, and on every curation write (De2-6), an option's total may not be
   shorter than its own prep or cook time ("The total time of “Bagels” (20
-  min) is shorter than its cook time (25 min)", field `totalTime`). A set
-  as stored is never judged (43-D4).
+  min) is shorter than its cook time (25 min)", field `totalTime`), tied to
+  that option's total inputs with `aria-invalid` and `aria-describedby` as
+  a name problem is (`DurationInput` gained `describedBy` / `invalid`). A
+  set as stored is never judged (43-D4). A time that is not a number is
+  refused naming the option and the field: "Option “Bagels” prep time
+  isn't a number" (45d's rule; an unnamed group is placed as 45d places
+  it).
 - **The round trip** (`editFormRoundTrip.test.tsx`): a timed set and a
   plain group with leftover times save byte for byte, key order included
   (`name, instructions, choice, recipeYield, prepTime, cookTime,
 totalTime` — the curation schema's shape order and `parseFormData`'s).
-- **Readers.** `recipeOnPath` maps the chosen option's times (JSON-LD,
-  `planRecipeView`'s rows and run-sheet times, the sub-plan rows: the
-  default option's, G2). The recipe page's meta strip draws a Prep / Cook /
+- **Readers.** `recipeOnPath` maps the chosen option's times and
+  `timesOnPath` gives the page's numbers: JSON-LD and `planRecipeView`'s
+  row total (now with the page's prep + cook fallback, so a plan row shows
+  a total for a recipe that states only prep and cook) read the default
+  path's (G2), and so do the run-sheet times. The sub-plan rows read
+  `recipeOnPath` in `readPlanPage.subPlanView` today; 46h removes that
+  read, so after it lands they carry no times of their own. The recipe page's meta strip draws a Prep / Cook /
   Total cell when the recipe or any option has that time (Total when an
   option has any), and `PathTime` fills it from the reader's path after
   hydration — so a pick changes the values, never the strip's shape (U1;
@@ -533,11 +557,17 @@ totalTime` — the curation schema's shape order and `parseFormData`'s).
   exactly as before (the static cells, no client component). Plans, the
   cook list and the run sheet read `planRecipeView`, so `GroupDetailPage/`
   was not touched.
-- **Df2 — the index (39b).** `indexTimes(recipe)`: a recipe that states no
-  times of its own (all three 0 or absent) carries its default option's in
-  the index value, so `time:` and the cards that read the value (term-page
-  cards via the by-term row, `/search`'s card meta) see them; a recipe with any
-  time of its own keeps exactly its own. `recipeContentConfig.indexVersion`
+- **Df2 — the index (39b).** `indexTimes(recipe)`: when the default
+  options state any time, the index value carries exactly the default
+  path's times as the page shows them (`pathTimes`), so `time:` and the
+  cards that read the value (term-page cards via the by-term row,
+  `/search`'s card meta) agree with the page — the example above indexes
+  30 / 25 / 55. Otherwise the recipe's own as stored, as before 46f (a
+  missing total stays missing: `time:` sums prep and cook itself, and a
+  card shows only a stated total, so no plain recipe's card changes). One
+  edge does not agree: a path with only prep or only cook and no total
+  shows Total "—", while `time:` reads it as that one time (its own
+  prep + cook rule). `recipeContentConfig.indexVersion`
   is **"3"**: **reindex: automatic** — every instance rebuilds once at its
   next start. The site's index version moved (`reindexJobs.test.ts` pin
   `4a3e71b1227164cb`) and with it `visual/git-page` (Te1). No fixture
@@ -577,19 +607,28 @@ totalTime` — the curation schema's shape order and `parseFormData`'s).
   for every look** (`keepUnstored` / `waitUnstored`, 15 s per ask, 10
   minutes in all), not a live panel: one small call, and the status line
   links the job (`/jobs/<id>`) while it asks.
+- The model answers by position, so the form keeps the outline it sent:
+  a set whose groups no longer carry the names they were sent with
+  (moved, renamed, removed while it looked; `setsAsSent`) is dropped, and
+  the status line says "The steps changed while the model looked; try
+  again."
 - The sets land as 45e2's cards marked **"suggested by the model"** (each
   look's after the import's, each card with its own mark; one already
-  offered is not offered twice), focus on the first card's "Make it a
-  choice"; accepted, the set wears the same mark, "Not saved yet." and
+  offered is not offered twice). Focus moves to the first card's "Make it
+  a choice" only if it is still on the look button or `body` (the button
+  is disabled while it asks); anywhere else the `role="status"` line
+  announces the cards. Accepted, the set wears the same mark, "Not saved yet." and
   Undo until Save (G5). Never applied by itself. `suggestChoices` stays
   the import's and the fill's default.
 - The stand-in model (`fixtures/llm/standInModel.ts`, `choicesAnswer`)
   proposes the first run of open groups after a shared start, plus entry
   99 for the grounding to drop.
 
-**Roger to confirm.** Df1 (an option's times replace the recipe's, as a
-block, and "All" shows the recipe's own); Df2 (the default's times stand
-in only when the recipe states none); the model action disabled with its
+**Roger to confirm.** Df1 (an option's times replace the recipe's field
+by field, a blank total is prep + cook when both are known, and "All"
+shows the recipe's own — e.g. recipe prep 30 / total 120 with an option
+cook 25 shows prep 30, cook 25, total 55); Df2 (the index carries the default
+path's times as the page shows them whenever its options state any); the model action disabled with its
 reason rather than hidden when no model is set up; the model's answer
 numbered 1-based.
 

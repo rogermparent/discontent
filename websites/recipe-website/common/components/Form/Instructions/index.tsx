@@ -40,7 +40,7 @@ import {
   type SuggestedChoice,
 } from "../../../util/suggestChoices";
 import { useStableKeys } from "../stableKeys";
-import { choiceOutline } from "../../../util/choiceOutline";
+import { choiceOutline, setsAsSent } from "../../../util/choiceOutline";
 import {
   LookForChoices,
   SUGGESTED_BY_MODEL,
@@ -522,6 +522,19 @@ function span(start: number, end: number): number[] {
 }
 
 /**
+ * Whether focus is still where a look for alternatives left it (46f): on
+ * the look button, or nowhere (`body`, as a disabled button drops it).
+ */
+export function focusStillAtLook(
+  active: Element | null = typeof document === "undefined"
+    ? null
+    : document.activeElement,
+): boolean {
+  if (!active || active === active.ownerDocument?.body) return true;
+  return Boolean(active.closest('[data-focus="look"]'));
+}
+
+/**
  * The element a focus name points at, or the first control inside it: an
  * input that isn't hidden, a button, a textarea or anything focusable.
  */
@@ -775,8 +788,15 @@ export function InstructionsListInput({
       });
       return;
     }
-    /* Only what still fits the steps, and not offered already. */
+    /* Only what still fits the steps, and not offered already. The model
+     * answered by position: a set whose groups no longer carry the names
+     * they were sent with (moved, renamed, removed while it looked) is
+     * dropped and said (46f review). */
     const now = form.state.values.instructions;
+    const { kept, changed } = setsAsSent(outline, now, outcome.sets ?? []);
+    const stale = changed
+      ? " The steps changed while the model looked; try again."
+      : "";
     const known = new Set(
       suggestions.map((suggestion, index) =>
         statuses[index]?.status === "offered"
@@ -784,7 +804,7 @@ export function InstructionsListInput({
           : "",
       ),
     );
-    const found = (outcome.sets ?? []).filter(
+    const found = kept.filter(
       (set) => suggestionFits(now, set) && !known.has(set.groups.join(",")),
     );
     const notes = (outcome.warnings ?? []).join(" ");
@@ -796,7 +816,9 @@ export function InstructionsListInput({
       setLook({
         status: "done",
         job: started.job,
-        message: `Nothing found: ${outcome.model ?? "the model"} saw no alternatives here.${notes ? ` ${notes}` : ""}`,
+        message: stale
+          ? stale.trim()
+          : `Nothing found: ${outcome.model ?? "the model"} saw no alternatives here.${notes ? ` ${notes}` : ""}`,
       });
       return;
     }
@@ -811,9 +833,12 @@ export function InstructionsListInput({
       job: started.job,
       message: `${capitalized(outcome.model ?? "the model")} suggested ${
         found.length === 1 ? "a choice" : `${found.length} choices`
-      }: see the marked ${found.length === 1 ? "card" : "cards"} above the steps.${notes ? ` ${notes}` : ""}`,
+      }: see the marked ${found.length === 1 ? "card" : "cards"} above the steps.${notes ? ` ${notes}` : ""}${stale}`,
     });
-    requestFocus(`suggestion:${first}`);
+    /* Focus moves to the card only from where the person left it: the look
+     * button (disabled while it asked, so often `body`). Anywhere else they
+     * have moved on, and the status line announces the cards (46f review). */
+    if (focusStillAtLook()) requestFocus(`suggestion:${first}`);
   };
   /** The accepted suggestion a set is: by the set's id, whatever its label. */
   const acceptedAs = (run: ChoiceRun) =>

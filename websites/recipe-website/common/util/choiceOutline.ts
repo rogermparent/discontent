@@ -169,3 +169,28 @@ export function groundChoiceSets(
   }
   return { sets, droppedNumbers, droppedSets };
 }
+
+/**
+ * The model's sets that still fit the steps it was shown (46f review): it
+ * answers by position, so while it looked a group may have moved, been
+ * renamed or removed. A set is kept only when each of its groups is still
+ * a group, at the same place, under the name `sent` gave it; `changed`
+ * counts the sets dropped.
+ */
+export function setsAsSent(
+  sent: readonly OutlineEntry[],
+  now: readonly InstructionEntry[],
+  sets: readonly SuggestedChoice[],
+): { kept: SuggestedChoice[]; changed: number } {
+  const current = choiceOutline(now);
+  const kept = sets.filter((set) =>
+    set.groups.every((index) => {
+      const before = sent[index];
+      const after = current[index];
+      return Boolean(
+        before?.group && after?.group && before.name === after.name,
+      );
+    }),
+  );
+  return { kept, changed: sets.length - kept.length };
+}

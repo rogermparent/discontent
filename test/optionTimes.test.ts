@@ -1,9 +1,9 @@
 // 46f: per-option times on alternatives — the model (`readChoices`,
 // `shownPath`, `pathTimes`), one value for the readers that need one
-// (`recipeOnPath`: JSON-LD, the plan's rows), the index and `time:`
-// (`indexTimes`, a recipe that states no times carries its default
-// option's), the rule a worked-on option's times keep (`choiceProblems`),
-// and the write schema. Then the model's look for alternatives: the
+// (`recipeOnPath`, `timesOnPath`: JSON-LD, the plan's rows), field by field
+// over the recipe's (Df1), the index and `time:` (`indexTimes`: the default
+// path's times as the page shows them, Df2), the rule a worked-on option's
+// times keep (`choiceProblems`), the write schema and the form's refusal. Then the model's look for alternatives: the
 // outline it is shown, the grounding of its answer, and the call with
 // `fetch` stubbed (never a real model).
 
@@ -19,6 +19,7 @@ import {
   indexTimes,
   readChoices,
   recipeOnPath,
+  timesOnPath,
 } from "recipe-website-common/util/readChoices";
 import {
   choiceProblems,
@@ -35,9 +36,12 @@ import {
   groundChoiceSets,
   outlineHasCandidates,
   outlineText,
+  setsAsSent,
 } from "recipe-website-common/util/choiceOutline";
 import { setOptionTime } from "recipe-website-common/components/Form/Instructions/choiceEdits";
 import { RecipeInputSchema } from "../websites/recipe-website/editor/controller/curation/schema";
+import parseRecipeFormData from "../websites/recipe-website/editor/controller/parseFormData";
+import { recipeFormFailure } from "../websites/recipe-website/editor/controller/recipeFormErrors";
 import type { LlmConfig } from "../websites/recipe-website/editor/controller/llm/client";
 import {
   CHOICES_SYSTEM_PROMPT,
@@ -105,28 +109,113 @@ describe("option times in the model (46f)", () => {
     ).toBeUndefined();
   });
 
-  it("pathTimes: an option's block replaces the recipe's, a missing total is prep + cook", () => {
-    const recipe = { prepTime: 10, cookTime: 5, totalTime: 0 };
-    expect(pathTimes(recipe, undefined)).toEqual({
+  it("pathTimes, no option times: the recipe's own, a missing total is prep + cook", () => {
+    expect(pathTimes({ prepTime: 10, cookTime: 5 }, undefined)).toEqual({
       prepTime: 10,
       cookTime: 5,
       totalTime: 15,
     });
-    expect(pathTimes(recipe, { totalTime: 90 })).toEqual({
+    expect(pathTimes({ prepTime: 10, totalTime: 120 }, undefined)).toEqual({
+      prepTime: 10,
+      cookTime: 0,
+      totalTime: 120,
+    });
+    expect(pathTimes({}, undefined)).toEqual({
       prepTime: 0,
       cookTime: 0,
-      totalTime: 90,
+      totalTime: 0,
     });
-    expect(pathTimes(recipe, { prepTime: 30, cookTime: 20 })).toEqual({
-      prepTime: 30,
-      cookTime: 20,
-      totalTime: 50,
+  });
+
+  it("pathTimes (Df1): each stated time replaces only that one of the recipe's", () => {
+    /* The orchestrator's example: recipe prep 30 / total 120, option cook
+       25 — prep stays 30, cook is 25, and the total is prep + cook. */
+    expect(
+      pathTimes({ prepTime: 30, totalTime: 120 }, { cookTime: 25 }),
+    ).toEqual({ prepTime: 30, cookTime: 25, totalTime: 55 });
+    /* A stated total wins; prep and cook stay the recipe's. */
+    expect(
+      pathTimes(
+        { prepTime: 10, cookTime: 5, totalTime: 15 },
+        { totalTime: 90 },
+      ),
+    ).toEqual({ prepTime: 10, cookTime: 5, totalTime: 90 });
+    /* Prep and cook stated, no total: their sum, never the recipe's. */
+    expect(
+      pathTimes({ totalTime: 300 }, { prepTime: 30, cookTime: 20 }),
+    ).toEqual({ prepTime: 30, cookTime: 20, totalTime: 50 });
+    /* One stated, the other the recipe's: still both known. */
+    expect(pathTimes({ prepTime: 10, totalTime: 99 }, { cookTime: 5 })).toEqual(
+      { prepTime: 10, cookTime: 5, totalTime: 15 },
+    );
+    /* Prep or cook stated and the other unknown: no total, not the
+       recipe's (a different dish's) and not half a sum. */
+    expect(pathTimes({ totalTime: 120 }, { cookTime: 25 })).toEqual({
+      prepTime: 0,
+      cookTime: 25,
+      totalTime: 0,
+    });
+    expect(pathTimes({}, { prepTime: 40 })).toEqual({
+      prepTime: 40,
+      cookTime: 0,
+      totalTime: 0,
+    });
+    /* Every field stated: the option's alone. */
+    expect(
+      pathTimes(
+        { prepTime: 1, cookTime: 2, totalTime: 3 },
+        { prepTime: 45, cookTime: 20, totalTime: 135 },
+      ),
+    ).toEqual({ prepTime: 45, cookTime: 20, totalTime: 135 });
+  });
+
+  it("two sets: the chosen options' times merge field by field, the later over the earlier", () => {
+    const twoSets: Recipe = {
+      name: "Two sets",
+      date: 1,
+      instructions: [
+        {
+          name: "Thin",
+          choice: "Crust",
+          prepTime: 20,
+          instructions: [{ text: "Roll thin." }],
+        },
+        {
+          name: "Thick",
+          choice: "Crust",
+          instructions: [{ text: "Press thick." }],
+        },
+        {
+          name: "Oven",
+          choice: "Bake",
+          cookTime: 12,
+          prepTime: 5,
+          instructions: [{ text: "Bake." }],
+        },
+        {
+          name: "Grill",
+          choice: "Bake",
+          cookTime: 8,
+          instructions: [{ text: "Grill." }],
+        },
+      ],
+    };
+    const choices = readChoices(twoSets);
+    expect(shownPath(choices).times).toEqual({ prepTime: 5, cookTime: 12 });
+    expect(shownPath(choices, { bake: "grill" }).times).toEqual({
+      prepTime: 20,
+      cookTime: 8,
+    });
+    expect(timesOnPath(twoSets, { bake: "grill" })).toEqual({
+      prepTime: 20,
+      cookTime: 8,
+      totalTime: 28,
     });
   });
 });
 
 describe("one value: the default option's times (46f, G2)", () => {
-  it("recipeOnPath maps the chosen option's times, dropping the recipe's others", () => {
+  it("recipeOnPath maps the chosen option's times field by field over the recipe's", () => {
     const own: Recipe = { ...DOUGH, prepTime: 10, cookTime: 3 };
     const onDefault = recipeOnPath(own);
     expect([
@@ -134,13 +223,49 @@ describe("one value: the default option's times (46f, G2)", () => {
       onDefault.cookTime,
       onDefault.totalTime,
     ]).toEqual([45, 20, 135]);
+    /* Pretzels states only a total: the recipe's prep and cook stand. */
     const pretzels = recipeOnPath(own, { "then-make": "pretzels" });
-    expect("prepTime" in pretzels).toBe(false);
-    expect("cookTime" in pretzels).toBe(false);
-    expect(pretzels.totalTime).toBe(90);
-    /* An untimed option leaves the recipe's own times standing. */
+    expect([pretzels.prepTime, pretzels.cookTime, pretzels.totalTime]).toEqual([
+      10, 3, 90,
+    ]);
+    /* An untimed option leaves the recipe's own times exactly as stored. */
     const pizza = recipeOnPath(own, { "then-make": "pizza" });
-    expect([pizza.prepTime, pizza.cookTime]).toEqual([10, 3]);
+    expect([pizza.prepTime, pizza.cookTime, pizza.totalTime]).toEqual([
+      10,
+      3,
+      undefined,
+    ]);
+    /* The example: recipe prep 30 / total 120, option cook 25. */
+    const example: Recipe = {
+      ...DOUGH,
+      prepTime: 30,
+      totalTime: 120,
+      instructions: [
+        DOUGH.instructions[0],
+        {
+          name: "Bagels",
+          choice: "Then make",
+          cookTime: 25,
+          instructions: [{ text: "Boil and bake." }],
+        },
+        DOUGH.instructions[3],
+      ],
+    };
+    const onExample = recipeOnPath(example);
+    expect([
+      onExample.prepTime,
+      onExample.cookTime,
+      onExample.totalTime,
+    ]).toEqual([30, 25, 55]);
+    expect(timesOnPath(example)).toEqual({
+      prepTime: 30,
+      cookTime: 25,
+      totalTime: 55,
+    });
+    /* No total known on the path: absent, not the recipe's 120. */
+    const unknown = recipeOnPath({ ...example, prepTime: undefined });
+    expect("totalTime" in unknown).toBe(false);
+    expect(unknown.cookTime).toBe(25);
   });
 
   /* A plan's row (`planRecipeView`) is `recipeOnPath`'s too; its module
@@ -155,6 +280,36 @@ describe("one value: the default option's times (46f, G2)", () => {
       cookTime: "PT20M",
       totalTime: "PT2H15M",
     });
+  });
+
+  it("JSON-LD's total is the page's: no total on the path is none, not a half sum", () => {
+    const cookOnly: Recipe = {
+      ...DOUGH,
+      totalTime: 120,
+      instructions: [
+        DOUGH.instructions[0],
+        {
+          name: "Bagels",
+          choice: "Then make",
+          cookTime: 25,
+          instructions: [{ text: "Boil and bake." }],
+        },
+        DOUGH.instructions[3],
+      ],
+    };
+    const jsonLD = buildRecipeJsonLD(cookOnly, undefined) as unknown as Record<
+      string,
+      unknown
+    >;
+    expect(jsonLD.cookTime).toBe("PT25M");
+    expect(jsonLD.totalTime).toBeUndefined();
+    expect(jsonLD.prepTime).toBeUndefined();
+    /* A plain recipe keeps the page's prep + cook total. */
+    const plain = buildRecipeJsonLD(
+      { name: "Plain", date: 1, prepTime: 10, cookTime: 5 },
+      undefined,
+    ) as unknown as Record<string, unknown>;
+    expect(plain.totalTime).toBe("PT15M");
   });
 
   it("a recipe without option times reads exactly as before", () => {
@@ -193,15 +348,58 @@ describe("the index and time: (46f)", () => {
     expect(timed("time:<60")).toBe(false);
   });
 
-  it("a recipe's own times win, even one of three", () => {
+  it("Df2: the default path's times exactly as the page shows them, the recipe's own under them", () => {
+    /* Bagels states all three: the recipe's total is replaced. */
     const own: Recipe = { ...DOUGH, totalTime: 30 };
     expect(indexTimes(own)).toEqual({
-      prepTime: undefined,
-      cookTime: undefined,
-      totalTime: 30,
+      prepTime: 45,
+      cookTime: 20,
+      totalTime: 135,
     });
-    expect(buildRecipeIndexValue(own).totalTime).toBe(30);
-    expect(buildRecipeIndexValue(own).prepTime).toBeUndefined();
+    /* The example: recipe prep 30 / total 120, option cook 25 → 30/25/55,
+       as the page shows it, and `time:` agrees. */
+    const example: Recipe = {
+      ...DOUGH,
+      prepTime: 30,
+      totalTime: 120,
+      instructions: [
+        DOUGH.instructions[0],
+        {
+          name: "Bagels",
+          choice: "Then make",
+          cookTime: 25,
+          instructions: [{ text: "Boil and bake." }],
+        },
+        DOUGH.instructions[3],
+      ],
+    };
+    const value = buildRecipeIndexValue(example);
+    expect([value.prepTime, value.cookTime, value.totalTime]).toEqual([
+      30, 25, 55,
+    ]);
+    expect(value.totalTime).toBe(timesOnPath(example).totalTime);
+    const timed = (query: string) =>
+      matchesFilter(value, parseQuery(query).filter);
+    expect(timed("time:<60")).toBe(true);
+    expect(timed("time:>100")).toBe(false);
+  });
+
+  it("an untimed default option keeps the recipe's own as stored", () => {
+    const pizzaFirst: Recipe = {
+      ...DOUGH,
+      prepTime: 10,
+      cookTime: 5,
+      instructions: [
+        DOUGH.instructions[0],
+        DOUGH.instructions[3],
+        DOUGH.instructions[1],
+      ],
+    };
+    expect(indexTimes(pizzaFirst)).toEqual({
+      prepTime: 10,
+      cookTime: 5,
+      totalTime: undefined,
+    });
   });
 
   it("an untimed default option, or no alternatives, carries nothing new", () => {
@@ -340,6 +538,84 @@ describe("the outline the model is shown (46f)", () => {
     expect(
       outlineHasCandidates(choiceOutline(OLD.instructions.slice(0, 2))),
     ).toBe(false);
+  });
+});
+
+describe("the model's sets against the steps it was sent (46f review)", () => {
+  const steps = [
+    { name: "Dough", instructions: [{ text: "Mix." }] },
+    { name: "Bagels", instructions: [{ text: "Boil." }] },
+    { name: "Pretzels", instructions: [{ text: "Dip." }] },
+    { name: "Pizza", instructions: [{ text: "Top." }] },
+  ];
+  const sets = [{ label: "Then make", groups: [1, 2, 3] }];
+
+  it("keeps a set whose groups are as they were sent", () => {
+    const sent = choiceOutline(steps);
+    expect(setsAsSent(sent, steps, sets)).toEqual({ kept: sets, changed: 0 });
+    /* A changed first line does not matter: the names are what the set is. */
+    const edited = steps.map((group, index) =>
+      index === 2
+        ? { ...group, instructions: [{ text: "Dip in lye." }] }
+        : group,
+    );
+    expect(setsAsSent(sent, edited, sets).changed).toBe(0);
+  });
+
+  it("drops a set whose groups moved, were renamed or removed while it looked", () => {
+    const sent = choiceOutline(steps);
+    const moved = [steps[0], steps[2], steps[1], steps[3]];
+    expect(setsAsSent(sent, moved, sets)).toEqual({ kept: [], changed: 1 });
+    const renamed = steps.map((group, index) =>
+      index === 3 ? { ...group, name: "Flatbread" } : group,
+    );
+    expect(setsAsSent(sent, renamed, sets).changed).toBe(1);
+    const removed = steps.slice(0, 3);
+    expect(setsAsSent(sent, removed, sets).changed).toBe(1);
+    /* A group turned into a bare step at the same place. */
+    const flattened = [steps[0], steps[1], { text: "Pretzels" }, steps[3]];
+    expect(setsAsSent(sent, flattened, sets).changed).toBe(1);
+    /* Only the set that changed goes. */
+    const two = [
+      { label: "Then make", groups: [1, 2] },
+      { label: "Or", groups: [3, 4] },
+    ];
+    const five = [
+      ...steps,
+      { name: "Focaccia", instructions: [{ text: "Dimple." }] },
+    ];
+    const fiveSent = choiceOutline(five);
+    const lastRenamed = five.map((group, index) =>
+      index === 4 ? { ...group, name: "Fougasse" } : group,
+    );
+    expect(setsAsSent(fiveSent, lastRenamed, two)).toEqual({
+      kept: [two[0]],
+      changed: 1,
+    });
+  });
+});
+
+describe("an option's bad time says where (46f review, 45d's rule)", () => {
+  it("names the option and the field", () => {
+    const formData = new FormData();
+    formData.set("name", "Everything Dough");
+    formData.set("instructions[0].name", "Bagels");
+    formData.set("instructions[0].choice", "Then make");
+    formData.set("instructions[0].instructions[0].text", "Boil.");
+    formData.set("instructions[0].prepTime.minutes", "-5");
+    formData.set("instructions[1].name", "Pretzels");
+    formData.set("instructions[1].choice", "Then make");
+    formData.set("instructions[1].instructions[0].text", "Dip.");
+    formData.set("instructions[1].totalTime.hours", "two");
+    formData.set("instructions[1].totalTime.minutes", "x");
+    const result = parseRecipeFormData(formData);
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const { errors } = recipeFormFailure(result.error);
+    expect(errors.instructions).toEqual([
+      "Option “Bagels” prep time isn't a number",
+      "Option “Pretzels” total time isn't a number",
+    ]);
   });
 });
 

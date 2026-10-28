@@ -53,6 +53,7 @@ function ChoiceOption({
   run,
   group,
   nameProblems,
+  totalProblems,
   renderGroup,
   onMove,
   onRemove,
@@ -67,6 +68,8 @@ function ChoiceOption({
   run: ChoiceRun;
   group: InstructionGroup;
   nameProblems: FieldProblems;
+  /** 46f: the option's total-time problem, tied to its total input. */
+  totalProblems: FieldProblems;
   renderGroup: (index: number, problems: FieldProblems) => ReactNode;
   onMove: (to: number, direction: "up" | "down") => void;
   onRemove: () => void;
@@ -168,12 +171,19 @@ function ChoiceOption({
                 name={`instructions[${index}].${field}`}
                 valueMinutes={group[field] ?? 0}
                 onValueChange={(minutes) => onTime(field, minutes)}
+                {...(field === "totalTime"
+                  ? {
+                      describedBy: totalProblems.describedBy,
+                      invalid: totalProblems.invalid,
+                    }
+                  : {})}
               />
             </div>
           ))}
         </div>
         <p id={timesNoteId} className="text-xs text-muted-foreground">
-          Optional: the whole recipe&rsquo;s times when this option is made.
+          Times here replace the recipe&rsquo;s for this option; a total is prep
+          + cook if you leave it blank.
         </p>
       </div>
     </li>
@@ -311,6 +321,10 @@ export function ChoiceSetBlock({
           const described = idsOf(
             (problem) => problem.field === "name" && problem.index === index,
           );
+          const totalDescribed = idsOf(
+            (problem) =>
+              problem.field === "totalTime" && problem.index === index,
+          );
           return (
             <ChoiceOption
               key={optionKeys[position]}
@@ -323,6 +337,10 @@ export function ChoiceSetBlock({
               nameProblems={{
                 describedBy: described || undefined,
                 invalid: Boolean(described),
+              }}
+              totalProblems={{
+                describedBy: totalDescribed || undefined,
+                invalid: Boolean(totalDescribed),
               }}
               renderGroup={renderGroup}
               onMove={(to, direction) => onMove(index, to, direction)}
