@@ -1111,8 +1111,22 @@ describe("importAndCreate with a local model (36b)", () => {
       .split("\n")
       .map((line) => JSON.parse(line) as string[]);
     expect(calls).toEqual([
-      ["--no-playlist", "-J", "--", url],
-      ["--no-playlist", "-J", "--", url],
+      [
+        "--use-extractors",
+        "default,-generic",
+        "--no-playlist",
+        "-J",
+        "--",
+        url,
+      ],
+      [
+        "--use-extractors",
+        "default,-generic",
+        "--no-playlist",
+        "-J",
+        "--",
+        url,
+      ],
     ]);
   });
 

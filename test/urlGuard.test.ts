@@ -46,12 +46,18 @@ import {
   guardedFetch,
   importerFetch,
 } from "../websites/recipe-website/editor/controller/guardedFetch";
-import { fetchImageFile } from "../websites/recipe-website/editor/controller/imageImport";
+import {
+  fetchImageFile,
+  fetchImageFilePaced,
+} from "../websites/recipe-website/editor/controller/imageImport";
+import { termFormStateFromError } from "../websites/recipe-website/editor/controller/termForm";
+import { isVideoUrl } from "../websites/recipe-website/common/util/videoUrl";
 import { fetchPageStep } from "../websites/recipe-website/editor/controller/jobs/steps";
 import {
   TEST_DNS_ENV,
   TEST_FETCH_ALLOW_ENV,
   fetchGuardOptions,
+  isBlockedAddress,
   isTestAllowedUrl,
   setFetchGuardTesting,
   urlRefusal,
@@ -146,6 +152,45 @@ describe("urlRefusal (46a, the shared guard)", () => {
     ).toMatchObject({ code: "forbidden", reason: "scheme" });
   });
 
+  it("blocks the IETF, benchmarking, discard and translated ranges; TEST-NET-3 stays open (46a review)", async () => {
+    for (const address of [
+      "192.0.0.1",
+      "192.0.0.170",
+      "198.18.0.1",
+      "198.19.255.254",
+      "100::1",
+      "100::ffff:1",
+      "::ffff:0:808:808",
+      "::ffff:0:10.0.0.1",
+    ]) {
+      expect(isBlockedAddress(address), address).toBe(true);
+    }
+    for (const address of [
+      "203.0.113.10",
+      "192.0.1.1",
+      "198.20.0.1",
+      "198.17.255.255",
+      "100:0:0:1::1",
+    ]) {
+      expect(isBlockedAddress(address), address).toBe(false);
+    }
+    for (const url of [
+      "http://192.0.0.8/",
+      "http://198.18.4.4/",
+      "http://[100::5]/",
+      "http://[::ffff:0:808:808]/",
+    ]) {
+      expect(await urlRefusal(new URL(url)), url).toMatchObject({
+        code: "forbidden",
+      });
+    }
+    expect(
+      await urlRefusal(new URL("https://example.com/"), {
+        lookup: async () => ["203.0.113.10"],
+      }),
+    ).toBeUndefined();
+  });
+
   it("calls a name that does not resolve fetch_failed, not a refusal", async () => {
     expect(
       await urlRefusal(new URL("https://nowhere.example/"), {
@@ -234,6 +279,44 @@ describe("guardedFetch", () => {
       "https://a.example/two",
     ]);
     expect(fetchSpy.mock.calls[1][1]).toMatchObject({ method: "HEAD" });
+  });
+
+  it("follows five redirects and refuses a sixth", async () => {
+    const chain = (hops: number) =>
+      vi.fn(async (url: string) => {
+        const at = Number(new URL(url).pathname.slice(1) || "0");
+        return at < hops
+          ? new Response(null, {
+              status: 302,
+              headers: { location: `/${at + 1}` },
+            })
+          : new Response("end", { status: 200 });
+      });
+    const five = chain(5);
+    vi.stubGlobal("fetch", five);
+    const response = await guardedFetch(
+      "https://hops.example/0",
+      {},
+      {
+        lookup,
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(five).toHaveBeenCalledTimes(6);
+
+    const six = chain(6);
+    vi.stubGlobal("fetch", six);
+    const error = await guardedFetch(
+      "https://hops.example/0",
+      {},
+      {
+        lookup,
+      },
+    ).catch((e) => e);
+    expect(error).toBeInstanceOf(FetchChainError);
+    expect((error as Error).message).toMatch(/redirected more than 5 times/);
+    /* The sixth redirect's target is never asked for. */
+    expect(six).toHaveBeenCalledTimes(6);
   });
 
   it("stops a redirect loop", async () => {
@@ -343,13 +426,46 @@ describe("the importer's fetches", () => {
     );
   });
 
-  it("refuses an image and its 403 retry the same way", async () => {
-    vi.stubEnv("RECIPE_FETCH_403_DELAY_MS", "0");
-    const fetchSpy = redirectingTo("http://[fd00::5]/a.jpg");
+  it("refuses an image's redirect as url_refused, from the paced Save fetch too", async () => {
+    let fetchSpy = redirectingTo("http://[fd00::5]/a.jpg");
     await expect(
       fetchImageFile("https://public.example/a.jpg"),
-    ).rejects.toThrow(/inside your network/);
+    ).rejects.toMatchObject({
+      code: "url_refused",
+      message: expect.stringMatching(/inside your network/),
+    });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+    fetchSpy = redirectingTo("http://169.254.169.254/latest/");
+    const refused = await fetchImageFilePaced(
+      "https://public.example/b.jpg",
+    ).catch((e) => e);
+    expect(refused).toBeInstanceOf(UrlRefusedError);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    /* The term form files it under the image field. */
+    expect(termFormStateFromError(refused).errors?.image).toEqual([
+      refused.message,
+    ]);
+  });
+
+  it("checks the 403 retry's redirects too", async () => {
+    vi.stubEnv("RECIPE_FETCH_403_DELAY_MS", "0");
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("no", { status: 403 }))
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: "http://10.0.0.9/a.jpg" },
+        }),
+      )
+      .mockResolvedValue(new Response("should not be fetched"));
+    vi.stubGlobal("fetch", fetchSpy);
+    await expect(
+      fetchImageFile("https://public.example/a.jpg"),
+    ).rejects.toMatchObject({ code: "url_refused" });
+    /* Asked plainly, then as a browser; the private hop never. */
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls[1][1].headers["user-agent"]).toMatch(/Mozilla/);
   });
 
   it("answers url_refused from an import and an inspect, not import_failed", async () => {
@@ -369,12 +485,36 @@ describe("the importer's fetches", () => {
     ).rejects.toMatchObject({ code: "url_refused" });
   });
 
+  it("never calls a host that merely contains a platform's name a video", () => {
+    for (const url of [
+      "https://vimeo.com.attacker.example/x",
+      "https://youtube.com.lan.example/watch?v=x",
+      "https://notyoutube.com/watch?v=x",
+      "https://myvimeo.company/x",
+    ]) {
+      expect(isVideoUrl(url), url).toBe(false);
+    }
+    for (const url of [
+      "https://www.youtube.com/watch?v=x",
+      "https://m.youtube.com/watch?v=x",
+      "https://youtu.be/x",
+      "https://player.vimeo.com/video/1",
+      "https://VIMEO.com/1",
+    ]) {
+      expect(isVideoUrl(url), url).toBe(true);
+    }
+  });
+
   it("refuses a video URL that resolves privately before yt-dlp runs", async () => {
     const { fetchYtdlpMetadata } =
       await import("../websites/recipe-website/editor/controller/ytdlp");
     vi.stubEnv("YTDLP_PATH", "/nonexistent/yt-dlp");
+    setFetchGuardTesting({
+      lookup: async (host) =>
+        host === "m.youtube.com" ? ["10.0.0.20"] : ["93.184.216.34"],
+    });
     await expect(
-      fetchYtdlpMetadata("https://youtube.com.lan.example/watch?v=x"),
+      fetchYtdlpMetadata("https://m.youtube.com/watch?v=x"),
     ).rejects.toBeInstanceOf(UrlRefusedError);
     await expect(
       assertFetchableUrl("https://www.youtube.com/watch?v=x"),
@@ -576,21 +716,29 @@ describe("the test allowance stays in tests", () => {
       /\.(ts|tsx)$/,
     );
     const marking = new Set<string>();
+    const casting = new Set<string>();
     for (const file of files) {
       const source = await readFile(file, "utf8");
       if (/markCheckedFetch\(/.test(source)) {
         marking.add(relative(SITE, file));
+      }
+      /* A cast is a CheckedFetch made by hand (46a review). */
+      if (/as\s+(unknown\s+as\s+)?CheckedFetch/.test(source)) {
+        casting.add(relative(SITE, file));
       }
     }
     expect([...marking].sort()).toEqual([
       "common/util/politeFetch.ts",
       "editor/controller/guardedFetch.ts",
     ]);
+    expect([...casting]).toEqual(["common/util/politeFetch.ts"]);
   });
 
   /*
    * Every `fetch(` the editor's server side makes — the controller, the
-   * CLI, the MCP server, the routes and server actions, and `common/util`.
+   * CLI, the MCP server, every `src/` module but a `"use client"` one
+   * (routes, server actions, server components), and `common/util` — but a
+   * same-origin one (a literal starting `/`, from a module the browser runs).
    * Each one here fetches a URL the editor's own configuration names (the
    * model, the Pi and workstation peers, SearXNG, a notify hook, its own
    * API); a fetch of a URL someone else chose goes through `guardedFetch`
@@ -614,12 +762,21 @@ describe("the test allowance stays in tests", () => {
         .replace(/\/\*[\s\S]*?\*\//g, "")
         .replace(/^\s*\/\/.*$/gm, "");
       const path = relative(SITE, file);
-      if (path.startsWith("editor/src/")) {
-        const server =
-          /\/route\.ts$/.test(path) || /^["']use server["']/m.test(source);
-        if (!server) continue;
+      if (
+        path.startsWith("editor/src/") &&
+        /^\s*["']use client["']/.test(source)
+      ) {
+        continue;
       }
-      if (/(^|[^\w.$])fetch\(/m.test(source)) fetching.add(path);
+      const calls = [...source.matchAll(/(?:^|[^\w.$])fetch\(\s*(.)/gm)];
+      if (calls.some(([, next]) => !/^[`'"]$/.test(next))) {
+        fetching.add(path);
+        continue;
+      }
+      const outside = [
+        ...source.matchAll(/(?:^|[^\w.$])fetch\(\s*[`'"]([^`'"]?)/gm),
+      ].some(([, first]) => first !== "/");
+      if (outside) fetching.add(path);
     }
     expect([...fetching].sort()).toEqual(
       [

@@ -25,7 +25,7 @@
  */
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { isPrivateHost } from "recipe-website-common/util/roundupPage";
+import { isPrivateHost } from "recipe-website-common/util/privateHost";
 
 export interface UrlGuardOptions {
   /** A host's addresses; default a DNS lookup. Tests stub it. */
@@ -75,8 +75,13 @@ async function defaultLookup(host: string): Promise<string[]> {
 }
 
 function isBlockedV4(address: string): boolean {
-  const first = Number(address.split(".")[0]);
-  if (first >= 224) return true; /* multicast, reserved, broadcast */
+  const [a, b, c] = address.split(".").map(Number);
+  if (a >= 224) return true; /* multicast, reserved, broadcast */
+  /* 46a review: IETF protocol assignments (192.0.0.0/24, NAT64 and DS-Lite
+   * among them) and benchmarking (198.18.0.0/15). TEST-NET-3
+   * (203.0.113.0/24) stays allowed: the suites' stand-in resolver uses it. */
+  if (a === 192 && b === 0 && c === 0) return true;
+  if (a === 198 && (b === 18 || b === 19)) return true;
   return isPrivateHost(`http://${address}/`);
 }
 
@@ -126,6 +131,10 @@ export function isBlockedAddress(address: string): boolean {
   if (zeroTo(6)) return isBlockedV4(v4Of(g6, g7));
   /* `::ffff:a.b.c.d` (IPv4-mapped). */
   if (zeroTo(5) && g5 === 0xffff) return isBlockedV4(v4Of(g6, g7));
+  /* `::ffff:0:a.b.c.d` (IPv4-translated, SIIT): never a public answer. */
+  if (zeroTo(4) && g4 === 0xffff && g5 === 0) return true;
+  /* `100::/64`, discard-only. */
+  if (g0 === 0x100 && g1 === 0 && g2 === 0 && g3 === 0) return true;
   /* NAT64: the well-known prefix carries an IPv4; the local-use one is ours. */
   if (g0 === 0x64 && g1 === 0xff9b) {
     if (g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) {

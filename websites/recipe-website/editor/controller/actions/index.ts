@@ -37,7 +37,7 @@ import { z } from "zod";
 import parseRecipeFormData, { ParsedRecipeFormData } from "../parseFormData";
 import { recipeFormFailure } from "../recipeFormErrors";
 import { recipeContentTypes } from "../contentTypes";
-import { ImportError } from "../curation/errors";
+import { ImportError, UrlRefusedError } from "../curation/errors";
 import { fetchImageFilePaced } from "../imageImport";
 import { currentIndexVersion } from "../indexVersion";
 import type { EditorContentConfig } from "@discontent/cms/content/editorContentConfig";
@@ -297,8 +297,9 @@ const recipeEditorConfig: EditorContentConfig<
 const recipeActions = createGenericActions(recipeEditorConfig);
 
 /**
- * An image import that fails (`fetchImageFile`'s `ImportError`) as a form
- * message rather than a crashed action.
+ * An image import that fails (`fetchImageFile`'s `ImportError`, or the SSRF
+ * guard's `UrlRefusedError`, 46a) as a form message rather than a crashed
+ * action.
  *
  * The generic actions build the data and uploads *outside* their own
  * try/catch, and they live in `@discontent/cms`, which portfolio shares; so the
@@ -312,7 +313,10 @@ function reportImageImportErrors<Args extends [...unknown[], FormData]>(
     try {
       return await action(...args);
     } catch (error) {
-      if (!(error instanceof ImportError)) throw error;
+      /* 46a: and an image address the SSRF guard refused. */
+      if (!(error instanceof ImportError || error instanceof UrlRefusedError)) {
+        throw error;
+      }
       const formData = args[args.length - 1] as FormData;
       const parsed = parseRecipeFormData(formData);
       return {

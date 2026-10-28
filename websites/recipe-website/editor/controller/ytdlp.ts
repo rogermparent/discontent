@@ -225,14 +225,23 @@ export interface FetchYtdlpOptions {
 const run = promisify(execFile);
 
 /**
+ * yt-dlp's own extractors only (46a review): its `generic` extractor reads
+ * any page and follows its redirects, which the SSRF guard never sees.
+ * `--use-extractors` (alias `--ies`) since yt-dlp 2023.01.
+ */
+export const YTDLP_EXTRACTOR_ARGS = ["--use-extractors", "default,-generic"];
+
+/**
  * The argv for one `-J` run (36d review). `--no-playlist`: a
  * `watch?v=X&list=PL…` URL would otherwise extract the whole playlist (and,
  * with comments, take 45 + 30 s to fail). `--` before the URL: whatever the
- * URL looks like, it is never read as an option.
+ * URL looks like, it is never read as an option. `YTDLP_EXTRACTOR_ARGS`
+ * (46a): never the generic extractor.
  */
 export function ytdlpArgs(url: string, withComments = false): string[] {
   return [
     ...(withComments ? YTDLP_COMMENT_ARGS : []),
+    ...YTDLP_EXTRACTOR_ARGS,
     "--no-playlist",
     "-J",
     "--",
@@ -257,11 +266,11 @@ export async function fetchYtdlpMetadata(
 ): Promise<YtdlpResult> {
   const job = jobContext(run);
   /*
-   * The SSRF guard (46a) before yt-dlp sees the URL: `isVideoUrl` matches a
-   * host *containing* a platform's name, so `youtube.com.lan.example` would
-   * reach yt-dlp's generic extractor, which fetches anything. A name that
-   * resolves privately is refused here; yt-dlp's own redirects are not
-   * checked (it only runs for the platforms' URLs).
+   * The SSRF guard (46a) before yt-dlp sees the URL: a platform host (or a
+   * subdomain) that resolves privately is refused here. yt-dlp's own
+   * requests are not checked, so it runs only for a platform's own host
+   * (`isVideoUrl`, anchored since 46a) and never with its generic extractor
+   * (`YTDLP_EXTRACTOR_ARGS`), which would follow a redirect anywhere.
    */
   await assertFetchableUrl(url);
   const withComments = comments && isYouTubeUrl(url);

@@ -19,7 +19,11 @@ import {
 import { openAsBlob } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
-import { ImportError, ValidationError } from "./curation/errors";
+import {
+  ImportError,
+  UrlRefusedError,
+  ValidationError,
+} from "./curation/errors";
 import { importerFetch } from "./guardedFetch";
 import { jobContext, type JobRun } from "./jobs/context";
 import { hostOf, noteRetry } from "./jobs/steps";
@@ -218,8 +222,9 @@ async function downloadImageFile(
   try {
     response = await fetchWithRetry(url, signal ? { signal } : {}, retry);
   } catch (error) {
-    /* A cancel is the job's to report, not an unreachable image. */
-    if (signal?.aborted) throw error;
+    /* A cancel is the job's to report, not an unreachable image; a URL the
+     * SSRF guard refused is `url_refused` (46a), not `import_failed`. */
+    if (signal?.aborted || error instanceof UrlRefusedError) throw error;
     throw new ImportError(`Could not fetch image ${url}: ${describe(error)}`);
   }
   const status = response.status ?? 200;

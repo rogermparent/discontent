@@ -109,10 +109,19 @@ retry, {signal?, fetcher})` and `importRecipeData(url, {retry?, fetcher})`
   roundup pages and items, video-follow, 45b's fill, the form's import and
   Save `imageImportUrl`, `recipe_set_image` / `term_set_image`, and group
   and term images.
-- **yt-dlp.** Not quite "known hosts only": `isVideoUrl` matches a host that
-  _contains_ a platform's name (`youtube.com.lan.example`), and yt-dlp's
-  generic extractor fetches any URL. `fetchYtdlpMetadata` now runs
-  `assertFetchableUrl` first; yt-dlp's own redirects stay unchecked.
+- **yt-dlp.** Not "known hosts only" as it stood: `videoHostName` matched a
+  host that _contains_ a platform's name (`vimeo.com.attacker.example`),
+  which resolves publicly, and yt-dlp's generic extractor would then follow
+  that page's redirect to `192.168.x` or `169.254.169.254`. Now:
+  - `videoHostName` matches a platform's host or a subdomain of it, nothing
+    else (`common/util/videoUrl.ts`);
+  - `ytdlpArgs` passes `--use-extractors default,-generic`
+    (`YTDLP_EXTRACTOR_ARGS`; the flag since yt-dlp 2023.01, alias `--ies`;
+    checked against 2026.10.21's `--help`), so yt-dlp never reads an
+    arbitrary page;
+  - `fetchYtdlpMetadata` runs `assertFetchableUrl` first, so a platform
+    name that resolves privately is refused. yt-dlp's own requests to the
+    platforms are not checked.
 - **A new error code, `url_refused`** (`UrlRefusedError`, 422 in
   `statusFor`, listed in the MCP instructions and the curator SKILL.md's
   reject rule). The message is a plain sentence: "`<url>` points inside your
@@ -146,12 +155,31 @@ retry, {signal?, fetcher})` and `importRecipeData(url, {retry?, fetcher})`
     `setFetchGuardTesting` appear only in `urlGuard.ts`,
     `playwright.config.ts`, `agent-measure.ts` and tests (websites, packages,
     scripts, deploy, `.github`, root); `markCheckedFetch` only in
-    `politeFetch.ts` and `guardedFetch.ts`; and the editor's server-side
-    `fetch(` call sites (controller, cli, mcp, routes and server actions,
-    `common/util`) are exactly the ten that fetch configured URLs (the model,
-    the peers, SearXNG, notify, the editor's own API) plus `guardedFetch.ts` —
-    a new one fails until someone decides. 44e's `allowHosts` scan
-    (`agentLocal.test.ts`) now covers `controller/curation/` too.
+    `politeFetch.ts` and `guardedFetch.ts`, and a cast `as CheckedFetch`
+    only in `politeFetch.ts`; and the editor's server-side `fetch(` call
+    sites (controller, cli, mcp, every `src/` module that is not `"use
+client"` — routes, server actions, server components — and
+    `common/util`; a same-origin `/…` literal is skipped) are exactly the
+    ten that fetch configured URLs (the model, the peers, SearXNG, notify,
+    the editor's own API) plus `guardedFetch.ts` — a new one fails until
+    someone decides. 44e's `allowHosts` scan (`agentLocal.test.ts`) now
+    covers `controller/curation/` too.
+- **Review fixes (before the gates).**
+  - `isBlockedAddress` also blocks `192.0.0.0/24` (IETF assignments),
+    `198.18.0.0/15` (benchmarking), `100::/64` (discard) and IPv4-translated
+    `::ffff:0:a.b.c.d`; TEST-NET-3 (`203.0.113.0/24`) stays open for the
+    suites' stand-in resolver.
+  - An image download the guard refuses is `url_refused`, not
+    `import_failed` (`imageImport.ts`): a refused `imageImportUrl`,
+    `recipe_set_image` or term/group image answers 422; the recipe form's
+    Save shows it as a form message (`reportImageImportErrors`) and the term
+    form under the image field (`termFormStateFromError`).
+  - `urlGuard.ts` imports `isPrivateHost` from `privateHost.ts`, never
+    `roundupPage.ts`.
+  - The engine's own `fileImportUrl` download
+    (`packages/cms/content/filesystem.ts`) is plain `fetch` and the
+    portfolio editor passes one: an authenticated-only SSRF in portfolio,
+    not fixed here — a backlog row.
 
 Decisions:
 
