@@ -326,7 +326,8 @@ export const NAME_SYNONYMS: readonly (readonly [string, string])[] = [
   ["full fat", ""],
   ["plain(?= (?:greek |nonfat |low fat |whole milk |milk )?yogurt)", ""],
   ["unsweetened(?= (?:dutch process |natural )?cocoa)", ""],
-  ["dry(?= (?:white|red) wine)", ""],
+  /* Sparkling since 46g (ing-28): brut is the default. */
+  ["dry(?= (?:white|red|sparkling) wine)", ""],
   ["(?:white distilled|distilled white|distilled) vinegar", "white vinegar"],
   ["instant dry yeast", "instant yeast"],
   ["active yeast", "active dry yeast"],
@@ -336,6 +337,51 @@ export const NAME_SYNONYMS: readonly (readonly [string, string])[] = [
     "ground(?= (?:black pepper|white pepper|cinnamon|nutmeg|cumin|allspice|cardamom|turmeric|cayenne pepper)\\b)",
     "",
   ],
+  /*
+   * The merges Roger picked from 43n's near-duplicates (46g; the ing-N ids
+   * are the 46c checklist's). Each row is scoped to its own names, so the
+   * groups he kept apart stay apart: olive oil and extra virgin, salted and
+   * unsalted butter, kosher and table salt, light and dark brown sugar,
+   * instant and active dry yeast, white onion, white pepper, cooked rice
+   * and rice, and the rest.
+   */
+  /* ing-6: a bare "onion" is yellow; white onion stays its own. */
+  ["yellow(?= onions?\\b)", ""],
+  /* ing-7: one bag. */
+  ["all purpose white flour", "all purpose flour"],
+  ["(?<!king arthur )unbleached(?= all purpose flour)", ""],
+  /* ing-10: "pepper" and "ground pepper" are one; white pepper stays. */
+  ["ground pepper(?! flakes?\\b)", "pepper"],
+  /* ing-12 and ing-15: low sodium is a preference, not another bottle. */
+  ["(?:low|lower|less|reduced) sodium(?= soy sauce)", ""],
+  [
+    "(?:(?:low|lower|less|reduced) sodium )?chicken (?:broth|stock)(?! cubes?\\b| concentrate| powder| base| bouillon)",
+    "chicken broth",
+  ],
+  /* ing-14: the lean ratio is a preference. */
+  ["(?:extra )?lean(?= ground beef)", ""],
+  /* ing-18: sharpness is taste; one block. Not a plain "white cheddar". */
+  ["(?:extra )?sharp (?:white )?(?=cheddar\\b)", ""],
+  /* ing-19: brick (or block) is the standard package. */
+  ["(?:brick|block)(?: style)?(?= cream cheese)", ""],
+  /* ing-21 and ing-22: canned anyway (Dn2 keeps other cans apart). */
+  ["canned(?= (?:pumpkin puree|tomato paste)\\b)", ""],
+  /* ing-23: unsulphured dark is the grocery molasses; not blackstrap. */
+  [
+    "(?:dark|unsul(?:ph|f)ured)(?= (?:(?:dark|unsul(?:ph|f)ured) )?molasses\\b)",
+    "",
+  ],
+  /* "unsulphured or dark molasses": the row above leaves the right part
+   * one word, which lends no tail (Tn3), so the left part names it here. */
+  ["^unsul(?:ph|f)ured$", "molasses"],
+  /* ing-29: white is the default rice — within raw and within cooked
+   * (`cooked` stays, Dn4), and not rice flour, vinegar or noodles. */
+  [
+    "white(?= rice\\b(?! (?:flour|vinegar|wine|noodles?|paper|cakes?|cereal|syrup)\\b))",
+    "",
+  ],
+  /* ing-30: the cut is a preference. */
+  ["thick(?: cut| sliced)?(?= bacon\\b)", ""],
 ];
 
 /**
@@ -346,6 +392,30 @@ export const NAME_SYNONYMS: readonly (readonly [string, string])[] = [
  * shopping list.
  */
 export const NAME_DESCRIPTORS: readonly string[] = ["mild", "uncooked"];
+
+/**
+ * A line's whole name, said bare, and the kind it means (46g): "1 cup sugar"
+ * is granulated sugar (ing-3). Applied to a line's names only — never to a
+ * step's words or a typed inventory item — so the bare word still works as
+ * it did: "the sugar" in a step is the head of every sugar line (ambiguous
+ * beside brown sugar, D3), and `sugar` on hand still meets granulated sugar
+ * by its tail.
+ *
+ * The longer name, not the shorter (Dn3, measured on the corpus):
+ * `granulated sugar` → `sugar` lost 36 step matches, each a step that says
+ * "granulated sugar" beside a brown sugar line, which the shortened name sat
+ * inside. Onion went the short way (`yellow onion` → `onion`, a row above):
+ * it cost 3, and keeps "6 onions" on a list.
+ */
+export const BARE_NAMES: Readonly<Record<string, string>> = {
+  sugar: "granulated sugar",
+};
+
+/** A line's name with `BARE_NAMES` applied. */
+function lineName(name: IngredientName): IngredientName {
+  const kind = BARE_NAMES[name.words.join(" ")];
+  return kind ? { ...name, words: kind.split(" ") } : name;
+}
 
 const NAME_SYNONYM_RES: [RegExp, string][] = NAME_SYNONYMS.map(([from, to]) => [
   new RegExp(`\\b(?:${from})\\b`, "g"),
@@ -966,6 +1036,7 @@ function inheritTails(names: IngredientName[]): IngredientName[] {
    * pinto beans" lends `bean` as "black or pinto beans" does (43n). */
   const own = (words: string[]) =>
     words[0] === "canned" ? words.slice(1) : words;
+  const lent: number[] = [];
   for (let i = out.length - 2; i >= 0; i--) {
     const mine = own(out[i].words);
     /* "cooked or canned chickpeas" still lends `chickpea`. */
@@ -984,6 +1055,19 @@ function inheritTails(names: IngredientName[]): IngredientName[] {
       continue;
     }
     out[i].words.push(...theirs.slice(1).filter((word) => word !== left));
+    lent.push(i);
+  }
+  /*
+   * A name built here never met the synonym table, which ran on each part
+   * alone (43n's Tn3): "granulated or coarse sugar" builds `granulated
+   * sugar`, "chicken or beef stock" `chicken stock`. Read each again, once
+   * every tail is lent (46g).
+   */
+  for (const i of lent) {
+    const again = toName(out[i].words.join(" "));
+    if (again.words.length > 0) {
+      out[i] = { words: again.words, na: out[i].na || again.na };
+    }
   }
   return out;
 }
@@ -997,7 +1081,7 @@ function requirement(
   loose = false,
 ): Requirement {
   const seen = new Set<string>();
-  const kept = alternatives.filter((name) => {
+  const kept = alternatives.map(lineName).filter((name) => {
     const key = nameKey(name);
     if (name.words.length === 0 || seen.has(key)) return false;
     seen.add(key);
