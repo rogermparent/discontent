@@ -14,6 +14,7 @@ import {
   type ImportedRecipe,
   type ParsedRecipePage,
 } from "recipe-website-common/util/importRecipeData";
+import { importerFetch } from "../guardedFetch";
 import { jobContext, type JobRun } from "./context";
 import type { StepHandle } from "./log";
 
@@ -55,6 +56,7 @@ export function fetchPageStep(
   return log.step("fetch", { host: hostOf(url) }, async (step) => {
     const page = await fetchRecipePage(url, noteRetry(step, retry), {
       signal,
+      fetcher: importerFetch,
     });
     const finalHost = hostOf(page.finalUrl);
     step.set({
@@ -120,7 +122,7 @@ export function videoLinkStep(
     "parse",
     { host: hostOf(url), video: true },
     async (step) => {
-      const mapped = await importRecipeData(url);
+      const mapped = await importRecipeData(url, { fetcher: importerFetch });
       step.set({ bareLink: true, ...recipeShape(mapped) });
       return mapped;
     },

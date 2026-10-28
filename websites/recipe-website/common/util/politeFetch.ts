@@ -89,19 +89,48 @@ function delay(ms: number, signal: AbortSignal | null | undefined) {
   });
 }
 
+declare const checkedFetchBrand: unique symbol;
+
 /**
- * `fetch(url, init)`, and on a 403 one more try with `retryHeaders` — after
- * the delay, unless retrying is off. Explicit `retry` fields beat the
+ * A `fetch` that refuses private addresses on every redirect hop (46a, the
+ * SSRF guard). `common/` cannot resolve a name (no `node:dns` in code the
+ * browser bundles), so the check lives editor-side: the editor's
+ * `guardedFetch.ts` is the one place a `CheckedFetch` is made
+ * (`importerFetch`), and `test/urlGuard.test.ts` scans every other source
+ * for `markCheckedFetch`. The brand is what keeps plain `fetch` out of
+ * `fetchRetrying403`: it does not type-check.
+ */
+export type CheckedFetch = ((
+  url: string,
+  init: RequestInit,
+) => Promise<Response>) & { readonly [checkedFetchBrand]: true };
+
+/**
+ * `fetcher` as a `CheckedFetch`. **Only `editor/controller/guardedFetch.ts`
+ * calls it** (and tests); the brand says nothing about a function anyone
+ * else marks.
+ */
+export function markCheckedFetch(
+  fetcher: (url: string, init: RequestInit) => Promise<Response>,
+): CheckedFetch {
+  return fetcher as CheckedFetch;
+}
+
+/**
+ * `fetcher(url, init)`, and on a 403 one more try with `retryHeaders` —
+ * after the delay, unless retrying is off. Explicit `retry` fields beat the
  * environment's. The page fetch and the image download share it.
- * `init.signal` aborts the delay too.
+ * `init.signal` aborts the delay too. `fetcher` is the editor's guarded
+ * fetch (46a), which checks the URL and follows each redirect itself.
  */
 export async function fetchRetrying403(
+  fetcher: CheckedFetch,
   url: string,
   init: RequestInit,
   retryHeaders: Record<string, string>,
   retry: ForbiddenRetry = {},
 ): Promise<Response> {
-  const response = await fetch(url, init);
+  const response = await fetcher(url, init);
   if (response.status !== 403) return response;
   const env = forbiddenRetryFromEnv();
   const enabled = retry.enabled ?? env.enabled;
@@ -115,7 +144,7 @@ export async function fetchRetrying403(
     await delay(delayMs, init.signal);
   }
   init.signal?.throwIfAborted();
-  const retried = await fetch(url, { ...init, headers: retryHeaders });
+  const retried = await fetcher(url, { ...init, headers: retryHeaders });
   retry.afterRetry?.(retried);
   return retried;
 }

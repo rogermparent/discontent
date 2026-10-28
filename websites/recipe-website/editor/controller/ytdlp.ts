@@ -20,6 +20,7 @@ import {
   suggestTags,
   type ImportedRecipe,
 } from "recipe-website-common/util/importRecipeData";
+import { assertFetchableUrl } from "./guardedFetch";
 import { jobContext, type JobContext, type JobRun } from "./jobs/context";
 import { withResource } from "./jobs/queue";
 import { hostOf } from "./jobs/steps";
@@ -224,14 +225,23 @@ export interface FetchYtdlpOptions {
 const run = promisify(execFile);
 
 /**
+ * yt-dlp's own extractors only (46a review): its `generic` extractor reads
+ * any page and follows its redirects, which the SSRF guard never sees.
+ * `--use-extractors` (alias `--ies`) since yt-dlp 2023.01.
+ */
+export const YTDLP_EXTRACTOR_ARGS = ["--use-extractors", "default,-generic"];
+
+/**
  * The argv for one `-J` run (36d review). `--no-playlist`: a
  * `watch?v=X&list=PL…` URL would otherwise extract the whole playlist (and,
  * with comments, take 45 + 30 s to fail). `--` before the URL: whatever the
- * URL looks like, it is never read as an option.
+ * URL looks like, it is never read as an option. `YTDLP_EXTRACTOR_ARGS`
+ * (46a): never the generic extractor.
  */
 export function ytdlpArgs(url: string, withComments = false): string[] {
   return [
     ...(withComments ? YTDLP_COMMENT_ARGS : []),
+    ...YTDLP_EXTRACTOR_ARGS,
     "--no-playlist",
     "-J",
     "--",
@@ -255,6 +265,14 @@ export async function fetchYtdlpMetadata(
   { comments = false, job: run }: FetchYtdlpOptions = {},
 ): Promise<YtdlpResult> {
   const job = jobContext(run);
+  /*
+   * The SSRF guard (46a) before yt-dlp sees the URL: a platform host (or a
+   * subdomain) that resolves privately is refused here. yt-dlp's own
+   * requests are not checked, so it runs only for a platform's own host
+   * (`isVideoUrl`, anchored since 46a) and never with its generic extractor
+   * (`YTDLP_EXTRACTOR_ARGS`), which would follow a redirect anywhere.
+   */
+  await assertFetchableUrl(url);
   const withComments = comments && isYouTubeUrl(url);
   return withResource("ytdlp", job, async () => {
     const result = await ytdlpStep(url, withComments, job);

@@ -94,6 +94,11 @@ export function statusFor(code: CurationErrorCode): number {
      * wrong — the same reading `unknown_recipe` gets.
      */
     case "bad_revision":
+    /*
+     * A URL the SSRF guard refuses (46a): the body parsed, and the address
+     * it names — or a redirect from it — is inside the network.
+     */
+    case "url_refused":
       return 422;
     case "import_failed":
       return 502;

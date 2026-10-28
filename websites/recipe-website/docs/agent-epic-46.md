@@ -73,6 +73,167 @@ Epics 43–45's way of working, unchanged:
 - **Roundups.** Decide whether a private (LAN) roundup list page stays allowed (it is today, `roundupPage.ts:877`); default: refuse; record it as Roger to confirm.
 - **Tests.** Vitest for every host form (v4, v6, v4-in-v6, decimal and octal, `0.0.0.0`, 169.254, metadata), a redirect to a private host, and the existing 127.0.0.1 fixtures passing through the allowance. Also the import specs in Docker.
 
+#### Results (46a)
+
+What changed:
+
+- **One guard, editor-side.** `controller/agent/tools/urlGuard.ts` moved to
+  `editor/controller/urlGuard.ts`. `urlRefusal` now returns
+  `{code, message, reason, url, hop, address?}` (codes as before: `usage`,
+  `forbidden`, `fetch_failed`); the bridge and `web_fetch` wrap it in
+  `toolError`, with the same codes and messages as 44b (agentWebTools 19/19,
+  agentTools unchanged). `isPrivateHost` moved to a new import-free
+  `common/util/privateHost.ts` (re-exported by `roundupPage.ts`), so the
+  guard — now loaded by every import path, the CLI's included — does not
+  pull in the page parsers (35q's lazy startup).
+- **`guardedFetch(url, init, {allowHosts?, lookup?, maxRedirects?,
+timeoutMs?, onHop?})`** (`editor/controller/guardedFetch.ts`), factored
+  out of `web_fetch`'s loop: `redirect: "manual"`, at most 5 hops, each hop
+  checked before it is sent (a refused hop is never fetched), 301/302 POST
+  and 303 turned into GET as `fetch` would, and the last hop's own
+  `Response` returned, so `response.url` is the final URL (`finalUrlOf`,
+  `FetchedPage.finalUrl`). It throws `UrlRefusedError` for a refusal and
+  `FetchChainError` for a name that does not resolve, a loop or an
+  unreadable `Location`. `web_fetch` now follows through it (and through
+  `fetchRetrying403` for the polite retry, the pacer's `beforeRetry` always
+  set, so the environment's 15 s delay never applies — as before).
+- **`fetchRetrying403(fetcher: CheckedFetch, url, init, headers, retry?)`.**
+  `CheckedFetch` is a branded type in `common/util/politeFetch.ts`; the only
+  maker is `markCheckedFetch`, called only in `guardedFetch.ts`
+  (`importerFetch`, `checkedFetch(options)`). Plain `fetch` does not
+  type-check, so a new caller cannot skip the guard; `fetchRecipePage(url,
+retry, {signal?, fetcher})` and `importRecipeData(url, {retry?, fetcher})`
+  take one too. The editor's two sinks — `jobs/steps.ts` (`fetchPageStep`,
+  `videoLinkStep`) and `imageImport.ts` (download, HEAD probe, paced
+  download) — pass `importerFetch`. That covers page imports, inspects,
+  roundup pages and items, video-follow, 45b's fill, the form's import and
+  Save `imageImportUrl`, `recipe_set_image` / `term_set_image`, and group
+  and term images.
+- **yt-dlp.** Not "known hosts only" as it stood: `videoHostName` matched a
+  host that _contains_ a platform's name (`vimeo.com.attacker.example`),
+  which resolves publicly, and yt-dlp's generic extractor would then follow
+  that page's redirect to `192.168.x` or `169.254.169.254`. Now:
+  - `videoHostName` matches a platform's host or a subdomain of it, nothing
+    else (`common/util/videoUrl.ts`);
+  - `ytdlpArgs` passes `--use-extractors default,-generic`
+    (`YTDLP_EXTRACTOR_ARGS`; the flag since yt-dlp 2023.01, alias `--ies`;
+    checked against 2026.10.21's `--help`), so yt-dlp never reads an
+    arbitrary page;
+  - `fetchYtdlpMetadata` runs `assertFetchableUrl` first, so a platform
+    name that resolves privately is refused. yt-dlp's own requests to the
+    platforms are not checked.
+- **A new error code, `url_refused`** (`UrlRefusedError`, 422 in
+  `statusFor`, listed in the MCP instructions and the curator SKILL.md's
+  reject rule). The message is a plain sentence: "`<url>` points inside your
+  network; imports only read public sites." (a redirect: "It redirects to
+  `<url>`, which points inside …"; a name: "… (`host` resolves to
+  `10.9.8.7`) …"). `importPage`, `inspectUrl` and the roundup list fetch
+  pass it through instead of wrapping it as `import_failed`. The agent's
+  bridge answers it as `forbidden` (Eb7's code), so the local prompt's rule
+  covers it.
+- **API routes.** `/api/inspect`, `/api/import` (its `url` and `image`),
+  `/api/inspect-list` and `/api/import-list` call `assertFetchableUrl` before
+  a job starts: a private URL answers 422 `url_refused`. The form and the
+  roundup picker show the job's error message, which is that sentence.
+- **Private roundup pages** (`parseRoundupPage(html, url,
+{allowPrivateLinks})`): off by default. A list page on a private host is
+  refused by the guard anyway; its private links are kept only when the
+  page's host is in the test allowance (`isTestAllowedUrl`, `importList.ts`).
+- **The test allowance.**
+  - Explicit options: `allowHosts` (a host, any port, or `host:port`) and
+    `lookup`, passed by the agent's `AgentToolsetTesting` as before.
+  - The importer reads `fetchGuardOptions()`: empty in the editor. Under a
+    test run only (`TEST_MODE` or `VITEST`), `setFetchGuardTesting(...)` or
+    else `RECIPE_TEST_FETCH_ALLOW` (hosts / `host:port`, comma-separated) and
+    `RECIPE_TEST_DNS` (`name=address`, `*=address`).
+  - `test/setupTests.js` sets `127.0.0.1,localhost` and `*=203.0.113.10`
+    (TEST-NET-3, so no vitest run does real DNS; children inherit it).
+    `playwright.config.ts` sets exactly `localhost:<port>,127.0.0.1:<port>`,
+    and `*=203.0.113.10` for the guard's own lookup (Ta1).
+    `scripts/agent-measure.ts` calls `setFetchGuardTesting({allowHosts:
+["127.0.0.1"]})`.
+  - Source scans (`test/urlGuard.test.ts`): the two variables and
+    `setFetchGuardTesting` appear only in `urlGuard.ts`,
+    `playwright.config.ts`, `agent-measure.ts` and tests (websites, packages,
+    scripts, deploy, `.github`, root); `markCheckedFetch` only in
+    `politeFetch.ts` and `guardedFetch.ts`, and a cast `as CheckedFetch`
+    only in `politeFetch.ts`; and the editor's server-side `fetch(` call
+    sites (controller, cli, mcp, every `src/` module that is not `"use
+client"` — routes, server actions, server components — and
+    `common/util`; a same-origin `/…` literal is skipped) are exactly the
+    ten that fetch configured URLs (the model, the peers, SearXNG, notify,
+    the editor's own API) plus `guardedFetch.ts` — a new one fails until
+    someone decides. 44e's `allowHosts` scan (`agentLocal.test.ts`) now
+    covers `controller/curation/` too.
+- **Review fixes (before the gates).**
+  - `isBlockedAddress` also blocks `192.0.0.0/24` (IETF assignments),
+    `198.18.0.0/15` (benchmarking), `100::/64` (discard) and IPv4-translated
+    `::ffff:0:a.b.c.d`; TEST-NET-3 (`203.0.113.0/24`) stays open for the
+    suites' stand-in resolver.
+  - An image download the guard refuses is `url_refused`, not
+    `import_failed` (`imageImport.ts`): a refused `imageImportUrl`,
+    `recipe_set_image` or term/group image answers 422; the recipe form's
+    Save shows it as a form message (`reportImageImportErrors`) and the term
+    form under the image field (`termFormStateFromError`).
+  - `urlGuard.ts` imports `isPrivateHost` from `privateHost.ts`, never
+    `roundupPage.ts`.
+  - The engine's own `fileImportUrl` download
+    (`packages/cms/content/filesystem.ts`) is plain `fetch` and the
+    portfolio editor passes one: an authenticated-only SSRF in portfolio,
+    not fixed here — a backlog row.
+
+Decisions:
+
+- **Da1 — Brand, not install.** The guard reaches `common/` as a typed
+  parameter (`CheckedFetch`), not a module-level fetch installed at startup:
+  no load-order question, and the compiler names every caller.
+- **Da2 — A new code.** `url_refused` (422) rather than `forbidden`, which is
+  403 and means a read-scoped token over HTTP (27b). The agent keeps
+  `forbidden` (Eb7) by mapping.
+- **Da3 — DNS rebinding (Eb4) stays open.** Closing it means connecting to
+  the address that was checked (an undici `Agent` with a `connect.lookup`
+  hook, passed as `dispatcher`), and undici is not a dependency; a new
+  dependency is a #269-class change. Recorded as a backlog row.
+- **Da4 — A name that does not resolve is not a refusal.**
+  `assertFetchableUrl` lets it pass (the fetch fails in its own words), and
+  `guardedFetch` throws `FetchChainError`, which the importer reports as a
+  failed fetch — as plain `fetch` did.
+- **Da5 — A 403 retry restarts the chain.** `fetchRetrying403` retries the
+  first URL, so `web_fetch`'s retry now re-walks the redirects instead of
+  retrying the hop that answered 403 (the importer's behaviour since 31).
+
+Manual check: with a scratch `CONTENT_DIRECTORY`, `pnpm --silent recipes
+inspect http://127.0.0.1:9/x --llm off --json` answers `url_refused`, and so
+does `http://localtest.me:9/x` (real DNS: "localtest.me resolves to ::1").
+
+**Roger to confirm:** a roundup list page on the LAN (a wiki on
+`192.168.x`) is now refused, page and links (the old `roundupPage.ts:877`
+allowance is gone outside tests).
+
+Gates (after the review fixes and the merge of `origin/main` with 46b):
+both typechecks clean; vitest 3636/3636 in 163 files; Docker build mode on
+`fill-gaps`, `import-errors`, `import-roundup`, `import-ssrf`, `jobs`,
+`new-recipe-duplicate-slug`, `new-recipe`, `photo-import`, `ytdlp-import`,
+`multi-recipe` and `api-write` (inspect and roundup routes) 110/110 (the
+first run failed 17, Ta1); `import-ssrf.spec` in dev mode 2/2.
+
+#### Traps (46a)
+
+- **Ta1 — The guard's DNS lookup doubles a slow resolver.** In the
+  Playwright Docker image a lookup takes ~5 s (`www.youtube.com`: 5,030 ms).
+  The guard resolves each hop, then `fetch` resolves it again, so a
+  fixture's real image host (`kingarthurbaking.com`) and yt-dlp's YouTube
+  URL went past the specs' 10 s request timeouts: the first Docker run
+  failed 17 of 110, all of them imports. `playwright.config.ts` now stubs the
+  guard's lookup (`RECIPE_TEST_DNS=*=203.0.113.10`, `TEST_MODE` only);
+  `fetch` still resolves for real. On the workstation and the Pi the
+  system resolver caches, so the second lookup is cheap. If imports there
+  ever slow by a resolver timeout, that is this.
+- **Ta2 — Never walk the repo root recursively in a scan.** The allowance
+  scan first walked the root, which takes in `.claude/worktrees/*`, other
+  full checkouts: it timed out under load. It reads the root's own files and
+  skips `.git` and `.claude`.
+
 ### 46b: Hygiene (S)
 
 - **YouTube keys.** `sourceUrlKey` maps any YouTube URL (`watch?v=`, `youtu.be`, `shorts`, `m.`) to `youtube.com/watch/<id>`, through a helper in `common/util/videoUrl.ts`. `existingBySource` (`curation/importList.ts:180`) widens a YouTube host to every YouTube host. Vitest covers it, including the old collision.
