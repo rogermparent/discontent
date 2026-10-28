@@ -364,12 +364,14 @@ Every part is optional; `method` is one of `shake`, `stir`, `build`,
 glass and method go in the spec rather than restated as the first
 instruction. Name each ingredient **generic first, brand in parens** —
 `"2 oz gin (Hendrick's)"` — so what is in the bottle stays searchable. Tag
-`drink`, the base spirit, and one style (`sour`, `collins`, `stirred`,
-`built`, `highball`, `batch`); `low-abv` or `zero-proof` where it applies.
-Every drink whose `method` is `shake` **also** gets `shaken`. It names the
-method, not a style, so a sour carries both `sour` and `shaken`, and a shaken
-drink with no citrus (espresso martini, French martini, alexanders) carries
-`shaken` and no `sour`. "Shaken but not sour" is `tag:shaken -tag:sour`. In
+`drink`, the base spirit, a style where one fits (`sour`, `collins`,
+`highball`, `batch`), and the **method's tag**: `shake` → `shaken`, `stir` →
+`stirred`, `build` → `built` (`blend` has none) — the same tag the editor's
+Method control sets. `low-abv` or `zero-proof` where it applies. Methods are
+not styles, so a sour carries both `sour` and `shaken`, a shaken drink with
+no citrus (espresso martini, French martini, alexanders) carries `shaken` and
+no `sour`, and a stirred Manhattan carries `stirred` and no style.
+"Shaken but not sour" is `tag:shaken -tag:sour`. In
 a `recipe_update` patch, `drink` **replaces** the whole spec rather than
 merging into it, and `null` (or an empty object) removes it.
 
@@ -379,8 +381,9 @@ these edits to the draft:
 - **Name** `"Margarita (Liquor.com)"`, **slug** `margarita-liquor-com`. Two
   sites' versions of one drink are two recipes; both carry a shared drink tag
   (`margarita`) so `/tags/margarita` lists them side by side.
-- **Tags:** `drink`, the base spirit, one style, `shaken` if the method is
-  shake, `low-abv`/`zero-proof` where it applies, and the shared drink tag.
+- **Tags:** `drink`, the base spirit, a style where one fits, the method's
+  tag (`shaken`, `stirred` or `built`), `low-abv`/`zero-proof` where it
+  applies, and the shared drink tag.
 - **Units:** ounce(s) and fl oz → `oz`; ml → oz at 30 ml = 1 oz, rounded to
   the nearest ¼; ASCII fractions (`1 1/2`, never `1½`).
 - **Lines:** generic name first, brand in parens; drop "freshly squeezed";

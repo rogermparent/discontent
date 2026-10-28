@@ -11,7 +11,7 @@ import { METHOD_TAGS, ownedMethodTag, tagsForMethod } from "./drinkMethod";
 
 /*
  * The drink spec (25a), first on a drink (43e2, canvas B's phone board): a
- * 2×2 card — Method as a segmented control that also sets its style tag,
+ * 2×2 card — Method as a segmented control that also sets its method tag,
  * Glass and Ice as the common values plus a field, Garnish. Same submit
  * shape as before (D4): `drink.method` (hidden), `drink.glass`,
  * `drink.ice`, `drink.garnish`; an all-blank block parses to no `drink`.
@@ -134,7 +134,7 @@ export function DrinkSpecSection({
 }) {
   const form = useRecipeForm();
   const method = useStore(form.store, (state) => state.values.drink.method);
-  /* The style tag the method control set (or, on load, the loaded method's
+  /* The method tag the method control set (or, on load, the loaded method's
    * own tag): the only tag a method change ever takes away. */
   const owned = useRef<string | undefined>(
     ownedMethodTag(
@@ -191,9 +191,9 @@ export function DrinkSpecSection({
                 not two.
               </>
             ) : method === "blend" ? (
-              "Blended sets no tag: the site has no blended style."
+              "Blended sets no tag: the site has no blended method."
             ) : (
-              "Shaken, stirred and built also set the drink's style tag."
+              "Shaken, stirred and built also set the drink's method tag."
             )}
           </span>
           {errors?.length ? (

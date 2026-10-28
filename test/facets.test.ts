@@ -176,16 +176,24 @@ const labels = (rows: FacetRow[] | undefined) =>
 
 describe("the group constants", () => {
   it("splits DRINK_STYLE_SLUGS into style and strength & method, losing none", () => {
+    /* 46h (43-Df2): stirred and built are methods beside shaken. */
     expect(DRINK_STRENGTH_METHOD_SLUGS).toEqual([
       "zero-proof",
       "low-abv",
       "shaken",
+      "stirred",
+      "built",
     ]);
     expect(
       [...DRINK_STYLE_FACET_SLUGS, ...DRINK_STRENGTH_METHOD_SLUGS].sort(),
     ).toEqual([...DRINK_STYLE_SLUGS].sort());
-    expect(DRINK_STYLE_FACET_SLUGS).toContain("stirred");
-    expect(DRINK_STYLE_FACET_SLUGS).toContain("built");
+    expect(DRINK_STYLE_FACET_SLUGS).toEqual([
+      "sour",
+      "highball",
+      "collins",
+      "batch",
+      "warm-drinks",
+    ]);
   });
 
   it("takes the food roots from FACET_ROOT_ORDER, in its order", () => {
@@ -234,16 +242,13 @@ describe("buildFacetModel", () => {
   it("separates drink styles, strength & method, and families", () => {
     const rowsOf = (id: string) =>
       [...(model.groups.find((entry) => entry.id === id)?.rows ?? [])].sort();
-    expect(rowsOf("style")).toEqual([
-      "built",
-      "highball",
-      "sour",
-      "stirred",
-      "warm-drinks",
-    ]);
+    expect(rowsOf("style")).toEqual(["highball", "sour", "warm-drinks"]);
+    /* 46h (43-Df2): stirred and built are methods, beside shaken. */
     expect(rowsOf("strength-method")).toEqual([
+      "built",
       "low-abv",
       "shaken",
+      "stirred",
       "zero-proof",
     ]);
     expect(rowsOf("families")).toEqual([

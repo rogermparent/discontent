@@ -68,6 +68,7 @@ export function DrinksPage({
                 count: data.count,
                 spirits: data.spirits,
                 styles: data.styles,
+                methods: data.methods,
                 classics: data.classics,
                 classicsCount: data.classicsCount,
               }}

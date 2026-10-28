@@ -1,9 +1,10 @@
 /**
- * The drink spec's Method sets its style tag (43e2, canvas B: "Shaken also
+ * The drink spec's Method sets its method tag (43e2, canvas B: "Shaken also
  * tags it shaken — one choice, not two"). Pure.
  *
- * - shake → `shaken`, stir → `stirred`, build → `built`: the method and
- *   style tags the vocabulary has (27c, agent-mixology.md; 43f Df2).
+ * - shake → `shaken`, stir → `stirred`, build → `built`: the method tags
+ *   the vocabulary has (27c, agent-mixology.md; since 46h all three are
+ *   methods in the facet model, `DRINK_STRENGTH_METHOD_SLUGS`).
  * - **blend sets none**: the vocabulary has no `blended` term, and a tag
  *   nothing else carries would be a one-off (D6's rule against them).
  * - The control only ever removes the tag **it** set. A tag the person

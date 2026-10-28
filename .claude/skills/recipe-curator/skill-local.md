@@ -32,7 +32,7 @@ Existing terms only: never invent a tag. `term_get {"slug": "…"}` answers `not
 - cuisine, if one fits: american, mexican, italian, japanese, chinese, british, greek, middle-eastern, eastern-european, french, caribbean, indian, jewish, vietnamese
 - effort: quick (total 30 minutes or less), easy (few ingredients, simple), project (multi-stage or overnight)
 
-Map `suggestedTags` onto these ("Main Course" is main) and drop the rest. A drink: `drink`, its base spirit (gin, rum…), one style.
+Map `suggestedTags` onto these ("Main Course" is main) and drop the rest. A drink: `drink`, its base spirit (gin, rum…), a style where one fits, and its method tag (`shaken`, `stirred` or `built`).
 
 ## Writing
 

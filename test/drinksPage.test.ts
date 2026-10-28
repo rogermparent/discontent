@@ -83,10 +83,11 @@ describe("drinksPageData", () => {
 
   it("splits styles from classics by the documented list", () => {
     expect(data.styles.map((style) => style.slug)).toEqual([
-      "shaken",
       "sour",
       "highball",
     ]);
+    /* 46h (43-Df2): methods (and strength) are listed apart. */
+    expect(data.methods.map((method) => method.slug)).toEqual(["shaken"]);
     expect(data.classics.map((term) => term.slug)).toEqual([
       "margarita",
       "negroni",
@@ -132,6 +133,7 @@ describe("drinksPageData", () => {
       count: 0,
       spirits: [],
       styles: [],
+      methods: [],
       classics: [],
       seasonal: [],
       meta: { bases: {}, styles: {} },
