@@ -16,7 +16,7 @@
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded
 · 📝 proposed.
 
-**Now:** 45a ∥ 45b (2026-10-22).
+**Now:** closed 2026-10-27.
 
 ## Context
 
@@ -74,11 +74,12 @@ His answers (2026-10-22):
 
 | Phase | What                                              | Size | Branch                         | Status |
 | ----- | ------------------------------------------------- | ---- | ------------------------------ | ------ |
-| 45a   | Tag picker: a field and suggestions as you type   | M    | `agent/45a-tags`               | 🟡     |
-| 45b   | Fill gaps from the source, with marked estimates  | L    | `agent/45b-fill`               | 🟡     |
-| 45e1  | Alternatives: the data and every reader           | L    | `agent/45e1-alternatives`      | 🟡     |
-| 45e2  | Alternatives: authoring (form, import suggestion) | L    | `agent/45e2-alternatives-form` | 📝     |
-| 45c   | Close-out                                         | S    | `agent/45-close`               | 📝     |
+| 45a   | Tag picker: a field and suggestions as you type   | M    | `agent/45a-tags`               | ✅     |
+| 45b   | Fill gaps from the source, with marked estimates  | L    | `agent/45b-fill`               | ✅     |
+| 45d   | Import errors that say what and where             | M    | `agent/45d-import-errors`      | ✅     |
+| 45e1  | Alternatives: the data and every reader           | L    | `agent/45e1-alternatives`      | ✅     |
+| 45e2  | Alternatives: authoring (form, import suggestion) | L    | `agent/45e2-alternatives-form` | ✅     |
+| 45c   | Close-out                                         | S    | `agent/45-close`               | ✅     |
 
 45a and 45b run in parallel (disjoint files except a line or two in
 `Form/index.tsx`). Both move edit-form baselines: the second to merge
@@ -1087,9 +1088,164 @@ path refusing what breaks a rule (De2-6 reversed).
 
 ### 45c — Close-out
 
-Doc, CLAUDE.md bullet, backlog, memory; the orchestrator's real check on
-1-hour-bagels in a scratch clone; Roger's steps (workstation update,
-`pnpm deploy:pi`).
+Closed 2026-10-27. Epic 45 ran 2026-10-22 to 27: a quieter tag picker, a fill
+for a recipe's gaps with marked estimates, import errors that say what and
+where, and alternatives (a generic "choice" of parallel sections the reader
+picks one of), read side first and the form second. Every phase landed.
+Main is `acdba22b` plus this close-out. No real model ran in a test or in
+CI.
+
+**Reindex: automatic.** 45e1 bumped `recipeContentConfig.indexVersion` to
+`"2"` (De1-8), so the index-version stamp (39b) rebuilt both editors' indexes
+at their next start. Nothing to run by hand. 45e2 changes no index.
+
+#### What landed
+
+| Phase | PR   | Merge      | What                                                                                                                                                        |
+| ----- | ---- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| plan  | #315 | `d5c37ef5` | The skeleton: context, decisions F1–F6 and roadmap.                                                                                                         |
+| 45d   | #316 | `6463b576` | Imports drop blank rows; the form drops them before it validates; every refusal names where it is; a video description's own lists read without the model.  |
+| 45a   | #317 | `89e81b68` | The tag picker: chips, a field and a Suggestions area that adapts as you type (the group form too).                                                         |
+| 45b   | #318 | `26b4ec58` | "Fill gaps from the source" on the edit page, `fillGaps`, `estimateTimes`, the `fill` job kind, `pnpm recipes fill`.                                        |
+| 45e1  | #319 | `f7a161a6` | Alternatives, the data and every reader: `choice`, the recipe page's picker, the cook view, shopping, Make, plans, JSON-LD; `indexVersion` "2".             |
+| 45e2  | #320 | `acdba22b` | Alternatives, authoring: the Steps section's choice sets, headings tied to options, import and fill suggestions (marked), the curator skill and MCP blurbs. |
+| 45c   | —    | this PR    | This close-out, backlog rows and the CLAUDE.md bullet.                                                                                                      |
+
+#### Content that rode along
+
+Not in the PRs; read from the run log and the content repo.
+
+- **25 grocery-store drinks** on 2026-10-23 (222 → 247 drinks), Roger's
+  round: syrups, sodas, wine, beer and cider, no liquor store.
+- **2026-10-27, terms:** `beer` (6), `cider` "Hard cider" (1) and `coffee`
+  (5) under `spirit`; `grocery-store` "From the grocery store" (61 recipes, a
+  root collection); and the `soda-fountain` (6) and `punch` (3) families
+  under `drink`.
+- **The everything-dough recipe** converted to a "Then make" choice
+  (Large loaf, Baguettes, Pizza, Bagels, Soft pretzels) with per-option extras
+  and yields, as G1 describes.
+- All of it is synced to the Pi (`uraninite`). Content was written with the
+  CLI, not the session's MCP server (Lessons).
+
+#### Real check
+
+The fill dry run on `1-hour-bagels` (2026-10-23, the workstation's
+qwen3:8b, 100% GPU at a 4,096 context): 24 s. The estimate gave prep 12,
+cook 17, total 77 and "6 bagels". The source filled nothing: the video states
+no times, so every figure is marked as an estimate. `suggestedTags` were the
+video's keywords. Ollama was stopped afterwards (GPU etiquette).
+
+#### Deployed
+
+The workstation and the Pi went to `f7a161a6` on 2026-10-24, run by Claude at
+Roger's request (both healthy). That covers epic 43, epic 44, 45a, 45b, 45d
+and 45e1. **45e2 is not deployed**, so the live editors have the choice
+data and the recipe page's picker but not the form controls or the import
+suggestion.
+
+#### Roger's steps
+
+1. **`pnpm workstation update`** from the main checkout, on a quiet machine
+   (or ask a session to run it).
+2. **`! pnpm deploy:pi`** (or ask a session).
+3. **Reindex: none.** The stamp already rebuilt both at the 2026-10-24
+   deploy.
+4. Open the edit page of `everything-dough`: the Steps section shows the set,
+   and the heading rows show their ties.
+5. Answer the list below.
+
+#### Roger to confirm
+
+Each item is one line; the reasons are in the phase's Results.
+
+**45a, the tag picker**
+
+1. The group form has the same quiet picker as the recipe form.
+2. The drinks families' "find a drink name…" shortcut went with the rows.
+3. A comma in the field commits, like Enter (a tag can't contain a comma).
+4. Da4: a parent reached through a chosen child can still be added by hand,
+   marked "through …".
+
+**45b, the fill**
+
+5. Fb1: the action sits at the head of the form column (and is a quiet line
+   when nothing is empty).
+6. Fb4: the marks are form state only; after Save an estimated time is a
+   time.
+
+**45d, import errors**
+
+7. Dd1: blank rows are dropped silently, with no note.
+8. The messages' wording ("Couldn't save: …", groups named by their first
+   step).
+9. The description reader's reach: one recipe heading, two ingredient lines
+   and a step, and a video imports with no model.
+
+**45e1, alternatives on the page**
+
+10. An "All" pick adds every option's extras to the shopping list.
+11. The yield sits in each option's heading line and the meta strip, not in
+    the buttons.
+12. The rail's "Only for Bagels · choose another" note.
+13. After hydration a remembered or linked pick changes the meta yield, the
+    rail's lines, the steps and their numbers, and the jump row (the
+    heads-up box alone is held in place).
+
+**45e2, alternatives in the form**
+
+14. De2-1: detection is deterministic only; the extractor is untouched.
+15. De2-4: the fill's suggestion is computed in the browser.
+16. The label words ("Then make", "Method", "Version", a head noun).
+17. De2-2: a tie renames its heading to the option's name.
+18. De2-6 (reversed): the curation path refuses what breaks a rule.
+
+#### Lessons and traps
+
+- **The session's long-running MCP server kept code from Oct 17.** A
+  server started before big merges does not see them, so the writes after
+  the epic's merges (terms, the dough conversion) went through the CLI, which
+  loads the checkout's current code.
+- **CLI writes need `POST /api/revalidate`** before the workstation's page
+  shows them. The commit and the index are right; the page cache is not.
+- **The machine's low-memory reaper stopped waiters and a vitest run.** The
+  45e2 finisher's first full vitest run was reaped early and its results
+  were held for Roger; the run was repeated (162 files, 3,605 tests).
+- **Workers past ~400k tokens were handed to finishers** (45b, 45e1, 45e2):
+  a fresh agent with the review and the brief, not a resumed context.
+- **45d's root cause was a blank `HowToStep`**, and `z.flattenError(…)
+.fieldErrors` reduced the error to a top-level key no field rendered
+  (Traps, 45d).
+- **A third-party embed fails axe outside the phase** (45e2): the YouTube
+  preview's `<iframe>` has no title (`frame-title`); `expectNoViolations`
+  gained `exclude`, used in one spec.
+- **An option's accessible name must contain its visible text** (Ta1).
+- **A test that rebuilds a function from itself proves nothing** (45e1's
+  review): the heads-up spec now checks hand-worked notes.
+- **A set as stored is never judged** (De2-8): the form and the curation
+  path judge a set only once it is worked on or written, so a save with no
+  changes stays byte-identical (43-D4).
+- **Dev-mode flakes were waits, not code** (45d, 45b): a save's navigation to
+  a cold-compiled page needs 15 s.
+
+#### Current baselines
+
+New: `alternatives-desktop-e2e.png` and `alternatives-phone-mobile.png`
+(45e1). Regenerated in Docker: the edit and new-recipe form views with the
+Tags section at rest (45a: `edit-form-populated`, `edit-form-overwrite`,
+`markdown-source-mode`, `new-recipe-form`, `new-recipe-form-overwrite`,
+`new-recipe-imported`, `edit-form-mobile`) and `git-page-e2e.png` (it prints
+the index version, 45e1).
+
+#### Backlog
+
+Rows added to `backlog.md`: the YouTube preview iframe's title; the importer's
+private-host (SSRF) guard (added at 45b); cherry limeade, wassail and the
+sangrias in their families; recipe-level times for alternatives; and the
+suggestion heuristic's false positives.
+
+#### Next
+
+Roger's list above. After it: deploy 45e2, then the backlog.
 
 ## Traps known at the start
 
