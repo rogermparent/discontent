@@ -36,6 +36,8 @@ export const JOB_KIND_NAMES = [
   "agent",
   /* 45b: a recipe's gaps filled from its source (the edit page, `recipes fill`). */
   "fill",
+  /* 46f: the model looks for alternatives in a recipe's steps (the edit page). */
+  "choices",
 ] as const;
 
 /**

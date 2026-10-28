@@ -35,6 +35,14 @@ export interface InstructionGroup {
   choice?: string;
   /** A choice group's own yield ("8 bagels"), shown when it is chosen. */
   recipeYield?: string;
+  /**
+   * A choice group's own times, in minutes (46f): the whole recipe's when
+   * this option is made, as its yield is. Read as one block — an option
+   * with any of them replaces the recipe's three when chosen.
+   */
+  prepTime?: number;
+  cookTime?: number;
+  totalTime?: number;
 }
 
 export type InstructionEntry = Instruction | InstructionGroup;

@@ -20,10 +20,13 @@ import { sectionKey } from "./stepIngredients";
 import {
   ALL_OPTIONS,
   choiceSlug,
+  OPTION_TIME_FIELDS,
+  optionTimesOf,
   shownPath,
   type ChoiceOption,
   type ChoiceSet,
   type Choices,
+  type OptionTimes,
   type Picks,
 } from "./alternatives";
 
@@ -114,8 +117,13 @@ export function readChoices(recipe: ChoiceFields): Choices {
         if (!existing.yield && group.recipeYield?.trim()) {
           existing.yield = group.recipeYield.trim();
         }
+        if (!existing.times) {
+          const times = optionTimesOf(group);
+          if (times) existing.times = times;
+        }
         continue;
       }
+      const times = optionTimesOf(group);
       const option: ChoiceOption = {
         slug: unique(base, optionSlugs),
         label: name || `Option ${options.length + 1}`,
@@ -124,6 +132,7 @@ export function readChoices(recipe: ChoiceFields): Choices {
         ...(group.recipeYield?.trim()
           ? { yield: group.recipeYield.trim() }
           : {}),
+        ...(times ? { times } : {}),
       };
       if (!name) unnamed.add(option);
       options.push(option);
@@ -168,7 +177,10 @@ function assignIngredientLines(
  * `recipe` with only the lines and steps on the path `picks` choose — the
  * default (G2) when `picks` is absent; an "All" pick reads as the default
  * here, since one path is the point. The yield is the chosen option's
- * when it has one. A recipe without sets comes back as it is.
+ * when it has one, and so are the times (46f): an option that states any
+ * replaces all three of the recipe's, one it leaves out going absent — so
+ * JSON-LD, the plan's rows and its run sheet read the default option's.
+ * A recipe without sets comes back as it is.
  */
 export function recipeOnPath<
   T extends ChoiceFields & Pick<Recipe, "recipeYield">,
@@ -187,11 +199,42 @@ export function recipeOnPath<
   const ingredients = recipe.ingredients?.filter(
     (_, index) => path.lines[index],
   );
-  return {
+  const onPath = {
     ...recipe,
     ...(instructions ? { instructions } : {}),
     ...(ingredients ? { ingredients } : {}),
     ...(path.yield ? { recipeYield: path.yield } : {}),
+  } as T & OptionTimes;
+  if (path.times) {
+    for (const field of OPTION_TIME_FIELDS) {
+      const value = path.times[field];
+      if (value) onPath[field] = value;
+      else delete onPath[field];
+    }
+  }
+  return onPath;
+}
+
+/**
+ * The times the index carries for `recipe` (46f): its own, or — when it
+ * states none (all three 0 or absent) — its default path's, so `time:`
+ * finds a recipe whose only times are its options'. A recipe that states
+ * any time of its own keeps exactly those.
+ */
+export function indexTimes(
+  recipe: ChoiceFields & Pick<Recipe, "recipeYield"> & OptionTimes,
+): OptionTimes {
+  const own: OptionTimes = {
+    prepTime: recipe.prepTime || undefined,
+    cookTime: recipe.cookTime || undefined,
+    totalTime: recipe.totalTime || undefined,
+  };
+  if (own.prepTime || own.cookTime || own.totalTime) return own;
+  const onPath = recipeOnPath(recipe);
+  return {
+    prepTime: onPath.prepTime || undefined,
+    cookTime: onPath.cookTime || undefined,
+    totalTime: onPath.totalTime || undefined,
   };
 }
 

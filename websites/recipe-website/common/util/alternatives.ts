@@ -33,6 +33,62 @@ export interface ChoiceOption {
   ingredientLines: number[];
   /** The option's own yield ("8 bagels"), when its group has one. */
   yield?: string;
+  /**
+   * The option's own times in minutes (46f), when its group has any: the
+   * recipe's three when it is chosen, as a block (`OptionTimes`).
+   */
+  times?: OptionTimes;
+}
+
+/**
+ * An option's times (46f), in minutes — the whole recipe's when the option
+ * is made, as its yield is the recipe's. Only the ones it states; one with
+ * any replaces all three of the recipe's on its path (`pathTimes`), so a
+ * "Bagels" total never sits beside the dough's own prep time.
+ */
+export interface OptionTimes {
+  prepTime?: number;
+  cookTime?: number;
+  totalTime?: number;
+}
+
+export const OPTION_TIME_FIELDS = [
+  "prepTime",
+  "cookTime",
+  "totalTime",
+] as const;
+
+/** A group's own times, positive whole minutes only; undefined for none. */
+export function optionTimesOf(
+  group: Partial<Record<(typeof OPTION_TIME_FIELDS)[number], unknown>>,
+): OptionTimes | undefined {
+  const times: OptionTimes = {};
+  for (const field of OPTION_TIME_FIELDS) {
+    const value = group[field];
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      times[field] = value;
+    }
+  }
+  return Object.keys(times).length > 0 ? times : undefined;
+}
+
+/**
+ * The times a path shows (46f): the chosen option's when it states any,
+ * else the recipe's own — each read with the page's rule that a missing
+ * total is prep plus cook.
+ */
+export function pathTimes(
+  recipe: OptionTimes,
+  times: OptionTimes | undefined,
+): { prepTime: number; cookTime: number; totalTime: number } {
+  const from = times ?? recipe;
+  const prepTime = from.prepTime || 0;
+  const cookTime = from.cookTime || 0;
+  return {
+    prepTime,
+    cookTime,
+    totalTime: from.totalTime || prepTime + cookTime,
+  };
 }
 
 export interface ChoiceSet {
@@ -296,6 +352,11 @@ export interface ShownPath {
   lines: boolean[];
   /** The yield the chosen options name, if any (the last set's that has one). */
   yield?: string;
+  /**
+   * The times the chosen options state, if any (46f): the last set's whose
+   * chosen option has some, as the yield. Absent under "All".
+   */
+  times?: OptionTimes;
 }
 
 /**
@@ -414,14 +475,16 @@ export function shownPath(choices: Choices, picks?: Picks): ShownPath {
 
   const lines = Array.from({ length: choices.ingredientCount }, () => true);
   let shownYield: string | undefined;
+  let shownTimes: OptionTimes | undefined;
   for (const set of choices.sets) {
     const pick = resolved[set.key];
     for (const option of set.options) {
       const shown = pick === ALL_OPTIONS || option.slug === pick;
       if (!shown) {
         for (const line of option.ingredientLines) lines[line] = false;
-      } else if (pick !== ALL_OPTIONS && option.yield) {
-        shownYield = option.yield;
+      } else if (pick !== ALL_OPTIONS) {
+        if (option.yield) shownYield = option.yield;
+        if (option.times) shownTimes = option.times;
       }
     }
   }
@@ -432,6 +495,7 @@ export function shownPath(choices: Choices, picks?: Picks): ShownPath {
     entries,
     lines,
     ...(shownYield ? { yield: shownYield } : {}),
+    ...(shownTimes ? { times: shownTimes } : {}),
   };
 }
 

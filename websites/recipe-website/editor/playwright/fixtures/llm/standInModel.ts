@@ -39,6 +39,8 @@ export interface StandInOptions {
    * to see it dropped.
    */
   estimate?: Record<string, unknown>;
+  /** The look for alternatives' answer (46f) in place of the stand-in's own. */
+  choices?: Record<string, unknown>;
 }
 
 /**
@@ -56,6 +58,39 @@ export function estimateAnswer(user: string): Record<string, unknown> {
     ...(wants("recipeYield") ? { recipeYield: "8 bagels" } : {}),
     basis: "25 min rise + 20 min proof + 17 min bake + ~10 min shaping",
   };
+}
+
+/**
+ * The look for alternatives (46f, `CHOICES_SYSTEM_PROMPT`): the first run
+ * of two or more open groups ("N. group “…” — …", not "already in a
+ * choice") after a shared first entry, as one set "Then make" — plus entry
+ * 99, a number that names nothing, for the grounding to drop. Nothing
+ * found is `{sets: []}`. Never a real model.
+ */
+export function choicesAnswer(user: string): {
+  sets: { label: string; groups: number[] }[];
+} {
+  const open = user
+    .split("\n")
+    .map((line) => /^(\d+)\. group “[^”]*” — /.exec(line))
+    .map((match) => (match ? Number(match[1]) : undefined));
+  let run: number[] = [];
+  for (const number of open) {
+    if (number !== undefined && number > 1) {
+      if (run.length && number !== run[run.length - 1] + 1) {
+        if (run.length >= 2) break;
+        run = [];
+      }
+      run.push(number);
+    } else if (run.length >= 2) {
+      break;
+    } else {
+      run = [];
+    }
+  }
+  return run.length >= 2
+    ? { sets: [{ label: "Then make", groups: [...run, 99] }] }
+    : { sets: [] };
 }
 
 function textBlock(user: string): string {
@@ -206,6 +241,18 @@ export function standInChat(
       done: true,
       prompt_eval_count: 300,
       eval_count: 40,
+    };
+  }
+  if (system.startsWith("You find alternatives among")) {
+    return {
+      model: body.model ?? "qwen3:8b",
+      message: {
+        role: "assistant",
+        content: JSON.stringify(options.choices ?? choicesAnswer(user)),
+      },
+      done: true,
+      prompt_eval_count: 200,
+      eval_count: 20,
     };
   }
   const text = textBlock(user);

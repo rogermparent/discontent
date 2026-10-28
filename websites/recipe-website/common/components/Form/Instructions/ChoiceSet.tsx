@@ -4,7 +4,7 @@
  * Alternatives in the Steps section (45e2): a set of step groups the reader
  * picks one of (45e, G1) is one block — its label, the note that the first
  * option is the default (G2), what is wrong with it, and each option a card
- * with its name, its yield and its steps — plus the "Make these a choice"
+ * with its name, its yield, its times (46f) and its steps — plus the "Make these a choice"
  * panel and an import's marked suggestion (G5: a suggestion is form state
  * only, marked until Save, with Undo).
  *
@@ -16,6 +16,7 @@ import { useId, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, X } from "lucide-react";
 import { Button } from "@discontent/component-library/components/Button";
 import { Input } from "@discontent/component-library/components/ui/input";
+import { DurationInput } from "@discontent/component-library/components/Form/inputs/Duration";
 import { cn } from "@discontent/component-library/lib/utils";
 import type { InstructionGroup } from "../../../controller/types";
 import type { ChoiceProblem, ChoiceRun } from "../../../util/choiceChecks";
@@ -56,6 +57,7 @@ function ChoiceOption({
   onMove,
   onRemove,
   onYield,
+  onTime,
 }: {
   index: number;
   /** The option's stable key (its card's React key and focus name). */
@@ -69,8 +71,11 @@ function ChoiceOption({
   onMove: (to: number, direction: "up" | "down") => void;
   onRemove: () => void;
   onYield: (value: string) => void;
+  /** 46f: an option time typed, in minutes (0 clears it). */
+  onTime: (field: OptionTimeField, minutes: number) => void;
 }) {
   const yieldId = useId();
+  const timesNoteId = useId();
   const name = group.name?.trim() || `Option ${position + 1}`;
   return (
     <li
@@ -147,9 +152,42 @@ function ChoiceOption({
           onChange={(event) => onYield(event.target.value)}
         />
       </div>
+      {/* 46f: the option's own times, the recipe Times section's inputs. */}
+      <div
+        role="group"
+        aria-label={`Times for ${name}`}
+        aria-describedby={timesNoteId}
+        className="flex flex-col gap-1"
+        data-testid="choice-option-times"
+      >
+        <div className="flex flex-row flex-wrap items-end gap-x-4 gap-y-1">
+          {OPTION_TIMES.map(({ field, label }) => (
+            <div key={field} className="min-w-36 flex-1">
+              <DurationInput
+                label={label}
+                name={`instructions[${index}].${field}`}
+                valueMinutes={group[field] ?? 0}
+                onValueChange={(minutes) => onTime(field, minutes)}
+              />
+            </div>
+          ))}
+        </div>
+        <p id={timesNoteId} className="text-xs text-muted-foreground">
+          Optional: the whole recipe&rsquo;s times when this option is made.
+        </p>
+      </div>
     </li>
   );
 }
+
+/** An option card's time inputs (46f), labelled as its other fields are. */
+const OPTION_TIMES = [
+  { field: "prepTime", label: "Option prep time" },
+  { field: "cookTime", label: "Option cook time" },
+  { field: "totalTime", label: "Option total time" },
+] as const;
+
+export type OptionTimeField = (typeof OPTION_TIMES)[number]["field"];
 
 /**
  * A set of alternatives as one block: the label (the reader's question —
@@ -171,6 +209,7 @@ export function ChoiceSetBlock({
   onMove,
   onRemove,
   onYield,
+  onTime,
   onAdd,
 }: {
   run: ChoiceRun;
@@ -194,6 +233,8 @@ export function ChoiceSetBlock({
   onMove: (from: number, to: number, direction: "up" | "down") => void;
   onRemove: (index: number) => void;
   onYield: (index: number, value: string) => void;
+  /** 46f: an option's time, in minutes (0 clears it). */
+  onTime: (index: number, field: OptionTimeField, minutes: number) => void;
   onAdd: () => void;
 }) {
   const labelId = useId();
@@ -287,6 +328,7 @@ export function ChoiceSetBlock({
               onMove={(to, direction) => onMove(index, to, direction)}
               onRemove={() => onRemove(index)}
               onYield={(value) => onYield(index, value)}
+              onTime={(field, minutes) => onTime(index, field, minutes)}
             />
           );
         })}

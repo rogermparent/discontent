@@ -350,7 +350,10 @@ const CHOICE_DESCRIPTION =
   'label, e.g. "Then make") are one set the reader picks one option of; each ' +
   "group's `name` is an option, unique in its set; a set needs two or more, two " +
   "sets need different labels, and the first option is the default. A choice " +
-  'group may carry its own `recipeYield` ("8 bagels"). An ingredient heading ' +
+  'group may carry its own `recipeYield` ("8 bagels") and its own `prepTime` / ' +
+  "`cookTime` / `totalTime` in minutes: the whole recipe's times when that option " +
+  "is made (total ≥ prep and cook); the first option's stand in where one value " +
+  "is needed (the index, `time:`, plans) when the recipe states no times. An ingredient heading " +
   'with the same `choice` and a name matching an option\'s ("For the bagels" ' +
   "for `Bagels`) holds that option's extra lines, up to the next heading. An " +
   "import's `suggestedChoices` are hints only: set `choice` yourself when it fits. " +

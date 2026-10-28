@@ -22,7 +22,9 @@ import {
   formatPickParam,
   hasChoices,
   knownPicks,
+  OPTION_TIME_FIELDS,
   parsePickParam,
+  pathTimes,
   pickStorageKey,
   PICK_PARAM,
   readStoredPicks,
@@ -30,9 +32,11 @@ import {
   writeStoredPicks,
   type ChoiceSet,
   type Choices,
+  type OptionTimes,
   type Picks,
   type ShownPath,
 } from "../../../util/alternatives";
+import { formatDurationLong } from "../../../util/formatDuration";
 
 /**
  * The reader's pick among a recipe's alternatives (45e, G3), shared by every
@@ -264,6 +268,26 @@ export function PathYield({ recipeYield }: { recipeYield?: string }) {
   /* Options with yields, none chosen ("All") and none of the recipe's own. */
   if (!value) return <>—</>;
   return <ScaledYield recipe={{ recipeYield: value } as Recipe} />;
+}
+
+/**
+ * A meta strip time (46f): the chosen option's when it states any, the
+ * recipe's otherwise (`pathTimes`, the total falling back to prep plus
+ * cook as the page always has). The cell is the server's — present when
+ * the recipe or any option has the time — so a pick changes only its
+ * value, never the strip's shape (U1); a path with no such time says "—".
+ */
+export function PathTime({
+  field,
+  recipeTimes,
+}: {
+  field: (typeof OPTION_TIME_FIELDS)[number];
+  recipeTimes: OptionTimes;
+}) {
+  const context = useChoices();
+  const value = pathTimes(recipeTimes, context?.path.times)[field];
+  if (!value) return <>—</>;
+  return <>{formatDurationLong(value)}</>;
 }
 
 export type { ChoicesValue };

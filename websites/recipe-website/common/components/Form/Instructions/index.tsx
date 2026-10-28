@@ -40,6 +40,22 @@ import {
   type SuggestedChoice,
 } from "../../../util/suggestChoices";
 import { useStableKeys } from "../stableKeys";
+import { choiceOutline } from "../../../util/choiceOutline";
+import {
+  LookForChoices,
+  SUGGESTED_BY_MODEL,
+  useModelChoices,
+  type LookState,
+  type ModelChoicesOutcome,
+} from "./modelChoices";
+
+/** How long a look waits for the model, all asks together. */
+const LOOK_WAIT_MS = 10 * 60 * 1000;
+
+/** "Local model qwen3:8b", "The Claude API (…)": a reader's label to start a sentence. */
+function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
 import {
   labelProblem,
   labelTaken,
@@ -50,6 +66,7 @@ import {
   relabel,
   retieHeadings,
   selectionProblem,
+  setOptionTime,
   settleLabel,
   suggestionFits,
 } from "./choiceEdits";
@@ -300,7 +317,7 @@ function InstructionGroupFields({
 }
 
 /**
- * A plain group's leftover `choice` / `recipeYield` (45e) as hidden inputs,
+ * A plain group's leftover `choice` / `recipeYield` (45e) and times (46f) as hidden inputs,
  * so an unchanged save keeps them (43-D4). A group in a set posts its own
  * from its option card (`ChoiceSet`).
  */
@@ -326,6 +343,17 @@ function GroupChoiceInputs({
           name={`instructions[${index}].recipeYield`}
           value={group.recipeYield}
         />
+      )}
+      {/* 46f: its leftover option times, as minutes. */}
+      {(["prepTime", "cookTime", "totalTime"] as const).map((field) =>
+        group?.[field] ? (
+          <input
+            key={field}
+            type="hidden"
+            name={`instructions[${index}].${field}.minutes`}
+            value={String(group[field])}
+          />
+        ) : null,
       )}
     </>
   );
@@ -677,11 +705,116 @@ export function InstructionsListInput({
   };
 
   /* An import's suggestions, each offered, accepted or put away. */
+  /* 46f: and the model's, each look's sets after the import's, each with
+   * its own mark; a status per suggestion, by its place in `suggestions`. */
+  const [modelSuggestions, setModelSuggestions] = useState<SuggestedChoice[]>(
+    [],
+  );
+  const imported = suggestedChoices ?? [];
+  const suggestions = useMemo(
+    () => [...(suggestedChoices ?? []), ...modelSuggestions],
+    [suggestedChoices, modelSuggestions],
+  );
+  const markOf = (index: number) =>
+    index < imported.length ? suggestedBy : SUGGESTED_BY_MODEL;
   const [statuses, setStatuses] = useState<SuggestionState[]>(() =>
     (suggestedChoices ?? []).map(() => ({ status: "offered" })),
   );
   const setStatus = (index: number, state: SuggestionState) =>
     setStatuses((list) => list.map((old, i) => (i === index ? state : old)));
+
+  /* 46f: "Look for alternatives with the model" — the edit page's only. */
+  const modelChoices = useModelChoices();
+  const [look, setLook] = useState<LookState>({ status: "idle" });
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const lookForChoices = async () => {
+    if (!modelChoices) return;
+    const values = form.state.values;
+    const outline = choiceOutline(values.instructions);
+    setLook({ status: "asking" });
+    let started: { job?: string; message?: string } = {};
+    let outcome: ModelChoicesOutcome = { pending: true };
+    try {
+      started = await modelChoices.start(values.name, outline);
+      if (!mounted.current) return;
+      if (!started.job) {
+        setLook({
+          status: "done",
+          message: started.message ?? "The model could not be asked.",
+        });
+        return;
+      }
+      setLook({ status: "asking", job: started.job });
+      const until = Date.now() + LOOK_WAIT_MS;
+      while (outcome.pending && Date.now() < until) {
+        outcome = await modelChoices.result(started.job);
+        if (!mounted.current) return;
+      }
+    } catch (error) {
+      if (!mounted.current) return;
+      setLook({
+        status: "done",
+        message: `The model could not be asked: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      });
+      return;
+    }
+    if (!started.job) return;
+    if (outcome.pending) {
+      setLook({
+        status: "done",
+        job: started.job,
+        message: "The model took too long to answer — ask again.",
+      });
+      return;
+    }
+    /* Only what still fits the steps, and not offered already. */
+    const now = form.state.values.instructions;
+    const known = new Set(
+      suggestions.map((suggestion, index) =>
+        statuses[index]?.status === "offered"
+          ? suggestion.groups.join(",")
+          : "",
+      ),
+    );
+    const found = (outcome.sets ?? []).filter(
+      (set) => suggestionFits(now, set) && !known.has(set.groups.join(",")),
+    );
+    const notes = (outcome.warnings ?? []).join(" ");
+    if (outcome.message) {
+      setLook({ status: "done", job: started.job, message: outcome.message });
+      return;
+    }
+    if (found.length === 0) {
+      setLook({
+        status: "done",
+        job: started.job,
+        message: `Nothing found: ${outcome.model ?? "the model"} saw no alternatives here.${notes ? ` ${notes}` : ""}`,
+      });
+      return;
+    }
+    const first = suggestions.length;
+    setModelSuggestions((list) => [...list, ...found]);
+    setStatuses((list) => [
+      ...list,
+      ...found.map((): SuggestionState => ({ status: "offered" })),
+    ]);
+    setLook({
+      status: "done",
+      job: started.job,
+      message: `${capitalized(outcome.model ?? "the model")} suggested ${
+        found.length === 1 ? "a choice" : `${found.length} choices`
+      }: see the marked ${found.length === 1 ? "card" : "cards"} above the steps.${notes ? ` ${notes}` : ""}`,
+    });
+    requestFocus(`suggestion:${first}`);
+  };
   /** The accepted suggestion a set is: by the set's id, whatever its label. */
   const acceptedAs = (run: ChoiceRun) =>
     run.set === undefined
@@ -691,7 +824,7 @@ export function InstructionsListInput({
         );
   const offered = (index: number) =>
     statuses[index]?.status === "offered" &&
-    suggestionFits(instructions, (suggestedChoices ?? [])[index]);
+    suggestionFits(instructions, suggestions[index]);
   /** A label for an accepted suggestion no set has yet: "Then make 2". */
   const suggestionLabel = (suggestion: SuggestedChoice) => {
     const taken = new Set<string>();
@@ -734,7 +867,7 @@ export function InstructionsListInput({
         problems={problems.filter(
           (problem) => problem.index >= run.start && problem.index < run.end,
         )}
-        suggestedBy={accepted >= 0 ? suggestedBy : undefined}
+        suggestedBy={accepted >= 0 ? markOf(accepted) : undefined}
         onUndo={() => {
           setInstructions(notChoice(form.state.values.instructions, run));
           untie(run);
@@ -808,6 +941,17 @@ export function InstructionsListInput({
                   ? { ...rest, recipeYield: value }
                   : rest
                 : entry,
+            ),
+          );
+        }}
+        onTime={(index, field, minutes) => {
+          work(run);
+          setInstructions(
+            setOptionTime(
+              form.state.values.instructions,
+              index,
+              field,
+              minutes,
             ),
           );
         }}
@@ -889,7 +1033,7 @@ export function InstructionsListInput({
               });
               return (
                 <>
-                  {(suggestedChoices ?? []).map((suggestion, index) =>
+                  {suggestions.map((suggestion, index) =>
                     offered(index) ? (
                       <ChoiceSuggestionCard
                         key={`suggestion-${index}`}
@@ -898,7 +1042,7 @@ export function InstructionsListInput({
                         names={suggestion.groups.map(
                           (group) => (items[group] as InstructionGroup).name,
                         )}
-                        suggestedBy={suggestedBy}
+                        suggestedBy={markOf(index)}
                         onAccept={() => {
                           const set = newSet();
                           setInstructions(
@@ -916,7 +1060,7 @@ export function InstructionsListInput({
                           setStatus(index, { status: "dismissed" });
                           /* The next card still offered, else the first of
                            * its groups. */
-                          const next = (suggestedChoices ?? []).findIndex(
+                          const next = suggestions.findIndex(
                             (_, other) => other !== index && offered(other),
                           );
                           requestFocus(
@@ -985,6 +1129,17 @@ export function InstructionsListInput({
                     >
                       Make a choice of groups…
                     </Button>
+                  ) : null}
+                  {modelChoices &&
+                  !selecting &&
+                  (canSelect || look.status !== "idle") ? (
+                    <LookForChoices
+                      modelChoices={modelChoices}
+                      look={look}
+                      onLook={() => {
+                        void lookForChoices();
+                      }}
+                    />
                   ) : null}
                 </>
               );

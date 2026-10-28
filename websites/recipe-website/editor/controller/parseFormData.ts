@@ -143,6 +143,46 @@ function textOf(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+/** The times an option may carry (46f), in the order they are stored. */
+const OPTION_TIMES = ["prepTime", "cookTime", "totalTime"] as const;
+
+/**
+ * An option's posted time (46f): its hours and minutes inputs, as
+ * `optionalDurationSchema` reads a timeline's — both blank (or a total of
+ * 0) is no time, so an untouched card stores nothing. A number that is not
+ * one is refused at the field.
+ */
+function optionMinutes(
+  value: unknown,
+  path: (string | number)[],
+  ctx: z.RefinementCtx,
+): number | undefined {
+  const row = rowOf(value);
+  if (!row) return undefined;
+  const hours = textOf(row.hours).trim();
+  const minutes = textOf(row.minutes).trim();
+  if (!hours && !minutes) return undefined;
+  const hoursNumber = hours ? Number(hours) : 0;
+  const minutesNumber = minutes ? Number(minutes) : 0;
+  let bad = false;
+  for (const [part, number] of [
+    ["hours", hoursNumber],
+    ["minutes", minutesNumber],
+  ] as const) {
+    if (!Number.isFinite(number) || number < 0) {
+      bad = true;
+      ctx.addIssue({
+        code: "custom",
+        path: [...path, part],
+        message: "Invalid number",
+      });
+    }
+  }
+  if (bad) return undefined;
+  const total = Math.round(hoursNumber * 60 + minutesNumber);
+  return total > 0 ? total : undefined;
+}
+
 /**
  * The ingredient rows (45d). A blank row — an untouched "Add ingredient",
  * a blank heading — is dropped rather than refused: it carries nothing, and
@@ -292,11 +332,19 @@ const instructionsSchema = z
         steps.push({ name: childName || undefined, text });
       });
       if (!name.trim() && steps.length === 0 && !refused) return;
+      /* 46f: an option's times, from its card's hours and minutes (or a
+       * plain group's leftover ones, from hidden inputs). */
+      const times: Partial<Record<(typeof OPTION_TIMES)[number], number>> = {};
+      for (const field of OPTION_TIMES) {
+        const minutes = optionMinutes(entry[field], [index, field], ctx);
+        if (minutes !== undefined) times[field] = minutes;
+      }
       shaped(
         {
           name,
           instructions: [],
           ...(posting !== undefined ? { choice: posting } : {}),
+          ...times,
         },
         index,
         set,
@@ -332,6 +380,7 @@ const instructionsSchema = z
         instructions: steps,
         ...(choice ? { choice } : {}),
         ...(optionYield.trim() ? { recipeYield: optionYield } : {}),
+        ...times,
       });
     });
     for (const problem of choiceProblems(shape, sets)) {
