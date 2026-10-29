@@ -354,7 +354,7 @@ export async function readPlanItems(
         item.group !== undefined
           ? `group:${item.group}`
           : `recipe:${item.recipe}`;
-      names[key] = item.name ?? item.group ?? item.recipe;
+      names[key] = item.name ?? item.group ?? item.recipe ?? key;
     }
     return { items: detail.group.items ?? [], names };
   } catch (error) {
