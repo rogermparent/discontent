@@ -523,8 +523,8 @@ export function CommandPalette({
   const showAuthAction =
     !!authAction && (!q || "sign in sign out log in log out".includes(q));
 
-  // The recipe group is usable app-wide now that export has /search/all +
-  // /search/version parity; the guard just avoids a flash before the index
+  // The recipe group is usable app-wide now that export has /search/all
+  // parity; the guard just avoids a flash before the index
   // is built (or when it has errored).
   const indexUsable = status !== "error" && (indexPopulated || isSearching);
   // Results reflect the debounced `query`, not the live `value`. Guarded on

@@ -818,6 +818,66 @@ describe("43a: optional lines and decorating lists", () => {
     expect(rows(someOptional)).toHaveLength(1);
     expect(rows(someOptional)[0].optional).toBe(false);
   });
+
+  it("says whose lines were optional on a partly optional row (46h, 43-Da1)", () => {
+    const view = buildShoppingView(
+      [
+        item("optional: sprinkles", {
+          ...spritz,
+          recipeName: "Spritz Cookies",
+        }),
+        item("1 tbsp sprinkles", cake),
+      ],
+      settings({}),
+    );
+    const [merged] = rows(view);
+    expect(merged.optional).toBe(false);
+    expect(merged.partlyOptional).toBe("optional for Spritz Cookies");
+
+    /* Two recipes with optional lines: both named. */
+    const two = buildShoppingView(
+      [
+        item("optional: sprinkles", { ...spritz, recipeName: "Spritz" }),
+        item("optional: sprinkles", { ...cookies, optional: true }),
+        item("1 tbsp sprinkles", cake),
+      ],
+      settings({}),
+    );
+    expect(rows(two)[0].partlyOptional).toBe("optional for Spritz and Cookies");
+
+    /* One recipe with an optional and a required line: no recipe to name. */
+    const same = buildShoppingView(
+      [
+        item("optional: sprinkles", { ...cake, optional: true }),
+        item("1 tbsp sprinkles", cake),
+      ],
+      settings({}),
+    );
+    expect(rows(same)[0].partlyOptional).toBe("partly optional");
+
+    /* All optional, or none: no note. */
+    const all = buildShoppingView(
+      [item("optional: sprinkles", spritz)],
+      settings({}),
+    );
+    expect(rows(all)[0].partlyOptional).toBeUndefined();
+    const none = buildShoppingView(
+      [item("1 tbsp sprinkles", cake)],
+      settings({}),
+    );
+    expect(rows(none)[0].partlyOptional).toBeUndefined();
+  });
+
+  it("leaves optional rows alone with merge off", () => {
+    const view = buildShoppingView(
+      [item("optional: sprinkles", spritz), item("1 tbsp sprinkles", cake)],
+      settings({ merge: false }),
+    );
+    expect(rows(view).map((each) => each.partlyOptional)).toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
 });
 
 describe("43n2: mixed numbers written with and", () => {

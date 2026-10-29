@@ -314,6 +314,39 @@ describe("holidayGet", () => {
     expect(menu.styles[0]).toMatchObject({ slug: "sour" });
   });
 
+  it("groups drinks by style proper, never by method (46h, 43-Df2)", async () => {
+    await seed();
+    for (const term of [
+      { label: "Shaken", parent: "drink" },
+      { label: "Batch", parent: "drink" },
+    ]) {
+      await createTerm(ctx, term);
+    }
+    for (const recipe of [
+      {
+        name: "Party Punch",
+        tags: ["new-years", "shaken", "batch"],
+        date: 8_000,
+      },
+      { name: "Gimlet", tags: ["new-years", "shaken"], date: 9_000 },
+    ]) {
+      await createRecipe(ctx, recipe);
+    }
+    const menu = await holidayGet(ctx, "new-years", { date: TODAY });
+    expect(
+      menu.styles.map((group) => [
+        group.slug,
+        group.recipes.map((recipe) => recipe.slug),
+      ]),
+    ).toEqual([
+      ["batch", ["party-punch"]],
+      ["more", ["gimlet"]],
+    ]);
+    const text = holidaysCommand.format(menu);
+    expect(text).toContain("Drinks\n  Batch\n    Party Punch — party-punch");
+    expect(text).not.toContain("Shaken");
+  });
+
   it("answers an undated holiday and one with nothing filed", async () => {
     await seed();
     const fall = await holidayGet(ctx, "fall-favorites", { date: TODAY });

@@ -24,10 +24,11 @@ import type { PlanPageProps } from "./types";
  * phone on Cook; the choice is kept per browser.
  *
  * The **Run sheet** (43p2, canvas C) is a third mode between them, offered
- * when the plan has one — a recipe whose steps give a bake or a chill
- * (`hasRunSheet`, Dp2-1): the same rows and `planTimes` facts as a baking
- * day's production schedule. It is never the default; a link's
- * `?mode=sheet` or this browser's last choice opens it.
+ * on every plan since 46h (`hasRunSheet`; Roger's 43-Dp2-1 pick — until then
+ * only when a recipe's steps gave a bake or a chill): the same rows and
+ * `planTimes` facts as a baking day's production schedule, "not set" where
+ * the steps say nothing. It is never the default; a link's `?mode=sheet` or
+ * this browser's last choice opens it.
  */
 export function PlanPage({
   data,

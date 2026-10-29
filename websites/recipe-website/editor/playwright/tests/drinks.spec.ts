@@ -333,27 +333,32 @@ test.describe("Drinks", () => {
       "Gin 1",
     ]);
     /* Most drinks first; a tie keeps the documented style order. */
+    await expect(groups.nth(1)).toContainText("Style");
     await expect(groups.nth(1).getByRole("listitem")).toHaveText([
       "Highball 3",
-      "Zero-proof 2",
       "Sour 1",
       "Collins 1",
+    ]);
+    /* 46h (43-Df2): strength & method apart, under Style. */
+    await expect(groups.nth(2)).toContainText("Strength & method");
+    await expect(groups.nth(2).getByRole("listitem")).toHaveText([
+      "Zero-proof 2",
       "Shaken 1",
     ]);
     /* A child of `drink` that is no style is a classic. */
-    await expect(groups.nth(2)).toContainText("Classics · 2 families");
-    await expect(groups.nth(2).getByRole("listitem")).toHaveText([
+    await expect(groups.nth(3)).toContainText("Classics · 2 families");
+    await expect(groups.nth(3).getByRole("listitem")).toHaveText([
       "Daiquiri 2",
       "Gin and Tonic 2",
     ]);
     await expect(
       index.getByRole("link", { name: "All 7 drinks" }),
     ).toHaveAttribute("href", "/tags/drink");
-    await groups
-      .nth(0)
-      .getByRole("link", { name: /^Vodka/ })
-      .click();
-    await expect(page).toHaveURL(/\/tags\/vodka$/);
+    /* Hydrated first (40f): in dev a click before that was lost (46h). */
+    const vodka = groups.nth(0).getByRole("link", { name: /^Vodka/ });
+    await expectHydrated(vodka);
+    await vodka.click();
+    await expect(page).toHaveURL(/\/tags\/vodka$/, { timeout: 15_000 });
   });
 
   test("NEW marks a drink dated within 30 days, and only those", async ({

@@ -22,7 +22,7 @@
  * Pure, and safe in the browser: the `/make` page runs it over the whole
  * corpus on the client.
  */
-import { fold } from "../components/SearchForm/queryLanguage";
+import { fold } from "./fold";
 import { detectHeading } from "./detectHeading";
 import {
   joinMixedNumbers,
@@ -415,6 +415,16 @@ export const BARE_NAMES: Readonly<Record<string, string>> = {
 function lineName(name: IngredientName): IngredientName {
   const kind = BARE_NAMES[name.words.join(" ")];
   return kind ? { ...name, words: kind.split(" ") } : name;
+}
+
+/**
+ * A searched-for name read the way a line's name is (46h review): `toName`
+ * and then `BARE_NAMES`, so `ingredient:~sugar` asks for the granulated
+ * sugar that "1 cup sugar" is read as. For a query only — a typed inventory
+ * item keeps its bare word (see `BARE_NAMES`).
+ */
+export function queryName(text: string): IngredientName {
+  return lineName(toName(text));
 }
 
 const NAME_SYNONYM_RES: [RegExp, string][] = NAME_SYNONYMS.map(([from, to]) => [

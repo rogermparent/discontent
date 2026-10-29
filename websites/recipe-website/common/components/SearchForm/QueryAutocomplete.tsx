@@ -22,6 +22,7 @@ import type { GroupSearchEntry } from "../../controller/data/readGroupSearchCorp
 import type { SearchTerm } from "../../controller/data/readTermPage";
 import type { MassagedRecipeEntry } from "../../controller/data/read";
 import { prepareCorpus, suggestNames } from "../../util/makeable";
+import { ANY_BEAN_VALUE, ANY_FORM_PREFIX } from "../../util/ingredientQuery";
 import {
   FILTER_FIELDS,
   anyLineMatcher,
@@ -50,7 +51,7 @@ const MAX_OPTIONS = 8;
 /** One line of prose per field, so the list teaches the language as it offers it. */
 const FIELD_HINTS: Record<FilterField, string> = {
   tag: "recipes carrying a tag",
-  ingredient: "recipes using an ingredient",
+  ingredient: "recipes using an ingredient — ~ for any form, any-bean",
   name: "match the recipe name only",
   description: "match the description",
   group: "recipes in a meal plan or collection — group:<slug>",
@@ -277,7 +278,21 @@ export function ingredientOptions(
   prefix: string,
   { names, matches, count }: IngredientSuggestions,
 ): CompletionOption[] {
-  const folded = fold(prefix);
+  /* 46h: after `~` the names are offered "in any form", the tilde kept. */
+  const anyForm = prefix.trimStart().startsWith(ANY_FORM_PREFIX);
+  const folded = fold(
+    anyForm ? prefix.trimStart().slice(ANY_FORM_PREFIX.length) : prefix,
+  );
+  const options: CompletionOption[] = [];
+  /* 46h: the bean family, first, for "bea…" or "any…". */
+  if (!anyForm && offersAnyBean(folded)) {
+    options.push({
+      key: `ingredient:${ANY_BEAN_VALUE}`,
+      label: ANY_BEAN_LABEL,
+      hint: "black, kidney, chickpea and every traditional bean — never green or vanilla beans",
+      replacement: `ingredient:${ANY_BEAN_VALUE}`,
+    });
+  }
   /*
    * Plural-blind (43s): "pumpkin seed" and "pumpkin seeds" are one row, in
    * the place of the more used, offering the *shortest* spelling — every
@@ -299,7 +314,6 @@ export function ingredientOptions(
       group.members.push({ name, value });
     for (const key of keys) if (!groupOf.has(key)) groupOf.set(key, group);
   }
-  const options: CompletionOption[] = [];
   for (const { members } of groups) {
     // The typed name already finds every member: nothing to narrow to.
     if (members.some((member) => member.value === folded)) continue;
@@ -311,15 +325,38 @@ export function ingredientOptions(
         undefined,
       );
     if (!offered) continue;
+    const tilde = anyForm ? ANY_FORM_PREFIX : "";
     options.push({
-      key: `ingredient:${offered.value}`,
+      key: `ingredient:${tilde}${offered.value}`,
       label: offered.name,
-      replacement: `ingredient:${quoteQueryValue(offered.name)}`,
-      ...(count ? { count: count(offered.value) } : {}),
+      replacement: `ingredient:${tilde}${quoteQueryValue(offered.name)}`,
+      /* The count is the text match's: an any-form row says what it means instead. */
+      ...(anyForm
+        ? { hint: "in any form — canned, dried, cooked" }
+        : count
+          ? { count: count(offered.value) }
+          : {}),
     });
     if (options.length >= MAX_OPTIONS) break;
   }
   return options;
+}
+
+/** How the bean family is offered after `ingredient:` (46h). */
+export const ANY_BEAN_LABEL = "Any bean (black, kidney, chickpea…)";
+
+/**
+ * Does a folded `ingredient:` prefix ask for the bean family? Two letters of
+ * "any bean" (or "any-bean"), or three of "beans" — not once it is typed out.
+ */
+export function offersAnyBean(folded: string): boolean {
+  const typed = folded.trim();
+  if (typed === ANY_BEAN_VALUE || typed === "any bean") return false;
+  return (
+    (typed.length >= 2 &&
+      ("any bean".startsWith(typed) || ANY_BEAN_VALUE.startsWith(typed))) ||
+    (typed.length >= 3 && "beans".startsWith(typed))
+  );
 }
 
 /**

@@ -108,69 +108,105 @@ function IndexGroup({
   );
 }
 
+/** One group of the index: a heading over its lines. */
+interface Group {
+  title: string;
+  detail?: string;
+  terms: DrinkTerm[];
+  count: number;
+  wide?: boolean;
+  action?: ReactNode;
+}
+
 /**
  * "Browse the bar" (42d, canvas B): spirit & base, style and the classics
  * as one dot-leader index instead of three walls of tiles and pills — real
- * terms with their drink counts, each to its term page.
+ * terms with their drink counts, each to its term page. Since 46h (43-Df2)
+ * strength & method (shaken, stirred, built, low-ABV, zero-proof) sits
+ * under Style in the same column, as the facet model files them apart.
  */
 export function BarIndex({
   data,
 }: {
   data: Pick<
     DrinksPageData,
-    "count" | "spirits" | "styles" | "classics" | "classicsCount"
+    "count" | "spirits" | "styles" | "methods" | "classics" | "classicsCount"
   >;
 }) {
   const headingId = useId();
   if (
     data.spirits.length === 0 &&
     data.styles.length === 0 &&
+    data.methods.length === 0 &&
     data.classics.length === 0
   ) {
     return null;
   }
-  const groups: Array<{
-    title: string;
-    detail?: string;
-    terms: DrinkTerm[];
-    count: number;
-    wide?: boolean;
-    action?: ReactNode;
-  }> = [];
+  /* Columns of groups, wide; on a phone every group is one disclosure. */
+  const columns: Group[][] = [];
   if (data.spirits.length > 0) {
-    groups.push({
-      title: "Spirit & base",
-      terms: data.spirits,
-      count: data.spirits.length,
-    });
+    columns.push([
+      {
+        title: "Spirit & base",
+        terms: data.spirits,
+        count: data.spirits.length,
+      },
+    ]);
   }
+  const middle: Group[] = [];
   if (data.styles.length > 0) {
-    groups.push({
+    middle.push({
       title: "Style",
       terms: data.styles,
       count: data.styles.length,
     });
   }
-  if (data.classics.length > 0) {
-    const families = data.classicsCount;
-    groups.push({
-      title: "Classics",
-      detail: `${families} ${families === 1 ? "family" : "families"}`,
-      terms: data.classics,
-      count: families,
-      wide: true,
-      action:
-        families > data.classics.length ? (
-          <Link
-            href={termHref(DRINK_ROOT)}
-            className="inline-block shrink-0 py-0.5 text-sm leading-5 text-primary underline-offset-4 hover:underline"
-          >
-            All <span className="font-mono">{families}</span>
-            <span className="sr-only"> classics</span>
-          </Link>
-        ) : undefined,
+  if (data.methods.length > 0) {
+    middle.push({
+      title: "Strength & method",
+      terms: data.methods,
+      count: data.methods.length,
     });
   }
+  if (middle.length > 0) columns.push(middle);
+  if (data.classics.length > 0) {
+    const families = data.classicsCount;
+    columns.push([
+      {
+        title: "Classics",
+        detail: `${families} ${families === 1 ? "family" : "families"}`,
+        terms: data.classics,
+        count: families,
+        wide: true,
+        action:
+          families > data.classics.length ? (
+            <Link
+              href={termHref(DRINK_ROOT)}
+              className="inline-block shrink-0 py-0.5 text-sm leading-5 text-primary underline-offset-4 hover:underline"
+            >
+              All <span className="font-mono">{families}</span>
+              <span className="sr-only"> classics</span>
+            </Link>
+          ) : undefined,
+      },
+    ]);
+  }
+  const first = columns[0]?.[0];
+  const indexGroup = (group: Group) => (
+    <IndexGroup
+      key={group.title}
+      title={group.title}
+      detail={group.detail}
+      count={group.count}
+      defaultOpen={group === first}
+      action={group.action}
+      wide={group.wide}
+    >
+      {group.terms.map((term) => (
+        <Leader key={term.slug} term={term} />
+      ))}
+    </IndexGroup>
+  );
   return (
     <section
       aria-labelledby={headingId}
@@ -193,21 +229,18 @@ export function BarIndex({
         </Link>
       </div>
       <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)] lg:gap-10 lg:border-t lg:border-border lg:pt-4 [&>*:last-child]:border-b lg:[&>*:last-child]:border-b-0">
-        {groups.map((group, i) => (
-          <IndexGroup
-            key={group.title}
-            title={group.title}
-            detail={group.detail}
-            count={group.count}
-            defaultOpen={i === 0}
-            action={group.action}
-            wide={group.wide}
-          >
-            {group.terms.map((term) => (
-              <Leader key={term.slug} term={term} />
-            ))}
-          </IndexGroup>
-        ))}
+        {columns.map((column) =>
+          column.length === 1 ? (
+            indexGroup(column[0])
+          ) : (
+            <div
+              key={column[0].title}
+              className="flex min-w-0 flex-col lg:gap-6"
+            >
+              {column.map(indexGroup)}
+            </div>
+          ),
+        )}
       </div>
     </section>
   );

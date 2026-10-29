@@ -15,6 +15,17 @@ import { useStore } from "@tanstack/react-form";
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { buttonVariants } from "@discontent/component-library/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@discontent/component-library/components/ui/alert-dialog";
 import { cn } from "@discontent/component-library/lib/utils";
 import { useRecipeForm, type RecipeFormValues } from "./formContext";
 import { useDrinkShown } from "./drinkShown";
@@ -303,6 +314,12 @@ export interface RecipeFormRailProps {
   saveLabel: string;
   /** Where Cancel goes. */
   cancelHref: string;
+  /**
+   * 46h (43e1-28): a new recipe has something the change count cannot see
+   * — an import filled the form, or the Start from fields were typed in.
+   * With it, or with any change counted, Cancel asks before discarding.
+   */
+  askBeforeCancel?: boolean;
   /** A roundup run holds Create (35r). */
   busy?: boolean;
   /** The server's answer to the last save (a slug conflict, a bad field). */
@@ -345,6 +362,7 @@ export function RecipeFormRail(props: RecipeFormRailProps) {
     errors,
     saveLabel,
     cancelHref,
+    askBeforeCancel = false,
     busy,
     message,
     overwrite,
@@ -430,14 +448,43 @@ export function RecipeFormRail(props: RecipeFormRailProps) {
       {rest ? <span className="text-muted-foreground"> {rest}</span> : null}
     </p>
   );
-  const cancel = (
-    <Link
-      href={cancelHref}
-      className={cn(buttonVariants({ variant: "ghost" }), "h-11 lg:h-9")}
-    >
-      Cancel
-    </Link>
-  );
+  const cancelClass = cn(buttonVariants({ variant: "ghost" }), "h-11 lg:h-9");
+  /* 46h (43e1-28): a new recipe with anything typed or imported asks first;
+   * an untouched one, and the edit page, still just go. */
+  const cancel =
+    mode === "create" && (changes > 0 || askBeforeCancel) ? (
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button type="button" variant="ghost" className="h-11 lg:h-9">
+            Cancel
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard this recipe?</AlertDialogTitle>
+            <AlertDialogDescription>
+              It has not been created, and what you typed or imported will be
+              lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Link
+                href={cancelHref}
+                className={buttonVariants({ variant: "destructive" })}
+              >
+                Discard
+              </Link>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    ) : (
+      <Link href={cancelHref} className={cancelClass}>
+        Cancel
+      </Link>
+    );
 
   const rail = (
     <div className="sticky-chrome lg:top-[calc(var(--header-height)+1rem)]">

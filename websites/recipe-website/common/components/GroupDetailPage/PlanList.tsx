@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useId, useMemo, useState, useTransition, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 import {
   ChevronDown,
   Ellipsis,
@@ -36,6 +44,7 @@ import {
   initialDraft,
   labelRuns,
   moveRow,
+  PLAN_CHANGED,
   planItemsKey,
   readLabel,
   removeRow,
@@ -49,6 +58,7 @@ import {
 } from "../../util/planPage";
 import { useSearch } from "../SearchForm/SearchContext";
 import type { PlanEditor } from "./types";
+import { PlanMerge } from "./PlanMerge";
 
 const FOCUS =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
@@ -661,7 +671,32 @@ export function PlanList({
   const [refreshing, startRefresh] = useTransition();
   const busy = saving || refreshing;
   const [error, setError] = useState<string>();
+  /*
+   * A merge written (46h review): "Try to merge" goes with the error it sat
+   * beside, so focus moves to the list's heading rather than to nothing.
+   */
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const focusAfterMerge = useRef(false);
+  useEffect(() => {
+    if (!focusAfterMerge.current || error) return;
+    focusAfterMerge.current = false;
+    headingRef.current?.focus();
+  }, [error]);
   const changes = editor ? draftChanges(draft, items) : 0;
+  /* The rows' names by `recipe:<slug>` / `group:<slug>`, for a merge's lines. */
+  const baseNames = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const row of rows) {
+      const { item } = row;
+      const key =
+        item.group !== undefined
+          ? `group:${item.group}`
+          : `recipe:${item.recipe}`;
+      const name = row.recipe?.name ?? row.group?.name;
+      if (name) names[key] = name;
+    }
+    return names;
+  }, [rows]);
   const ordered = draft.order.map((index) => ({ row: rows[index], index }));
   const runs = labelRuns(ordered.map(({ row }) => row));
   const editable = Boolean(editor);
@@ -700,7 +735,14 @@ export function PlanList({
       className="flex min-w-0 flex-[999_1_560px] flex-col"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-b border-border pb-2">
-        <h2 className="font-display text-xl font-semibold tracking-[-0.025em]">
+        <h2
+          ref={headingRef}
+          tabIndex={-1}
+          className={cn(
+            "font-display text-xl font-semibold tracking-[-0.025em]",
+            FOCUS,
+          )}
+        >
           In order
         </h2>
         {changes > 0 ? (
@@ -744,9 +786,28 @@ export function PlanList({
         )}
       </div>
       {error && (
-        <p className="pt-2 text-sm text-destructive" role="alert">
-          {error}
-        </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pt-2">
+          <p className="text-sm text-destructive" role="alert">
+            {error}
+          </p>
+          {/* 46h (43-Dp1-11): refused, then offered a merge with the draft. */}
+          {editor && error === PLAN_CHANGED && (
+            <PlanMerge
+              editor={editor}
+              base={items}
+              mine={draft.order.map((index, position) => ({
+                item: draftItems(draft, items)[position],
+                base: index,
+              }))}
+              baseNames={baseNames}
+              onMerged={() => {
+                focusAfterMerge.current = true;
+                setError(undefined);
+                startRefresh(() => router.refresh());
+              }}
+            />
+          )}
+        </div>
       )}
       {ordered.length === 0 ? (
         <p className="py-4 text-muted-foreground" data-testid="group-empty">

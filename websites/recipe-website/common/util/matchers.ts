@@ -6,7 +6,8 @@
  * editor's saved list, Import / export, `recipes inventory add …`:
  *
  * - **A family** (42m2): `any bean` is "I have beans, any kind" — every
- *   member of an exact list (`beans.ts`, 42m's Dm1). `matcherOf` also reads
+ *   member of an exact list (`beans.ts`, 42m's Dm1: the traditional beans;
+ *   lentils and split peas still out, 46h Dh3). `matcherOf` also reads
  *   `bean`, `beans`, `any beans`, `all beans`, `any kind of beans` and
  *   `beans (any kind)`; `canonicalItem` turns each into `any bean` when it is
  *   added (Dm2-6), so a bare "beans" never strictly meets green, vanilla or
@@ -53,6 +54,11 @@ export interface IngredientMatcher {
    */
   noun: string;
   plural: string;
+  /**
+   * How the add field offers it (46h): "Any bean (black, kidney,
+   * chickpea…)". A pattern has none: the field shows its text.
+   */
+  label?: string;
   /** The refine popover's question: "Which beans do you have?" */
   question: string;
   /** What it does, in a sentence: "Every bean counts as on hand now. …" */
@@ -81,6 +87,7 @@ export const MATCHERS: IngredientMatcher[] = [
     text: "any bean",
     noun: "bean",
     plural: "beans",
+    label: "Any bean (black, kidney, chickpea…)",
     question: "Which beans do you have?",
     summary:
       "Every bean counts as on hand now. Tick the ones you have to keep only those.",
@@ -113,7 +120,9 @@ const QUANTIFIER = /^(?:any|all)\s+(?:(?:kinds?|types?|sorts?)\s+of\s+)?/;
 const ANY_KIND_SUFFIX = /\s*(?:\(\s*any(?:\s+kind)?\s*\)|,\s*any(?:\s+kind)?)$/;
 
 function familyOf(text: string): IngredientMatcher | undefined {
+  /* `any-bean` too: search's spelling (46h), which Make's features read. */
   const rest = simple(text)
+    .replace(/-/g, " ")
     .replace(ANY_KIND_SUFFIX, "")
     .replace(QUANTIFIER, "");
   return MATCHERS.find(

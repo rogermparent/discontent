@@ -222,6 +222,8 @@ export default function NewOrImportRecipeForm({
 }) {
   /* A roundup import is running (35r): Import and Create wait for it. */
   const [busy, setBusy] = useState(false);
+  /* The roundup picker holds a typed URL or a read list (46h review). */
+  const [roundupTouched, setRoundupTouched] = useState(false);
   /*
    * The import is a job (37c, D7): the action answers its id at once, the
    * progress panel follows it, and its result lands here when it ends.
@@ -553,6 +555,15 @@ export default function NewOrImportRecipeForm({
             ? { text: "blank" }
             : {};
 
+  /* 46h (43e1-28): typed into Start from, picked photos, or a roundup URL
+   * typed or listed — Cancel asks. */
+  const startTyped =
+    roundupTouched ||
+    importUrl.trim() !== (initialImportUrl ?? "").trim() ||
+    pastedText.trim() !== "" ||
+    pastedSource.trim() !== "" ||
+    photos.length > 0;
+
   const wide = useWideRail();
   const copyNotice =
     copyChosen && sameSource ? (
@@ -665,6 +676,7 @@ export default function NewOrImportRecipeForm({
         <RoundupImport
           terms={terms}
           onRunningChange={setBusy}
+          onTouchedChange={setRoundupTouched}
           hidden={collapsed || mode !== "roundup"}
         />
 
@@ -1110,6 +1122,7 @@ export default function NewOrImportRecipeForm({
           saveLabel="Create recipe"
           baseline={baseline}
           cancelHref="/"
+          askBeforeCancel={filled || !!submissionState.formData || startTyped}
           busy={busy}
           message={submissionState.message || undefined}
           overwrite={

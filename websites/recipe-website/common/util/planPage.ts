@@ -47,8 +47,8 @@ export interface PlanSubPlanView {
   /** The walk stopped at its cap. */
   truncated?: true;
   /**
-   * Its own page has a run sheet (43p2 review): one of its recipes' steps
-   * gives a bake or a chill — the row's link says "Its own run sheet".
+   * Its own page has a run sheet (43p2 review) — since 46h, whenever it
+   * cooks anything (`hasRunSheet`): the row's link says "Its own run sheet".
    */
   sheet?: true;
 }

@@ -32,6 +32,13 @@ export interface PlanEditor {
    * changed since is refused with `PLAN_CHANGED` and nothing is written.
    */
   saveItems: (items: GroupItem[], base: string) => Promise<PlanWriteResult>;
+  /**
+   * "Try to merge" (46h, 43-Dp1-11): the rows stored now, and each row's
+   * name by `recipe:<slug>` / `group:<slug>`, after a Save was refused.
+   */
+  readItems: () => Promise<
+    { items: GroupItem[]; names: Record<string, string> } | { error: string }
+  >;
   /** "Add a recipe or a plan by name": one commit (`addItem`). */
   addItem: (ref: GroupItemRef) => Promise<PlanWriteResult>;
   /** The delete form's action (`deleteGroup`, bound to the plan). */
