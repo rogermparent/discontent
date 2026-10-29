@@ -354,11 +354,11 @@ test.describe("Drinks", () => {
     await expect(
       index.getByRole("link", { name: "All 7 drinks" }),
     ).toHaveAttribute("href", "/tags/drink");
-    await groups
-      .nth(0)
-      .getByRole("link", { name: /^Vodka/ })
-      .click();
-    await expect(page).toHaveURL(/\/tags\/vodka$/);
+    /* Hydrated first (40f): in dev a click before that was lost (46h). */
+    const vodka = groups.nth(0).getByRole("link", { name: /^Vodka/ });
+    await expectHydrated(vodka);
+    await vodka.click();
+    await expect(page).toHaveURL(/\/tags\/vodka$/, { timeout: 15_000 });
   });
 
   test("NEW marks a drink dated within 30 days, and only those", async ({

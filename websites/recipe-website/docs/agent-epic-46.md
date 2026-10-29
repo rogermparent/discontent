@@ -728,6 +728,34 @@ The seven picks from 46c's checklist that changed a default
 - The roundup picker's typed URL or read list counts in Cancel's check
   (`RoundupImport`'s `onTouchedChange`; `new-recipe` spec).
 
+- After the merge: `readPlanItems` typed a possibly-missing name (fixed),
+  and `skill-local.md` measured 1,220 tokens against the 1,200 budget with
+  the method wording; trimmed to 1,198.
+
+#### Gates (46h)
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean.
+- `pnpm exec vitest run`: 169 files, 3,772 tests, all passed.
+- Playwright, Docker, production build: shopping*, new-recipe, drinks,
+  tags-board, holidays, make, search*, groups, plan-page, visual, mobile,
+  accessibility (e2e + mobile projects) — **419 passed**, none flaky.
+- Dev mode (Docker) on the changed specs (drinks, make, new-recipe,
+  plan-page, recipe, search-query-language): 170 passed, 3 flaky. Two are
+  old new-recipe import tests waiting 10 s for the recipe page's first dev
+  compile (untouched by 46h). The third, drinks' "browse the bar", lost its
+  Vodka click before hydration; it now waits with `expectHydrated` and
+  passed 12/12 on a dev rerun.
+- Baselines (Docker, `--update-snapshots=all`): `drinks-page-e2e` and
+  `drinks-page-mobile` moved (Strength & method under Style; its own
+  disclosure on a phone). The plan-page baselines did not move.
+
+#### Traps (46h)
+
+- **Th1: `skill-local.md` sits at its token budget.** Any wording added to
+  it needs an equal cut; `agentLocal.test` measures the generated text
+  (3 ASCII characters a token).
+
 **Roger to confirm:** Dh1 (the `~` spelling), Dh3 (lentils / split peas /
 edamame / soybeans as beans?), Dh4, a holiday menu grouping drinks by
 style then strength (zero-proof, low-ABV) with method-only drinks under
