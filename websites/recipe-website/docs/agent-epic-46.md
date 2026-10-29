@@ -627,13 +627,46 @@ totalTime` — the curation schema's shape order and `parseFormData`'s).
 **Roger to confirm.** Df1 (an option's times replace the recipe's field
 by field, a blank total is prep + cook when both are known, and "All"
 shows the recipe's own — e.g. recipe prep 30 / total 120 with an option
-cook 25 shows prep 30, cook 25, total 55); Df2 (the index carries the default
-path's times as the page shows them whenever its options state any); the model action disabled with its
-reason rather than hidden when no model is set up; the model's answer
-numbered 1-based.
+cook 25 shows prep 30, cook 25, total 55); Df2 (the index carries the
+default path's times as the page shows them whenever its options state
+any; the prep-only / cook-only edge where `time:` and the page differ);
+the model action disabled with its reason rather than hidden when no
+model is set up; the model's answer numbered 1-based.
 
 **Content follow-up (orchestrator).** everything-dough's option times are
 not filled here (the brief): fill them after merge.
+
+**Gates** (the finisher's run, after the review fixes and the merge of
+`origin/main` 8c2008d2 with 46d and 46g; no conflicts,
+`skillText.generated.ts` regenerated):
+
+- Typecheck: `recipe-editor` and `recipe-website` (`tsc --noEmit`), both
+  clean.
+- Vitest: **168 files, 3777 tests, all passed.** The first full run
+  failed four `editFormRoundTrip.test.tsx` cases (three 46f option-times
+  cases on `waitFor`'s 1 s, and 45e2's "worked on, a set shows its
+  problem and the save is refused" on the 5 s test timeout). The file
+  passes alone in 12 s, but took 19.5 s in the loaded full run. Its 46f
+  block and the 45e2 block now allow 20 s per test, and the option cards
+  get 10 s to draw.
+- Playwright, Docker build mode: `alternatives`, `alternatives-form`,
+  `alternatives-model`, `edit`, `edit-duplicate-slug`, `edit-form-frame`,
+  `recipe`, `recipe-cooking-order`, `recipe-item-records`,
+  `recipe-tags-aggregate`, `recipes-infinite-scroll`,
+  `recipes-pagination`, `groups`, `plan-page`, every `search*` spec,
+  `visual`, `mobile` and `accessibility`: **366 passed** (12.5 min).
+- Dev mode (`next dev` in Docker): `alternatives`, `alternatives-form`
+  and `alternatives-model`, **28 passed**.
+- `visual/git-page` was regenerated in Docker (Te1). Only its index
+  version line moved, `476ded83c1218a49` → `4a3e71b1227164cb`; the PNG
+  was opened and checked. No other baseline moved.
+- The review's spec cases: `alternatives.spec`'s dough now states a prep
+  time of its own, so Pretzels (total only) shows the recipe's prep 15
+  beside its 1 h 30, and Pizza and "All" show 15 / total 15. In
+  `alternatives-form.spec`, the option total inputs carry `aria-invalid`
+  and the problem as their accessible description. The model's
+  steps-changed drop is covered by vitest (`setsAsSent`), not a spec: the
+  stand-in answers before a spec could edit the steps.
 
 ### 46g: Content and picks (S–M; after 46c's answers or defaults, and 46f for the dough times)
 
