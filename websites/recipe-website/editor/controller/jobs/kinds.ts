@@ -38,6 +38,8 @@ import type {
   InspectListResult,
 } from "../curation/importList";
 import type { FillResult } from "../curation/fillRecipe";
+import type { DetectChoicesResult } from "../llm/detectChoices";
+import type { OutlineEntry } from "recipe-website-common/util/choiceOutline";
 import type { InspectResult } from "../curation/inspect";
 import type { ReindexResult } from "../curation/reindex";
 import type { SyncResult } from "../curation/sync";
@@ -190,7 +192,19 @@ export type JobSpec =
       slug: string;
       /** False: the source's values only, no estimate (`--no-estimate`). */
       estimate?: boolean;
-    });
+    })
+  /**
+   * The model looks for alternatives in a recipe's steps (46f): the edit
+   * page's "Look for alternatives with the model". The steps as the form
+   * holds them, as an outline (`choiceOutline`); one model call, nothing
+   * read or written — the form offers what it finds as suggestions.
+   */
+  | {
+      kind: "choices";
+      slug: string;
+      name?: string;
+      outline: OutlineEntry[];
+    };
 
 /** Who asked for a rebuild — the label says it. */
 export type ReindexTrigger =
@@ -233,6 +247,7 @@ export interface JobResults {
   "git-sync": SyncResult;
   agent: AgentJobResult;
   fill: FillResult;
+  choices: DetectChoicesResult;
 }
 
 /** What "Import N selected" answers: one row per pick. */
@@ -445,6 +460,10 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
       job,
     );
   },
+  async choices(spec, { job }) {
+    const { detectChoices } = await import("../llm/detectChoices");
+    return detectChoices(spec.name, spec.outline, { job });
+  },
   async agent(spec, { ctx, job, dir }) {
     const { runAgentJob } = await import("../agent/job");
     return runAgentJob(spec, {
@@ -621,6 +640,8 @@ export function jobLabel(spec: JobSpec): string {
       return agentLabel(spec.prompt, spec.continues !== undefined);
     case "fill":
       return `fill ${spec.slug} from its source${spec.estimate === false ? " (no estimate)" : ""}`;
+    case "choices":
+      return `look for alternatives in ${spec.slug}`;
     default:
       return shortUrl(spec.url);
   }
@@ -680,6 +701,8 @@ export function jobResources(spec: JobSpec): string[] {
     /* The vision model, then the text model; the photo is no download. */
     case "import-photo":
     case "form-photo":
+    /* 46f: one model call over the form's outline, nothing fetched. */
+    case "choices":
       return ["gpu"];
     case "inspect-list":
     /* The picks' pictures: the readings are in hand. */

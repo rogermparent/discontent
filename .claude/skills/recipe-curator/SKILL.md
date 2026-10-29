@@ -289,6 +289,13 @@ reader picks one option of, shown on the page as tabs:
   write whose `instructions` break these is refused as `validation`, in the
   edit form's words ("The choice “Then make” needs at least two options").
 - An option's own yield goes on its group as `recipeYield` ("8 bagels").
+- An option's own times go on its group as `prepTime` / `cookTime` /
+  `totalTime` in minutes — **the whole recipe's times when that option is
+  made**, dough included, not just its own steps (a total no shorter than
+  its prep or cook time). Each one stated replaces only that one of the
+  recipe's; a total left out is prep + cook when both are known. The page
+  shows the picked option's; where one value is needed (the index,
+  `time:`, a plan's rows) the first option's path stands in.
 - An option's extra ingredients sit under an ingredient **heading** with the
   same `choice` and a name that matches the option's ("For the bagels" is
   `Bagels`): `{"ingredient": "For the bagels", "type": "heading", "choice":

@@ -551,8 +551,19 @@ describe("the registry", () => {
         "agent",
         /* 45b: a recipe's gaps filled from its source. */
         "fill",
+        /* 46f: the model looks for alternatives in a recipe's steps. */
+        "choices",
       ].sort(),
     );
+    const outline = [
+      { group: true, name: "Bagels", first: "Shape.", inChoice: false },
+    ];
+    expect(jobLabel({ kind: "choices", slug: "dough", outline })).toBe(
+      "look for alternatives in dough",
+    );
+    expect(jobResources({ kind: "choices", slug: "dough", outline })).toEqual([
+      "gpu",
+    ]);
     expect(
       jobLabel({ kind: "fill", contentDirectory: "/c", slug: "hour-bagels" }),
     ).toBe("fill hour-bagels from its source");

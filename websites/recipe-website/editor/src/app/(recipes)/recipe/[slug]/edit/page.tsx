@@ -6,7 +6,11 @@ import { getTransformedRecipeImageProps } from "recipe-website-common/components
 import { auth, signIn } from "@/auth";
 import { PageMain } from "recipe-website-common/components/PageLayout";
 import { fillSourceUrl } from "recipe-editor/controller/curation/fillGaps";
-import { llmConfig } from "recipe-editor/controller/llm/client";
+import {
+  llmConfig,
+  llmUnconfiguredMessage,
+} from "recipe-editor/controller/llm/client";
+import { readerLabel } from "recipe-editor/controller/llm/readerLabel";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +56,9 @@ export default async function Recipe({
   const tagPicker = await readTagPicker();
   /* 45b: what "Fill gaps from the source" reads, and who estimates. */
   const fillSource = fillSourceUrl(recipe);
+  /* 46f: who "Look for alternatives with the model" asks, or why none. */
+  const config = llmConfig();
+  const choicesModel = config ? readerLabel(config) : undefined;
   return (
     <PageMain>
       {/* 43e1: the form draws its own frame — heading, rail and sections. */}
@@ -61,7 +68,13 @@ export default async function Recipe({
         defaultImage={defaultImage}
         tagPicker={tagPicker}
         fillSource={fillSource}
-        llmModel={fillSource ? llmConfig()?.model : undefined}
+        llmModel={fillSource ? config?.model : undefined}
+        choicesModel={choicesModel}
+        choicesUnavailable={
+          choicesModel
+            ? undefined
+            : `No model is set up in this editor, so none can be asked (${llmUnconfiguredMessage()}).`
+        }
         initialFillJob={fillSource ? fillJob : undefined}
       />
     </PageMain>

@@ -3,7 +3,10 @@ import { Recipe } from "../../../controller/types";
 import { flattenMarkdown } from "recipe-website-common/controller/buildIndexValue";
 import { getWebsiteRoot } from "@discontent/cms/util/getWebsiteRoot";
 import { minutesToDuration } from "recipe-website-common/util/isoDuration";
-import { recipeOnPath } from "recipe-website-common/util/readChoices";
+import {
+  recipeOnPath,
+  timesOnPath,
+} from "recipe-website-common/util/readChoices";
 
 function buildJsonLDIngredients(
   recipe: Recipe,
@@ -99,12 +102,12 @@ export function buildRecipeJsonLD(
 
   if (recipe.recipeYield) jsonLD.recipeYield = recipe.recipeYield;
 
-  /* `totalTime` falls back to prep + cook, exactly as the page shows it. */
-  const prepTime = minutesToDuration(recipe.prepTime);
-  const cookTime = minutesToDuration(recipe.cookTime);
-  const totalTime = minutesToDuration(
-    recipe.totalTime || (recipe.prepTime || 0) + (recipe.cookTime || 0),
-  );
+  /* The default path's times exactly as the page shows them (46f, Df1):
+     a missing total is prep + cook, an option's times field by field. */
+  const times = timesOnPath(stored);
+  const prepTime = minutesToDuration(times.prepTime);
+  const cookTime = minutesToDuration(times.cookTime);
+  const totalTime = minutesToDuration(times.totalTime);
   if (prepTime) jsonLD.prepTime = prepTime;
   if (cookTime) jsonLD.cookTime = cookTime;
   if (totalTime) jsonLD.totalTime = totalTime;

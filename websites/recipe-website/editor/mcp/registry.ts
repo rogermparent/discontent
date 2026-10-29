@@ -350,7 +350,11 @@ const CHOICE_DESCRIPTION =
   'label, e.g. "Then make") are one set the reader picks one option of; each ' +
   "group's `name` is an option, unique in its set; a set needs two or more, two " +
   "sets need different labels, and the first option is the default. A choice " +
-  'group may carry its own `recipeYield` ("8 bagels"). An ingredient heading ' +
+  'group may carry its own `recipeYield` ("8 bagels") and its own `prepTime` / ' +
+  "`cookTime` / `totalTime` in minutes: the whole recipe's times when that option " +
+  "is made (total ≥ prep and cook), each replacing only that one of the recipe's " +
+  "(a total left out is prep + cook when both are known); the first option's path " +
+  "stands in where one value is needed (the index, `time:`, plans). An ingredient heading " +
   'with the same `choice` and a name matching an option\'s ("For the bagels" ' +
   "for `Bagels`) holds that option's extra lines, up to the next heading. An " +
   "import's `suggestedChoices` are hints only: set `choice` yourself when it fits. " +
@@ -1797,8 +1801,9 @@ export function recipeToolDefinitions(
         "`status` filters by queued, running, done, failed, cancelled, interrupted, or " +
         "`live` (queued and running); `kind` by import-url, import-text, inspect, " +
         "inspect-list, import-list, import-photo, form-url, form-text, form-photo, " +
-        "form-batch, reindex, git-sync, agent or fill (a recipe's gaps read from its " +
-        "source, written nowhere). A `waiting` " +
+        "form-batch, reindex, git-sync, agent, fill (a recipe's gaps read from its " +
+        "source, written nowhere) or choices (the model looking for alternatives " +
+        "in a recipe's steps, written nowhere). A `waiting` " +
         "job is in the queue for the GPU, yt-dlp or a site.",
       inputSchema: z.strictObject({
         status: z.enum(JOB_STATUS_FILTERS).optional(),

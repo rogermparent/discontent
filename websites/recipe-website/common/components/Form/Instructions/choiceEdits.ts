@@ -25,12 +25,36 @@ function isGroup(
   return Boolean(entry && "instructions" in entry && entry.instructions);
 }
 
-/** A group with no `choice` and no option yield. */
+/** A group with no `choice`, no option yield and no option times. */
 function plainGroup(group: InstructionGroup): InstructionGroup {
-  const { choice: _choice, recipeYield: _yield, ...rest } = group;
-  void _choice;
-  void _yield;
+  const {
+    choice: _choice,
+    recipeYield: _yield,
+    prepTime: _prep,
+    cookTime: _cook,
+    totalTime: _total,
+    ...rest
+  } = group;
+  void [_choice, _yield, _prep, _cook, _total];
   return rest;
+}
+
+/**
+ * The option at `index` with its `field` time set to `minutes` (46f) — or
+ * gone, for 0: an option states only the times it has.
+ */
+export function setOptionTime(
+  instructions: readonly InstructionEntry[],
+  index: number,
+  field: "prepTime" | "cookTime" | "totalTime",
+  minutes: number,
+): InstructionEntry[] {
+  return instructions.map((entry, i) => {
+    if (i !== index || !isGroup(entry)) return entry;
+    const { [field]: _old, ...rest } = entry;
+    void _old;
+    return minutes > 0 ? { ...rest, [field]: minutes } : rest;
+  });
 }
 
 /**
@@ -97,7 +121,7 @@ export function makeChoice(
   );
 }
 
-/** "Not a choice": the run's groups ordinary again, their yields gone. */
+/** "Not a choice": the run's groups ordinary again, their yields and times gone. */
 export function notChoice(
   instructions: readonly InstructionEntry[],
   run: ChoiceRun,

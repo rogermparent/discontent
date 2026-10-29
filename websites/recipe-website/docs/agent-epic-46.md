@@ -490,6 +490,184 @@ in 68 days`, which opens `/holidays/christmas`; no `/api` request.
   - When the recipe-level times are 0 and the default option has times, the index and the search `time:` filter use the default path's times (a projection change, bumping the index version per 39b). Record that decision.
 - **Content follow-up (46g).** Fill everything-dough's option times from its steps, marked in the doc.
 
+#### Results (46f)
+
+**Option times.**
+
+- A choice group may carry `prepTime` / `cookTime` / `totalTime` (whole
+  minutes), along every path its `recipeYield` takes: `types.ts`, the
+  curation schema (`OptionMinutesSchema`: an integer ≥ 0, a 0 dropped so it
+  is never stored), `parseFormData` (each option's hours and minutes, both
+  blank → no time; a plain group's leftover times ride in hidden
+  `…minutes` inputs), and the model (`ChoiceOption.times`,
+  `ShownPath.times`, `optionTimesOf`, `pathTimes`).
+- **Df1 — an option's times override the recipe's field by field**
+  (changed at review by the orchestrator; the first draft read them as one
+  block, which showed prep "—" beside a recipe that has one, and a total
+  of the option's cook alone). On the chosen path:
+  - an option's stated prep, cook and total each replace only that one of
+    the recipe's;
+  - a total the option leaves out, when it states prep or cook, is the
+    path's prep + cook when both are known, and none otherwise (the
+    recipe's own total belongs to a different dish);
+  - an option with no times leaves the recipe's three standing, read as
+    the page always has (a missing total is prep + cook).
+
+  Not added to the recipe's: the dough's rise is the option's to include.
+  With two sets, the chosen options' times merge field by field, a later
+  set's over an earlier's. "All" shows the recipe's own (as the yield
+  does). One function says it (`pathTimes`); `recipeOnPath` maps it (a
+  time the path has none of goes absent) and `timesOnPath` gives the
+  page's numbers to the readers that show a total. Example: recipe prep
+  30 / total 120, option cook 25 → the page shows prep 30, cook 25, total
+  55 (the draft showed prep "—", cook 25, total 25, while the index said
+  120). **Roger to confirm.**
+
+- **The form.** Each option card has "Option prep time", "Option cook
+  time" and "Option total time" — the recipe Times section's
+  `DurationInput`s — in a group named "Times for Bagels", with the note
+  "Times here replace the recipe's for this option; a total is prep + cook
+  if you leave it blank." Editing
+  one works the set (45e2's rules apply); "Not a choice" drops the times
+  with the yield. `choiceChecks` gains `optionTimeProblem`: in a worked-on
+  set, and on every curation write (De2-6), an option's total may not be
+  shorter than its own prep or cook time ("The total time of “Bagels” (20
+  min) is shorter than its cook time (25 min)", field `totalTime`), tied to
+  that option's total inputs with `aria-invalid` and `aria-describedby` as
+  a name problem is (`DurationInput` gained `describedBy` / `invalid`). A
+  set as stored is never judged (43-D4). A time that is not a number is
+  refused naming the option and the field: "Option “Bagels” prep time
+  isn't a number" (45d's rule; an unnamed group is placed as 45d places
+  it).
+- **The round trip** (`editFormRoundTrip.test.tsx`): a timed set and a
+  plain group with leftover times save byte for byte, key order included
+  (`name, instructions, choice, recipeYield, prepTime, cookTime,
+totalTime` — the curation schema's shape order and `parseFormData`'s).
+- **Readers.** `recipeOnPath` maps the chosen option's times and
+  `timesOnPath` gives the page's numbers: JSON-LD and `planRecipeView`'s
+  row total (now with the page's prep + cook fallback, so a plan row shows
+  a total for a recipe that states only prep and cook) read the default
+  path's (G2), and so do the run-sheet times. The sub-plan rows read
+  `recipeOnPath` in `readPlanPage.subPlanView` today; 46h removes that
+  read, so after it lands they carry no times of their own. The recipe page's meta strip draws a Prep / Cook /
+  Total cell when the recipe or any option has that time (Total when an
+  option has any), and `PathTime` fills it from the reader's path after
+  hydration — so a pick changes the values, never the strip's shape (U1;
+  a path with none says "—"). A recipe with no option times renders
+  exactly as before (the static cells, no client component). Plans, the
+  cook list and the run sheet read `planRecipeView`, so `GroupDetailPage/`
+  was not touched.
+- **Df2 — the index (39b).** `indexTimes(recipe)`: when the default
+  options state any time, the index value carries exactly the default
+  path's times as the page shows them (`pathTimes`), so `time:` and the
+  cards that read the value (term-page cards via the by-term row,
+  `/search`'s card meta) agree with the page — the example above indexes
+  30 / 25 / 55. Otherwise the recipe's own as stored, as before 46f (a
+  missing total stays missing: `time:` sums prep and cook itself, and a
+  card shows only a stated total, so no plain recipe's card changes). One
+  edge does not agree: a path with only prep or only cook and no total
+  shows Total "—", while `time:` reads it as that one time (its own
+  prep + cook rule). `recipeContentConfig.indexVersion`
+  is **"3"**: **reindex: automatic** — every instance rebuilds once at its
+  next start. The site's index version moved (`reindexJobs.test.ts` pin
+  `4a3e71b1227164cb`) and with it `visual/git-page` (Te1). No fixture
+  moved: no fixture recipe has option times.
+- **Docs.** The curator skill (regenerated `skillText.generated.ts`) and
+  the MCP `CHOICE_DESCRIPTION` (`recipe_create` / `recipe_update`)
+  describe option times. 59 tools / 45 pre-approved, unchanged.
+
+**Look for alternatives with the model** (45-De2-1).
+
+- On the edit page only, in the Steps section beside "Make a choice of
+  groups…" (shown when it is: two adjacent groups in no set). The form
+  is shared, so the edit page provides a `ModelChoicesProvider`
+  (`Form/Instructions/modelChoices.tsx`) with its two server actions
+  (`edit/choicesActions.ts`); /new-recipe and the export have none, and
+  show nothing.
+- With no model set up the button is disabled and the line beside it
+  says why ("No model is set up in this editor, so none can be asked (no
+  local model configured (RECIPE_LLM_URL))."), linked by
+  `aria-describedby`.
+- **A `choices` job** (`JOB_KIND_NAMES`, label "look for alternatives in
+  <slug>", resources `gpu` only, step `llm.choices` "Model looks for
+  alternatives"): one `chatJson` call (`controller/llm/detectChoices.ts`)
+  through the GPU line for a local model, as every call. The spec carries
+  the steps as the form holds them, as an outline
+  (`common/util/choiceOutline.ts`: each entry's group name and first line,
+  plain, cut at 120 characters, at most 80 entries, and whether it is
+  already in a choice), so a Retry asks the same question.
+- The answer `{sets: [{label, groups}]}` is zod-checked, then grounded
+  (`groundChoiceSets`): entry numbers (1-based, as listed) that name no
+  entry, a step, an unnamed group, one already in a choice, a repeat or
+  one an earlier set took are dropped one by one; a set left with fewer
+  than two, or not adjacent, or with a label blank or over 40 characters,
+  is dropped whole. A bad answer, a failed call or nothing left is
+  "nothing found", with what was dropped said after it.
+- **Df3 — the outcome comes back through the fill's bounded long-poll
+  for every look** (`keepUnstored` / `waitUnstored`, 15 s per ask, 10
+  minutes in all), not a live panel: one small call, and the status line
+  links the job (`/jobs/<id>`) while it asks.
+- The model answers by position, so the form keeps the outline it sent:
+  a set whose groups no longer carry the names they were sent with
+  (moved, renamed, removed while it looked; `setsAsSent`) is dropped, and
+  the status line says "The steps changed while the model looked; try
+  again."
+- The sets land as 45e2's cards marked **"suggested by the model"** (each
+  look's after the import's, each card with its own mark; one already
+  offered is not offered twice). Focus moves to the first card's "Make it
+  a choice" only if it is still on the look button or `body` (the button
+  is disabled while it asks); anywhere else the `role="status"` line
+  announces the cards. Accepted, the set wears the same mark, "Not saved yet." and
+  Undo until Save (G5). Never applied by itself. `suggestChoices` stays
+  the import's and the fill's default.
+- The stand-in model (`fixtures/llm/standInModel.ts`, `choicesAnswer`)
+  proposes the first run of open groups after a shared start, plus entry
+  99 for the grounding to drop.
+
+**Roger to confirm.** Df1 (an option's times replace the recipe's field
+by field, a blank total is prep + cook when both are known, and "All"
+shows the recipe's own — e.g. recipe prep 30 / total 120 with an option
+cook 25 shows prep 30, cook 25, total 55); Df2 (the index carries the
+default path's times as the page shows them whenever its options state
+any; the prep-only / cook-only edge where `time:` and the page differ);
+the model action disabled with its reason rather than hidden when no
+model is set up; the model's answer numbered 1-based.
+
+**Content follow-up (orchestrator).** everything-dough's option times are
+not filled here (the brief): fill them after merge.
+
+**Gates** (the finisher's run, after the review fixes and the merge of
+`origin/main` 8c2008d2 with 46d and 46g; no conflicts,
+`skillText.generated.ts` regenerated):
+
+- Typecheck: `recipe-editor` and `recipe-website` (`tsc --noEmit`), both
+  clean.
+- Vitest: **168 files, 3777 tests, all passed.** The first full run
+  failed four `editFormRoundTrip.test.tsx` cases (three 46f option-times
+  cases on `waitFor`'s 1 s, and 45e2's "worked on, a set shows its
+  problem and the save is refused" on the 5 s test timeout). The file
+  passes alone in 12 s, but took 19.5 s in the loaded full run. Its 46f
+  block and the 45e2 block now allow 20 s per test, and the option cards
+  get 10 s to draw.
+- Playwright, Docker build mode: `alternatives`, `alternatives-form`,
+  `alternatives-model`, `edit`, `edit-duplicate-slug`, `edit-form-frame`,
+  `recipe`, `recipe-cooking-order`, `recipe-item-records`,
+  `recipe-tags-aggregate`, `recipes-infinite-scroll`,
+  `recipes-pagination`, `groups`, `plan-page`, every `search*` spec,
+  `visual`, `mobile` and `accessibility`: **366 passed** (12.5 min).
+- Dev mode (`next dev` in Docker): `alternatives`, `alternatives-form`
+  and `alternatives-model`, **28 passed**.
+- `visual/git-page` was regenerated in Docker (Te1). Only its index
+  version line moved, `476ded83c1218a49` → `4a3e71b1227164cb`; the PNG
+  was opened and checked. No other baseline moved.
+- The review's spec cases: `alternatives.spec`'s dough now states a prep
+  time of its own, so Pretzels (total only) shows the recipe's prep 15
+  beside its 1 h 30, and Pizza and "All" show 15 / total 15. In
+  `alternatives-form.spec`, the option total inputs carry `aria-invalid`
+  and the problem as their accessible description. The model's
+  steps-changed drop is covered by vitest (`setsAsSent`), not a spec: the
+  stand-in answers before a spec could edit the steps.
+
 ### 46g: Content and picks (S–M; after 46c's answers or defaults, and 46f for the dough times)
 
 - **Cuisine terms.** `korean` and `filipino` as children of `cuisine`, assigned to bo ssam, bulgogi, adobo and any others found by search.
