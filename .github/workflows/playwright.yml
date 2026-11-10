@@ -6,7 +6,9 @@ on:
   pull_request:
     branches: [main]
 
-# Auth.js refuses to start without a secret (`MissingSecret`), and every
+# The editors' auth refuses to start without a secret (Auth.js's
+# `MissingSecret` then; Better Auth since 47e reads the same AUTH_SECRET and
+# refuses a production start without one), and every
 # sign-in in the recipe and portfolio suites went through the error page
 # instead of the form until this was set — 30 of shard 3's 107 tests and 26 of
 # portfolio's 84 in the first run against content-engine-test (#132,

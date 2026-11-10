@@ -12,7 +12,9 @@
 # It runs the checkout this script lives in — normally the main checkout —
 # with `next start -H 0.0.0.0` on :3000 (the Pi's WORKSTATION_URL points
 # there). `next start` reads the editor's own .env and .env.local
-# (AUTH_SECRET) as before.
+# (AUTH_SECRET, which Better Auth reads too since 47e) as before. Sign-in
+# follows the Host header, so `tourmaline:3000`, its IP and `localhost` all
+# work; no base URL is configured, and BETTER_AUTH_URL must stay unset.
 #
 # Its environment is ~/.config/recipe-deploy/workstation.env (mode 600),
 # written by `install` when absent:
@@ -45,10 +47,14 @@ die() { printf 'workstation-editor: %s\n' "$*" >&2; exit 1; }
 port() { (. "$env_file" 2>/dev/null; echo "${PORT:-3000}"); }
 
 health() {
-  local url="http://localhost:$(port)/api/auth/providers" code=""
+  # `/api/health` reads nothing (47e); `/api/auth/providers` was Auth.js's
+  # equivalent, kept so an older checkout still checks out healthy.
+  local base="http://localhost:$(port)" url="" code=""
   for _ in $(seq 1 60); do
-    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$url" || true)
-    [ "$code" = 200 ] && break
+    for url in "$base/api/health" "$base/api/auth/providers"; do
+      code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$url" || true)
+      [ "$code" = 200 ] && break 2
+    done
     sleep 1
   done
   [ "$code" = 200 ] || {

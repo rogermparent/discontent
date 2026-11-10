@@ -56,7 +56,8 @@ repo copies are the ones to edit. On the Pi:
   run.sh  swap-index.sh
   .env            AUTH_SECRET, WORKSTATION_URL, WORKSTATION_SYNC_TOKEN, and (38g)
                   any RECIPE_LLM_* the deploy config sets (600)
-  settings/       SETTINGS_DIRECTORY, seeded from the old checkout, minus ytdlpPath
+  settings/       SETTINGS_DIRECTORY, seeded from the old checkout, minus ytdlpPath;
+                  since 47e also `auth/`, the sign-in sessions (LMDB)
   jobs/           the import jobs and the queue's state, mounted at /jobs (38b)
   deployed.log    "<date> <tag>" per switch — what --rollback reads
 ~/recipes/        the content repo, mounted at /content
@@ -373,9 +374,18 @@ mirrors list>` in its `.env`, and its pings say which remote they are.
   `/etc/group` and home are copied across. ssh's login name then defaults to
   `editor`, hence `GIT_SSH_COMMAND` in `run.sh`. Before that fix, `/git`
   fetch failed with `editor@tourmaline: Permission denied (publickey,password)`.
-- **There is no `/login` route.** Sign-in is `/api/auth/signin`, and `/login`
-  is a 404 on old and new alike. The health check polls `/`, which reads the
-  indexes.
+- **Sign-in is `/login`** (47e, Better Auth; before it, Auth.js's
+  `/api/auth/signin`). It follows the `Host` header, so `uraninite:3000`, the
+  Pi's IP, a `.local` name and a Tailscale name all sign in and stay there;
+  there is no base URL to configure, and `BETTER_AUTH_URL` must stay unset
+  (it would pin one host). Before 47e a sign-in from any name but
+  `localhost` landed on `http://localhost:3000` — Next 16's `request.url` is
+  the bind address, and Auth.js built its URLs from it; `trustHost` did not
+  help. Sessions live in `~/recipe-editor/settings/auth` (never in the
+  content repo), so they survive a redeploy; the switch to 47e ended every
+  Auth.js session once. The "up" check polls `/api/health` (reads nothing),
+  falling back to Auth.js's `/api/auth/providers` for an older image; the
+  health check polls `/`, which reads the indexes.
 - **`next/font/google` fails a build now and then** ("next/font/google queries
   have exactly one entry"), when the fetch from Google Fonts drops. One retry
   has always been enough.
@@ -417,8 +427,9 @@ mirrors list>` in its `.env`, and its pings say which remote they are.
   after starting the new container. `/` renders from indexes the _old_ code
   had laid out, so it answered 500 (slugify's "Expected a string, got
   undefined"), and with no earlier tag there was nothing to roll back to. The
-  deploy now waits on `/api/auth/providers` (no index), then rebuilds, then
-  requires `/` to answer 200, and rolls back if any step fails.
+  deploy now waits on `/api/health` (no index; `/api/auth/providers` before
+  47e, still accepted), then rebuilds, then requires `/` to answer 200, and
+  rolls back if any step fails.
 - **The sandbox** refuses a command whose text names git together with a `cd`,
   a heredoc, a loop or `GIT_SHA`. The deploy script and helper script files
   get around that.
