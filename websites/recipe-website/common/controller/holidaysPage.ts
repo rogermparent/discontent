@@ -1,6 +1,12 @@
 import type { TermTree } from "@discontent/cms/taxonomies/tree";
 import type { RecipeListEntry } from "./paginationConfigs";
-import { DRINK_ROOT, DRINK_STYLE_SLUGS, SPIRIT_ROOT } from "./drinksPage";
+import {
+  DRINK_METHOD_SLUGS,
+  DRINK_ROOT,
+  DRINK_STYLE_ONLY_SLUGS,
+  DRINK_STYLE_SLUGS,
+  SPIRIT_ROOT,
+} from "./drinksPage";
 import { COURSE_ROOT } from "./homepageComingUp";
 import { tagSlug } from "./tagSlug";
 import {
@@ -86,7 +92,7 @@ export interface HolidayRecipe {
   kind: HolidayKind;
   /** Food: the course term it is grouped under (`MENU_COURSE_ORDER`). */
   course?: string;
-  /** Drinks: the style term it is grouped under (`DRINK_STYLE_SLUGS`). */
+  /** Drinks: the style term it is grouped under (`menuStyles`). */
   style?: string;
   /**
    * The right-hand side of its menu line: a drink's spirit or base, a dish's
@@ -136,7 +142,7 @@ export interface HolidayMenuData {
   recipes: HolidayRecipe[];
   /** Dishes by course (`MENU_COURSE_ORDER`), then "More". */
   courses: MenuGroup[];
-  /** Drinks by style (`DRINK_STYLE_SLUGS`), then "More". */
+  /** Drinks by style (`menuStyles`), then "More". */
   styles: MenuGroup[];
 }
 
@@ -230,11 +236,24 @@ export function menuCourses(
     .map(({ course }) => course);
 }
 
-/** The drink styles, in `DRINK_STYLE_SLUGS`' order. */
+/**
+ * The groups a menu's drinks fall into: the styles proper
+ * (`DRINK_STYLE_ONLY_SLUGS`), then strength — zero-proof and low-ABV, which
+ * a party menu wants apart. Never the methods (46h, 43-Df2): shaken,
+ * stirred and built say how a drink is mixed, not what it is, so a shaken
+ * sour is a Sour and a drink tagged only `shaken` goes under More.
+ */
 export function menuStyles(
   tree: TermTree | null | undefined,
 ): Array<{ slug: string; label: string }> {
-  return DRINK_STYLE_SLUGS.map((slug) => ({
+  return [
+    ...DRINK_STYLE_ONLY_SLUGS,
+    ...DRINK_STYLE_SLUGS.filter(
+      (slug) =>
+        !DRINK_STYLE_ONLY_SLUGS.includes(slug) &&
+        !DRINK_METHOD_SLUGS.includes(slug),
+    ),
+  ].map((slug) => ({
     slug,
     label: labelOf(tree, slug),
   }));

@@ -284,7 +284,7 @@ test.describe("Single Recipe View", () => {
       await methods
         .getByRole("button", { name: "Shaken", exact: true })
         .click();
-      /* The method sets its style tag — one choice, not two. */
+      /* The method sets its method tag — one choice, not two. */
       await expect(
         form.getByRole("button", { name: "Remove tag shaken", exact: true }),
       ).toBeVisible();

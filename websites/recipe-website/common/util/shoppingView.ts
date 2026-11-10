@@ -263,6 +263,12 @@ export interface ShoppingRow {
   need: boolean;
   /** Every item is optional in its recipe. */
   optional: boolean;
+  /**
+   * 46h (43-Da1): some items optional, not all. "optional for Lemon Bars"
+   * when the optional lines come from recipes that need it nowhere else,
+   * otherwise "partly optional". Absent when `optional` or nothing is.
+   */
+  partlyOptional?: string;
   /** Every item was typed in by hand. */
   manual: boolean;
   /** Sources on: where each item came from. */
@@ -350,13 +356,37 @@ function forNoteOf(entries: Entry[]): string | undefined {
     );
   }
   if (subs.size === 0) return undefined;
-  const names = [...subs];
-  const joined =
-    names.length === 1
-      ? names[0]
-      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  const joined = joinNames([...subs]);
   const every = entries.every((entry) => entry.item.for?.length);
   return `${every ? "for" : "partly for"} ${joined}`;
+}
+
+/** Joins names as prose: "A", "A and B", "A, B and C". */
+function joinNames(names: string[]): string {
+  return names.length === 1
+    ? names[0]
+    : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/**
+ * 46h (43-Da1): a row of some optional and some required lines is still
+ * bought (a recipe needs it), but says whose lines were optional.
+ */
+function partlyOptionalOf(entries: Entry[]): string | undefined {
+  const optional = entries.filter((entry) => entry.item.optional);
+  if (optional.length === 0 || optional.length === entries.length) {
+    return undefined;
+  }
+  const whose = (entry: Entry) =>
+    entry.item.recipeName ?? entry.item.recipe ?? undefined;
+  const required = new Set(
+    entries.filter((entry) => !entry.item.optional).map(whose),
+  );
+  const names = [...new Set(optional.map(whose))];
+  if (names.some((name) => !name || required.has(name))) {
+    return "partly optional";
+  }
+  return `optional for ${joinNames(names as string[])}`;
 }
 
 /** The unique as-needed extras of the entries read as needed, in order. */
@@ -469,6 +499,8 @@ function buildRow(
   }
   const forNote = forNoteOf(entries);
   if (forNote) row.forNote = forNote;
+  const partlyOptional = partlyOptionalOf(entries);
+  if (partlyOptional) row.partlyOptional = partlyOptional;
   if (features.sources) {
     row.sources = [
       ...items.map(sourceOf),

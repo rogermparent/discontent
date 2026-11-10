@@ -366,6 +366,84 @@ test.describe("Meal plan: plan at home", () => {
     ]);
   });
 
+  test("signed in: Try to merge shows both sides and saves the merge (46h)", async ({
+    page,
+    initializeContentGit,
+    getContentGitLog,
+  }) => {
+    await initializeContentGit();
+    await page.goto(`/group/${PLAN}`);
+    await signInHydrated(page);
+    await expect(page).toHaveURL(new RegExp(`/group/${PLAN}$`));
+    const scaleA = page.getByLabel("Scale for Gingerbread Cookies: 1×");
+    await expectHydrated(scaleA);
+
+    /* A second tab scales the gingerbread to 2× and saves first. */
+    const other = await page.context().newPage();
+    await other.goto(`/group/${PLAN}`);
+    const scaleB = other.getByLabel("Scale for Gingerbread Cookies: 1×");
+    await expectHydrated(scaleB);
+    await chooseOption(other, scaleB, "2×");
+    const barB = other.getByTestId("plan-save-bar");
+    await barB.getByRole("button", { name: "Save" }).click();
+    await expect(barB).toHaveCount(0);
+    await other.close();
+
+    /* This tab, opened before that Save: 3× and Spritz moved down. */
+    await chooseOption(page, scaleA, "3×");
+    await page
+      .getByRole("button", { name: "Move or remove Spritz Cookies" })
+      .click();
+    await page.getByRole("button", { name: "Move down" }).click();
+    const bar = page.getByTestId("plan-save-bar");
+    await expect(bar).toContainText("2 changes · not saved");
+    await bar.getByRole("button", { name: "Save" }).click();
+    const list = page.getByRole("region", { name: "In this plan, in order" });
+    await expect(list.getByRole("alert")).toHaveText(
+      "The plan changed — reload to see it.",
+    );
+
+    await list.getByRole("button", { name: "Try to merge" }).click();
+    const dialog = page.getByRole("dialog", {
+      name: "Merge with the stored plan",
+    });
+    await expect(dialog.getByTestId("plan-merge-theirs")).toContainText(
+      "Gingerbread Cookies: scale 1× → 2×",
+    );
+    const mine = dialog.getByTestId("plan-merge-mine");
+    await expect(mine).toContainText("Gingerbread Cookies: scale 1× → 3×");
+    await expect(mine).toContainText("Reordered the rows");
+    /* Both scaled it: the merge asks which to keep before it saves. */
+    const conflict = dialog.getByRole("group", {
+      name: "Gingerbread Cookies: scale",
+    });
+    const saveMerged = dialog.getByRole("button", { name: "Save merged" });
+    await expect(saveMerged).toBeDisabled();
+    await conflict.getByLabel("Yours: 3×").check();
+    await saveMerged.click();
+    await expect(dialog).toHaveCount(0);
+    /* The trigger went with the error: focus lands on the list's heading. */
+    await expect(
+      list.getByRole("heading", { name: "In order", exact: true }),
+    ).toBeFocused();
+
+    await expect(rows(page).getByRole("link")).toHaveText([
+      "Gingerbread Cookies",
+      "Spritz Cookies",
+      "Peanut Butter Blossoms",
+      "Iced Sugar Cookies",
+    ]);
+    await expect(
+      page.getByLabel("Scale for Gingerbread Cookies: 3×"),
+    ).toBeVisible();
+    await expect(list.getByRole("alert")).toHaveCount(0);
+    const log = await getContentGitLog();
+    expect(log.slice(0, 2)).toEqual([
+      `Set items on group: ${PLAN}`,
+      `Set items on group: ${PLAN}`,
+    ]);
+  });
+
   test("signed in: Undo drops the draft, and Add appends a row", async ({
     page,
   }) => {
@@ -733,7 +811,7 @@ test.describe("Meal plan: the run sheet", () => {
     ).toHaveAttribute("href", `/group/${PLAN}?mode=sheet`);
   });
 
-  test("a plan with nothing to bake or chill has no run sheet", async ({
+  test("a plan with nothing to bake or chill has a run sheet too, its columns not set (46h)", async ({
     page,
     request,
     createApiToken,
@@ -761,12 +839,14 @@ test.describe("Meal plan: the run sheet", () => {
     });
     expect(plan.status()).toBe(201);
     await page.goto("/group/soup-night?mode=sheet");
-    await expect(
-      page.getByRole("button", { name: "Plan", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
+    /* 43-Dp2-1: offered on every plan; what the steps don't say is "not set". */
     await expect(
       page.getByRole("button", { name: "Run sheet", exact: true }),
-    ).toHaveCount(0);
+    ).toHaveAttribute("aria-pressed", "true");
+    const table = page.getByTestId("sheet-table");
+    await expect(table).toContainText("Lentil Soup");
+    await expect(table).toContainText("chill not set");
+    await expect(table).toContainText("bake not set");
   });
 
   test("signed in: the docket shows the plan's lines by aisle", async ({

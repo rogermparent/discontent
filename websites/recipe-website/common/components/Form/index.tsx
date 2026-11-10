@@ -201,7 +201,7 @@ function Timelines() {
 /**
  * The drink spec, first, when the recipe is a drink (or asked for one). Once
  * on the page it stays for the visit: clearing the method (and with it the
- * style tag it set) must not pull the section out from under the cursor.
+ * method tag it set) must not pull the section out from under the cursor.
  */
 function DrinkFirst({ from, errors }: { from?: string; errors?: string[] }) {
   const shown = useDrinkShown();

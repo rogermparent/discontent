@@ -1365,7 +1365,9 @@ test.describe("What can I make? — start from nothing, and patterns", () => {
     const suggestions = page.getByTestId("add-suggestions");
     /* The family stays on offer; the pattern row comes last. */
     await expect(
-      suggestions.getByRole("option", { name: /^Any bean — matches 4 kinds/ }),
+      suggestions.getByRole("option", {
+        name: /^Any bean \(black, kidney, chickpea…\) — matches 4 kinds/,
+      }),
     ).toBeVisible();
     const every = suggestions.getByRole("option", {
       name: /^Match every line with “bean” — bean\* · matches 4 names/,
@@ -1561,9 +1563,9 @@ test.describe("What can I make? — tap to add, and matchers", () => {
 
     const input = page.getByTestId("inventory-input");
     await input.fill("bean");
-    const option = page
-      .getByTestId("add-suggestions")
-      .getByRole("option", { name: /^Any bean — matches 4 kinds/ });
+    const option = page.getByTestId("add-suggestions").getByRole("option", {
+      name: /^Any bean \(black, kidney, chickpea…\) — matches 4 kinds/,
+    });
     await expect(option).toBeVisible();
     await option.click();
 

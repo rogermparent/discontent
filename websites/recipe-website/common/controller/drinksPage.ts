@@ -44,6 +44,10 @@ export { HOLIDAYS_ROOT };
  * `drink`. So the list is kept here, in display order for a tie. A child of
  * `drink` not named here is a family and goes under Classics; a slug named
  * here that the site doesn't have is left out.
+ *
+ * Despite the name it holds every non-family child: the styles proper and
+ * the strength & method tags (`DRINK_STRENGTH_METHOD_SLUGS`, which /drinks
+ * and the facet model list apart).
  */
 export const DRINK_STYLE_SLUGS = [
   "sour",
@@ -57,6 +61,47 @@ export const DRINK_STYLE_SLUGS = [
   "zero-proof",
   "warm-drinks",
 ] as const;
+
+/**
+ * Children of `drink` that say how strong a drink is or how it is mixed
+ * rather than what kind of drink it is (43f Df2; 46h, 43-Df2). `shaken`,
+ * `stirred` and `built` are the methods — the tags the edit form's Method
+ * control sets for shake, stir and build (43e2) — beside each other, since
+ * Roger counts shaken and stirred as equals; `blend` has no tag. The tag
+ * data is unchanged: only the classification moved (they were styles until
+ * 46h). A subset of `DRINK_STYLE_SLUGS`; the order breaks count ties.
+ */
+export const DRINK_STRENGTH_METHOD_SLUGS: readonly string[] = [
+  "zero-proof",
+  "low-abv",
+  "shaken",
+  "stirred",
+  "built",
+];
+
+/** `DRINK_STYLE_SLUGS` less strength and method: the styles proper. */
+export const DRINK_STYLE_ONLY_SLUGS: readonly string[] =
+  DRINK_STYLE_SLUGS.filter(
+    (slug) => !DRINK_STRENGTH_METHOD_SLUGS.includes(slug),
+  );
+
+/** The methods alone: how a drink is mixed (the edit form's Method). */
+export const DRINK_METHOD_SLUGS: readonly string[] = [
+  "shaken",
+  "stirred",
+  "built",
+];
+
+/**
+ * Every non-family child, the styles proper first (46h review): what a
+ * drink is says more on a card than how it was mixed, so a shaken batch
+ * punch reads "Batch". Strength and method follow, for a drink with no
+ * style.
+ */
+const DRINK_META_ORDER: readonly string[] = [
+  ...DRINK_STYLE_ONLY_SLUGS,
+  ...DRINK_STYLE_SLUGS.filter((slug) => !DRINK_STYLE_ONLY_SLUGS.includes(slug)),
+];
 
 /** How many families the index's Classics column lists before "All". */
 export const CLASSICS_LIMIT = 24;
@@ -112,8 +157,13 @@ export interface DrinksPageData {
   count: number;
   /** The `spirit` root's children, most drinks first. */
   spirits: DrinkTerm[];
-  /** `DRINK_STYLE_SLUGS` the site has, most drinks first. */
+  /** The styles proper (`DRINK_STYLE_ONLY_SLUGS`) the site has, most drinks first. */
   styles: DrinkTerm[];
+  /**
+   * 46h: strength & method (`DRINK_STRENGTH_METHOD_SLUGS`) the site has,
+   * most drinks first — /drinks lists them apart from the styles.
+   */
+  methods: DrinkTerm[];
   /** The other children of `drink` — drink names — most drinks first. */
   classics: DrinkTerm[];
   /** How many families there are, before `CLASSICS_LIMIT`. */
@@ -251,9 +301,13 @@ export function drinksPageData({
     .filter((line) => line.count > 0)
     .sort(byCountThenLabel);
   const styleSlugs = new Set<string>(DRINK_STYLE_SLUGS);
-  const styles = DRINK_STYLE_SLUGS.map(term)
-    .filter((line) => line.count > 0)
-    .sort((a, b) => b.count - a.count);
+  const lines = (slugs: readonly string[]) =>
+    slugs
+      .map(term)
+      .filter((line) => line.count > 0)
+      .sort((a, b) => b.count - a.count);
+  const styles = lines(DRINK_STYLE_ONLY_SLUGS);
+  const methods = lines(DRINK_STRENGTH_METHOD_SLUGS);
   const families = childrenOf(DRINK_ROOT)
     .filter((child) => !styleSlugs.has(child))
     .map(term)
@@ -270,7 +324,10 @@ export function drinksPageData({
       meta.bases[slug] ??= labelOf(spirit);
     }
   }
-  for (const style of styles) meta.styles[style.slug] = style.label;
+  /* The meta line still reads a method ("Gin · Shaken") when no style is. */
+  for (const style of [...styles, ...methods]) {
+    meta.styles[style.slug] = style.label;
+  }
   const card = (recipe: RecipeListEntry): DrinkCard => ({
     ...recipe,
     meta: drinkMeta(recipe.tags, meta),
@@ -305,6 +362,7 @@ export function drinksPageData({
     count: drinks.length,
     spirits,
     styles,
+    methods,
     classics: families.slice(0, CLASSICS_LIMIT),
     classicsCount: families.length,
     seasonal,
@@ -315,8 +373,8 @@ export function drinksPageData({
 
 /**
  * A drink's meta line, "Tequila · Sour": the first base, then the first
- * style (`DRINK_STYLE_SLUGS`' order), by the tags it carries. Empty when
- * neither is tagged. Pure, so the server's cards and the browser's Pour now
+ * style proper (`DRINK_STYLE_ONLY_SLUGS`), or failing one its strength or
+ * method ("Shaken"), by the tags it carries. Empty when neither is tagged. Pure, so the server's cards and the browser's Pour now
  * rows say the same.
  */
 export function drinkMeta(
@@ -325,7 +383,7 @@ export function drinkMeta(
 ): string[] {
   const slugs = (tags ?? []).map((tag) => tagSlug(tag));
   const base = slugs.map((slug) => lookup.bases[slug]).find(Boolean);
-  const style = DRINK_STYLE_SLUGS.find(
+  const style = DRINK_META_ORDER.find(
     (slug) => slugs.includes(slug) && lookup.styles[slug],
   );
   return [base, style && lookup.styles[style]].filter(

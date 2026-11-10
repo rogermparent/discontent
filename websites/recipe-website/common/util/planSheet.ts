@@ -37,12 +37,14 @@ export function mixedStorageKey(slug: string): string {
 }
 
 /**
- * Does the plan have a run sheet? When at least one recipe's steps give a
- * bake or a chill — the sheet's two columns. A week of dinners with neither
- * keeps to Plan and Cook (Dp2-1).
+ * Does the plan have a run sheet? Every plan with a row does, since 46h
+ * (Roger's 43-Dp2-1 pick, "offer it on every plan"): a week of dinners
+ * whose steps give no bake or chill gets the sheet too, its columns saying
+ * "not set" where the steps say nothing. Until 46h only a plan with a bake
+ * or a chill had one (43p2's Dp2-1). An empty plan has nothing to run.
  */
 export function hasRunSheet(rows: readonly PlanRowView[]): boolean {
-  return rows.some((row) => row.recipe?.times.bake || row.recipe?.times.chill);
+  return rows.length > 0;
 }
 
 /** "rest 20 min", "rest 5–10 min", "rest overnight". */

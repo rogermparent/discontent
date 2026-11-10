@@ -10,7 +10,7 @@ import {
 import { Input } from "@discontent/component-library/components/ui/input";
 import { cn } from "@discontent/component-library/lib/utils";
 import { parseInventoryText } from "../../util/inventoryText";
-import { looksLikePattern, patternError } from "../../util/matchers";
+import { looksLikePattern, matcherOf, patternError } from "../../util/matchers";
 
 /** One suggestion: a name the scope's recipes use, and what adding it does. */
 export interface AddCandidate {
@@ -194,7 +194,8 @@ export function AddField({
               <span className="flex min-w-0 flex-col">
                 <span>
                   <span aria-hidden>✱ </span>
-                  {candidate.name.replace(/^any\b/, "Any")}
+                  {matcherOf(candidate.name)?.label ??
+                    candidate.name.replace(/^any\b/, "Any")}
                   <span className="sr-only"> — </span>
                 </span>
                 <span className="text-xs text-muted-foreground">

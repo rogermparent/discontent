@@ -356,6 +356,66 @@ test.describe("Search — the group: field", () => {
 });
 
 /**
+ * 46h (Roger's 43-Dm1–Dm4 and 43-Dn2 picks): two `ingredient:` values read
+ * the lines' names, on `make-beans` (black beans; kidney and chickpeas;
+ * green, kidney and cannellini beans; chickpeas and cucumber).
+ * `ingredient:any-bean` is the traditional-bean family — chickpeas yes,
+ * green beans no — and `ingredient:~X` is X in any form. The grammar and the
+ * family's members are unit-tested (`test/ingredientQuery.test.ts`).
+ */
+test.describe("Search — ingredient:any-bean and ingredient:~", () => {
+  test.beforeEach(async ({ page, resetData }) => {
+    await resetData("make-beans");
+    await page.goto("/search");
+    await expect(ticker(page)).toHaveText(/ALL 4 RECIPES/i, {
+      timeout: SEARCH_TIMEOUT,
+    });
+  });
+
+  test("any-bean finds every family bean; the text match finds the word", async ({
+    page,
+  }) => {
+    /* The word: chickpeas are no "bean…". */
+    await searchFor(page, "ingredient:bean");
+    await expect(listItems(page)).toHaveCount(3, { timeout: SEARCH_TIMEOUT });
+    await expect(cardNamed(page, "Chickpea Cucumber Salad")).toHaveCount(0);
+
+    await searchFor(page, "ingredient:any-bean");
+    await expect(listItems(page)).toHaveCount(4, { timeout: SEARCH_TIMEOUT });
+
+    /* Green beans are no family bean: excluding them drops one salad. */
+    await searchFor(page, 'ingredient:any-bean -ingredient:"green beans"');
+    await expect(listItems(page)).toHaveCount(3, { timeout: SEARCH_TIMEOUT });
+    await expect(cardNamed(page, "Classic Three Bean Salad")).toHaveCount(0);
+  });
+
+  test("~ matches a canned line by the name typed plain", async ({ page }) => {
+    await searchFor(page, "ingredient:~garbanzos");
+    await expect(listItems(page)).toHaveCount(2, { timeout: SEARCH_TIMEOUT });
+    expect((await cardNames(page)).sort()).toEqual([
+      "Chickpea Cucumber Salad",
+      "Two Bean Salad",
+    ]);
+    await searchFor(page, 'ingredient:~"cooked black beans"');
+    await expect(listItems(page)).toHaveCount(1, { timeout: SEARCH_TIMEOUT });
+    await expect(cardNamed(page, "Black Bean and Corn Salad")).toBeVisible();
+  });
+
+  test("the completion offers the bean family first", async ({ page }) => {
+    const field = searchField(page);
+    await field.click();
+    await field.pressSequentially("ingredient:bea");
+    const labels = page.getByTestId("query-autocomplete-label");
+    await expect(labels.first()).toHaveText(
+      "Any bean (black, kidney, chickpea…)",
+    );
+    await page.getByTestId("query-autocomplete-option").first().click();
+    await expect(field).toHaveValue("ingredient:any-bean ");
+    await expect(listItems(page)).toHaveCount(4, { timeout: SEARCH_TIMEOUT });
+  });
+});
+
+/**
  * `source:` (27d) — provenance as a filter, over the two fields the corpus
  * carries for it. The search corpus has no cited recipe, so one arrives over
  * the API, the way an import would.

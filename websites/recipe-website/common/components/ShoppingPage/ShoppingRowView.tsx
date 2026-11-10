@@ -268,7 +268,11 @@ export function ShoppingRowView({
         >
           <RowLabel row={row} />
         </label>
-        {(row.optional || row.need || row.partial || row.forNote) && (
+        {(row.optional ||
+          row.partlyOptional ||
+          row.need ||
+          row.partial ||
+          row.forNote) && (
           <p
             className="text-xs text-muted-foreground"
             data-testid="shopping-row-note"
@@ -276,7 +280,7 @@ export function ShoppingRowView({
             {[
               row.forNote,
               row.partial && `${row.checkedCount} of ${row.total} ticked`,
-              row.optional && "optional",
+              row.optional ? "optional" : row.partlyOptional,
               row.need && "buy anyway",
             ]
               .filter(Boolean)

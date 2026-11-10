@@ -16,6 +16,13 @@
  * `low-sodium`). Exact on purpose: a tail rule would let `beans` claim green
  * beans, vanilla beans and coffee beans.
  *
+ * **The traditional beans** (46h, Roger's 43-Dm1–Dm4 pick: "some sort of
+ * bean tag which specifically covers all traditional beans (black, kidney,
+ * etc)"): this family, unchanged, is also search's `ingredient:any-bean`
+ * (`ingredientQuery.ts`). Lentils and split peas stay out (46h Dh3, as
+ * amended): Roger named the traditional beans, and adding pulses would
+ * silently widen every saved `any bean` list on /make.
+ *
  * Left out (42m, Dm1): green, string, wax and runner beans (a vegetable),
  * edamame and soybeans, lentils and split peas (cooked differently — a
  * possible family of their own later), bean sprouts, coffee, cocoa, vanilla
