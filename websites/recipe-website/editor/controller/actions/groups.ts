@@ -14,6 +14,7 @@ import type { GroupFormState } from "recipe-website-common/controller/groupFormS
 import type {
   Group,
   GroupEntryKey,
+  GroupItem,
 } from "recipe-website-common/controller/types";
 import { z } from "zod";
 import parseGroupFormData, { ParsedGroupFormData } from "../parseGroupFormData";
@@ -30,6 +31,7 @@ import {
   addItem,
   assertNoGroupCycle,
   deleteGroup as deleteGroupAndFeatures,
+  getGroup,
   setItems,
 } from "../curation/groups";
 import { GroupCycleError, toErrorObject } from "../curation/errors";
@@ -328,6 +330,36 @@ export async function savePlanItems(
       changedMessage: PLAN_CHANGED,
     }),
   );
+}
+
+/**
+ * "Try to merge" (46h, 43-Dp1-11): the plan's rows as stored now, read
+ * fresh from the content repository (no cached read), and each row's name
+ * by its `recipe:<slug>` / `group:<slug>` key for the merge's lines. The
+ * page merges them with its draft and writes the result through
+ * `savePlanItems`, checked against exactly these rows.
+ */
+export async function readPlanItems(
+  slug: string,
+): Promise<
+  { items: GroupItem[]; names: Record<string, string> } | { error: string }
+> {
+  const email = await authenticateUser();
+  if (!email) return { error: "Sign in to change the plan." };
+  try {
+    const detail = await getGroup(curationContextFor(email), slug);
+    const names: Record<string, string> = {};
+    for (const item of detail.items) {
+      const key =
+        item.group !== undefined
+          ? `group:${item.group}`
+          : `recipe:${item.recipe}`;
+      names[key] = item.name ?? item.group ?? item.recipe ?? key;
+    }
+    return { items: detail.group.items ?? [], names };
+  } catch (error) {
+    return { error: toErrorObject(error).error.message };
+  }
 }
 
 /**

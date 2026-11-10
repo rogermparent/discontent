@@ -9,6 +9,11 @@
  *     tag:chinese (ingredient:beef OR ingredient:pork)
  *     chocolate cake tag:dessert -tag:baked time:<30 before:2026-01-01
  *
+ * Two `ingredient:` values read a line's names rather than its text (46h,
+ * `util/ingredientQuery.ts`): `ingredient:any-bean`, the traditional-bean
+ * family, and `ingredient:~"black beans"`, black beans in any form (canned,
+ * dried, cooked). Every other `ingredient:` value matches the text as typed.
+ *
  * Two rules shape everything below:
  *
  *  1. **An unknown prefix is not an error.** `foo:bar` is free text, so a colon
@@ -21,6 +26,12 @@
  */
 
 import { tagSlug } from "../../controller/tagSlug";
+import { fold } from "../../util/fold";
+import {
+  ingredientMatchOf,
+  lineMatchesIngredient,
+  type IngredientMatchMode,
+} from "../../util/ingredientQuery";
 import type { TermResolver } from "../../controller/tagExpansion";
 
 /** Fields an operator may bind. Anything else is free text (rule 1). */
@@ -74,7 +85,17 @@ export interface QuerySpan {
 }
 
 export type FilterNode =
-  | ({ type: "text"; field: TextMatchField; value: string } & QuerySpan)
+  | ({
+      type: "text";
+      field: TextMatchField;
+      value: string;
+      /**
+       * 46h: an `ingredient:` value that reads names, not text —
+       * `any-bean` (the bean family) or `~X` (X in any form; `value` is X).
+       * Absent for every other value (`ingredientQuery.ts`).
+       */
+      match?: IngredientMatchMode;
+    } & QuerySpan)
   | ({ type: "time"; op: ComparisonOperator; minutes: number } & QuerySpan)
   | ({ type: "date"; field: "before" | "after"; timestamp: number } & QuerySpan)
   | { type: "not"; child: FilterNode }
@@ -102,21 +123,12 @@ export interface ParsedQuery {
   hasAdvancedSyntax: boolean;
 }
 
-/**
- * Fold text for matching: lowercase and diacritic-stripped, mirroring what
- * FlexSearch's default encoder does to the corpus — so `tag:creme` matches
- * `Crème` for the same reason a plain "creme" search finds it.
- *
- * For precomposed (NFC) text — what content files carry — this is
- * length-preserving (é → e + ◌́ → e, one char in, one char out), which
- * `highlightText` relies on to slice at a prefix offset. It checks that anyway.
+/*
+ * `fold` lives in `util/fold.ts` since 46h, so the ingredient-name pipeline
+ * (which `ingredient:~…` and `ingredient:any-bean` read) can use it without a
+ * cycle through this module. Re-exported: every caller keeps its import.
  */
-export function fold(text: string): string {
-  return text
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
-}
+export { fold };
 
 // --- tokenizer -------------------------------------------------------------
 
@@ -296,6 +308,22 @@ function termNode(token: Token): FilterNode | undefined {
   }
   const folded = fold(value).trim();
   if (!folded) return undefined;
+  if (field === "ingredient") {
+    /* 46h: `ingredient:any-bean` and `ingredient:~"black beans"`. */
+    const named = ingredientMatchOf(folded);
+    if (named) {
+      return {
+        type: "text",
+        field,
+        value: named.value,
+        match: named.mode,
+        start,
+        end,
+      };
+    }
+    /* A lone `~`, mid-keystroke: nothing to match yet (rule 2). */
+    if (folded === "~") return undefined;
+  }
   return {
     type: "text",
     field: field as TextMatchField,
@@ -597,10 +625,15 @@ export function matchesFilter(
             return subtree.has(folded) || subtree.has(tagSlug(folded));
           });
         }
-        case "ingredient":
+        case "ingredient": {
+          /* 46h: the bean family and "any form" read each line's names. */
+          const mode = filter.match;
           return (recipe.ingredients ?? []).some((line) =>
-            fieldMatches(line, value),
+            mode
+              ? lineMatchesIngredient(line, mode, value)
+              : fieldMatches(line, value),
           );
+        }
         case "name":
           return fieldMatches(recipe.name, value);
         case "description":

@@ -124,8 +124,9 @@ describe("hasRunSheet", () => {
     ).toBe(true);
   });
 
-  it("is not for a week of dinners, a sub-plan alone or a dangling row", () => {
-    expect(hasRunSheet([SOUP])).toBe(false);
+  it("is on every plan since 46h — a week of dinners, a sub-plan, a dangling row", () => {
+    /* 43-Dp2-1: Roger's pick; the columns the steps can't fill say "not set". */
+    expect(hasRunSheet([SOUP])).toBe(true);
     expect(
       hasRunSheet([
         {
@@ -137,7 +138,9 @@ describe("hasRunSheet", () => {
           group: { slug: "tray", name: "Tray", recipes: [], thumbs: [] },
         },
       ]),
-    ).toBe(false);
+    ).toBe(true);
+    /* An empty plan has nothing to run. */
+    expect(hasRunSheet([])).toBe(false);
   });
 });
 

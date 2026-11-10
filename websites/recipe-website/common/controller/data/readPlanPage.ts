@@ -78,13 +78,11 @@ async function subPlanView(
   const recipes = await Promise.all(
     walk.recipes.map(async ({ slug: recipeSlug }) => {
       const recipe = await recipeItems.read(recipeSlug);
-      const times = recipe ? readPlanTimes(recipeOnPath(recipe)) : undefined;
       return {
         slug: recipeSlug,
         name: recipe?.name ?? recipeSlug,
         ...(recipe?.image ? { image: recipe.image } : {}),
         found: Boolean(recipe),
-        sheet: Boolean(times?.bake || times?.chill),
       };
     }),
   );
@@ -102,8 +100,8 @@ async function subPlanView(
       .slice(0, SUB_PLAN_THUMBS)
       .map(({ slug: s, image }) => ({ slug: s, image: image! })),
     ...(walk.truncated ? { truncated: true } : {}),
-    /* Any recipe it cooks bakes or chills (`hasRunSheet`'s test). */
-    ...(recipes.some((recipe) => recipe.sheet) ? { sheet: true as const } : {}),
+    /* It cooks anything: every plan has a run sheet since 46h (`hasRunSheet`). */
+    ...(recipes.length > 0 ? { sheet: true as const } : {}),
   };
 }
 

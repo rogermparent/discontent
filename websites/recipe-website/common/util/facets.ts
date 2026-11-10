@@ -8,7 +8,8 @@ import {
 } from "../components/SearchForm/queryLanguage";
 import {
   DRINK_ROOT,
-  DRINK_STYLE_SLUGS,
+  DRINK_STRENGTH_METHOD_SLUGS,
+  DRINK_STYLE_ONLY_SLUGS,
   SPIRIT_ROOT,
 } from "../controller/drinksPage";
 import { FACET_ROOT_ORDER } from "../controller/homepageFacets";
@@ -81,23 +82,17 @@ export type FacetGroupId =
 
 /**
  * Children of `drink` that say how strong a drink is or how it is mixed
- * rather than what kind of drink it is (Df2). `shaken` names the method
- * (27c, D1: sours carry it too); `stirred` and `built` stay styles, as the
- * vocabulary's own records describe them (agent-mixology.md: "Styles: sour,
- * collins, stirred, built, highball, batch"). A slug the site lacks is
- * skipped; one added later lands in Families until it is listed here.
+ * rather than what kind of drink it is (Df2): zero-proof and low-ABV, and the
+ * methods `shaken`, `stirred` and `built` — side by side since 46h (43-Df2;
+ * until then `stirred` and `built` were styles). The list lives with
+ * `/drinks` (`drinksPage.ts`). A slug the site lacks is skipped; one added
+ * later lands in Families until it is listed there.
  */
-export const DRINK_STRENGTH_METHOD_SLUGS: readonly string[] = [
-  "zero-proof",
-  "low-abv",
-  "shaken",
-];
+export { DRINK_STRENGTH_METHOD_SLUGS };
 
 /** `DRINK_STYLE_SLUGS` less strength and method: the Style group. */
 export const DRINK_STYLE_FACET_SLUGS: readonly string[] =
-  DRINK_STYLE_SLUGS.filter(
-    (slug) => !DRINK_STRENGTH_METHOD_SLUGS.includes(slug),
-  );
+  DRINK_STYLE_ONLY_SLUGS;
 
 /** The food facet roots, in `FACET_ROOT_ORDER`'s order. */
 export const FOOD_FACET_ROOTS: readonly string[] = FACET_ROOT_ORDER.filter(

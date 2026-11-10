@@ -481,7 +481,9 @@ export function recipeToolDefinitions(
         "Ranked free-text search: a recipe matches if it has any of the words " +
         "(prefix at a word start), best first — a word in the name counts most, then " +
         "tags, ingredients, description — and ties newest first. Supports the site's " +
-        "query language: tag:, ingredient:, name:, description:, source: (a site's " +
+        "query language: tag:, ingredient: (ingredient:any-bean for any traditional " +
+        'bean, ingredient:~"black beans" for any form: canned, dried, cooked), ' +
+        "name:, description:, source: (a site's " +
         "name or host), group: (a group's slug or name, sub-groups included), " +
         "time:, before:, after:, and a leading - to negate a term; " +
         "typed terms narrow exactly.",

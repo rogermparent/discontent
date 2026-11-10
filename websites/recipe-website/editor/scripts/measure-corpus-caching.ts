@@ -14,9 +14,8 @@
  *    own declared way of serving it, and the public site;
  *  - the editor in production, `next start` — a real Next server, i.e. the mode
  *    where a `Cache-Control` would be a code change. Its three search routes
- *    build as **dynamic** (`ƒ`), not static: only `search/version` says so, with
- *    `force-dynamic`, and the other two come out dynamic anyway. The export's
- *    siblings are the `force-static` ones.
+ *    build as **dynamic** (`ƒ`), not static. The export's siblings are the
+ *    `force-static` ones. (`search/version`, the third, was removed in 46h.)
  *
  * Three probes, in order of cost:
  *
@@ -65,9 +64,8 @@ const SCENARIO = process.env.SCENARIO || "fresh";
 const PROFILE_DIR =
   process.env.PROFILE_DIR || join(tmpdir(), "measure-corpus-caching-profile");
 
-/** The three documents `SearchContext` fetches, in the order it fetches them. */
+/** The documents `SearchContext` fetches, in the order it fetches them. */
 const DOCUMENTS = [
-  { label: "search/version", path: "/search/version" },
   { label: "search/all", path: "/search/all" },
   { label: "search/ingredients", path: "/search/ingredients" },
 ];
@@ -164,18 +162,15 @@ async function probeBrowser() {
     await page.goto(BASE_URL + "/search", { waitUntil: "load" });
 
     // The corpus fetches are made by the client after hydration, so waiting on
-    // navigation alone is not enough. Wait for the two unconditional documents;
-    // `search/ingredients` is version-gated and its *absence* is a result.
+    // navigation alone is not enough. Wait for the unconditional document;
+    // `search/ingredients` is gated and its *absence* is a result.
     await page
       .waitForFunction(
         () => {
           const names = performance
             .getEntriesByType("resource")
             .map((entry) => entry.name);
-          return (
-            names.some((n) => n.endsWith("/search/version")) &&
-            names.some((n) => n.endsWith("/search/all"))
-          );
+          return names.some((n) => n.endsWith("/search/all"));
         },
         undefined,
         { timeout: 30_000 },
@@ -241,11 +236,6 @@ function printResourceTable(
 async function main() {
   console.log(`BASE_URL: ${BASE_URL}`);
   console.log(`SCENARIO: ${SCENARIO}`);
-
-  const version = await fetch(BASE_URL + "/search/version").then((r) =>
-    r.json(),
-  );
-  console.log(`version:  ${JSON.stringify(version)}`);
 
   const headers = await probeHeaders();
   console.log("");
