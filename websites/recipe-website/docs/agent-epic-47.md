@@ -185,6 +185,155 @@ page at the set URL."
   wrong password, sign out everywhere, the rate limiter, every signed-in
   spec on the new storage state, portfolio's signed-in specs.
 
+#### Results
+
+- **`packages/auth` (`@discontent/auth`)**, used by both editors, neither
+  importing the other:
+  - `config.ts` — `createEditorAuth`: the Better Auth instance (minimal entry,
+    no Kysely), sign-up off, bcrypt, sessions in `secondaryStorage`, the
+    rate limiter, cookie settings.
+  - `adapter.ts` — a read-only `createAdapterFactory` adapter over
+    `<content>/users/<email>`: `user` and one `credential` `account` per file,
+    derived on every query. Writes throw.
+  - `storage.ts` — `secondaryStorage` on an LMDB env at `<settings>/auth`, with
+    TTLs (`{v, e}`), an atomic `increment`/`getAndDelete`, a sweep of expired
+    rows, a reopen when the directory is removed and made again, and
+    `sweepUserSessions`.
+  - `request.ts` — the origin from `Host` and the request handed to
+    `auth.handler`; `redirect.ts` — `safeRedirectPath` / `loginPath`;
+    `origin.ts` — `isSameOriginRequest`; `password.ts` — bcrypt.
+  - `next.ts` — `createNextAuthHelpers`: `auth()`, `redirectToLogin`, and the
+    bodies of the sign-in, footer Sign In, sign-out and sign-out-everywhere
+    actions. `LoginForm.tsx` — the form.
+- **Recipe editor.** `src/auth.ts` binds the package (cookie prefix
+  `recipe-editor`); `app/authActions.ts` holds the four server actions;
+  `/login` (`PageMain`/`PageSection`/`PageHeading`); the footer's Sign In/Out
+  and ⌘K's item call the actions (no `next-auth/react`); all ~30 `signIn(…)`
+  callers are `redirectToLogin(path)`; Settings → Maintenance has a "Sign-in"
+  card with **Sign out everywhere**; `apiAuth.authenticateRequest` checks the
+  request's origin before it accepts the session cookie for an unsafe method;
+  `/api/health` replaces `/api/auth/providers` for the deploy scripts.
+- **Portfolio editor**, the same (prefix `portfolio-editor`): `src/auth.ts`,
+  `app/authActions.ts`, `(editor)/login`, the masthead's Sign In/Out, Sign out
+  everywhere on its Settings page.
+- **Removed:** `next-auth` from both editors, both `auth.config.ts` (the dead
+  `authorized` callback), both `api/auth/[...nextauth]` routes, every
+  `next-auth/react` use, the two `z.string().email()` (they lived only in the
+  removed `auth.ts` files; Better Auth validates with zod 4's `z.email()`).
+- **Users and tokens unchanged.** The user files keep their shape (`{email,
+password, createdAt?, tokens?}`); nothing in sign-in writes them, so no API
+  token can be lost. `Bearer rcp_…` tokens, `create-token`, `revoke-token`,
+  `PI_TOKEN`, `WORKSTATION_SYNC_TOKEN`, `MIRROR_SYNC_TOKEN` and
+  `RECIPE_API_TOKEN` work as before (bearer first, then the cookie).
+- **Deploy notes.** `deploy-pi.sh` (the wrong `trustHost` note, `wait_up` on
+  `/api/health` or `/api/auth/providers`), `workstation-editor.sh` (the
+  same health fallback), `deploy-pi.md` (sign-in, sessions, the health
+  check), both READMEs (`openssl rand` instead of `npx auth secret`). No
+  deploy env changes: Better Auth reads the existing `AUTH_SECRET`.
+- **Existing sessions end at the switch.** Auth.js's JWT cookies mean nothing
+  to Better Auth: everyone signs in once after the deploy, on each device.
+
+#### Decisions
+
+- **De1 — Better Auth 1.7.13** (published 2026-10-25, 15 days before the
+  pin). 1.7.14 (2026-10-26) was on the two-week line; later ones are too new.
+  Node 22 (the Pi image's `node:22-bookworm-slim`, CI's 22) is fine: no
+  engines constraint, Web Crypto only. Exact version, no range.
+- **De2 — No `baseURL`, and the request is built from `Host`.** Verified in
+  the 1.7.13 source (`utils/url.mjs`, `auth/base.mjs`, `context/helpers.mjs`):
+  with `baseURL` unset, the handler derives its base URL from
+  `BETTER_AUTH_URL`/`BASE_URL` env, then `x-forwarded-*` (only with
+  `advanced.trustedProxyHeaders`), then `request.url` — which in Next is the
+  bind address, the same bug. So the sign-in action hands `auth.handler` a
+  `Request` whose URL is `http://<Host>/api/auth/sign-in/email`, carrying the
+  browser's cookie, Origin, Referer, Fetch Metadata and `x-forwarded-for`.
+  Better Auth's trusted origin is then the person's own, and its origin check
+  refuses a POST from anywhere else. The dynamic form
+  (`baseURL: {allowedHosts}`) was rejected: "any host" there adds `http://*` /
+  `https://*` to `trustedOrigins`, which matches every origin. The factory
+  warns when `BETTER_AUTH_URL`, `NEXT_PUBLIC_BETTER_AUTH_URL` or `BASE_URL` is
+  set (it would pin one host). `x-forwarded-proto: https` is honoured for the
+  scheme only; `x-forwarded-host` is not read.
+- **De3 — No `/api/auth/*` route.** Every flow is a server action:
+  sign-in through `auth.handler` (so the rate limiter and origin check run —
+  both live only in Better Auth's router), `getSession`, `signOut` and
+  `revokeSessions` as direct `auth.api` calls with the request's headers and
+  the `nextCookies` plugin. Nothing else of Better Auth's API (sign-up,
+  password reset, update-user…) is reachable from outside. Next's own
+  server-action check (Origin vs Host) runs before any of it.
+- **De4 — Redirects are paths.** `safeRedirectPath` accepts only a
+  root-relative path (no `//`, `\`, scheme, control character, encoded
+  separator, or `/login` itself) and falls back to `/`. Next answers a
+  `redirect("/x")` with a relative `Location`, so the browser stays on its
+  host. The footer's Sign In and sign-out use the `Referer`'s path when its
+  host is the request's.
+- **De5 — Rate limit: 5 sign-in attempts a minute per client address**, in
+  LMDB (`increment`, fixed window), keyed by Better Auth's IP from
+  `x-forwarded-for`, which Next fills from the socket when the client sent
+  none. A client on the LAN can send its own `x-forwarded-for` and dodge the
+  per-address limit; bcrypt (cost 10) still bounds it to a few tries a second
+  per core. `TEST_MODE` raises it to 1,000 (the suites sign in dozens of times
+  a minute from one address); the limiter is covered by vitest.
+- **De6 — Remember this device.** On: a 90-day session (`expiresIn`), rolled
+  forward a day at a time (`updateAge`), cookie `Max-Age` 90 days. Off
+  (the default): a browser-session cookie, and Better Auth's fixed one-day
+  server session. The cookie is rewritten only where Next allows it (server
+  actions, the sign-in): a page render extends the server session but cannot
+  set the cookie, so the cookie's 90 days restart at the last form action.
+- **De7 — Sign out everywhere includes this device**, and lands on
+  `/login?signedOut=everywhere`. It calls `revokeSessions` and then sweeps the
+  LMDB store for every session of the user, because in 1.7.13
+  `revokeSessions` deletes only the sessions on the `active-sessions-<user>`
+  list (1.7.16 fixed "revoked sessions staying usable with secondary
+  storage"). API tokens are not sessions and keep working.
+- **De8 — Sessions in `<settings>/auth`**, never the content repo: never
+  committed, never synced to the Pi with the content, untouched by reindex,
+  pull, revert, restore or sync. On the Pi that is the
+  `~/recipe-editor/settings` volume, so a redeploy keeps sessions. `auth()`
+  also requires the user file to exist: removing a user signs them out.
+- **De9 — Cookies.** `HttpOnly`, `SameSite=Lax`, **not `Secure`**: Better
+  Auth decides `Secure` once at start from `NODE_ENV`, and a `Secure` cookie
+  set over plain http on a LAN name is dropped by the browser. Each editor
+  has its own prefix (`recipe-editor.`, `portfolio-editor.`), because cookies
+  ignore ports and two editors on one host would otherwise share a name.
+- **De10 — No `proxy.ts`.** Every page and action keeps its own check
+  (`auth()`, `redirectToLogin`); a proxy would only duplicate them, and could
+  not be the only check anyway.
+- **De11 — The API's session fallback checks the origin.** For a non-GET,
+  the cookie counts only if `Sec-Fetch-Site` is `same-origin`/`none`, or
+  (without Fetch Metadata) `Origin`'s host is `Host`; a request with neither
+  is not a browser and passes. Bearer tokens are exempt.
+- **De12 — `/api/health`** for the deploy scripts' "up" check, which polled
+  Auth.js's `/api/auth/providers`. The scripts accept either, so a rollback to
+  a pre-47e image still passes.
+- **De13 — "Everywhere" means every device on this editor.** The
+  workstation and the Pi are two editors over one synced content repo: users
+  and tokens sync with the content, sessions (De8) do not. So Sign out
+  everywhere on the workstation does not end a session on the Pi, and the
+  Maintenance card says so, naming the instance from epic 28's role ("this
+  editor (the workstation)" / "(the mirror)", and that the other editor keeps
+  its own sign-ins). Removing a user file from the content repo does sign
+  that person out on both, once it syncs (De8).
+
+#### Traps
+
+- **Te1 — The Playwright suites remove `test-settings` before every test**,
+  the session store's directory included. `storage.ts` stats `data.mdb` on
+  each call and reopens the env when its identity changed; without that the
+  server kept writing sessions into an unlinked file.
+- **Te2 — `next dev` blocks `/_next/*` to a page whose Origin is not
+  `localhost`.** The host spec visits as `127.0.0.1`, so the recipe editor's
+  `next.config.mjs` adds `allowedDevOrigins: ["127.0.0.1"]` (dev only).
+
+#### Gates
+
+(filled in after review)
+
+**Roger to confirm:** "Remember this device" off by default (De6); 90 days
+(De6); sign out everywhere includes this device (De7) and is per editor —
+the workstation's does not reach the Pi (De13); 5 tries a minute per address,
+spoofable via `x-forwarded-for` on the LAN (De5).
+
 ### 47-close
 
 - The Close-out, the CLAUDE.md bullet, backlog strikes and rows, memory
