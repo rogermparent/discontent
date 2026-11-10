@@ -218,8 +218,8 @@ export interface CommandPaletteProps {
   isOwner?: boolean;
   /**
    * Editor-injected Sign In/Out `CommandItem`. Supplied as a ReactNode (mirroring
-   * the `footerNavItems` precedent) rather than importing `next-auth/react` here —
-   * that package lives only in the editor app, so a direct import would break the
+   * the `footerNavItems` precedent) rather than importing the editor's sign-in
+   * here — that lives only in the editor app, so a direct import would break the
    * static `export` build that also bundles this shared component. Absent in
    * export → no auth action, which is correct for the reader site.
    */

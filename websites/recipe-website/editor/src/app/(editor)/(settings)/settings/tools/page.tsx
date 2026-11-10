@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import { readSettings } from "@/settings";
 import {
   PageMain,
@@ -13,7 +13,7 @@ import { LocalModelStatus } from "./LocalModelStatus";
 export default async function ToolsPage() {
   const user = await auth();
   if (!user) {
-    return signIn(undefined, { redirectTo: `/settings/tools` });
+    return redirectToLogin(`/settings/tools`);
   }
   const settings = await readSettings();
   return (

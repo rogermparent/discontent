@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import {
   claudeRequested,
   llmConfig,
@@ -29,7 +29,7 @@ const RECENT = 100;
 export default async function JobsPage() {
   const user = await auth();
   if (!user) {
-    return signIn(undefined, { redirectTo: `/jobs` });
+    return redirectToLogin(`/jobs`);
   }
   const [list, queue] = await Promise.all([
     listJobSummaries({ limit: RECENT }),

@@ -3,6 +3,13 @@ const nextConfig = {
   // No AGENTS.md: since Next 16.4 `next dev` writes one into the app when it
   // detects a coding agent; this repo's agent notes live in the root CLAUDE.md.
   agentRules: false,
+  /*
+   * `next dev` refuses its own dev resources (`/_next/*`, the HMR socket) to
+   * a page whose Origin is not `localhost`. 47e's sign-in spec visits the
+   * same server as `127.0.0.1` too — the multi-host regression test — so
+   * allow that one loopback name. Dev only; `next start` ignores it.
+   */
+  allowedDevOrigins: ["127.0.0.1"],
   env: {
     // The editor is branded as the editor; deployments can override via env.
     // The public export app uses the neutral default from getSiteConfig().

@@ -1,5 +1,5 @@
 import NewRecipeWorkspace from "./workspace";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import {
   readTagPicker,
   readTagVocabulary,
@@ -42,7 +42,7 @@ export default async function NewRecipe({
   const jobParam = single(params.job);
   const user = await auth();
   if (!user) {
-    return signIn(undefined, { redirectTo: returnTo(jobParam, importURL) });
+    return redirectToLogin(returnTo(jobParam, importURL));
   }
 
   /*

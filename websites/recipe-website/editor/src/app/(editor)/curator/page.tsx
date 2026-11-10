@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import {
   PageMain,
   PageSection,
@@ -42,7 +42,7 @@ export default async function CuratorPage({
 }) {
   const session = await auth();
   if (!session?.user?.email) {
-    return signIn(undefined, { redirectTo: "/curator" });
+    return redirectToLogin("/curator");
   }
   const setup = curatorSetup();
   if (!setup) notFound();

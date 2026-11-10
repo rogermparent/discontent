@@ -1,4 +1,4 @@
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import Link from "next/link";
 import {
   PageMain,
@@ -29,7 +29,7 @@ function MenuLink({
 export default async function Menus() {
   const user = await auth();
   if (!user) {
-    return signIn(undefined, { redirectTo: "/menus" });
+    return redirectToLogin("/menus");
   }
   return (
     <PageMain>

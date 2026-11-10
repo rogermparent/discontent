@@ -1,4 +1,4 @@
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import { readSettings } from "@/settings";
 import {
   PageMain,
@@ -12,9 +12,7 @@ import { SiteDetailsForm } from "./SiteDetailsForm";
 export default async function SettingsPage() {
   const user = await auth();
   if (!user) {
-    return signIn(undefined, {
-      redirectTo: `/settings`,
-    });
+    return redirectToLogin(`/settings`);
   }
   const settings = await readSettings();
   const mirror = isMirror();

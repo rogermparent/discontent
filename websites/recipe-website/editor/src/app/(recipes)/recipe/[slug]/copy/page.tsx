@@ -2,7 +2,7 @@ import { readTagPicker } from "recipe-website-common/controller/data/readTermPag
 import { recipeItems } from "recipe-website-common/controller/data/readRecipeItem";
 import CopyForm from "./form";
 import { notFound } from "next/navigation";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import {
   PageMain,
   PageSection,
@@ -19,9 +19,7 @@ export default async function Recipe({
   const { slug } = await params;
   const user = await auth();
   if (!user) {
-    return signIn(undefined, {
-      redirectTo: `/recipe/${slug}/copy`,
-    });
+    return redirectToLogin(`/recipe/${slug}/copy`);
   }
   const recipe = await recipeItems.read(slug);
   if (!recipe) notFound();

@@ -1,4 +1,4 @@
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import {
   PageMain,
   PageSection,
@@ -27,11 +27,11 @@ export default async function NewTermPage({
 
   const user = await auth();
   if (!user) {
-    return signIn(undefined, {
-      redirectTo: requested
+    return redirectToLogin(
+      requested
         ? `/tags/new?parent=${encodeURIComponent(requested)}`
         : "/tags/new",
-    });
+    );
   }
 
   const tree = await tagTermReads.tree.read();

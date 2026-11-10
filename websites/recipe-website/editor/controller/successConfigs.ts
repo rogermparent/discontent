@@ -70,7 +70,7 @@ export const recipeSuccessConfig: ContentSuccessConfig = {
    *
    * **This is a declaration, not a measurable change**, and the honest
    * framing matters more than the flag. A production build renders `/` as
-   * `ƒ` — next-auth reads cookies in the layout — so there is no Full Route
+   * `ƒ` — the layout reads the session cookie — so there is no Full Route
    * Cache entry for `revalidatePath("/")` to drop, and the export has no
    * server at all. Nothing observable moves. What changes is that the record
    * is now true: the write path is precise, rather than precise-plus-a-
