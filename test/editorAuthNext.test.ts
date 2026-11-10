@@ -33,11 +33,15 @@ vi.mock("next/headers", () => ({
 import { redirects, resetRedirects } from "./stub_navigation.js";
 import { createEditorAuth, type EditorAuth } from "../packages/auth/config";
 import {
+  SIGN_IN_FAILED,
   WRONG_CREDENTIALS,
   createNextAuthHelpers,
   refererPath,
 } from "../packages/auth/next";
-import { closeAuthStorages } from "../packages/auth/storage";
+import {
+  closeAuthStorages,
+  lmdbSecondaryStorage,
+} from "../packages/auth/storage";
 
 const FIXTURE_HASH =
   "$2b$10$82q8wy6VC18Xf8RlauuFluLOxHZJrnmTCwJuBUJX.j9AuxZpTYCma";
@@ -174,6 +178,149 @@ describe("the /login action", () => {
     const browserSession = request.jar.get("recipe-editor.session_token")
       ?.options as { maxAge?: number };
     expect(browserSession.maxAge).toBeUndefined();
+  });
+});
+
+describe("the per-account and overall limits (De5)", () => {
+  /** A sign-in from `ip`, as a client that sets its own X-Forwarded-For. */
+  async function attemptFrom(ip: string, fields: Record<string, string> = {}) {
+    browserOn("uraninite:3000", { "x-forwarded-for": ip });
+    return helpers.signInWithPassword(
+      {},
+      form({
+        email: "admin@nextmail.com",
+        password: "guess",
+        redirectTo: "/settings",
+        ...fields,
+      }),
+    );
+  }
+
+  it("trips the account's limit however X-Forwarded-For rotates", async () => {
+    const results = [];
+    for (let i = 0; i < 11; i += 1) {
+      results.push(await attemptFrom(`10.9.${i}.1`));
+    }
+    expect(results.slice(0, 10).map((r) => r?.error)).toEqual(
+      Array(10).fill(WRONG_CREDENTIALS),
+    );
+    expect(results[10]?.error).toMatch(
+      /^Too many sign-in attempts\. Try again in 15 minutes\.$/,
+    );
+    /* The right password from a fresh address is refused too, for now. */
+    expect(
+      (await attemptFrom("10.9.99.1", { password: "password" }))?.error,
+    ).toMatch(/Too many sign-in attempts/);
+    expect(request.jar.size).toBe(0);
+    /* Another account is not this one's limit. */
+    expect(
+      (await attemptFrom("10.9.100.1", { email: "who@example.com" }))?.error,
+    ).toBe(WRONG_CREDENTIALS);
+  });
+
+  it("counts the account case-blind", async () => {
+    for (let i = 0; i < 10; i += 1) {
+      await attemptFrom(`10.8.${i}.1`, {
+        email: i % 2 ? "ADMIN@nextmail.com" : "admin@NEXTMAIL.com",
+      });
+    }
+    expect((await attemptFrom("10.8.50.1"))?.error).toMatch(
+      /Too many sign-in attempts/,
+    );
+  });
+
+  it("starts the account's window again after a successful sign-in", async () => {
+    for (let i = 0; i < 9; i += 1) await attemptFrom(`10.7.${i}.1`);
+    expect(
+      await attemptFrom("10.7.9.1", { password: "password" }),
+    ).toBeUndefined();
+    expect(redirects).toEqual(["/settings"]);
+    request.jar.clear();
+    for (let i = 0; i < 10; i += 1) {
+      expect((await attemptFrom(`10.7.${20 + i}.1`))?.error).toBe(
+        WRONG_CREDENTIALS,
+      );
+    }
+    expect((await attemptFrom("10.7.40.1"))?.error).toMatch(
+      /Too many sign-in attempts/,
+    );
+  });
+
+  it("has an overall ceiling across accounts and addresses", async () => {
+    editor = createEditorAuth({
+      usersDirectory: () => usersDir,
+      storageDirectory: join(root, "auth"),
+      cookiePrefix: "recipe-editor",
+      secret: "a-test-secret-that-is-long-enough-for-better-auth-0123",
+      nextCookies: false,
+      globalSignInRate: { window: 60, max: 3 },
+    });
+    const errors = [];
+    for (let i = 0; i < 4; i += 1) {
+      errors.push(
+        (await attemptFrom(`10.6.${i}.1`, { email: `user${i}@example.com` }))
+          ?.error,
+      );
+    }
+    expect(errors.slice(0, 3)).toEqual(Array(3).fill(WRONG_CREDENTIALS));
+    expect(errors[3]).toMatch(
+      /^Too many sign-in attempts\. Try again in \d+ seconds\.$/,
+    );
+  });
+});
+
+describe("a sign-in that fails for another reason", () => {
+  it("does not call a session-store failure a wrong password", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const real = editor;
+    editor = {
+      ...real,
+      auth: {
+        ...real.auth,
+        handler: async () =>
+          Response.json(
+            {
+              code: "FAILED_TO_CREATE_SESSION",
+              message: "Failed to create session",
+            },
+            { status: 401 },
+          ),
+      },
+    };
+    expect(await signInOn("uraninite:3000")).toEqual({
+      error: SIGN_IN_FAILED,
+      email: "admin@nextmail.com",
+    });
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringMatching(/401 FAILED_TO_CREATE_SESSION/),
+      expect.anything(),
+    );
+    expect(redirects).toEqual([]);
+    logged.mockRestore();
+  });
+
+  it("says so when the store cannot write a session", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = lmdbSecondaryStorage(join(root, "auth"));
+    editor = createEditorAuth({
+      usersDirectory: () => usersDir,
+      storageDirectory: join(root, "auth"),
+      cookiePrefix: "recipe-editor",
+      secret: "a-test-secret-that-is-long-enough-for-better-auth-0123",
+      nextCookies: false,
+      storage: {
+        ...store,
+        async set() {
+          throw new Error("MDB_MAP_FULL");
+        },
+      },
+    });
+    const result = await signInOn("uraninite:3000");
+    expect(result?.error).toBe(SIGN_IN_FAILED);
+    expect(result?.error).not.toBe(WRONG_CREDENTIALS);
+    expect(redirects).toEqual([]);
+    expect(logged).toHaveBeenCalled();
+    logged.mockRestore();
   });
 });
 

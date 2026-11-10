@@ -12,10 +12,11 @@ import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import bcrypt from "bcrypt";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   BROWSER_SESSION_SERVER_SECONDS,
+  PINNING_ENV,
   REMEMBER_ME_SECONDS,
   createEditorAuth,
   type EditorAuth,
@@ -249,6 +250,35 @@ describe("the users-directory adapter", () => {
     await expect(
       adapter.create({ model: "user", data: { email: "x@example.com" } }),
     ).rejects.toThrow(/read-only/);
+  });
+});
+
+describe("a variable that would pin one host", () => {
+  it("covers every base-URL variable Better Auth reads", () => {
+    expect([...PINNING_ENV].sort()).toEqual(
+      [
+        "BASE_URL",
+        "BETTER_AUTH_URL",
+        "NEXT_PUBLIC_BETTER_AUTH_URL",
+        "NUXT_PUBLIC_AUTH_URL",
+        "NUXT_PUBLIC_BETTER_AUTH_URL",
+        "PUBLIC_BETTER_AUTH_URL",
+      ].sort(),
+    );
+  });
+
+  it("is named in a warning at start", () => {
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("NUXT_PUBLIC_AUTH_URL", "http://localhost:3000");
+    try {
+      makeAuth();
+      expect(warned).toHaveBeenCalledWith(
+        expect.stringMatching(/NUXT_PUBLIC_AUTH_URL is set/),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      warned.mockRestore();
+    }
   });
 });
 
@@ -563,6 +593,20 @@ describe("the LMDB session store", () => {
     expect(await store.increment("k", 60)).toBe(2);
     now += 30_001;
     expect(await store.increment("k", 60)).toBe(1);
+  });
+
+  it("says when a counter's window ends", async () => {
+    let now = 5_000_000;
+    const store = lmdbSecondaryStorage(join(root, "hit"), { now: () => now });
+    expect(await store.hit("k", 900)).toEqual({
+      count: 1,
+      resetAt: 5_900_000,
+    });
+    now += 60_000;
+    expect(await store.hit("k", 900)).toEqual({
+      count: 2,
+      resetAt: 5_900_000,
+    });
   });
 
   it("gets and deletes in one step", async () => {

@@ -1,7 +1,11 @@
 import { resolve } from "node:path";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { getSettingsDirectory } from "@discontent/cms/settings";
-import { createEditorAuth, type EditorAuth } from "@discontent/auth/config";
+import {
+  TEST_MODE_SIGN_IN_RATES,
+  createEditorAuth,
+  type EditorAuth,
+} from "@discontent/auth/config";
 import { createNextAuthHelpers } from "@discontent/auth/next";
 
 /**
@@ -33,9 +37,7 @@ function getAuth(): EditorAuth {
         usersDirectory,
         storageDirectory,
         /* The Playwright suite signs in many times a minute from one address. */
-        signInRate: process.env.TEST_MODE
-          ? { window: 60, max: 1000 }
-          : undefined,
+        ...(process.env.TEST_MODE ? TEST_MODE_SIGN_IN_RATES : {}),
       }),
     };
   }

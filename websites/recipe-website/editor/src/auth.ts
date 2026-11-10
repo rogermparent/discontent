@@ -1,7 +1,11 @@
 import { resolve } from "node:path";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { getSettingsDirectory } from "@discontent/cms/settings";
-import { createEditorAuth, type EditorAuth } from "@discontent/auth/config";
+import {
+  TEST_MODE_SIGN_IN_RATES,
+  createEditorAuth,
+  type EditorAuth,
+} from "@discontent/auth/config";
 import { createNextAuthHelpers } from "@discontent/auth/next";
 import { usersDirectory } from "./users";
 
@@ -43,12 +47,10 @@ function getAuth(): EditorAuth {
         storageDirectory,
         /*
          * The Playwright suite signs in dozens of times a minute from one
-         * address (one worker, fresh sign-ins per spec); the limiter itself is
-         * covered by `test/editorAuth.test.ts`.
+         * address (one worker, fresh sign-ins per spec); the limits
+         * themselves are covered by vitest.
          */
-        signInRate: process.env.TEST_MODE
-          ? { window: 60, max: 1000 }
-          : undefined,
+        ...(process.env.TEST_MODE ? TEST_MODE_SIGN_IN_RATES : {}),
       }),
     };
   }

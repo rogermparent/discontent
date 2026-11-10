@@ -6,6 +6,11 @@ import {
   toCookieOptions,
 } from "better-auth/cookies/utils";
 import type { EditorAuth } from "./config";
+import {
+  checkSignInLimits,
+  clearAccountLimit,
+  tooManyAttempts,
+} from "./limits";
 import { loginPath, safeRedirectPath } from "./redirect";
 import { authRequest, requestHost } from "./request";
 import { readStoredUser } from "./userFiles";
@@ -31,6 +36,30 @@ export interface LoginState {
 
 /** One message for a wrong email and a wrong password alike. */
 export const WRONG_CREDENTIALS = "That email and password don't match.";
+
+/** Anything else that stopped a sign-in: a storage failure, say. */
+export const SIGN_IN_FAILED = "Couldn't sign in — try again.";
+
+/*
+ * Better Auth's error codes that mean "not these credentials". Everything
+ * else — `FAILED_TO_CREATE_SESSION` (an LMDB write failure, also a 401),
+ * a validation error, a 500 — is not the person's typing, and saying "wrong
+ * password" for it would send them hunting for a password that was right.
+ */
+const CREDENTIAL_CODES = new Set([
+  "INVALID_EMAIL_OR_PASSWORD",
+  "INVALID_EMAIL",
+  "PASSWORD_TOO_LONG",
+]);
+
+async function errorCode(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.clone().json()) as { code?: unknown };
+    return typeof body?.code === "string" ? body.code : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface NextAuthHelperOptions {
   getAuth: () => EditorAuth;
@@ -124,6 +153,15 @@ export function createNextAuthHelpers({
       return { error: "Enter your email and password.", email };
     }
     const requestHeaders = await headers();
+    const editor = getAuth();
+    let wait: number | null;
+    try {
+      wait = await checkSignInLimits(editor, email);
+    } catch (error) {
+      console.error("[auth] sign-in limit check failed", error);
+      return { error: SIGN_IN_FAILED, email };
+    }
+    if (wait !== null) return { error: tooManyAttempts(wait), email };
     const request = authRequest(requestHeaders, "/sign-in/email", {
       email,
       password,
@@ -134,20 +172,32 @@ export function createNextAuthHelpers({
     }
     let response: Response;
     try {
-      response = await getAuth().auth.handler(request);
+      response = await editor.auth.handler(request);
     } catch (error) {
       console.error("[auth] sign-in failed", error);
-      return { error: "Couldn't sign in. Try again.", email };
+      return { error: SIGN_IN_FAILED, email };
     }
     if (response.status === 429) {
-      const wait = Number(response.headers.get("x-retry-after")) || 60;
-      return {
-        error: `Too many sign-in attempts. Try again in ${wait} seconds.`,
-        email,
-      };
+      const retry = Number(response.headers.get("x-retry-after")) || 60;
+      return { error: tooManyAttempts(retry), email };
     }
     if (response.status === 401 || response.status === 400) {
-      return { error: WRONG_CREDENTIALS, email };
+      const code = await errorCode(response);
+      if (code && CREDENTIAL_CODES.has(code)) {
+        return { error: WRONG_CREDENTIALS, email };
+      }
+      console.error(
+        `[auth] sign-in failed with ${response.status} ${code ?? "(no code)"}:`,
+        await response.text().catch(() => ""),
+      );
+      return { error: SIGN_IN_FAILED, email };
+    }
+    if (response.status >= 500) {
+      console.error(
+        `[auth] sign-in failed with ${response.status}:`,
+        await response.text().catch(() => ""),
+      );
+      return { error: SIGN_IN_FAILED, email };
     }
     if (!response.ok) {
       console.warn(
@@ -166,6 +216,9 @@ export function createNextAuthHelpers({
         jar.set(name, attributes.value, toCookieOptions(attributes));
       }
     }
+    await clearAccountLimit(editor, email).catch((error) => {
+      console.warn("[auth] couldn't reset the account's sign-in count", error);
+    });
     redirect(redirectTo);
   }
 

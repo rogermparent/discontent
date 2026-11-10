@@ -42,6 +42,14 @@ export interface AuthStorage extends SecondaryStorage {
   sweepUserSessions(userId: string): Promise<number>;
   /** Remove every expired row now (normally done at most once a minute). */
   prune(): Promise<number>;
+  /**
+   * `increment`, also answering when the window ends (epoch ms): the
+   * per-account and overall sign-in limits (De5) say how long to wait.
+   */
+  hit(
+    key: string,
+    ttlSeconds: number,
+  ): Promise<{ count: number; resetAt: number | null }>;
 }
 
 const PRUNE_INTERVAL_MS = 60_000;
@@ -138,6 +146,25 @@ export function lmdbSecondaryStorage(
     return expired.length;
   }
 
+  async function hit(key: string, ttl: number | undefined) {
+    const store = database();
+    const at = now();
+    const result = store.transactionSync(() => {
+      const found = store.get(key);
+      if (!isLive(found, at) || typeof found.v !== "number") {
+        const fresh = { v: 1, e: expiryFor(ttl, at) };
+        store.putSync(key, fresh);
+        return { count: 1, resetAt: fresh.e };
+      }
+      const next = found.v + 1;
+      /* The TTL is set on creation only: a fixed window. */
+      store.putSync(key, { v: next, e: found.e });
+      return { count: next, resetAt: found.e };
+    });
+    maybePrune();
+    return result;
+  }
+
   function maybePrune() {
     if (now() - lastPrune < PRUNE_INTERVAL_MS) return;
     void prune().catch(() => {
@@ -179,22 +206,10 @@ export function lmdbSecondaryStorage(
     },
 
     async increment(key, ttl) {
-      const store = database();
-      const at = now();
-      const count = store.transactionSync(() => {
-        const found = store.get(key);
-        if (!isLive(found, at) || typeof found.v !== "number") {
-          store.putSync(key, { v: 1, e: expiryFor(ttl, at) });
-          return 1;
-        }
-        const next = found.v + 1;
-        /* The TTL is set on creation only: a fixed window. */
-        store.putSync(key, { v: next, e: found.e });
-        return next;
-      });
-      maybePrune();
-      return count;
+      return (await hit(key, ttl)).count;
     },
+
+    hit,
 
     async sweepUserSessions(userId) {
       const store = database();

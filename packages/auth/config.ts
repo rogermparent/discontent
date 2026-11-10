@@ -15,8 +15,9 @@ import { lmdbSecondaryStorage, type AuthStorage } from "./storage";
  *   built from the `Host` header (`request.ts`), so its origin is the person's.
  *   The dynamic form (`baseURL: {allowedHosts}`) was rejected: "any host"
  *   there means trusting `http://*` as an origin, which turns the origin check
- *   off. `BETTER_AUTH_URL` (and `BASE_URL`) would pin one host again, so the
- *   factory warns when either is set.
+ *   off. `BETTER_AUTH_URL` (and the other variables Better Auth reads in its
+ *   place, `PINNING_ENV` below) would pin one host again, so the factory
+ *   warns when any is set.
  * - **Password only**, bcrypt (`password.ts`), sign-up off. Users come from
  *   the content repo's `users/` files through a read-only adapter
  *   (`adapter.ts`).
@@ -45,8 +46,31 @@ export interface RateRule {
   max: number;
 }
 
-/** Five tries a minute per client address (De5). */
+/**
+ * Five tries a minute per client address (De5) — best effort only: the
+ * address is Better Auth's reading of `x-forwarded-for`, which the client can
+ * send itself (Next fills it from the socket only when it is absent).
+ */
 export const DEFAULT_SIGN_IN_RATE: RateRule = { window: 60, max: 5 };
+/**
+ * Ten tries per account per 15 minutes, whatever address they come from
+ * (De5): the limit `x-forwarded-for` cannot dodge. A successful sign-in
+ * starts the account's window again.
+ */
+export const DEFAULT_ACCOUNT_SIGN_IN_RATE: RateRule = { window: 900, max: 10 };
+/** Sixty tries a minute across every account and address (De5). */
+export const DEFAULT_GLOBAL_SIGN_IN_RATE: RateRule = { window: 60, max: 60 };
+
+/**
+ * Under `TEST_MODE`: the Playwright suites sign the one fixture user in dozens
+ * of times a minute from one address. The limits themselves are covered by
+ * `test/editorAuth.test.ts` and `test/editorAuthNext.test.ts`.
+ */
+export const TEST_MODE_SIGN_IN_RATES = {
+  signInRate: { window: 60, max: 1000 },
+  accountSignInRate: { window: 900, max: 10_000 },
+  globalSignInRate: { window: 60, max: 10_000 },
+} satisfies Record<string, RateRule>;
 
 export interface EditorAuthOptions {
   /** `<content>/users`, read on every lookup. */
@@ -59,15 +83,23 @@ export interface EditorAuthOptions {
   /** Defaults to `BETTER_AUTH_SECRET`, then the existing `AUTH_SECRET`. */
   secret?: string;
   signInRate?: RateRule;
+  /** Per typed email, counted before Better Auth runs (De5). */
+  accountSignInRate?: RateRule;
+  /** Every sign-in attempt on this editor, counted the same way (De5). */
+  globalSignInRate?: RateRule;
   /** Injected in tests (a clock, a temp env). */
   storage?: AuthStorage;
   /** The Next cookie bridge; off where there is no Next request (tests). */
   nextCookies?: boolean;
 }
 
-const PINNING_ENV = [
+/* Every variable Better Auth 1.7.13 reads for its base URL (`utils/url.mjs`). */
+export const PINNING_ENV = [
   "BETTER_AUTH_URL",
   "NEXT_PUBLIC_BETTER_AUTH_URL",
+  "PUBLIC_BETTER_AUTH_URL",
+  "NUXT_PUBLIC_BETTER_AUTH_URL",
+  "NUXT_PUBLIC_AUTH_URL",
   "BASE_URL",
 ];
 
@@ -89,6 +121,10 @@ export function createEditorAuth(options: EditorAuthOptions) {
   const storage =
     options.storage ?? lmdbSecondaryStorage(options.storageDirectory);
   const signInRate = options.signInRate ?? DEFAULT_SIGN_IN_RATE;
+  const accountSignInRate =
+    options.accountSignInRate ?? DEFAULT_ACCOUNT_SIGN_IN_RATE;
+  const globalSignInRate =
+    options.globalSignInRate ?? DEFAULT_GLOBAL_SIGN_IN_RATE;
   const auth = betterAuth({
     appName: options.appName,
     secret:
@@ -144,7 +180,7 @@ export function createEditorAuth(options: EditorAuthOptions) {
     },
     plugins: options.nextCookies === false ? [] : [nextCookies()],
   });
-  return { auth, storage, signInRate };
+  return { auth, storage, signInRate, accountSignInRate, globalSignInRate };
 }
 
 export type EditorAuth = ReturnType<typeof createEditorAuth>;
