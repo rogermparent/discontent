@@ -324,6 +324,21 @@ password, createdAt?, tokens?}`); nothing in sign-in writes them, so no API
 - **Te2 — `next dev` blocks `/_next/*` to a page whose Origin is not
   `localhost`.** The host spec visits as `127.0.0.1`, so the recipe editor's
   `next.config.mjs` adds `allowedDevOrigins: ["127.0.0.1"]` (dev only).
+- **Te3 — Better Auth turns its origin check off under test.** Unless
+  `advanced.disableOriginCheck` is set, `skipOriginCheck` is
+  `isTest()` — `NODE_ENV=test` or any truthy `TEST`. Vitest found it (a
+  cross-site sign-in answered 200); `config.ts` sets both
+  `disableOriginCheck` and `disableCSRFCheck` to `false` explicitly.
+- **Te4 — A second `next` in the workspace.** With `next`/`react` only as
+  peers, pnpm resolved the new package's (and better-auth's) `next` with
+  another `@types/node`, a second copy of next@16.4.2 under `.pnpm`, and
+  hoisted that one to the root. The tests' `vi.mock("next/server")` then
+  missed the editor's copy (`after` "outside a request scope", 8 failures in
+  `agentRoute`/`jobSurfaces`), and at runtime `next/headers` from the
+  package would have been a different module instance than the editor's.
+  `packages/auth` now lists the editors' exact `next`, `react`, `react-dom`,
+  `@types/node` and `@playwright/test` as devDependencies; every `next`
+  link (root, both editors, the package, better-auth) resolves to one copy.
 
 #### Gates
 

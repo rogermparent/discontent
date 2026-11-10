@@ -119,6 +119,13 @@ export function createEditorAuth(options: EditorAuthOptions) {
     },
     advanced: {
       useSecureCookies: false,
+      /*
+       * Explicitly on. Left unset, Better Auth skips its origin and
+       * callbackURL checks whenever `NODE_ENV=test` or `TEST` is set (Te3) —
+       * a stray variable would silently drop the cross-site refusal.
+       */
+      disableOriginCheck: false,
+      disableCSRFCheck: false,
       cookiePrefix: options.cookiePrefix,
       ipAddress: { ipAddressHeaders: ["x-forwarded-for"] },
     },
