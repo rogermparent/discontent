@@ -3,7 +3,8 @@
  *
  * There is no user database: a user is one JSON file at
  * `<contentDirectory>/users/<email>` — **no extension**, which is the path
- * sign-in has always read (`@discontent/auth` since 47e, through\n * `usersDirectory` below) and the shape the Playwright fixture
+ * sign-in has always read (`@discontent/auth` since 47e, through
+ * `usersDirectory` below) and the shape the Playwright fixture
  * (`playwright/fixtures/users/admin@nextmail.com`) ships. `scripts/create-user.ts`
  * wrote `<email>.json` instead and so created users that could never sign in;
  * D10 makes this module the single owner of the path so the two cannot disagree
