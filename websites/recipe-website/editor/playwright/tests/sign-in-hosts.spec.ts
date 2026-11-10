@@ -118,7 +118,7 @@ test.describe("Sign-in stays on the host you used (47e)", () => {
   }) => {
     await page.goto("/login?redirectTo=%2Fsettings");
     await fillSignInForm(page, { password: "wrong-password" });
-    await expect(page.getByRole("alert")).toHaveText(
+    await expect(page.getByRole("main").getByRole("alert")).toHaveText(
       "That email and password don't match.",
     );
     await expect(page).toHaveURL(/\/login\?redirectTo=%2Fsettings$/);
