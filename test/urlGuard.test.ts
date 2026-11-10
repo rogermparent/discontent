@@ -716,6 +716,36 @@ describe("the test allowance stays in tests", () => {
     );
   });
 
+  /* 47a: `checkOnlyLookup` lets a connection resolve for itself, so only the
+   * test allowance (`fetchGuardOptions`, under a test run) may set it. */
+  it("sets checkOnlyLookup only in fetchGuardOptions", async () => {
+    const files = await sources(
+      [join(ROOT, "websites"), join(ROOT, "packages"), join(ROOT, "scripts")],
+      /\.(ts|tsx|js|mjs|cjs)$/,
+    );
+    const setting = /\bcheckOnlyLookup\s*[:,}]/g;
+    const found: string[] = [];
+    for (const file of files) {
+      const source = await readFile(file, "utf8");
+      for (const _ of source.matchAll(setting)) {
+        found.push(relative(ROOT, file));
+      }
+    }
+    expect(found).toEqual([
+      "websites/recipe-website/editor/controller/urlGuard.ts",
+    ]);
+    const guard = await readFile(
+      join(EDITOR, "controller/urlGuard.ts"),
+      "utf8",
+    );
+    const body = guard.slice(
+      guard.indexOf("export function fetchGuardOptions("),
+    );
+    expect(body.slice(0, body.indexOf("\n}\n"))).toMatch(
+      /\bcheckOnlyLookup\s*[:,}]/,
+    );
+  }, 30_000);
+
   it("makes a CheckedFetch only in guardedFetch.ts", async () => {
     const files = await sources(
       [join(SITE, "editor"), join(SITE, "common"), join(SITE, "export")],
