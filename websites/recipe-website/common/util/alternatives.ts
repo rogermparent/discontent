@@ -33,6 +33,65 @@ export interface ChoiceOption {
   ingredientLines: number[];
   /** The option's own yield ("8 bagels"), when its group has one. */
   yield?: string;
+  /**
+   * The option's own times in minutes (46f), when its group has any: each
+   * replaces that one of the recipe's when it is chosen (`pathTimes`).
+   */
+  times?: OptionTimes;
+}
+
+/**
+ * An option's times (46f), in minutes — the whole recipe's when the option
+ * is made, as its yield is the recipe's. Only the ones it states; each
+ * replaces only that field of the recipe's on its path (`pathTimes`, Df1).
+ */
+export interface OptionTimes {
+  prepTime?: number;
+  cookTime?: number;
+  totalTime?: number;
+}
+
+export const OPTION_TIME_FIELDS = [
+  "prepTime",
+  "cookTime",
+  "totalTime",
+] as const;
+
+/** A group's own times, positive whole minutes only; undefined for none. */
+export function optionTimesOf(
+  group: Partial<Record<(typeof OPTION_TIME_FIELDS)[number], unknown>>,
+): OptionTimes | undefined {
+  const times: OptionTimes = {};
+  for (const field of OPTION_TIME_FIELDS) {
+    const value = group[field];
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      times[field] = value;
+    }
+  }
+  return Object.keys(times).length > 0 ? times : undefined;
+}
+
+/**
+ * The times a path shows (46f, Df1), in minutes, 0 for none. The chosen
+ * options' stated prep, cook and total each replace only that field of the
+ * recipe's. A total the options leave out is the path's prep + cook when
+ * they stated prep or cook and both are known, and none when one is not
+ * (the recipe's own total would be a different dish's). With no option
+ * times the recipe reads as the page always has: a missing total is prep
+ * plus cook.
+ */
+export function pathTimes(
+  recipe: OptionTimes,
+  times: OptionTimes | undefined,
+): { prepTime: number; cookTime: number; totalTime: number } {
+  const prepTime = times?.prepTime || recipe.prepTime || 0;
+  const cookTime = times?.cookTime || recipe.cookTime || 0;
+  let totalTime: number;
+  if (times?.totalTime) totalTime = times.totalTime;
+  else if (times?.prepTime || times?.cookTime) {
+    totalTime = prepTime && cookTime ? prepTime + cookTime : 0;
+  } else totalTime = recipe.totalTime || prepTime + cookTime;
+  return { prepTime, cookTime, totalTime };
 }
 
 export interface ChoiceSet {
@@ -296,6 +355,12 @@ export interface ShownPath {
   lines: boolean[];
   /** The yield the chosen options name, if any (the last set's that has one). */
   yield?: string;
+  /**
+   * The times the chosen options state, if any (46f): field by field, a
+   * later set's over an earlier's (`pathTimes` reads them against the
+   * recipe's). Absent under "All".
+   */
+  times?: OptionTimes;
 }
 
 /**
@@ -414,14 +479,16 @@ export function shownPath(choices: Choices, picks?: Picks): ShownPath {
 
   const lines = Array.from({ length: choices.ingredientCount }, () => true);
   let shownYield: string | undefined;
+  let shownTimes: OptionTimes | undefined;
   for (const set of choices.sets) {
     const pick = resolved[set.key];
     for (const option of set.options) {
       const shown = pick === ALL_OPTIONS || option.slug === pick;
       if (!shown) {
         for (const line of option.ingredientLines) lines[line] = false;
-      } else if (pick !== ALL_OPTIONS && option.yield) {
-        shownYield = option.yield;
+      } else if (pick !== ALL_OPTIONS) {
+        if (option.yield) shownYield = option.yield;
+        if (option.times) shownTimes = { ...shownTimes, ...option.times };
       }
     }
   }
@@ -432,6 +499,7 @@ export function shownPath(choices: Choices, picks?: Picks): ShownPath {
     entries,
     lines,
     ...(shownYield ? { yield: shownYield } : {}),
+    ...(shownTimes ? { times: shownTimes } : {}),
   };
 }
 

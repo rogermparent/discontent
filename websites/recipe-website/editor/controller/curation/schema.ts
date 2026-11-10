@@ -90,6 +90,16 @@ const InstructionObjectSchema = z.strictObject({
   text: z.string(),
 });
 
+/**
+ * An option's time (46f): whole minutes, none negative. A 0 is no time —
+ * dropped, as the form drops a blank one, so it is never stored.
+ */
+const OptionMinutesSchema = z
+  .number()
+  .int()
+  .min(0)
+  .transform((minutes) => minutes || undefined);
+
 const InstructionGroupSchema = z.strictObject({
   name: z.string(),
   instructions: z.array(InstructionObjectSchema),
@@ -100,6 +110,10 @@ const InstructionGroupSchema = z.strictObject({
   choice: ChoiceLabelSchema.optional(),
   /** An option's own yield ("8 bagels"). */
   recipeYield: z.string().optional(),
+  /** An option's own times in minutes (46f): the recipe's when it is made. */
+  prepTime: OptionMinutesSchema.optional(),
+  cookTime: OptionMinutesSchema.optional(),
+  totalTime: OptionMinutesSchema.optional(),
 });
 
 /**

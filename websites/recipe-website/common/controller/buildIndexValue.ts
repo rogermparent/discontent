@@ -2,7 +2,7 @@ import { Recipe, RecipeEntryValue } from "./types";
 import { hostnameLabel } from "../util/hostnameLabel";
 import { siteLabel } from "../util/siteNames";
 import { capturedLineSeparator } from "../util/capturedLine";
-import { alternateLines } from "../util/readChoices";
+import { alternateLines, indexTimes } from "../util/readChoices";
 import { compiler } from "markdown-to-jsx/react";
 import { normalizeLineEndings } from "@discontent/component-library/components/Markdown/normalize";
 
@@ -216,16 +216,11 @@ export function recipeLinkSlugs(markdown: string): string[] {
 export default function buildRecipeIndexValue(
   recipe: Recipe,
 ): RecipeEntryValue {
-  const {
-    name,
-    description,
-    image,
-    ingredients,
-    tags,
-    prepTime,
-    cookTime,
-    totalTime,
-  } = recipe;
+  const { name, description, image, ingredients, tags } = recipe;
+  /* 46f (Df2): the default path's times as the page shows them when its
+     options state any, else the recipe's own — so `time:` and a card's
+     minutes agree with the page. */
+  const { prepTime, cookTime, totalTime } = indexTimes(recipe);
   const flatDescription = description
     ? capDescription(flattenMarkdown(description))
     : undefined;

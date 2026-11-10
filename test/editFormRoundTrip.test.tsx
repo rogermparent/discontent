@@ -5,7 +5,13 @@
 // page does, and the editor's own `parseRecipeFormData` reading it.
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 import RecipeFields from "recipe-website-common/components/Form";
 import { RecipeFormShell } from "recipe-website-common/components/Form/RecipeFormShell";
@@ -546,49 +552,57 @@ const SHARED_LABEL: Partial<ImportedRecipe> = {
   ],
 };
 
-describe("stored sets that break a form rule save unchanged (45e2, 43-D4)", () => {
-  it("a lone group with a choice is an ordinary group that keeps its keys", async () => {
-    const { container } = renderForm(LONE_CHOICE, "lone-choice");
-    await settle();
-    expect(container.querySelectorAll("[data-testid=choice-set]")).toHaveLength(
-      0,
-    );
-    expect(JSON.stringify(post(container).instructions)).toBe(
-      JSON.stringify(LONE_CHOICE.instructions),
-    );
-  });
-
-  it("two sets of one label save as they were, problems unshown", async () => {
-    const { container } = renderForm(SHARED_LABEL, "shared-label");
-    await settle();
-    expect(container.querySelectorAll("[data-testid=choice-set]")).toHaveLength(
-      2,
-    );
-    expect(container.querySelector("[data-testid=choice-problems]")).toBe(null);
-    const data = post(container);
-    expect(JSON.stringify(data.instructions)).toBe(
-      JSON.stringify(SHARED_LABEL.instructions),
-    );
-    expect(JSON.stringify(data.ingredients)).toBe(
-      JSON.stringify(SHARED_LABEL.ingredients),
-    );
-  });
-
-  it("worked on, a set shows its problem and the save is refused", async () => {
-    const { container } = renderForm(SHARED_LABEL, "shared-label");
-    await settle();
-    const yields = screen.getAllByLabelText("Option yield");
-    act(() => {
-      fireEvent.change(yields[2], { target: { value: "1 cake" } });
+describe(
+  "stored sets that break a form rule save unchanged (45e2, 43-D4)",
+  { timeout: 20_000 },
+  () => {
+    it("a lone group with a choice is an ordinary group that keeps its keys", async () => {
+      const { container } = renderForm(LONE_CHOICE, "lone-choice");
+      await settle();
+      expect(
+        container.querySelectorAll("[data-testid=choice-set]"),
+      ).toHaveLength(0);
+      expect(JSON.stringify(post(container).instructions)).toBe(
+        JSON.stringify(LONE_CHOICE.instructions),
+      );
     });
-    await settle();
-    expect(
-      container.querySelector("[data-testid=choice-problems]")?.textContent,
-    ).toBe("Two choices are called “Frosting”: give each its own label");
-    const form = container.querySelector("form#recipe-form") as HTMLFormElement;
-    expect(parseRecipeFormData(new FormData(form)).success).toBe(false);
-  });
-});
+
+    it("two sets of one label save as they were, problems unshown", async () => {
+      const { container } = renderForm(SHARED_LABEL, "shared-label");
+      await settle();
+      expect(
+        container.querySelectorAll("[data-testid=choice-set]"),
+      ).toHaveLength(2);
+      expect(container.querySelector("[data-testid=choice-problems]")).toBe(
+        null,
+      );
+      const data = post(container);
+      expect(JSON.stringify(data.instructions)).toBe(
+        JSON.stringify(SHARED_LABEL.instructions),
+      );
+      expect(JSON.stringify(data.ingredients)).toBe(
+        JSON.stringify(SHARED_LABEL.ingredients),
+      );
+    });
+
+    it("worked on, a set shows its problem and the save is refused", async () => {
+      const { container } = renderForm(SHARED_LABEL, "shared-label");
+      await settle();
+      const yields = screen.getAllByLabelText("Option yield");
+      act(() => {
+        fireEvent.change(yields[2], { target: { value: "1 cake" } });
+      });
+      await settle();
+      expect(
+        container.querySelector("[data-testid=choice-problems]")?.textContent,
+      ).toBe("Two choices are called “Frosting”: give each its own label");
+      const form = container.querySelector(
+        "form#recipe-form",
+      ) as HTMLFormElement;
+      expect(parseRecipeFormData(new FormData(form)).success).toBe(false);
+    });
+  },
+);
 
 describe("a set's label typed key by key (45e2 review)", () => {
   it("cleared and retyped, its headings follow once, on blur", async () => {
@@ -617,3 +631,136 @@ describe("a set's label typed key by key (45e2 review)", () => {
     ).toEqual([undefined, "Bake", "Bake", undefined]);
   });
 });
+
+/* 46f: options with their own times, and a plain group with leftover ones. */
+const TIMED_DOUGH: Partial<ImportedRecipe> = {
+  name: "Timed Dough",
+  date: 1_760_400_000_000,
+  prepTime: 10,
+  totalTime: 70,
+  ingredients: [{ ingredient: "Flour" }],
+  instructions: [
+    {
+      name: "Dough",
+      instructions: [{ text: "Mix and rise." }],
+      prepTime: 15,
+    },
+    {
+      name: "Bagels",
+      instructions: [{ text: "Shape, boil and bake." }],
+      choice: "Then make",
+      recipeYield: "8 bagels",
+      prepTime: 45,
+      cookTime: 20,
+      totalTime: 135,
+    },
+    {
+      name: "Pretzels",
+      instructions: [{ text: "Shape, dip and bake." }],
+      choice: "Then make",
+      totalTime: 90,
+    },
+  ],
+};
+
+/** The timed dough's form, once both option cards' times are drawn. */
+async function renderTimed() {
+  const rendered = renderForm(TIMED_DOUGH, "timed-dough");
+  await waitFor(
+    () =>
+      expect(
+        rendered.container.querySelectorAll(
+          "[data-testid=choice-option-times]",
+        ),
+      ).toHaveLength(2),
+    /* A loaded full run draws the cards slowly (46f: 1 s timed out). */
+    { timeout: 10_000 },
+  );
+  await settle();
+  return rendered;
+}
+
+/* Generous: under a full, parallel vitest run this file takes ~20 s. */
+describe(
+  "option times survive a save with no changes (46f, 43-D4)",
+  { timeout: 20_000 },
+  () => {
+    it("posts each option's times, and a plain group's, back byte for byte", async () => {
+      const { container } = await renderTimed();
+      const data = post(container);
+      expect(JSON.stringify(data.instructions)).toBe(
+        JSON.stringify(TIMED_DOUGH.instructions),
+      );
+      expect([data.prepTime, data.cookTime, data.totalTime]).toEqual([
+        10, 0, 70,
+      ]);
+    });
+
+    it("an option's time typed is stored; cleared, it is gone", async () => {
+      const { container } = await renderTimed();
+      const pretzels = container.querySelectorAll(
+        "[data-testid=choice-option-times]",
+      )[1] as HTMLElement;
+      const cookMinutes = pretzels.querySelector(
+        'input[name="instructions[2].cookTime.minutes"]',
+      ) as HTMLInputElement;
+      act(() => {
+        fireEvent.change(cookMinutes, { target: { value: "25" } });
+      });
+      await settle();
+      expect(post(container).instructions?.[2]).toEqual({
+        name: "Pretzels",
+        instructions: [{ text: "Shape, dip and bake." }],
+        choice: "Then make",
+        cookTime: 25,
+        totalTime: 90,
+      });
+      const totalHours = pretzels.querySelector(
+        'input[name="instructions[2].totalTime.hours"]',
+      ) as HTMLInputElement;
+      const totalMinutes = pretzels.querySelector(
+        'input[name="instructions[2].totalTime.minutes"]',
+      ) as HTMLInputElement;
+      act(() => {
+        fireEvent.change(totalHours, { target: { value: "" } });
+      });
+      act(() => {
+        fireEvent.change(totalMinutes, { target: { value: "" } });
+      });
+      await settle();
+      expect(post(container).instructions?.[2]).toEqual({
+        name: "Pretzels",
+        instructions: [{ text: "Shape, dip and bake." }],
+        choice: "Then make",
+        cookTime: 25,
+      });
+    });
+
+    it("a total shorter than the option's cook time is a problem, and refused", async () => {
+      const { container } = await renderTimed();
+      const bagels = container.querySelectorAll(
+        "[data-testid=choice-option-times]",
+      )[0] as HTMLElement;
+      const totalHours = bagels.querySelector(
+        'input[name="instructions[1].totalTime.hours"]',
+      ) as HTMLInputElement;
+      act(() => {
+        fireEvent.change(totalHours, { target: { value: "0" } });
+      });
+      await settle();
+      expect(
+        container.querySelector("[data-testid=choice-problems]")?.textContent,
+      ).toBe(
+        "The total time of “Bagels” (15 min) is shorter than its cook time (20 min)",
+      );
+      const form = container.querySelector(
+        "form#recipe-form",
+      ) as HTMLFormElement;
+      const parsed = parseRecipeFormData(new FormData(form));
+      expect(parsed.success).toBe(false);
+      expect(parsed.error?.issues.map((issue) => issue.path.join("."))).toEqual(
+        ["instructions.1.totalTime"],
+      );
+    });
+  },
+);

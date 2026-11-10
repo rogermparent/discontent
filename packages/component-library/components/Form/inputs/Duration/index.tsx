@@ -17,6 +17,8 @@ function DurationNumberInput({
   value,
   onChange,
   placeholder,
+  describedBy,
+  invalid,
 }: {
   parentName: string;
   parentLabel?: string;
@@ -29,6 +31,8 @@ function DurationNumberInput({
   value?: string;
   onChange?: ChangeEventHandler<HTMLInputElement>;
   placeholder?: string;
+  describedBy?: string;
+  invalid?: boolean;
 }) {
   const fullName = `${parentName}.${childName}`;
   // Avoid passing both value and defaultValue (React would warn / ignore one).
@@ -48,6 +52,8 @@ function DurationNumberInput({
           {...valueProps}
           onChange={onChange}
           placeholder={placeholder}
+          aria-describedby={describedBy}
+          aria-invalid={invalid || undefined}
         />
         <InputGroupAddon align="inline-end">
           <InputGroupText>{unit}</InputGroupText>
@@ -68,6 +74,8 @@ export function DurationInput({
   placeholder,
   valueMinutes,
   onValueChange,
+  describedBy,
+  invalid,
 }: {
   name: string;
   id?: string;
@@ -80,6 +88,10 @@ export function DurationInput({
   /** Controlled total duration in minutes (for TanStack Form). */
   valueMinutes?: number;
   onValueChange?: (minutes: number) => void;
+  /** Problem ids both inputs are described by (`aria-describedby`). */
+  describedBy?: string;
+  /** Marks both inputs `aria-invalid`. */
+  invalid?: boolean;
 }) {
   const controlled = valueMinutes !== undefined;
   const defaultHours = defaultValue ? Math.floor(defaultValue / 60) : undefined;
@@ -126,6 +138,8 @@ export function DurationInput({
           value={hoursValue}
           placeholder={placeholderHours}
           onChange={controlled ? handleHours : onHoursChange}
+          describedBy={describedBy}
+          invalid={invalid}
         />
         <DurationNumberInput
           parentName={name}
@@ -137,6 +151,8 @@ export function DurationInput({
           value={minutesValue}
           placeholder={placeholderMinutes}
           onChange={controlled ? handleMinutes : onMinutesChange}
+          describedBy={describedBy}
+          invalid={invalid}
         />
       </div>
     </FieldWrapper>

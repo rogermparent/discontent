@@ -25,8 +25,12 @@ export const recipeContentConfig: ContentTypeConfig<
    * "2" since 45e: the value gained `ingredientAlternates` (a recipe with
    * alternatives only). Bumping it rebuilds every instance's indexes once at
    * its next start (epic 39, D1), so no manual reindex.
+   *
+   * "3" since 46f: a recipe whose default options state times carries its
+   * default path's times as the page shows them (`indexTimes`) — a
+   * projection change, so the same automatic rebuild.
    */
-  indexVersion: "2",
+  indexVersion: "3",
   buildIndexKey: (slug: string, data: Recipe): RecipeEntryKey => [
     data.date,
     slug,

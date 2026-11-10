@@ -223,6 +223,24 @@ survives a cleared context.
   45e2: the form's choice sets, ties and marked suggestions). Reindex
   automatic; the workstation and Pi run 45e1 (`f7a161a6`), not yet 45e2; 18
   "Roger to confirm" items and Roger's steps are in the Close-out.
+- `websites/recipe-website/docs/agent-epic-46.md` — epic 46: an SSRF guard
+  on every importer and editor fetch (46a: `guardedFetch`, `CheckedFetch`
+  branding, per-hop checks), YouTube source keys and two flakes fixed (46b),
+  a decisions checklist Roger answered (46c), the curator's $1 cost cap and
+  newer web tools per run (46d), ⌘K holidays and card times (46e),
+  per-option times on alternatives and "look for alternatives with the
+  model" (46f, `indexVersion` "3"), 15 ingredient merges (46g), Roger's
+  seven checklist changes (46h), and the first real Claude runs (46k: four
+  asks on Sonnet 5, $0.59). Reindex automatic; deployed to the workstation
+  and the Pi 2026-11-09; 24 "Roger to confirm" items in the Close-out, and
+  the Playwright image pinned by digest (#331, Node 26 dropped corepack).
+- `websites/recipe-website/docs/agent-epic-47.md` — epic 47 (in progress):
+  DNS rebinding closed in the fetch guard (47a, a per-hop undici `Agent`
+  pinned to the vetted addresses), the CMS `fileImportUrl` fetch guarded
+  (47b), a content round (47c), design canvases for `/curator`, `/jobs`,
+  Settings + `/git` and the homepage (47d), and auth on Better Auth (47e,
+  Roger's ask: an app-owned `/login` that stays on the host you used,
+  password only, remember this device, sign out everywhere).
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
