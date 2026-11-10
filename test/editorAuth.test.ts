@@ -323,6 +323,8 @@ describe("redirects stay on this host", () => {
   it.each([
     ["/settings", "/settings"],
     ["/jobs/01ABC?tab=log#steps", "/jobs/01ABC?tab=log#steps"],
+    ["/recipes/pie...v2/.hidden", "/recipes/pie...v2/.hidden"],
+    ["/search?q=../..", "/search?q=../.."],
     [
       "/new-recipe?import=https%3A%2F%2Fexample.com%2Fpie",
       "/new-recipe?import=https%3A%2F%2Fexample.com%2Fpie",
@@ -344,6 +346,17 @@ describe("redirects stay on this host", () => {
     "/\u0000x",
     "/login",
     "/login?redirectTo=%2F",
+    /* Dot segments: the parser resolves each of these to //evil.com. */
+    "/.//evil.com",
+    "/..//evil.com",
+    "/a/..//evil.com",
+    "/%2e%2e//evil.com",
+    "/%2E//evil.com",
+    "/.%2e//evil.com",
+    "/.%2F/evil.com",
+    "/a/%2e%2e/%2e%2e//evil.com",
+    "/./",
+    "/settings/..",
   ])("refuses %s", (input) => {
     expect(safeRedirectPath(input, "/")).toBe("/");
   });

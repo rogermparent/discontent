@@ -8,10 +8,13 @@
  * construction — the browser resolves it against the address bar — and it is
  * also the open-redirect guard: anything that could leave the host
  * (`https://evil.example`, `//evil.example`, `/\evil.example`, a scheme, a
- * control character) is refused and replaced by the fallback.
+ * control character, a `.` or `..` segment) is refused and replaced by the
+ * fallback.
  */
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 const ENCODED_SEPARATOR = /%2f|%5c/i;
+/* `.` or `..` as a whole segment, plain or percent-encoded (`%2e`). */
+const DOT_SEGMENT = /(^|\/)(\.|%2e){1,2}(\/|$)/i;
 const PARSE_BASE = "http://redirect.invalid";
 
 export function safeRedirectPath(value: unknown, fallback = "/"): string {
@@ -28,6 +31,12 @@ export function safeRedirectPath(value: unknown, fallback = "/"): string {
   const pathEnd = candidate.search(/[?#]/);
   const path = pathEnd === -1 ? candidate : candidate.slice(0, pathEnd);
   if (ENCODED_SEPARATOR.test(path)) return fallback;
+  /*
+   * Dot segments are refused outright: the URL parser resolves them, and
+   * `/.//evil.example` or `/a/..//evil.example` normalise to
+   * `//evil.example` — a protocol-relative URL, off this host.
+   */
+  if (DOT_SEGMENT.test(path)) return fallback;
   let parsed: URL;
   try {
     parsed = new URL(candidate, PARSE_BASE);
@@ -35,6 +44,8 @@ export function safeRedirectPath(value: unknown, fallback = "/"): string {
     return fallback;
   }
   if (parsed.origin !== PARSE_BASE) return fallback;
+  /* And whatever the parser made of it, never a protocol-relative result. */
+  if (/^\/[\/\\]/.test(parsed.pathname)) return fallback;
   /* Never back to the sign-in page itself: that is a loop, not a place. */
   if (parsed.pathname === "/login") return fallback;
   return `${parsed.pathname}${parsed.search}${parsed.hash}`;
