@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { auth, signIn, signOut } from "@/auth";
+import { auth } from "@/auth";
+import { signOutAction, startSignInAction } from "@/app/authActions";
 import { Button } from "@discontent/component-library/components/ui/button";
 
 /**
  * Owner-only masthead items.
  *
- * Lives in the editor app, not `common/`: it imports `next-auth`, and `common/`
+ * Lives in the editor app, not `common/`: it imports the sign-in, and `common/`
  * is compiled by the export app too — importing it there would pull an
  * editor-only dependency into a static build. AppLayout takes it as a slot.
  */
@@ -27,7 +28,7 @@ export async function EditorNavExtras() {
           <form
             action={async () => {
               "use server";
-              await signOut();
+              await signOutAction();
             }}
           >
             <Button
@@ -41,12 +42,7 @@ export async function EditorNavExtras() {
           </form>
         </>
       ) : (
-        <form
-          action={async () => {
-            "use server";
-            await signIn();
-          }}
-        >
+        <form action={startSignInAction}>
           <Button type="submit" variant="ghost" size="sm" className={navClass}>
             Sign In
           </Button>

@@ -1,7 +1,7 @@
 import getPageBySlug from "@discontent/pages-collection/controller/data/read";
 import EditForm from "./form";
 import { notFound } from "next/navigation";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 
 export default async function Page({
   params,
@@ -12,9 +12,7 @@ export default async function Page({
   const slug = slugSegments.join("/");
   const user = await auth();
   if (!user) {
-    return signIn(undefined, {
-      redirectTo: `/pages/edit/${slug}`,
-    });
+    return redirectToLogin(`/pages/edit/${slug}`);
   }
   let page;
   try {

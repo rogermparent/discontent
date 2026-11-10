@@ -1,12 +1,10 @@
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import NewForm from "./form";
 
 export default async function NewProject() {
   const user = await auth();
   if (!user) {
-    return signIn(undefined, {
-      redirectTo: `/projects/new`,
-    });
+    return redirectToLogin(`/projects/new`);
   }
   return (
     <main className="flex flex-col items-center px-2 grow max-w-xl w-full h-full">

@@ -6,7 +6,7 @@ import { parseListPage } from "@discontent/cms/content/listPage";
 import { ListPagination } from "@discontent/component-library/components/ListPagination";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 
 function ProjectListItem({
   project: { name, slug },
@@ -32,7 +32,7 @@ export default async function Projects({
 }) {
   const user = await auth();
   if (!user) {
-    return signIn(undefined, { redirectTo: "/projects" });
+    return redirectToLogin("/projects");
   }
 
   const pageNumber = parseListPage((await searchParams).page);
