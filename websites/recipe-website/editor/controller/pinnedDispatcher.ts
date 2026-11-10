@@ -28,7 +28,7 @@
 import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import { isIP } from "node:net";
 import { Agent } from "undici";
-import { isBlockedAddress } from "./urlGuard";
+import { DEFAULT_LOOKUP_OPTIONS, isBlockedAddress } from "./urlGuard";
 
 /** `net.connect`'s `lookup` option (`dns.lookup`'s shape). */
 export type ConnectLookup = (
@@ -111,7 +111,7 @@ export function checkingLookup(): ConnectLookup {
   return (hostname, options, callback) => {
     const asked =
       typeof options === "number" ? { family: options } : (options ?? {});
-    dnsLookup(hostname, { all: true, verbatim: true }, (error, entries) => {
+    dnsLookup(hostname, DEFAULT_LOOKUP_OPTIONS, (error, entries) => {
       if (error) {
         callback(error, asked.all ? [] : "");
         return;

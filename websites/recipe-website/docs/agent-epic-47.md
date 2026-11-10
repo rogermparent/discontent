@@ -145,6 +145,17 @@ orchestrator's and run while the code phases are in review or CI.
   before 47a, and the specs still exercise a userland `Agent` under Next.
   Only `TEST_MODE` / `VITEST` reach it (46a's gate); a lookup passed
   explicitly (`setFetchGuardTesting`, `AgentToolsetTesting`, tests) pins.
+- **Ga3 — The guard's lookup asks with `ADDRCONFIG`** (review). Its
+  answers are now what the connection uses, and `{all, verbatim}` alone
+  returns AAAA answers on a host with no IPv6 route, which `net`'s own
+  lookup (with `ADDRCONFIG`) used to drop; without happy eyeballs the
+  pinned `lookup` answers the first, which could be v6. So
+  `DEFAULT_LOOKUP_OPTIONS` is `{all: true, verbatim: true, hints:
+ADDRCONFIG}` (the resolver's order kept), for the check and for
+  `checkingLookup` alike; `test/urlGuardLookup.test.ts` mocks
+  `node:dns/promises` and checks the options. A source scan
+  (`test/urlGuard.test.ts`) keeps `checkOnlyLookup` set only in
+  `fetchGuardOptions`.
 - **Tests.** `test/guardedFetchPinning.test.ts` spies on `net.connect` /
   `tls.connect` (what undici dials, the global `fetch`'s and the pinned
   `Agent`'s alike), records the host and asks the connection's own `lookup`
@@ -159,8 +170,13 @@ orchestrator's and run while the code phases are in review or CI.
   `checkUrl`'s answers. Run against `origin/main`'s guard (its two files
   swapped in), 6 of the 9 fail: the rebinding, redirect, IPv6 and TLS tests
   (the connection has no lookup of the guard's), and the two that need
-  `checkUrl`; on the branch 9/9 pass.
-- **Gates.** _Pending review._
+  `checkUrl`; on the branch 9/9 pass. What these tests assert is the
+  address handed to the dial — the connection's own `lookup` — not where a
+  packet went: the spy then substitutes 127.0.0.1 for every host.
+- **Roger to confirm:** Ga2 — under `RECIPE_TEST_DNS` (Playwright,
+  vitest) the connection resolves for itself and checks each answer at
+  connect, rather than pinning to the stand-in address.
+- **Gates.** _Pending._
 
 ### 47b: The CMS `fileImportUrl` fetch (S; branch `agent/47b-cms-import`)
 

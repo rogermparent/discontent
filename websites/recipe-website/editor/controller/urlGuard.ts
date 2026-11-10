@@ -25,6 +25,7 @@
  * `RECIPE_TEST_FETCH_ALLOW` and `RECIPE_TEST_DNS` fill it. A source scan
  * (`test/urlGuard.test.ts`) keeps every production path from naming them.
  */
+import { ADDRCONFIG } from "node:dns";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { isPrivateHost } from "recipe-website-common/util/privateHost";
@@ -79,8 +80,19 @@ export interface UrlRefusal {
   address?: string;
 }
 
+/**
+ * The resolver's answers in its own order, and only the families this host
+ * can reach (`ADDRCONFIG`, 47a's Ga3): they are what the connection uses,
+ * so a v4-only host must not be handed an AAAA answer `net` would drop.
+ */
+export const DEFAULT_LOOKUP_OPTIONS = {
+  all: true,
+  verbatim: true,
+  hints: ADDRCONFIG,
+} as const;
+
 async function defaultLookup(host: string): Promise<string[]> {
-  const addresses = await dnsLookup(host, { all: true, verbatim: true });
+  const addresses = await dnsLookup(host, DEFAULT_LOOKUP_OPTIONS);
   return addresses.map((entry) => entry.address);
 }
 
