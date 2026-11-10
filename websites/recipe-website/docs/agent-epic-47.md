@@ -95,6 +95,119 @@ orchestrator's and run while the code phases are in review or CI.
   roundup, fill, photo-import, ytdlp, jobs and new-recipe specs in Docker.
   Plus the main-checkout-shaped build (a new dependency).
 
+#### Results (47a)
+
+- **The mechanism.** `checkUrl` (`urlGuard.ts`; `urlRefusal` is now its
+  refusal alone) does the hop's one lookup and, on a pass, hands back the
+  addresses it checked. `guardedFetch` sends that hop through a dispatcher
+  of its own, `pinnedDispatcher(addresses)` (`controller/pinnedDispatcher.ts`):
+  an undici `Agent({ connect: { lookup } })` whose `lookup`
+  (`pinnedLookup`) answers those addresses for the name — every one with
+  `all`, else the first, filtered by `family` — and never calls DNS. So a
+  name that answers public to the check and private to a second lookup
+  connects to the public answer, and there is no second lookup.
+  - **TLS stays on the name.** undici gives `tls.connect` the URL's host as
+    `host` and `servername`; only the dialled address comes from the lookup,
+    so SNI and the certificate check are the name's.
+  - **Literals and allowed hosts** get no dispatcher: `net` never resolves
+    an address literal, and an allowed test host is exempt from the check.
+  - **Bounded.** One `Agent` per hop, `close()`d as soon as the hop's
+    headers are in (`destroy()` if `fetch` throws). `close()` is graceful:
+    the one request, its body still streaming, finishes first (a test
+    streams five chunks after the close); nothing new is sent through it, so
+    it ends when the body is read, cancelled (a redirect's) or timed out
+    (undici's `bodyTimeout`). No cache, no `Map`.
+  - Kept: `CheckedFetch` branding (only `guardedFetch.ts` marks one),
+    `allowHosts`, the injected `lookup`, every 46a refusal and code,
+    `response.url` as the final URL (checked through a redirect with a real
+    dispatcher), the per-hop timeout and the caller's `AbortSignal`.
+- **Ga1 — undici 6.29.1, exact, a dependency of `recipe-editor`**, with the
+  global `fetch` and a `dispatcher` (not undici's own `fetch`).
+  - Why the global `fetch`: 17 test files stub it (`vi.stubGlobal`), and
+    `response` stays the runtime's own `Response`.
+  - Why 6.x: it is the major Node 22 bundles, and Node 22 is what runs it —
+    the workstation (22.23, bundled 6.28.1), CI's vitest and lint (22), the
+    Pi's image (`node:22.14.0-alpine`, bundled 6.21.1). Measured (a local
+    server, a GET through a manual redirect, a streamed body after `close()`,
+    a POST; `compat/check.cjs` in the 47a scratch): undici 6.29.1 and
+    7.30.2 both work with the global `fetch` of Node 20.20, 22.14, 22.23 and
+    the Playwright image's Node 24.21 (bundled 7.29.1). undici 8.12.4 fails
+    on Node 22: `fetch failed`, cause `invalid onRequestStart method` — the
+    cross-major trap, and why 8 is out (it also wants Node ≥ 22.19, past the
+    Pi's 22.14). Revisit when the Pi image moves to Node 24.
+- **Ga2 — `RECIPE_TEST_DNS` answers the check only.** Playwright's
+  stand-in resolver (`*=203.0.113.10`, 46a's Ta1) answers every name with a
+  documentation address; pinned, a spec's real image host
+  (`kingarthurbaking.com`) would dial TEST-NET-3 and time out. So
+  `fetchGuardOptions` marks it `checkOnlyLookup`, and under it `checkUrl`
+  answers `resolveAtConnect`: the hop goes through `checkingDispatcher()`,
+  whose lookup resolves for real once and refuses a name with any blocked
+  answer — the guard's own rule, at connect. One real lookup per hop, as
+  before 47a, and the specs still exercise a userland `Agent` under Next.
+  Only `TEST_MODE` / `VITEST` reach it (46a's gate); a lookup passed
+  explicitly (`setFetchGuardTesting`, `AgentToolsetTesting`, tests) pins.
+- **Ga3 — The guard's lookup asks with `ADDRCONFIG`** (review). Its
+  answers are now what the connection uses, and `{all, verbatim}` alone
+  returns AAAA answers on a host with no IPv6 route, which `net`'s own
+  lookup (with `ADDRCONFIG`) used to drop; without happy eyeballs the
+  pinned `lookup` answers the first, which could be v6. So
+  `DEFAULT_LOOKUP_OPTIONS` is `{all: true, verbatim: true, hints:
+ADDRCONFIG}` (the resolver's order kept), for the check and for
+  `checkingLookup` alike; `test/urlGuardLookup.test.ts` mocks
+  `node:dns/promises` and checks the options. A source scan
+  (`test/urlGuard.test.ts`) keeps `checkOnlyLookup` set only in
+  `fetchGuardOptions`.
+- **Tests.** `test/guardedFetchPinning.test.ts` spies on `net.connect` /
+  `tls.connect` (what undici dials, the global `fetch`'s and the pinned
+  `Agent`'s alike), records the host and asks the connection's own `lookup`
+  what it answers, then dials a fixture server on 127.0.0.1, which stands in
+  for every "public" address: a name answering `203.0.113.10` then
+  `127.0.0.1` connects with the first and is looked up once; a redirect
+  chain pins each hop to its own set (one of them dual-stack); an IPv6-only
+  name pins its v6 answer; IPv4 and IPv6 literals dial as given with no
+  lookup; a streamed body survives the close; HTTPS keeps `servername` and
+  `host` the name's; the Playwright stand-in resolves at connect and
+  refuses `localhost`; `pinnedLookup`'s callback shapes and families;
+  `checkUrl`'s answers. Run against `origin/main`'s guard (its two files
+  swapped in), 6 of the 9 fail: the rebinding, redirect, IPv6 and TLS tests
+  (the connection has no lookup of the guard's), and the two that need
+  `checkUrl`; on the branch 9/9 pass. What these tests assert is the
+  address handed to the dial — the connection's own `lookup` — not where a
+  packet went: the spy then substitutes 127.0.0.1 for every host.
+- **Roger to confirm:** Ga2 — under `RECIPE_TEST_DNS` (Playwright,
+  vitest) the connection resolves for itself and checks each answer at
+  connect, rather than pinning to the stand-in address.
+- **Gates** (after the review fixes and a merge of `origin/main` at
+  b54d0efe: 46f #329, the Playwright image pinned by digest #331).
+  - `recipe-editor` typecheck clean; `recipe-website tsc --noEmit` clean.
+  - Full vitest: 172 files, 3,815 tests, 3,814 passed. The one failure
+    was a 5 s timeout in `editFormRoundTrip.test.tsx` (a 45e2 form test,
+    nothing of the guard's) under load; alone it passed 17/17. Earlier, a
+    targeted run of 13 guard and import files had the same kind of timeout
+    in `urlGuard.test.ts`'s source scan at load ~25; alone, 25/25. The
+    new `checkOnlyLookup` scan has a 30 s timeout.
+  - Docker, production build (`heavy-pw.sh`, `DOCKER=1`): `fill-gaps`,
+    `import-errors`, `import-roundup`, `import-ssrf`, `jobs`,
+    `new-recipe-duplicate-slug`, `new-recipe`, `photo-import`,
+    `ytdlp-import`, `multi-recipe` and `api-write` (inspect and roundup
+    routes), 111/111 — 46a's set, which now runs one more test.
+  - Main-checkout-shaped build: `editor/content` linked to a scratch
+    directory outside the workspace, and `export/public/{image,uploads}`
+    absolute links through it. `pnpm install --frozen-lockfile` passed;
+    the editor's `next build` passed with no "Dynamic filesystem access"
+    and no "leaves the filesystem root" lines, and no warnings at all.
+    The links were removed afterwards. Turbopack bundles undici into the
+    server chunks (it is not in `serverExternalPackages`).
+  - **After deploy, a smoke test.** Vitest runs the pinned `Agent` under
+    plain Node. Inside the Next bundle, the Docker specs reach a userland
+    `Agent` only through `checkingDispatcher` (Ga2), and only for the real
+    hosts a fixture names; their fixture pages are allowed hosts, with no
+    dispatcher. So no test covers `pinnedDispatcher` inside the bundle
+    against a real public host: Turbopack's copy of undici, with Next's
+    patched `fetch` passing `dispatcher` through. On the workstation build,
+    import one public recipe URL (any Sally's page) and check that the job's
+    fetch step answers 200.
+
 ### 47b: The CMS `fileImportUrl` fetch (S; branch `agent/47b-cms-import`)
 
 - **The gap.** `writeUploadFile`'s `fileImportUrl` branch

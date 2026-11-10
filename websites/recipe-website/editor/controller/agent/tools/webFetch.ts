@@ -7,9 +7,10 @@
  *   or private by name or literal (`urlGuard.ts`), and when any address it
  *   resolves to is (a DNS lookup before each request) — at the start and at
  *   every redirect hop, which `guardedFetch` follows itself (46a;
- *   `redirect: "manual"`, at most `maxRedirects`). A name that resolves publicly and then privately
- *   between the lookup and the connection (DNS rebinding) is not caught: the
- *   editor stays on `fetch` with no dispatcher of its own (Eb4).
+ *   `redirect: "manual"`, at most `maxRedirects`). Each hop connects to
+ *   the addresses its lookup checked and no others (47a), so a name that
+ *   resolves publicly and then privately (DNS rebinding, Eb4) still
+ *   reaches only the public one.
  * - **Polite** (30-D5): one request on the site's queue (`SitePacer`, per
  *   registrable domain, 15 s apart, across processes) — its redirects
  *   inside it, as the importer's are —
