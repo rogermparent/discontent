@@ -8,7 +8,13 @@
 # four suites' devDependencies (recipe, portfolio, the cms demo and
 # resume-builder) — and scripts/check-playwright-image.sh fails CI when they
 # don't. 1.64.1 since 41d2.
-FROM mcr.microsoft.com/playwright:v1.64.1-noble
+#
+# Pinned by digest too (2026-11-09): Microsoft re-pushed v1.64.1-noble with
+# Node 26, which ships no corepack, so every container job's `corepack
+# enable` failed. The digest is the earlier build (Node 24.21) CI passed on.
+# Move the tag and the digest together; `check-playwright-image.sh` reads the
+# tag only.
+FROM mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
 
 WORKDIR /app
 
