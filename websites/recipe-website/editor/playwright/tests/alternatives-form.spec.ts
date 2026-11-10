@@ -456,6 +456,60 @@ test.describe("Alternatives in the edit form (45e2)", () => {
     expect(stored.ingredients[1].choice).toBe("Crumbs");
   });
 
+  test("an option's own times: typed, held to the total rule, saved, shown (46f)", async ({
+    page,
+    request,
+  }) => {
+    await openEdit(page, CHOSEN);
+    const set = setBlock(page, "Then make");
+    await expectHydrated(set.getByLabel("Choice label"));
+    const times = set.getByRole("group", {
+      name: "Times for Bagels",
+      exact: true,
+    });
+    await expect(times).toContainText(
+      "Times here replace the recipe’s for this option; a total is prep + cook if you leave it blank.",
+    );
+    await times.getByTitle("Option prep time Minutes").fill("40");
+    await times.getByTitle("Option cook time Minutes").fill("25");
+    await times.getByTitle("Option total time Minutes").fill("20");
+    await expect(set.getByTestId("choice-problems")).toHaveText(
+      "The total time of “Bagels” (20 min) is shorter than its cook time (25 min)",
+    );
+    /* The problem is tied to the option's total, as a name problem is. */
+    const totalMinutes = times.getByTitle("Option total time Minutes");
+    await expect(totalMinutes).toHaveAttribute("aria-invalid", "true");
+    await expect(totalMinutes).toHaveAccessibleDescription(
+      "The total time of “Bagels” (20 min) is shorter than its cook time (25 min)",
+    );
+    await expect(
+      times.getByTitle("Option cook time Minutes"),
+    ).not.toHaveAttribute("aria-invalid", "true");
+    await times.getByTitle("Option total time Hours").fill("2");
+    await expect(set.getByTestId("choice-problems")).toHaveCount(0);
+    await expect(totalMinutes).not.toHaveAttribute("aria-invalid", "true");
+
+    await save(page, CHOSEN);
+    /* The default option's times in the meta strip. */
+    const total = page
+      .locator("dl div")
+      .filter({ has: page.locator("dt", { hasText: /^Total$/ }) })
+      .locator("dd");
+    await expect(total).toHaveText("2 hr 20 min");
+    const stored = await (await request.get(`/api/recipe/${CHOSEN}`)).json();
+    expect(stored.instructions[1]).toEqual({
+      name: "Bagels",
+      choice: "Then make",
+      recipeYield: "8 bagels",
+      prepTime: 40,
+      cookTime: 25,
+      totalTime: 140,
+      instructions: [{ text: "Shape and boil the bagels." }],
+    });
+    /* The other option and the other set are as they were. */
+    expect(stored.instructions[2]).toEqual(chosenDough.instructions[2]);
+  });
+
   test("axe: the edit form with a set and a tie", async ({ page }) => {
     await openEdit(page, CHOSEN);
     await expectHydrated(

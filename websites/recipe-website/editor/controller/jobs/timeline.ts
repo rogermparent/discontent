@@ -194,6 +194,9 @@ export function stepTitle(node: Pick<StepNode, "step" | "data">): string {
     /* 45b: the fill's estimate of the times and yield the source leaves out. */
     case "llm.estimate":
       return "Model estimates the times and yield";
+    /* 46f: the edit page's "Look for alternatives with the model". */
+    case "llm.choices":
+      return "Model looks for alternatives";
     case "llm.reload":
       return "Reload the model";
     case "llm.unload":

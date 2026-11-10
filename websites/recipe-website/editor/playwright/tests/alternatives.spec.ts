@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "../support/test";
 import { expectHydrated } from "../support/hydration";
-import { fillSignInForm } from "../support/helpers";
+import { fillSignInForm, searchFor } from "../support/helpers";
 import { snapshotPage } from "../support/visual";
 import { expectMode, expectNoViolations } from "../support/a11y";
 
@@ -446,6 +446,121 @@ test.describe("Alternatives and the shopping list (45e1)", () => {
     const list = page.getByTestId("shopping-list");
     await expect(list).toContainText("baking soda");
     await expect(list).not.toContainText("molasses");
+  });
+});
+
+/*
+ * 46f: an option's own times. A dough that states only a prep time of its
+ * own (15 min), then Bagels (prep 45, cook 20, total 2 h 15), Pretzels
+ * (total 1 h 30) and Pizza (none): the meta strip shows the picked option's
+ * field by field over the recipe's (Df1), in cells the server drew, and the
+ * index carries the default path's for `time:` (Df2).
+ */
+const TIMED = "timed-dough-test";
+
+async function writeTimedDough(request: Request, token: string) {
+  const response = await request.post("/api/recipes", {
+    headers: { authorization: `Bearer ${token}` },
+    data: {
+      name: "Timed Dough",
+      slug: TIMED,
+      prepTime: 15,
+      ingredients: ["500 g bread flour", "350 g warm water"],
+      instructions: [
+        {
+          name: "Dough",
+          instructions: [{ text: "Mix and let rise for 1 hour." }],
+        },
+        {
+          name: "Bagels",
+          choice: "Then make",
+          prepTime: 45,
+          cookTime: 20,
+          totalTime: 135,
+          instructions: [{ text: "Shape, boil and bake for 20 minutes." }],
+        },
+        {
+          name: "Pretzels",
+          choice: "Then make",
+          totalTime: 90,
+          instructions: [{ text: "Shape, dip and bake for 15 minutes." }],
+        },
+        {
+          name: "Pizza",
+          choice: "Then make",
+          instructions: [{ text: "Stretch, top and bake for 12 minutes." }],
+        },
+      ],
+    },
+  });
+  expect(response.status()).toBe(201);
+}
+
+const metaCell = (page: Page, label: string) =>
+  page
+    .locator("dl div")
+    .filter({ has: page.locator("dt", { hasText: new RegExp(`^${label}$`) }) })
+    .locator("dd");
+
+test.describe("Option times (46f)", () => {
+  test.beforeEach(async ({ resetData, request, createApiToken }) => {
+    await resetData("two-pages");
+    await writeTimedDough(request, await createApiToken());
+  });
+
+  test("the meta strip shows the picked option's times, its cells fixed", async ({
+    page,
+    request,
+  }) => {
+    /* U1: the server renders the default's times, and JSON-LD carries them. */
+    const html = await (await request.get(`/recipe/${TIMED}`)).text();
+    expect(html).toContain('"totalTime":"PT2H15M"');
+    expect(html).toContain('"prepTime":"PT45M"');
+
+    await page.goto(`/recipe/${TIMED}`);
+    await expectHydrated(option(page, "Bagels"));
+    const cells = page.locator("dl div");
+    await expect(cells).toHaveCount(3);
+    await expect(metaCell(page, "Prep")).toHaveText("45 min");
+    await expect(metaCell(page, "Cook")).toHaveText("20 min");
+    await expect(metaCell(page, "Total")).toHaveText("2 hr 15 min");
+
+    /* Pretzels states only a total: the recipe's prep stands beside it. */
+    await option(page, "Pretzels").click();
+    await expect(metaCell(page, "Total")).toHaveText("1 hr 30 min");
+    await expect(metaCell(page, "Prep")).toHaveText("15 min");
+    await expect(metaCell(page, "Cook")).toHaveText("—");
+    await expect(cells).toHaveCount(3);
+
+    /* An option with no times, and All, show the recipe's own: a total of
+       prep + cook, as the page always reads it. */
+    await option(page, "Pizza").click();
+    await expect(metaCell(page, "Prep")).toHaveText("15 min");
+    await expect(metaCell(page, "Total")).toHaveText("15 min");
+    await option(page, "All").click();
+    await expect(metaCell(page, "Total")).toHaveText("15 min");
+    await expect(cells).toHaveCount(3);
+  });
+
+  test("a ?pick= link opens on its option's times", async ({ page }) => {
+    await page.goto(`/recipe/${TIMED}?pick=pretzels`);
+    await expectHydrated(option(page, "Bagels"));
+    await expect(option(page, "Pretzels")).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await expect(metaCell(page, "Total")).toHaveText("1 hr 30 min");
+  });
+
+  test("time: finds it by its default option's total", async ({ page }) => {
+    await page.goto("/search");
+    await searchFor(page, "time:>120");
+    const results = page.getByTestId("recipe-list").locator("> li");
+    await expect(
+      results.filter({
+        has: page.getByRole("heading", { name: "Timed Dough" }),
+      }),
+    ).toHaveCount(1, { timeout: 20_000 });
   });
 });
 
