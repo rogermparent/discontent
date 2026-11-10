@@ -176,7 +176,36 @@ ADDRCONFIG}` (the resolver's order kept), for the check and for
 - **Roger to confirm:** Ga2 — under `RECIPE_TEST_DNS` (Playwright,
   vitest) the connection resolves for itself and checks each answer at
   connect, rather than pinning to the stand-in address.
-- **Gates.** _Pending._
+- **Gates** (after the review fixes and a merge of `origin/main` at
+  b54d0efe: 46f #329, the Playwright image pinned by digest #331).
+  - `recipe-editor` typecheck clean; `recipe-website tsc --noEmit` clean.
+  - Full vitest: 172 files, 3,815 tests, 3,814 passed. The one failure
+    was a 5 s timeout in `editFormRoundTrip.test.tsx` (a 45e2 form test,
+    nothing of the guard's) under load; alone it passed 17/17. Earlier, a
+    targeted run of 13 guard and import files had the same kind of timeout
+    in `urlGuard.test.ts`'s source scan at load ~25; alone, 25/25. The
+    new `checkOnlyLookup` scan has a 30 s timeout.
+  - Docker, production build (`heavy-pw.sh`, `DOCKER=1`): `fill-gaps`,
+    `import-errors`, `import-roundup`, `import-ssrf`, `jobs`,
+    `new-recipe-duplicate-slug`, `new-recipe`, `photo-import`,
+    `ytdlp-import`, `multi-recipe` and `api-write` (inspect and roundup
+    routes), 111/111 — 46a's set, which now runs one more test.
+  - Main-checkout-shaped build: `editor/content` linked to a scratch
+    directory outside the workspace, and `export/public/{image,uploads}`
+    absolute links through it. `pnpm install --frozen-lockfile` passed;
+    the editor's `next build` passed with no "Dynamic filesystem access"
+    and no "leaves the filesystem root" lines, and no warnings at all.
+    The links were removed afterwards. Turbopack bundles undici into the
+    server chunks (it is not in `serverExternalPackages`).
+  - **After deploy, a smoke test.** Vitest runs the pinned `Agent` under
+    plain Node. Inside the Next bundle, the Docker specs reach a userland
+    `Agent` only through `checkingDispatcher` (Ga2), and only for the real
+    hosts a fixture names; their fixture pages are allowed hosts, with no
+    dispatcher. So no test covers `pinnedDispatcher` inside the bundle
+    against a real public host: Turbopack's copy of undici, with Next's
+    patched `fetch` passing `dispatcher` through. On the workstation build,
+    import one public recipe URL (any Sally's page) and check that the job's
+    fetch step answers 200.
 
 ### 47b: The CMS `fileImportUrl` fetch (S; branch `agent/47b-cms-import`)
 
