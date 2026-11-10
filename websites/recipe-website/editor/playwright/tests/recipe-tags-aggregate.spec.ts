@@ -36,7 +36,7 @@ async function chipNames(page: Page): Promise<string[]> {
 
 async function signedInForm(page: Page): Promise<void> {
   const signIn = page.getByRole("button", {
-    name: "Sign in with Credentials",
+    name: "Sign in",
     exact: true,
   });
   if (await signIn.isVisible()) await fillSignInForm(page);

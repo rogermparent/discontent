@@ -4,6 +4,8 @@ import { expectHydrated } from "./hydration";
 export interface SignInOptions {
   email?: string;
   password?: string;
+  /** Tick "Remember this device" (47e). */
+  remember?: boolean;
 }
 
 /**
@@ -71,21 +73,31 @@ export async function openMarkdownSource(
 
 export async function fillSignInForm(
   page: Page,
-  { email = "admin@nextmail.com", password = "password" }: SignInOptions = {},
+  {
+    email = "admin@nextmail.com",
+    password = "password",
+    remember = false,
+  }: SignInOptions = {},
 ): Promise<void> {
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page
-    .getByRole("button", { name: "Sign in with Credentials", exact: true })
-    .click();
+  /*
+   * The app's own /login form (47e). Hydrated first: a submit before then
+   * posts natively, which works but reloads the page under the spec, and the
+   * "Remember this device" box only toggles once React owns it.
+   */
+  const submit = page.getByRole("button", { name: "Sign in", exact: true });
+  await expectHydrated(submit);
+  await page.getByLabel("Email", { exact: true }).fill(email);
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  if (remember) await page.getByLabel("Remember this device").check();
+  await submit.click();
 }
 
 export async function signIn(
   page: Page,
   options?: SignInOptions,
 ): Promise<void> {
-  // The masthead's Sign In opens a client dialog: a click before it hydrates
-  // only focuses the button (43t's CI: the Email field never appeared).
+  // The footer's Sign In is a server-action form (to /login since 47e): a
+  // click before it hydrates posts natively and reloads (40f).
   const trigger = page.getByRole("button", { name: "Sign In", exact: true });
   await expectHydrated(trigger);
   await trigger.click();

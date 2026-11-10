@@ -244,7 +244,7 @@ test.describe("Accessibility (axe)", () => {
     await page.getByRole("button", { name: "Sign In", exact: true }).click();
     await expect(
       page.getByRole("button", {
-        name: "Sign in with Credentials",
+        name: "Sign in",
         exact: true,
       }),
     ).toBeVisible();

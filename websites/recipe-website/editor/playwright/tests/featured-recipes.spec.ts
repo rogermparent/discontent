@@ -357,7 +357,7 @@ test.describe("Featured Recipes", () => {
     test("should require authentication", async ({ page }) => {
       await expect(
         page.getByRole("button", {
-          name: "Sign in with Credentials",
+          name: "Sign in",
           exact: true,
         }),
       ).toBeVisible();
@@ -415,7 +415,7 @@ test.describe("Featured Recipes", () => {
     test("should require authentication", async ({ page }) => {
       await expect(
         page.getByRole("button", {
-          name: "Sign in with Credentials",
+          name: "Sign in",
           exact: true,
         }),
       ).toBeVisible();

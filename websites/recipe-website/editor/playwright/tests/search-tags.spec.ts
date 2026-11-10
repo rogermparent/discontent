@@ -14,7 +14,7 @@ async function gotoNewRecipe(page: Page): Promise<void> {
   await page.goto("/new-recipe");
   const heading = page.getByRole("heading", { name: "New Recipe" });
   const signIn = page.getByRole("button", {
-    name: "Sign in with Credentials",
+    name: "Sign in",
     exact: true,
   });
   await expect(heading.or(signIn).first()).toBeVisible();

@@ -17,7 +17,7 @@ test.describe("Recipe Edit View", () => {
     test("should need authorization", async ({ page }) => {
       await expect(
         page.getByRole("button", {
-          name: "Sign in with Credentials",
+          name: "Sign in",
           exact: true,
         }),
       ).toBeVisible();

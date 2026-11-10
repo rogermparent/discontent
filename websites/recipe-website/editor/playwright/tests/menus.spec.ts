@@ -28,7 +28,7 @@ test.describe("Menu Editor", () => {
     test("should need authorization", async ({ page }) => {
       await expect(
         page.getByRole("button", {
-          name: "Sign in with Credentials",
+          name: "Sign in",
           exact: true,
         }),
       ).toBeVisible();
@@ -40,7 +40,7 @@ test.describe("Menu Editor", () => {
       await page.goto("/menus/edit/header");
       await expect(
         page.getByRole("button", {
-          name: "Sign in with Credentials",
+          name: "Sign in",
           exact: true,
         }),
       ).toBeVisible();

@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { expectHydrated } from "./hydration";
 
 export interface SignInOptions {
   email?: string;
@@ -72,11 +73,15 @@ export async function fillSignInForm(
   page: Page,
   { email = "admin@nextmail.com", password = "password" }: SignInOptions = {},
 ): Promise<void> {
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page
-    .getByRole("button", { name: "Sign in with Credentials", exact: true })
-    .click();
+  /*
+   * The app's own /login form (47e). Hydrated first: a submit before then
+   * posts natively, which works but reloads the page under the spec.
+   */
+  const submit = page.getByRole("button", { name: "Sign in", exact: true });
+  await expectHydrated(submit);
+  await page.getByLabel("Email", { exact: true }).fill(email);
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await submit.click();
 }
 
 export async function signIn(
