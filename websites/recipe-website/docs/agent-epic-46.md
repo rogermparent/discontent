@@ -11,7 +11,7 @@
 
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded · 📝 proposed.
 
-**Now:** wave 1 — 46a ∥ 46b ∥ 46c (2026-10-28).
+**Now:** closed 2026-11-09 — see 46-close (Close-out) below. Next: `agent-epic-47.md`.
 
 ## Context
 
@@ -53,15 +53,16 @@ Epics 43–45's way of working, unchanged:
 
 | Wave | Phase    | What                                                                                          | Size | Status |
 | ---- | -------- | --------------------------------------------------------------------------------------------- | ---- | ------ |
-| 1    | 46a      | SSRF guard on every importer and editor fetch                                                 | M    | 🟡     |
-| 1    | 46b      | Hygiene: YouTube duplicate keys, the iframe title, two flaky tests                            | S    | 🟡     |
-| 1    | 46c      | Decisions checklist page (the orchestrator builds it)                                         | S    | 🟡     |
-| 2    | 46d      | Curator: a cost cap, local-model honesty and web search, link and URL fixes                   | M    | 📝     |
-| 2    | 46e      | Polish: holidays in ⌘K, term-page cards with times                                            | M    | 📝     |
-| 3    | 46f      | Per-option times for alternatives                                                             | M–L  | 📝     |
-| 3    | 46g      | Content and picks: cuisine terms, drink families, ingredient merges, alternatives conversions | S–M  | 📝     |
-| key  | 46k      | Claude for real: harness on a clone, Pi Ask (after Roger adds the key)                        | S    | 📝     |
-| end  | 46-close | Doc, memory, morning report                                                                   | S    | 📝     |
+| 1    | 46a      | SSRF guard on every importer and editor fetch                                                 | M    | ✅     |
+| 1    | 46b      | Hygiene: YouTube duplicate keys, the iframe title, two flaky tests                            | S    | ✅     |
+| 1    | 46c      | Decisions checklist page (the orchestrator builds it)                                         | S    | ✅     |
+| 2    | 46d      | Curator: a cost cap, local-model honesty and web search, link and URL fixes                   | M    | ✅     |
+| 2    | 46e      | Polish: holidays in ⌘K, term-page cards with times                                            | M    | ✅     |
+| 3    | 46f      | Per-option times for alternatives                                                             | M–L  | ✅     |
+| 3    | 46g      | Content and picks: cuisine terms, drink families, ingredient merges, alternatives conversions | S–M  | ✅     |
+| 3    | 46h      | Roger's checklist changes (seven picks)                                                       | M    | ✅     |
+| key  | 46k      | Claude for real: harness on a clone, Pi Ask (after Roger adds the key)                        | S    | ✅     |
+| end  | 46-close | Doc, memory, morning report                                                                   | S    | ✅     |
 
 ### 46a: SSRF guard (M; alone, since it touches the import tests broadly)
 
@@ -949,11 +950,230 @@ rather than a fourth column.
   3. Never print the key.
 - **If Roger asks to deploy:** `pnpm deploy:pi` writes the key into the Pi's `.env`. Then one **read-only** `POST /api/ask` on the Pi with PI_TOKEN. No curator write on the Pi: the first real write is Roger's.
 
-### 46-close
+#### Results (46k)
 
-- The doc's Close-out, the CLAUDE.md bullet, backlog strikes and rows, memory (`epic-46.md`; fix `pi-deploy` to say the Pi is on 0bc0f95f; record that no Claude key exists, correcting the 44 note).
-- A morning-report artifact.
-- Roger's steps: deploy when ready; the key if it isn't added yet.
+Run by the orchestrator on 2026-11-09 from the 46f worktree (main `430b7337` + 46f), on a scratch clone of the content repo at `2fe6eddb` (867 recipes, 241 terms), with the key from `~/.config/recipe-deploy/uraninite.env` loaded by name (never printed) and `RECIPE_LLM_URL=https://api.anthropic.com` set over `editor/.env`'s qwen URL. Model `claude-sonnet-5` (the default; `RECIPE_LLM_MODEL` unset), basic web tools, no `--newer-web-tools`.
+
+| Model           | Ask | Matched | Turns | Calls (valid / malformed) | Wall | Est. cost | Notes                                                                                                                                                     |
+| --------------- | --- | ------- | ----- | ------------------------- | ---- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| claude-sonnet-5 | a   | yes     | 2     | 1 / 0                     | 6 s  | $0.14     | recipe_search; job 01M71FE41R6BY6A16F0702TD3Z                                                                                                             |
+| claude-sonnet-5 | b   | yes     | 3     | 3 / 0                     | 9 s  | $0.04     | term_get, recipe_search, term_assign (1 commit); job 01M71FEBFKEVAZR3R065MM08EK                                                                           |
+| claude-sonnet-5 | c   | yes     | 5     | 5 / 0                     | 25 s | $0.10     | page_inspect, recipe_search, tag_list, recipe_create ×2 (1 commit); refused the fixture's planted instruction and said so; job 01M71FEPKXH47WJ6T519Z4C6PN |
+| claude-sonnet-5 | d   | yes     | 8     | 9 / 0                     | 62 s | $0.31     | 2 server-side searches, page_inspect_list, page_inspect ×3; listed chewy chocolate chip and best sugar cookies; job 01M71FFKNQNCZ909C46PMEGKRW            |
+
+- **Against 44e's qwen3:8b (think off, 12,288):** qwen matched a and c (b missed two recipes, d listed none); Claude matched all four. qwen was faster on a–c (10–17 s) but free; Claude cost **$0.59 for the four**, every run far under the $1 cap (`RECIPE_AGENT_MAX_COST_USD`). Bulk tagging and web search stay Claude's (44e's call holds).
+- `tokens.in` reads 4–20 per run: the harness counts uncached input only, so the cost estimate (which prices cache reads and writes) is the number to read. Recorded, not fixed.
+- **One real Ask** on the clone (`controller/ask/ask`, a read): "quick vegetarian dinners with chickpeas" → `/search?q=tag:vegetarian tag:quick ingredient:chickpeas -tag:drink`, 5.2 s, 1,909 prompt tokens, model "the Claude API (claude-sonnet-5)".
+- Clone deleted afterwards; the run lines are in `tmp/46/46k/runs.jsonl`, the job logs in `tmp/46/46k/jobs/`.
+
+### 46-close — Close-out
+
+Closed 2026-11-09. Epic 46 ran 2026-10-28 to 11-09, with a 12-day pause while
+Roger was away (46f and 46h sat green in review): an SSRF guard on every
+importer fetch, the YouTube duplicate-key bug, a curator cost cap, ⌘K
+holidays and term-card times, per-option times for alternatives with a
+model-assisted "look for alternatives", Roger's checklist picks, and the
+first real Claude runs. Every phase landed. Main is `b54d0efe` plus this
+close-out. No real model ran in a test or in CI.
+
+**Reindex: automatic.** 46f bumped `recipeContentConfig.indexVersion` to
+`"3"` (Df2: the index carries the default path's times), and the by-term
+record is at `"3"` too, so the index-version stamp (39b) rebuilds an
+instance's indexes at its next start. Nothing to run by hand.
+
+#### What landed
+
+| Phase | PR   | Merge      | What                                                                                                                                                |
+| ----- | ---- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| plan  | #322 | `dbd017e0` | The skeleton: context, how it runs, roadmap.                                                                                                        |
+| 46b   | #323 | `00b3eb4b` | YouTube source keys (every spelling → `youtube.com/watch/<id>`), the embed iframe's title, two flaky tests fixed at the root.                       |
+| 46a   | #324 | `64acdb5d` | `guardedFetch`: every importer and editor fetch checked per hop (scheme, private hosts, DNS answers), `CheckedFetch` branding, API 422s.            |
+| 46d   | #325 | `915be490` | The curator's cost cap (`RECIPE_AGENT_MAX_COST_USD`, $1), newer web tools per run, local-model honesty, link and URL fixes.                         |
+| 46e   | #326 | `2e3062d0` | Holidays in ⌘K, term-page cards with times.                                                                                                         |
+| 46g   | #327 | `8c2008d2` | The 15 ingredient merges Roger picked (`NAME_SYNONYMS`).                                                                                            |
+| 46h   | #328 | `b5ec5341` | Roger's seven checklist changes: methods, beans and `~` forms, plan merge, run sheet everywhere, "partly optional", Cancel, `/search/version` gone. |
+| 46f   | #329 | `b54d0efe` | Per-option times (Df1 field by field, Df2 the index), `indexVersion` "3", "Look for alternatives with the model" (a `choices` job).                 |
+| CI    | #331 | `effa397d` | The Playwright image pinned by digest (below).                                                                                                      |
+| 46c   | —    | artifact   | The decisions checklist, https://claude.ai/artifact/AD5mzXszxLpemM8skN45Ro (104 picks read 2026-10-28).                                             |
+| 46k   | —    | (run)      | Claude for real, Results above.                                                                                                                     |
+| close | —    | this PR    | This close-out, backlog rows and the CLAUDE.md bullet.                                                                                              |
+
+#### Content that rode along
+
+Written with the CLI, not the session's MCP server; all synced to the Pi.
+
+- **2026-10-28 (46g content):** `korean` (3: bo ssam, spicy pork bulgogi,
+  Korean fried chicken wings) and `filipino` (adobo) under `cuisine`; cherry
+  limeade into `soda-fountain`; wassail and the seven sangrias into `punch`;
+  five recipes converted to alternatives (chocolate pâte sucrée — Pan;
+  jerk pork shoulder, mulled cider, oxtail — Method; patty pan squash — Cook
+  it).
+- **2026-11-09, everything-dough's option times**
+  (`25-minute-everything-bread-dough-lagerstrom`), from its steps by Df1's
+  rule, conservative (upper bounds), on the **same-day path**: mix 5 + rest
+  25 + 90 min more at room temperature = 2 h before any option; the
+  overnight fridge (the recipe's first choice) is optional and adds hours,
+  which the times leave out. Prep / cook / total in minutes: Large loaf
+  205 / 55 / 260 (shape 10, proof 75; bake 20 + 35); Baguettes 215 / 30 / 245
+  (divide, rest 15, shape, proof 60; bake 30); Pizza 165 / 10 / 175 (rest 40,
+  the oven preheating meanwhile; one pizza's bake); Bagels 185 / 25 / 210
+  (rest 15, shape, proof ~30 — the step states none; boil and bake 20);
+  Soft pretzels 150 / 25 / 175 (rest 10, roll; boil and bake 22). **Roger to
+  confirm** (below).
+- Roger featured a recipe himself since (`2fe6eddb`).
+
+#### Real check
+
+46k (Results above): four harness asks on Claude Sonnet 5, all matched, $0.59
+in all, every run far under the $1 cap; one real Ask in 5.2 s.
+
+#### Deployed
+
+Both run `b54d0efe` since 2026-11-09, run by Claude at Roger's request:
+
+- **The workstation** (`pnpm workstation update` through the capped slot):
+  pulled the main checkout `0bc0f95f` → `b54d0efe`, built, restarted,
+  healthy; the stamp saw index version `72c0224e…` → `4a3e71b1…` and
+  rebuilt every index in 1.7 s. The first attempt failed type-checking on a
+  stale `.next/dev` (Lessons).
+- **The Pi** (`pnpm deploy:pi`): `recipe-editor:b54d0efe` on `uraninite`,
+  base image resent (440 s, the lockfile moved) and app 141 s; the deploy
+  wrote the Claude settings into the Pi's `.env` (`RECIPE_LLM_API=anthropic`,
+  the key, `RECIPE_LLM_URL=https://api.anthropic.com`); the stamp rebuilt the
+  indexes at start (the explicit reindex then answered "fresh"); health
+  check 200; old images pruned.
+- **One read-only Ask on the Pi** (`POST /api/ask` with `PI_TOKEN`): "quick
+  vegetarian dinners with chickpeas" → the same search as on the clone, on
+  "the Claude API (claude-sonnet-5)", 4.8 s. **No curator write on the
+  Pi** — the first is Roger's.
+- The dough's option times (`dcf8ac3d`) reached the Pi by the
+  workstation's sync.
+
+#### Roger's steps
+
+1. **Reindex: none.** The stamp rebuilt both at the deploy.
+2. Open `/recipe/25-minute-everything-bread-dough-lagerstrom`: pick each
+   option and check its times; `time:<270` finds it and `time:<250` does not (the default
+   option's total, 260 min).
+3. On the Pi, try `/curator` with one small ask — the first real curator
+   write on the Pi is yours.
+4. Answer the list below (or let 47-close's picks page carry it).
+
+#### Roger to confirm
+
+Each item is one line; the reasons are in the phase's Results.
+
+**46a, the guard**
+
+1. A roundup list page on the LAN (a wiki on `192.168.x`) is now refused,
+   page and links.
+
+**46d, the curator**
+
+2. Dd3: the newer toggle covers web search only; Claude's server
+   `web_fetch` stays off.
+3. The $1 default and the $50 ceiling on `RECIPE_AGENT_MAX_COST_USD`.
+4. Dd8: Haiku 5.5 left off the newer-tools list.
+5. Dd7: an unlisted Claude model is priced at Fable's rates, so a cheaper
+   new model stops early at the cap.
+6. A local tag run has no post-check comparing the assign set with the
+   search (the rest of the "Local tagging writes" row).
+
+**46e, polish**
+
+7. "Short input" in ⌘K is under 3 characters (1–2 still show Coming up).
+8. Up to 2 holiday rows; a typed match shows even when months away.
+9. Card times read "1 h 2 m" (the plan page's format).
+10. A card shows only a recipe's own total; prep + cook without a total
+    keeps its date.
+
+**46f, option times**
+
+11. Df1: an option's times replace the recipe's field by field; a blank
+    total is prep + cook when both are known; "All" shows the recipe's own.
+12. Df2: the index carries the default path's times; the prep-only /
+    cook-only edge where `time:` and the page differ.
+13. "Look for alternatives with the model" disabled with its reason (not
+    hidden) when no model is set up.
+14. The everything-dough times above (same-day path, upper bounds).
+
+**46g, ingredient merges**
+
+15. The bare-sugar rule and its label ("granulated sugar").
+16. A bare `stock` left apart from `chicken broth`.
+17. King Arthur's unbleached all-purpose flour left as its own name.
+18. `pepper` left apart from `black pepper`.
+19. "white cheddar" left as its own name.
+
+**46h, your checklist changes**
+
+20. Dh1: the `~` spelling (`ingredient:~X`, `ingredient:any-bean`).
+21. Dh3: lentils, split peas, edamame and soybeans stay out of the bean
+    family.
+22. Dh4: an empty plan has no run sheet.
+23. A holiday menu groups drinks by style then strength, method-only drinks
+    under More.
+24. /drinks' Strength & method sits under Style in one column.
+
+#### Lessons and traps
+
+- **The Playwright image tag was re-pushed under us.**
+  `mcr.microsoft.com/playwright:v1.64.1-noble` came back about 8 days ago
+  with Node 26, which ships no corepack, so every container job failed at
+  `corepack enable` (main after #328, then #329). #331 pins the earlier build
+  by digest (Node 24.21) in `playwright.yml` and `Dockerfile.playwright`;
+  move the tag and the digest together. A locally pulled tag is the new one:
+  `docker-pw.sh` builds from the pinned digest now.
+- **A stale `.next/dev` fails the workstation build.** An Oct 4 `next
+dev` in the main checkout left `.next/dev/types/validator.ts` naming
+  `/search/version`, which 46h removed, and `next build` type-checks it.
+  `rm -rf websites/recipe-website/editor/.next/dev`, then update again
+  (backlog row).
+- **`workstation update` builds in place.** While the failed and the
+  second build ran, the live workstation's CSS answered 500 for about four
+  minutes (20:29–20:33, seen by a canvas agent): `next build` rewrites the
+  `.next` the running server reads. Update on a quiet machine, as the steps
+  always said; a build into a second directory and a swap would remove the
+  window (backlog).
+- **CLI writes need the code they write with.** The dough's option times
+  need 46f's schema, and 46f moves the index version, so the order was:
+  merge, `pnpm workstation update` (the main checkout pulls and the
+  workstation rebuilds its indexes at start), then the CLI write from the
+  updated main checkout, then the Pi deploy. A CLI on new code writing to a
+  repo served by an old workstation build would leave the two disagreeing
+  about the index layout.
+- **`term get` answers `not_found` for a tag with no record.** `korean`,
+  `filipino`, `punch` and `soda-fountain` are plain tags (46g assigned them
+  as tags); `term get` reads only term records. Check a tag's use with
+  `recipes search "tag:<slug>"` instead.
+- **46k's harness reads the Claude key from the deploy config by name**
+  (`tmp/46/46k/run-harness.sh`): only `RECIPE_LLM_API*` lines, with
+  `RECIPE_LLM_URL` and `RECIPE_LLM_MODEL` set explicitly so `editor/.env`'s
+  qwen values can't leak in (`loadEditorEnv` keeps what is already set).
+- **46b's dev-mode gate** for `youtube-video.spec` was CI's `next dev`
+  shards: the heavy slot was held 50+ minutes by another session's render.
+- **Th1: `skill-local.md` sits at its token budget** (46h); any added
+  wording needs an equal cut.
+- **Tg1: a shortening synonym row stops "A or B C" lending** (46g).
+
+#### Current baselines
+
+Moved in 46: `visual/git-page` (the index version line, 46f, Te1),
+`drinks-page-e2e` and `drinks-page-mobile` (46h), `shopping-plan` (46g).
+All regenerated in Docker.
+
+#### Backlog
+
+Rows struck in the phases (46a's SSRF row, 46b's four, 46d's cost cap and
+link rows, 46f's recipe-level times for alternatives, 46h's picks). Open,
+carried to epic 47: DNS rebinding (Da3 → 47a), the CMS `fileImportUrl`
+fetch (→ 47b), the harness's uncached-only `tokens.in` count (46k).
+
+#### Next
+
+Epic 47 (`agent-epic-47.md`): 47a DNS rebinding, 47b the CMS upload fetch,
+47c a content round, 47d design canvases, and 47e auth on Better Auth
+(Roger's ask, 2026-11-09).
 
 ## Verification
 
