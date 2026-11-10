@@ -331,14 +331,31 @@ export async function writeUploadFile(
       fileImportUrl,
       uploadData.uploadFetch,
     );
-    /* No body writes an empty file, as the stream opened up front used to. */
-    await writeStreamAtomic(
-      resultPath,
-      response.body
-        ? Readable.fromWeb(response.body as ReadableStream)
-        : undefined,
-    );
+    /*
+     * No body writes an empty file, as the stream opened up front used to.
+     * A body that fails after the headers (the deadline, a reset) is the
+     * download's failure too, and says so on the form; the atomic write
+     * leaves nothing behind.
+     */
+    try {
+      await writeStreamAtomic(
+        resultPath,
+        response.body
+          ? Readable.fromWeb(response.body as ReadableStream)
+          : undefined,
+      );
+    } catch (error) {
+      throw new UploadImportError(
+        `Could not download ${fileImportUrl}: ${reasonOf(error)}.`,
+        fileImportUrl,
+        { cause: error },
+      );
+    }
   }
+}
+
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -370,10 +387,11 @@ async function fetchUploadImport(
     });
   } catch (error) {
     if (error instanceof UploadImportError) throw error;
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new UploadImportError(`Could not download ${url}: ${reason}.`, url, {
-      cause: error,
-    });
+    throw new UploadImportError(
+      `Could not download ${url}: ${reasonOf(error)}.`,
+      url,
+      { cause: error },
+    );
   }
   if (!response.ok) {
     await response.body?.cancel().catch(() => {});

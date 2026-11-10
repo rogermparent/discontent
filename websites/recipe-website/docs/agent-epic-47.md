@@ -241,7 +241,8 @@ ADDRCONFIG}` (the resolver's order kept), for the check and for
   - the fetcher's own `UploadImportError` (a guard's refusal) keeps its
     message;
   - anything else the fetcher throws is wrapped: "Could not download
-    `<url>`: `<reason>`.";
+    `<url>`: `<reason>`.", and so is a body that fails after the headers
+    (the deadline, a reset; review) — the atomic write leaves no file;
   - an answer that is not a success: "`<url>` answered 404 Not Found, not
     the file; nothing was saved." (the body is cancelled).
   - `createGenericActions` shows an `UploadImportError`'s message on the
@@ -283,7 +284,13 @@ ADDRCONFIG}` (the resolver's order kept), for the check and for
     `FetchRefusedError` and a `refused` option that picks the error a
     refusal throws).
   - undici 6.29.1 moved from `recipe-editor`'s dependencies to the
-    package's; the lockfile still has one undici.
+    package's; the lockfile still has one undici. `typescript` and
+    `@types/node` (`^25.9.9`, the workspace's) are its devDependencies
+    (review: it type-checked only through `shamefully-hoist`). A side
+    effect in the lockfile: `recipe-website-common`, which declares no
+    `@types/node`, had its peers (`next`, `sharp`, `jest`) resolved against
+    an auto-installed 26.6.5; they now resolve against the workspace's
+    25.9.9. Types only.
   - What stayed in the recipe editor: the test allowance
     (`fetchGuardOptions`, `setFetchGuardTesting`, `RECIPE_TEST_*`,
     `isTestAllowedUrl`), `UrlRefusedError` (its `guardedFetch` passes
@@ -308,14 +315,21 @@ ADDRCONFIG}` (the resolver's order kept), for the check and for
 - **Gb6 — the project forms show their message.** The portfolio's new and
   edit project forms never rendered `state.message`, so a slug conflict
   and a busy repository were silent too. They now show it under Submit
-  (`role="alert"`, `text-destructive`), only when there is one. A success
-  redirects, so no baseline moves.
+  (`SaveFailure`, `portfolio/editor/src/components/`: `role="alert"`,
+  `text-destructive`), only when there is one. Each new form state remounts
+  the alert, so a second identical failure is announced again (review). A
+  success redirects, so no baseline moves.
+- **Backlog (review):** the engine's import still keeps whatever a 200
+  answers — no content-type allowlist, no byte cap (an HTML page saved as
+  the image, a large body streaming for up to 60 s). Pre-existing,
+  portfolio only; a new row in `backlog.md`.
 - **Tests.**
-  - `test/uploadImport.test.ts`, the engine (9): refused with no fetcher;
+  - `test/uploadImport.test.ts`, the engine (10): refused with no fetcher;
     a private URL, a name that resolves privately and a redirect inside
     are refused through the injected guard, with nothing fetched (or one
     manual hop) and nothing written; a 404 is not written and gives its
-    status; a fetcher's other error is wrapped; a public image is written,
+    status; a fetcher's other error is wrapped, and so is a body that
+    errors mid-stream (no file left); a public image is written,
     with a deadline; a refused import on update keeps the old file; a
     successful import and a same-name upload still replace it.
   - `test/portfolioImageImport.test.ts`, the portfolio's `createProject`
@@ -326,17 +340,14 @@ ADDRCONFIG}` (the resolver's order kept), for the check and for
     export the package's functions; `FetchRefusedError` and `refused`;
     per-hop checks; `FetchChainError`; the package names no environment
     and no allowance.
+  - `test/saveFailure.test.tsx`, the forms' alert (2): nothing until a
+    failure; a new state with the same message remounts it.
 - **Not done (out of scope):** an `imageImportUrl` that is not a URL still
   throws in the portfolio's `buildProjectData` (`new URL`) before the
   write, as it did before 47b.
 - **Roger to confirm:** Gb1's wording for an editor with no fetcher, and
   Gb5 (no test allowance in the portfolio until a spec needs one).
-- **Gates** (before review): typecheck clean for `@discontent/url-guard`,
-  `portfolio-website-editor` and `recipe-editor`, and `recipe-website tsc
---noEmit` clean; a targeted vitest (the three new files, 46a's and 47a's
-  guard suites, `importRecipeSource`, `projectSecurity`, `annex`,
-  `groups`) 10 files, 143/143. The full vitest, the Docker import specs,
-  the portfolio specs and the main-checkout-shaped build follow the review.
+- **Gates** (after the review fixes): GATES_PENDING
 
 ### 47c: Content round (M, content; the orchestrator)
 

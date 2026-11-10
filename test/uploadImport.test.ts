@@ -189,6 +189,32 @@ describe("an upload's fileImportUrl (47b)", () => {
     );
   });
 
+  it("says a body that fails mid-stream is a failed download, and leaves no file", async () => {
+    let sent = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!sent) {
+          sent = true;
+          controller.enqueue(new TextEncoder().encode("PNG"));
+          return;
+        }
+        controller.error(new Error("socket hang up"));
+      },
+    });
+    fetchSpy.mockResolvedValueOnce(new Response(body, { status: 200 }));
+    const write = createWithImport(
+      "reset",
+      "http://203.0.113.10/x.png",
+      guarded(),
+    );
+    await expect(write).rejects.toBeInstanceOf(UploadImportError);
+    await expect(write).rejects.toThrow(
+      "Could not download http://203.0.113.10/x.png: socket hang up.",
+    );
+    expect(await pathExists(uploadPath("reset", "x.png"))).toBe(false);
+    expect(await pathExists(dataPath("reset"))).toBe(false);
+  });
+
   it("writes a public image through the guard, with a deadline", async () => {
     await createWithImport("public", "http://203.0.113.10/x.png", guarded());
     expect(await readFile(uploadPath("public", "x.png"), "utf8")).toBe(

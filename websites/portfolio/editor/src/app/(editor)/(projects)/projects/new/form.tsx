@@ -7,6 +7,7 @@ import { Button } from "@discontent/component-library/components/Button";
 import { ProjectFormState } from "@discontent/projects-collection/controller/formState";
 import { createProject } from "../../../../../../controller/actions/projects";
 import Link from "next/link";
+import { SaveFailure } from "@/components/SaveFailure";
 
 export default function NewProjectForm({
   allTags = [],
@@ -32,13 +33,7 @@ export default function NewProjectForm({
       <div className="flex flex-row flex-nowrap my-1">
         <Button type="submit">Submit</Button>
       </div>
-      {/* A save that did not happen says why — a refused image import URL
-          (47b), a slug taken, the repository busy. Success redirects. */}
-      {state.message ? (
-        <p role="alert" className="text-sm text-destructive my-1">
-          {state.message}
-        </p>
-      ) : null}
+      <SaveFailure state={state} />
       <div>
         <Link href="/projects">Back to Projects</Link>
       </div>

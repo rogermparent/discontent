@@ -21,5 +21,9 @@
   ],
   "dependencies": {
     "undici": "6.29.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.9",
+    "typescript": "^5.9.3"
   }
 }
