@@ -30,7 +30,7 @@ import { PathHeadsUpNotes } from "./HeadsUp";
 import { matchStepIngredients } from "../../util/stepIngredients";
 import { headsUpCandidates } from "../../util/headsUp";
 import { readChoices } from "../../util/readChoices";
-import { ChoicesProvider, PathYield } from "./Choices";
+import { ChoicesProvider, PathTime, PathYield } from "./Choices";
 import { drinkYieldBase, isDrinkRecipe } from "../../util/drinkCount";
 import { TimersProvider, TimerTray } from "./Timers";
 
@@ -80,6 +80,30 @@ export async function RecipeView({
   const hasOptionYield = choices.sets.some((set) =>
     set.options.some((option) => option.yield),
   );
+  /* 46f: options' own times. A strip cell shows when the recipe or any
+     option has that time (a total whenever an option has any), so a pick
+     changes its value, never the strip's shape. */
+  const optionTimes = choices.sets.flatMap((set) =>
+    set.options.flatMap((option) => (option.times ? [option.times] : [])),
+  );
+  const recipeTimes = { prepTime, cookTime, totalTime: recipe.totalTime };
+  const timeCell = (
+    field: "prepTime" | "cookTime" | "totalTime",
+    label: string,
+    own: number,
+  ) =>
+    own || optionTimes.some((times) => field === "totalTime" || times[field])
+      ? [
+          {
+            label,
+            value: optionTimes.length ? (
+              <PathTime field={field} recipeTimes={recipeTimes} />
+            ) : (
+              formatDurationLong(own)
+            ),
+          },
+        ]
+      : [];
   /* 42c2: a drink's scaler counts drinks, from its yield's count. */
   const isDrink = isDrinkRecipe(recipe);
   const drinkBase = isDrink ? drinkYieldBase(recipe.recipeYield) : undefined;
@@ -203,30 +227,9 @@ export async function RecipeView({
                   MultiplierProvider). Fills the hero's formerly-dead right half. */}
                     <MetaBar
                       items={[
-                        ...(prepTime
-                          ? [
-                              {
-                                label: "Prep",
-                                value: formatDurationLong(prepTime),
-                              },
-                            ]
-                          : []),
-                        ...(cookTime
-                          ? [
-                              {
-                                label: "Cook",
-                                value: formatDurationLong(cookTime),
-                              },
-                            ]
-                          : []),
-                        ...(totalTime
-                          ? [
-                              {
-                                label: "Total",
-                                value: formatDurationLong(totalTime),
-                              },
-                            ]
-                          : []),
+                        ...timeCell("prepTime", "Prep", prepTime || 0),
+                        ...timeCell("cookTime", "Cook", cookTime || 0),
+                        ...timeCell("totalTime", "Total", totalTime),
                         ...(recipe.recipeYield || hasOptionYield
                           ? [
                               {

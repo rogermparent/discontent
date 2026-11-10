@@ -44,6 +44,11 @@ import {
   overwriteUpdateRecipe,
 } from "../../../../../../controller/actions";
 import FillFromSource, { type FillOutcome } from "./FillFromSource";
+import {
+  ModelChoicesProvider,
+  type ModelChoices,
+} from "recipe-website-common/components/Form/Instructions/modelChoices";
+import { choicesResultAction, choicesStartAction } from "./choicesActions";
 
 /** A fill the form holds (45b): what it was remounted with, and its marks. */
 interface AppliedFill {
@@ -131,6 +136,8 @@ export default function EditRecipeForm({
   fillSource,
   llmModel,
   initialFillJob,
+  choicesModel,
+  choicesUnavailable,
 }: {
   slug: string;
   recipe: Recipe;
@@ -143,7 +150,21 @@ export default function EditRecipeForm({
   llmModel?: string;
   /** `?fill=<job>`: a fill to follow, or to apply again (45b). */
   initialFillJob?: string;
+  /** Who "Look for alternatives with the model" asks (46f). */
+  choicesModel?: string;
+  /** Why it is off, when no model is set up (46f). */
+  choicesUnavailable?: string;
 }) {
+  /* 46f: the Steps section's model action, bound to this recipe. */
+  const modelChoices = useMemo<ModelChoices>(
+    () => ({
+      model: choicesModel,
+      unavailable: choicesUnavailable,
+      start: (name, outline) => choicesStartAction(slug, name, outline),
+      result: (job) => choicesResultAction(job),
+    }),
+    [slug, choicesModel, choicesUnavailable],
+  );
   const { date } = recipe;
   const initialState = { message: "", errors: {} } as RecipeFormState;
   const updateThisRecipe = updateRecipe.bind(null, date, slug);
@@ -267,47 +288,49 @@ export default function EditRecipeForm({
           onUndo={onUndo}
         />
       ) : null}
-      <RecipeFormShell
-        key={failed ? failed.message : (fill?.key ?? undoKey)}
-        action={dispatch}
-        recipe={effectiveRecipe}
-        slug={effectiveSlug}
-        tagPicker={tagPicker}
-        className="flex w-full flex-col gap-7"
-      >
-        <ValuesProbe readRef={readForm} />
-        <UpdateRecipeFields
+      <ModelChoicesProvider value={modelChoices}>
+        <RecipeFormShell
+          key={failed ? failed.message : (fill?.key ?? undoKey)}
+          action={dispatch}
           recipe={effectiveRecipe}
           slug={effectiveSlug}
-          state={withSlugConflict(shown)}
-          defaultImage={defaultImage}
-          fill={fill?.marks}
-          pictures={fill?.pictures}
-        />
-        {/* Last: on a phone its save bar ends the form, sticky above the tab bar. */}
-        <RecipeFormRail
-          mode="edit"
-          eyebrow="Editing"
-          picture={
-            fill?.pictures
-              ? "new"
-              : fill?.recipe.imageImportUrl &&
-                  fill.marks.filled.includes("image")
-                ? "page"
-                : defaultImage
-                  ? "saved"
-                  : "none"
-          }
-          errors={withSlugConflict(shown).errors}
-          saveLabel="Save"
-          cancelHref={`/recipe/${slug}`}
-          message={shown.message || undefined}
-          overwrite={shown.slugConflict ? overwriteDispatch : undefined}
-          baseline={baseline}
-          fill={fill?.marks}
-          extraChanges={fill?.extraChanges}
-        />
-      </RecipeFormShell>
+          tagPicker={tagPicker}
+          className="flex w-full flex-col gap-7"
+        >
+          <ValuesProbe readRef={readForm} />
+          <UpdateRecipeFields
+            recipe={effectiveRecipe}
+            slug={effectiveSlug}
+            state={withSlugConflict(shown)}
+            defaultImage={defaultImage}
+            fill={fill?.marks}
+            pictures={fill?.pictures}
+          />
+          {/* Last: on a phone its save bar ends the form, sticky above the tab bar. */}
+          <RecipeFormRail
+            mode="edit"
+            eyebrow="Editing"
+            picture={
+              fill?.pictures
+                ? "new"
+                : fill?.recipe.imageImportUrl &&
+                    fill.marks.filled.includes("image")
+                  ? "page"
+                  : defaultImage
+                    ? "saved"
+                    : "none"
+            }
+            errors={withSlugConflict(shown).errors}
+            saveLabel="Save"
+            cancelHref={`/recipe/${slug}`}
+            message={shown.message || undefined}
+            overwrite={shown.slugConflict ? overwriteDispatch : undefined}
+            baseline={baseline}
+            fill={fill?.marks}
+            extraChanges={fill?.extraChanges}
+          />
+        </RecipeFormShell>
+      </ModelChoicesProvider>
     </RecipeFormFrame>
   );
 }

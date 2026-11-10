@@ -19,6 +19,7 @@
  */
 import type { InstructionEntry, InstructionGroup } from "../controller/types";
 import { choiceSlug } from "./alternatives";
+import { formatDurationLong } from "./formatDuration";
 
 /** A set as the form holds it: entries `start` to `end` (exclusive). */
 export interface ChoiceRun {
@@ -40,8 +41,11 @@ export type SetIds = readonly (string | undefined)[];
 export interface ChoiceProblem {
   /** The top-level entry: a set's first option, or the option itself. */
   index: number;
-  /** The field it is about: the set's label, or an option's name. */
-  field: "choice" | "name";
+  /**
+   * The field it is about: the set's label, an option's name, or (46f) an
+   * option's total time.
+   */
+  field: "choice" | "name" | "totalTime";
   message: string;
 }
 
@@ -161,12 +165,39 @@ function quoted(text: string): string {
 }
 
 /**
+ * An option's times that cannot be (46f): a total shorter than its own
+ * prep or cook time. Within the option only — its times are the recipe's
+ * when it is made, so the recipe's own are not its to meet.
+ */
+export function optionTimeProblem(
+  group: Pick<InstructionGroup, "prepTime" | "cookTime" | "totalTime">,
+  name: string,
+): string | undefined {
+  const at = (value: unknown) =>
+    typeof value === "number" && value > 0 ? value : 0;
+  const total = at(group.totalTime);
+  if (!total) return undefined;
+  const option = name.trim() ? quoted(name) : "an option";
+  const checks = [
+    [at(group.cookTime), "cook"],
+    [at(group.prepTime), "prep"],
+  ] as const;
+  for (const [value, kind] of checks) {
+    if (total < value) {
+      return `The total time of ${option} (${formatDurationLong(total)}) is shorter than its ${kind} time (${formatDurationLong(value)})`;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Every rule the worked-on sets break: a label is required; a set needs two
  * options; each option needs a name, unique in its set; two sets may not
  * share a label (45e1's known limit: an ingredient heading names its set by
  * the label alone, so it could not tell them apart); and a set next to a
  * group of its label would be read as one set with it, so it may not.
- * A set as stored is judged by none of them.
+ * An option's total time may not be shorter than its own prep or cook
+ * time (46f). A set as stored is judged by none of them.
  */
 export function choiceProblems(
   instructions: readonly InstructionEntry[],
@@ -238,6 +269,10 @@ export function choiceProblems(
         return;
       }
       const nameKey = choiceSlug(name) || name.toLowerCase();
+      const timeProblem = optionTimeProblem(group, name);
+      if (timeProblem) {
+        problems.push({ index, field: "totalTime", message: timeProblem });
+      }
       if (names.has(nameKey)) {
         problems.push({
           index,
