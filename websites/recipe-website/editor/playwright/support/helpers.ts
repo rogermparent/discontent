@@ -90,6 +90,24 @@ export async function fillSignInForm(
   await page.getByLabel("Password", { exact: true }).fill(password);
   if (remember) await page.getByLabel("Remember this device").check();
   await submit.click();
+  /*
+   * The form posts a server action, not a navigation, so the click returns
+   * before the sign-in has landed — and a `page.goto` right after cancels the
+   * request before its Set-Cookie arrives (the spec then finds itself signed
+   * out). Wait for the outcome: off /login (signed in, redirected) or an
+   * error on it.
+   */
+  await expect
+    .poll(
+      async () => {
+        if (!new URL(page.url()).pathname.startsWith("/login")) return "left";
+        /* In main: Next's route announcer is a role="alert" too. */
+        const alert = page.getByRole("main").getByRole("alert");
+        return (await alert.count().catch(() => 0)) > 0 ? "error" : "pending";
+      },
+      { timeout: 15_000, message: "the sign-in to land" },
+    )
+    .not.toBe("pending");
 }
 
 export async function signIn(
