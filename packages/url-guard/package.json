@@ -1,0 +1,25 @@
+{
+  "name": "@discontent/url-guard",
+  "version": "1.0.0",
+  "description": "The editors' SSRF guard: which URLs a server may fetch, the DNS step, per-hop manual redirects and a connection pinned to the checked addresses.",
+  "private": true,
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rogermparent/discontent.git",
+    "directory": "packages/url-guard"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "files": [
+    "guardedFetch.ts",
+    "pinnedDispatcher.ts",
+    "privateHost.ts",
+    "urlGuard.ts",
+    "tsconfig.json"
+  ],
+  "dependencies": {
+    "undici": "6.29.1"
+  }
+}

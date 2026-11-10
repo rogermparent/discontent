@@ -19,6 +19,7 @@ import type {
 import { getProjectBySlug } from "@discontent/projects-collection/controller/data/read";
 import slugify from "@sindresorhus/slugify";
 import { z } from "zod";
+import { portfolioUploadFetch } from "../uploadFetch";
 import { authenticateUser } from "./shared";
 
 /*
@@ -224,6 +225,8 @@ const projectEditorConfig: EditorContentConfig<
 
   label: "project",
   authenticate: authenticateUser,
+  // The image import URL's download, through the shared SSRF guard (47b).
+  uploadFetch: portfolioUploadFetch,
 };
 
 const projectActions = createGenericActions(projectEditorConfig);

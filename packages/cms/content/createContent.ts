@@ -104,6 +104,7 @@ async function createContentLocked<TData, TIndexValue, TKey extends Key>(
     commitMessage,
     commit = true,
     uploads,
+    uploadFetch,
     processUploads = defaultCreateUploadsProcessor,
     action,
   } = options;
@@ -127,7 +128,7 @@ async function createContentLocked<TData, TIndexValue, TKey extends Key>(
   if (uploads) {
     const resolvedUploads: Record<string, FileUploadData | undefined> = {};
     for (const [fieldName, spec] of Object.entries(uploads)) {
-      resolvedUploads[fieldName] = await getUploadInfo(spec);
+      resolvedUploads[fieldName] = await getUploadInfo(spec, uploadFetch);
     }
     const uploadPaths = await processUploads(
       config as ContentTypeConfig,

@@ -318,6 +318,13 @@ export interface CreateContentOptions<
   uploads?: Record<string, UploadSpec>;
 
   /**
+   * What downloads an upload's `fileImportUrl` (47b, `UploadFetch`). Without
+   * one, a `fileImportUrl` is refused with `UploadImportError` — the engine
+   * never fetches a URL with plain `fetch`.
+   */
+  uploadFetch?: UploadFetch;
+
+  /**
    * Optional custom upload processor. If provided, this will be called
    * instead of the default upload processing. Receives the resolved
    * upload data for each field. Returns paths touched (relative to contentDirectory).
@@ -376,6 +383,9 @@ export interface UpdateContentOptions<
 
   /** Optional uploads to process (keyed by field name) */
   uploads?: Record<string, UploadSpec>;
+
+  /** What downloads an upload's `fileImportUrl` (47b); as on create. */
+  uploadFetch?: UploadFetch;
 
   /**
    * Optional custom upload processor. If provided, this will be called
@@ -492,6 +502,19 @@ export interface ReadContentFileOptions<
 }
 
 /**
+ * How the engine downloads an upload's `fileImportUrl` (47b): `fetch`'s
+ * shape, injected by the app — the engine never fetches a URL itself, and
+ * never imports an app's guard. The portfolio editor passes the shared SSRF
+ * guard's (`@discontent/url-guard`). A fetcher may throw `UploadImportError`
+ * with a message for a person (a refusal); anything else it throws is
+ * wrapped in one.
+ */
+export type UploadFetch = (
+  url: string,
+  init: { signal: AbortSignal },
+) => Promise<Response>;
+
+/**
  * File upload information
  */
 export interface FileUploadData {
@@ -501,6 +524,12 @@ export interface FileUploadData {
   file?: File;
   /** URL to import file from */
   fileImportUrl?: string;
+  /**
+   * What downloads `fileImportUrl` — the write's `uploadFetch`, carried here
+   * by `getUploadInfo` so every upload processor has it. None: the import is
+   * refused (`UploadImportError`).
+   */
+  uploadFetch?: UploadFetch;
 }
 
 /**

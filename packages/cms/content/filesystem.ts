@@ -4,7 +4,8 @@ import { Readable } from "node:stream";
 import { ReadableStream } from "node:stream/web";
 import { writeJsonAtomic, writeStreamAtomic } from "../fs/atomicWrite";
 import { getContentDirectory } from "../fs/getContentDirectory";
-import type { ContentTypeConfig, FileUploadData } from "./types";
+import { UploadImportError } from "./errors";
+import type { ContentTypeConfig, FileUploadData, UploadFetch } from "./types";
 
 /**
  * Get the data directory for a content type
@@ -256,19 +257,24 @@ export async function renameContentDirectory(
 }
 
 /**
- * Get upload info from form data
+ * Get upload info from form data. `uploadFetch` is the write's (47b): it
+ * rides on an import's `FileUploadData`, so whichever upload processor runs
+ * hands it to `writeUploadFile`.
  */
-export async function getUploadInfo({
-  file,
-  clearFile,
-  fileImportUrl,
-  existingFile,
-}: {
-  file?: File;
-  clearFile?: boolean;
-  fileImportUrl?: string;
-  existingFile?: string;
-}): Promise<FileUploadData | undefined> {
+export async function getUploadInfo(
+  {
+    file,
+    clearFile,
+    fileImportUrl,
+    existingFile,
+  }: {
+    file?: File;
+    clearFile?: boolean;
+    fileImportUrl?: string;
+    existingFile?: string;
+  },
+  uploadFetch?: UploadFetch,
+): Promise<FileUploadData | undefined> {
   if (file && file.size !== 0) {
     return { fileName: file.name, file };
   }
@@ -281,6 +287,7 @@ export async function getUploadInfo({
     return {
       fileName: basenameWithoutParams,
       fileImportUrl,
+      ...(uploadFetch ? { uploadFetch } : {}),
     };
   }
   if (existingFile) {
@@ -320,21 +327,65 @@ export async function writeUploadFile(
       Readable.fromWeb(file.stream() as ReadableStream),
     );
   } else if (fileImportUrl) {
+    const response = await fetchUploadImport(
+      fileImportUrl,
+      uploadData.uploadFetch,
+    );
+    /* No body writes an empty file, as the stream opened up front used to. */
+    await writeStreamAtomic(
+      resultPath,
+      response.body
+        ? Readable.fromWeb(response.body as ReadableStream)
+        : undefined,
+    );
+  }
+}
+
+/**
+ * An upload's `fileImportUrl`, downloaded through the write's `uploadFetch`
+ * (47b) — never plain `fetch`, which followed redirects anywhere, checked no
+ * host and wrote a 404 page as the image. Throws `UploadImportError`, and
+ * nothing is written: with no fetcher (the import is refused, failing
+ * closed), when the fetcher throws (a guard's refusal keeps its own
+ * message), and for an answer that is not a success.
+ */
+async function fetchUploadImport(
+  url: string,
+  uploadFetch: UploadFetch | undefined,
+): Promise<Response> {
+  if (!uploadFetch) {
+    throw new UploadImportError(
+      `This editor does not import files from a URL; upload the file instead.`,
+      url,
+    );
+  }
+  let response: Response;
+  try {
     /*
      * Bounded: this runs inside the write lock, whose heartbeat would keep a
      * hung download's lock fresh forever.
      */
-    const importedFileData = await fetch(fileImportUrl, {
+    response = await uploadFetch(url, {
       signal: AbortSignal.timeout(UPLOAD_FETCH_TIMEOUT_MS),
     });
-    /* No body writes an empty file, as the stream opened up front used to. */
-    await writeStreamAtomic(
-      resultPath,
-      importedFileData.body
-        ? Readable.fromWeb(importedFileData.body as ReadableStream)
-        : undefined,
+  } catch (error) {
+    if (error instanceof UploadImportError) throw error;
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new UploadImportError(`Could not download ${url}: ${reason}.`, url, {
+      cause: error,
+    });
+  }
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
+    const status = [response.status, response.statusText]
+      .filter(Boolean)
+      .join(" ");
+    throw new UploadImportError(
+      `${url} answered ${status}, not the file; nothing was saved.`,
+      url,
     );
   }
+  return response;
 }
 
 /**
@@ -358,7 +409,13 @@ export async function removeUploadFile(
 }
 
 /**
- * Process upload changes - removes old files and writes new ones
+ * Process upload changes - writes new files and removes old ones.
+ *
+ * The new file first, then the old one's removal (47b): a refused or failed
+ * import (`UploadImportError`) used to find the existing file already
+ * deleted, leaving the working tree dirty with no commit to explain it. Same
+ * name as before: the atomic write replaced it, so there is nothing to
+ * remove.
  */
 export async function processUploadChanges(
   config: ContentTypeConfig,
@@ -370,29 +427,35 @@ export async function processUploadChanges(
   const baseDir = contentDirectory || getContentDirectory();
   const paths: string[] = [];
 
-  // Check if file should be deleted
-  if (
+  const replacesExisting =
     existingFile !== undefined &&
-    (uploadData === undefined || uploadData.file || uploadData.fileImportUrl)
-  ) {
-    paths.push(
-      relative(
-        baseDir,
-        getUploadFilePath(config, slug, existingFile, contentDirectory),
-      ),
-    );
-    await removeUploadFile(config, slug, existingFile, contentDirectory);
+    (uploadData === undefined ||
+      Boolean(uploadData.file) ||
+      Boolean(uploadData.fileImportUrl));
+  const existingPath =
+    existingFile === undefined
+      ? undefined
+      : getUploadFilePath(config, slug, existingFile, contentDirectory);
+  if (replacesExisting && existingPath) {
+    paths.push(relative(baseDir, existingPath));
   }
 
   // Write new file if provided
+  let newPath: string | undefined;
   if (uploadData) {
-    paths.push(
-      relative(
-        baseDir,
-        getUploadFilePath(config, slug, uploadData.fileName, contentDirectory),
-      ),
+    newPath = getUploadFilePath(
+      config,
+      slug,
+      uploadData.fileName,
+      contentDirectory,
     );
+    paths.push(relative(baseDir, newPath));
     await writeUploadFile(config, slug, uploadData, contentDirectory);
+  }
+
+  // Then delete the file it replaced
+  if (replacesExisting && existingFile !== undefined && existingPath !== newPath) {
+    await removeUploadFile(config, slug, existingFile, contentDirectory);
   }
 
   return paths;

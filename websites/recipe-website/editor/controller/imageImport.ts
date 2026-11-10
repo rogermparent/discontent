@@ -2,12 +2,13 @@
  * Download an image to import, checked, as a `File` (26a).
  *
  * The engine can fetch an upload itself (`fileImportUrl`, in
- * `packages/cms/content/filesystem.ts`), but it writes whatever comes back: an
- * HTML error page, a 403 body, a 40 MB original — under the URL's last path
- * segment, which on Cloudinary-style URLs has no extension at all (25e's T9).
- * Fetching here instead, and handing the engine a `File`, gets a status check,
- * a type check, a size cap and a real filename without touching the engine or
- * the other sites built on it.
+ * `packages/cms/content/filesystem.ts`; since 47b only through an injected
+ * `uploadFetch`, which this editor never passes, and with a status check),
+ * but it writes whatever else comes back: an HTML page served as 200, a 40 MB
+ * original — under the URL's last path segment, which on Cloudinary-style
+ * URLs has no extension at all (25e's T9). Fetching here instead, and
+ * handing the engine a `File`, gets a type check, a size cap and a real
+ * filename without touching the engine or the other sites built on it.
  *
  * Node-safe (D8): the curation layer and the form's server action both call it.
  */

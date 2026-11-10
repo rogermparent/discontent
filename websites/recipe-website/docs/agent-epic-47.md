@@ -229,6 +229,115 @@ ADDRCONFIG}` (the resolver's order kept), for the check and for
   injected guard; a portfolio vitest or spec for a refused import URL with
   a plain message. Portfolio specs run in CI's Portfolio job.
 
+#### Results (47b)
+
+- **The engine.** `writeUploadFile`'s `fileImportUrl` branch no longer
+  calls `fetch`. It downloads through the write's injected `uploadFetch`
+  (`UploadFetch`, `fetch`'s shape, in `packages/cms/content/types.ts`), with
+  the 60 s deadline as before, and checks `response.ok`. Every failure is an
+  `UploadImportError` (`content/errors.ts`), and nothing is written:
+  - no fetcher: "This editor does not import files from a URL; upload the
+    file instead.";
+  - the fetcher's own `UploadImportError` (a guard's refusal) keeps its
+    message;
+  - anything else the fetcher throws is wrapped: "Could not download
+    `<url>`: `<reason>`.";
+  - an answer that is not a success: "`<url>` answered 404 Not Found, not
+    the file; nothing was saved." (the body is cancelled).
+  - `createGenericActions` shows an `UploadImportError`'s message on the
+    form as it is, the same way it shows busy and mid-merge.
+- **Gb1 — fail closed.** With no `uploadFetch`, a `fileImportUrl` is
+  refused. This breaks no caller. `git grep fileImportUrl` finds one: the
+  portfolio's projects, which now passes the guard. The recipe editor never
+  passes one: it downloads through `fetchImageFile` (`importerFetch`,
+  guarded since 46a) and hands the engine a `File`. Resume-builder, the
+  demo, pages and menus pass none. A future caller that forgets the fetcher
+  is refused rather than left unguarded.
+- **Gb2 — where the fetcher goes.** It is an option on the write call
+  (`uploadFetch` on `createContent` / `updateContent`) and on
+  `EditorContentConfig`, which all four generic actions pass on; it sits
+  next to `authenticate`, injected for the same reason. `getUploadInfo`
+  copies it onto an import's `FileUploadData`, so a custom `processUploads`
+  hands it to `writeUploadFile` without a signature change. It is not on
+  `ContentTypeConfig`: content types live in shared collection packages
+  (`projectContentConfig` is in `projects-collection`), and which guard to
+  use is the app's choice.
+- **Gb3 — a refused import keeps the existing file.**
+  `processUploadChanges` used to delete the existing file before it wrote
+  the new one. A refused or failed import then left the image deleted from
+  the working tree, with no commit to explain it. It now writes first and
+  removes after; a new file with the same name was already replaced by the
+  atomic write, so there is nothing left to remove. The touched paths are
+  unchanged.
+- **Gb4 — the shared guard is a new package, `packages/url-guard`
+  (`@discontent/url-guard`)**, not the component library's server utils.
+  The component library is React UI with `next` and `react` peers. The
+  guard is Node-only and owns undici, and the engine's docs point to it.
+  Like `@discontent/cms`, it is TypeScript source imported by deep path,
+  with no build and no `exports` map. Its tests run under the root vitest.
+  - What moved: `privateHost.ts` (from `common/util/`, unchanged, still
+    import-free), `urlGuard.ts` (`isBlockedAddress`, `hostAllowed`, the DNS
+    step, `checkUrl` / `urlRefusal`, `DEFAULT_LOOKUP_OPTIONS`),
+    `pinnedDispatcher.ts` (47a's file, unchanged) and `guardedFetch.ts`
+    (the per-hop loop, `FetchChainError`, `refusalSentence`, a new
+    `FetchRefusedError` and a `refused` option that picks the error a
+    refusal throws).
+  - undici 6.29.1 moved from `recipe-editor`'s dependencies to the
+    package's; the lockfile still has one undici.
+  - What stayed in the recipe editor: the test allowance
+    (`fetchGuardOptions`, `setFetchGuardTesting`, `RECIPE_TEST_*`,
+    `isTestAllowedUrl`), `UrlRefusedError` (its `guardedFetch` passes
+    `refused: refusedError`), `CheckedFetch` and `markCheckedFetch`,
+    `importerFetch`, `checkedFetch` and `assertFetchableUrl`.
+  - `controller/urlGuard.ts`, `pinnedDispatcher.ts`, `guardedFetch.ts` and
+    `common/util/privateHost.ts` re-export the package. So every import, and
+    46a's and 47a's suites, are unchanged, and those suites now run against
+    the package's code. The one test edit: `guardedFetch.ts` came off the
+    "fetches an outside URL" list, because its `fetch` call is now the
+    package's.
+- **Gb5 — the portfolio has no test allowance.** `portfolioUploadFetch`
+  (`portfolio/editor/controller/uploadFetch.ts`) is the package's
+  `guardedFetch` with no options except `refused`, which turns a refusal
+  into the engine's error with `refusalSentence`'s words. No portfolio
+  spec imports an image by URL: the project form has no import field, and
+  `imageImportUrl` reaches the action only in a hand-made post. So there is
+  nothing to allow. The package never reads the environment, and a scan in
+  `test/urlGuardPackage.test.ts` checks that. If a portfolio spec ever
+  needs a fixture host, move `fetchGuardOptions` into the package behind
+  the same `TEST_MODE` / `VITEST` gate.
+- **Gb6 — the project forms show their message.** The portfolio's new and
+  edit project forms never rendered `state.message`, so a slug conflict
+  and a busy repository were silent too. They now show it under Submit
+  (`role="alert"`, `text-destructive`), only when there is one. A success
+  redirects, so no baseline moves.
+- **Tests.**
+  - `test/uploadImport.test.ts`, the engine (9): refused with no fetcher;
+    a private URL, a name that resolves privately and a redirect inside
+    are refused through the injected guard, with nothing fetched (or one
+    manual hop) and nothing written; a 404 is not written and gives its
+    status; a fetcher's other error is wrapped; a public image is written,
+    with a deadline; a refused import on update keeps the old file; a
+    successful import and a same-name upload still replace it.
+  - `test/portfolioImageImport.test.ts`, the portfolio's `createProject`
+    (5): a private URL and a redirect inside come back as the plain
+    sentence, a 404 as its status, a public image is imported, and there is
+    no allowance under `VITEST`.
+  - `test/urlGuardPackage.test.ts`, the package (5): the recipe modules
+    export the package's functions; `FetchRefusedError` and `refused`;
+    per-hop checks; `FetchChainError`; the package names no environment
+    and no allowance.
+- **Not done (out of scope):** an `imageImportUrl` that is not a URL still
+  throws in the portfolio's `buildProjectData` (`new URL`) before the
+  write, as it did before 47b.
+- **Roger to confirm:** Gb1's wording for an editor with no fetcher, and
+  Gb5 (no test allowance in the portfolio until a spec needs one).
+- **Gates** (before review): typecheck clean for `@discontent/url-guard`,
+  `portfolio-website-editor` and `recipe-editor`, and `recipe-website tsc
+--noEmit` clean; a targeted vitest (the three new files, 46a's and 47a's
+  guard suites, `importRecipeSource`, `projectSecurity`, `annex`,
+  `groups`) 10 files, 143/143. The full vitest, the Docker import specs,
+  the portfolio specs and the main-checkout-shaped build follow the review.
+
 ### 47c: Content round (M, content; the orchestrator)
 
 - **How.** Curator work through the CLI from the updated main checkout,

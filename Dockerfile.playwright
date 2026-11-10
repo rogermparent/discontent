@@ -54,6 +54,7 @@ COPY packages/pages-collection/package.json /app/packages/pages-collection/packa
 COPY packages/component-library/package.json /app/packages/component-library/package.json
 COPY packages/next-static-image/package.json /app/packages/next-static-image/package.json
 COPY packages/projects-collection/package.json /app/packages/projects-collection/package.json
+COPY packages/url-guard/package.json /app/packages/url-guard/package.json
 COPY websites/recipe-website/common/package.json /app/websites/recipe-website/common/package.json
 COPY websites/recipe-website/editor/package.json /app/websites/recipe-website/editor/package.json
 COPY websites/recipe-website/export/package.json /app/websites/recipe-website/export/package.json
