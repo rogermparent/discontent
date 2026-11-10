@@ -345,6 +345,28 @@ password, createdAt?, tokens?}`); nothing in sign-in writes them, so no API
   deploy env changes: Better Auth reads the existing `AUTH_SECRET`.
 - **Existing sessions end at the switch.** Auth.js's JWT cookies mean nothing
   to Better Auth: everyone signs in once after the deploy, on each device.
+- **Review fixes** (the orchestrator's review of the branch, each with
+  tests):
+  - **Open redirect through dot segments (blocker).** `safeRedirectPath`
+    returned the parser's normalised path, so `/.//evil.com`,
+    `/..//evil.com` and `/a/..//evil.com` became `//evil.com`, and a
+    signed-in owner opening `/login?redirectTo=/.//evil.com` was sent
+    off-site by either editor's login page. Dot segments are refused, and a
+    normalised `//…` or `/\…` falls back (De4); ten such inputs, `%2e` and
+    `%2F` forms included, are in the "refuses" list.
+  - **The per-address limit was bypassable** with a rotating
+    `X-Forwarded-For`: per-account and overall counters now run in the
+    sign-in action before Better Auth (De5, `limits.ts`, `storage.hit`).
+  - **A storage failure read as a wrong password.** Better Auth answers
+    `FAILED_TO_CREATE_SESSION` with a 401 too; the action now maps on the
+    body's `code` — only `INVALID_EMAIL_OR_PASSWORD`, `INVALID_EMAIL` and
+    `PASSWORD_TOO_LONG` say "That email and password don't match"; anything
+    else (and any 5xx) says "Couldn't sign in — try again." and is logged.
+  - **The pinning warning** now names all six variables Better Auth reads
+    for its base URL (De2).
+  - **`deploy-pi.md`:** a proxy must pass `Host` through (Te5), and the
+    settings volume holds session tokens in plain text (Te6).
+  - A literal `\n` in `src/users/index.ts`' comment.
 
 #### Decisions
 
@@ -364,8 +386,10 @@ password, createdAt?, tokens?}`); nothing in sign-in writes them, so no API
   refuses a POST from anywhere else. The dynamic form
   (`baseURL: {allowedHosts}`) was rejected: "any host" there adds `http://*` /
   `https://*` to `trustedOrigins`, which matches every origin. The factory
-  warns when `BETTER_AUTH_URL`, `NEXT_PUBLIC_BETTER_AUTH_URL` or `BASE_URL` is
-  set (it would pin one host). `x-forwarded-proto: https` is honoured for the
+  warns when any variable Better Auth reads for its base URL is set
+  (`BETTER_AUTH_URL`, `NEXT_PUBLIC_BETTER_AUTH_URL`, `PUBLIC_BETTER_AUTH_URL`,
+  `NUXT_PUBLIC_BETTER_AUTH_URL`, `NUXT_PUBLIC_AUTH_URL`, `BASE_URL` — it would
+  pin one host). `x-forwarded-proto: https` is honoured for the
   scheme only; `x-forwarded-host` is not read.
 - **De3 — No `/api/auth/*` route.** Every flow is a server action:
   sign-in through `auth.handler` (so the rate limiter and origin check run —
@@ -376,17 +400,36 @@ password, createdAt?, tokens?}`); nothing in sign-in writes them, so no API
   server-action check (Origin vs Host) runs before any of it.
 - **De4 — Redirects are paths.** `safeRedirectPath` accepts only a
   root-relative path (no `//`, `\`, scheme, control character, encoded
-  separator, or `/login` itself) and falls back to `/`. Next answers a
+  separator, `.`/`..` segment plain or `%2e`-encoded, or `/login` itself)
+  and falls back to `/`; and whatever the URL parser makes of it, a result
+  starting `//` or `/\` falls back too (review fix: `/.//evil.com`,
+  `/..//evil.com` and `/a/..//evil.com` normalised to `//evil.com`, which
+  the login page of either editor redirected to). Next answers a
   `redirect("/x")` with a relative `Location`, so the browser stays on its
   host. The footer's Sign In and sign-out use the `Referer`'s path when its
   host is the request's.
-- **De5 — Rate limit: 5 sign-in attempts a minute per client address**, in
-  LMDB (`increment`, fixed window), keyed by Better Auth's IP from
-  `x-forwarded-for`, which Next fills from the socket when the client sent
-  none. A client on the LAN can send its own `x-forwarded-for` and dodge the
-  per-address limit; bcrypt (cost 10) still bounds it to a few tries a second
-  per core. `TEST_MODE` raises it to 1,000 (the suites sign in dozens of times
-  a minute from one address); the limiter is covered by vitest.
+- **De5 — Rate limits, three of them**, all in the LMDB store (fixed
+  windows):
+  - **Per client address, best effort: 5 a minute** — Better Auth's own
+    limiter, keyed by its IP from `x-forwarded-for`. That header is
+    **client-controlled**: Next fills it from the socket only when the
+    request has none (`base-server.js`, `??=`), and Better Auth with no
+    `trustedProxies` takes a single-value header as is. A rotating
+    `X-Forwarded-For` dodges this limit, and a forged one can use up
+    someone else's address.
+  - **Per account: 10 per 15 minutes** (review fix) — counted by the sign-in
+    action before `auth.handler`, keyed by the typed email lower-cased and
+    hashed (`limits.ts`), so no header changes it. A successful sign-in
+    starts the account's window again. The cost: a stranger on the LAN who
+    knows the owner's email can hold that account off for 15 minutes at a
+    time.
+  - **Overall: 60 a minute** across every account and address, which also
+    bounds the per-account rows a stranger can make.
+    The wait in "Too many sign-in attempts. Try again in …" comes from the
+    window that tripped. bcrypt (cost 10) bounds each try anyway. `TEST_MODE`
+    raises all three (`TEST_MODE_SIGN_IN_RATES`: the suites sign the one
+    fixture user in dozens of times a minute from one address); vitest covers
+    each, the per-account one with a rotating `X-Forwarded-For`.
 - **De6 — Remember this device.** On: a 90-day session (`expiresIn`), rolled
   forward a day at a time (`updateAge`), cookie `Max-Age` 90 days. Off
   (the default): a browser-session cookie, and Better Auth's fixed one-day
@@ -452,6 +495,19 @@ password, createdAt?, tokens?}`); nothing in sign-in writes them, so no API
   `packages/auth` now lists the editors' exact `next`, `react`, `react-dom`,
   `@types/node` and `@playwright/test` as devDependencies; every `next`
   link (root, both editors, the package, better-auth) resolves to one copy.
+- **Te5 — A proxy that rewrites `Host` breaks sign-in with a 403.** The
+  origin is built from `Host` and `x-forwarded-host` is ignored by design
+  (De2), so behind a proxy that rewrites it — a Caddy with
+  `header_up Host {upstream_hostport}`, an nginx with
+  `proxy_set_header Host $proxy_host`, a `tailscale serve` if it does (not
+  checked here) — the editor's origin is
+  `127.0.0.1:3000` while the browser's `Origin` is the proxy's name, and
+  Better Auth's origin check refuses every sign-in. Pass the browser's
+  `Host` through (`deploy-pi.md`).
+- **Te6 — Session tokens are LMDB keys in plain text** under
+  `<settings>/auth` (Better Auth's `secondaryStorage` design). The cookie
+  is the token signed with `AUTH_SECRET`, so that file plus the secret is a
+  sign-in: keep the settings volume private (`deploy-pi.md`).
 
 #### Gates
 
@@ -459,8 +515,10 @@ password, createdAt?, tokens?}`); nothing in sign-in writes them, so no API
 
 **Roger to confirm:** "Remember this device" off by default (De6); 90 days
 (De6); sign out everywhere includes this device (De7) and is per editor —
-the workstation's does not reach the Pi (De13); 5 tries a minute per address,
-spoofable via `x-forwarded-for` on the LAN (De5).
+the workstation's does not reach the Pi (De13); the rate-limit design
+(De5): per address 5 a minute, best effort (`x-forwarded-for` is the
+client's), plus per account 10 per 15 minutes (so a stranger who knows the
+email can hold the owner off for 15 minutes) and 60 a minute overall.
 
 ### 47-close
 

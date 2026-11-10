@@ -386,6 +386,27 @@ mirrors list>` in its `.env`, and its pings say which remote they are.
   Auth.js session once. The "up" check polls `/api/health` (reads nothing),
   falling back to Auth.js's `/api/auth/providers` for an older image; the
   health check polls `/`, which reads the indexes.
+- **A proxy in front must pass `Host` through.** Sign-in builds its origin
+  from `Host` and deliberately ignores `x-forwarded-host` (a client can send
+  any value; nothing in front of these editors sets it honestly). A proxy
+  that sends the upstream's own address as `Host` — Caddy set up to rewrite
+  it (`header_up Host {upstream_hostport}`), nginx with
+  `proxy_set_header Host $proxy_host`, a `tailscale serve` if it does (check
+  before relying on one) — makes the editor think it is
+  `127.0.0.1:3000` while the browser's `Origin` is the proxy's name, and
+  every sign-in answers 403 ("the request was refused"). Keep the browser's
+  `Host` (Caddy's default; nginx `proxy_set_header Host $host`); an `https`
+  proxy also sends `X-Forwarded-Proto: https`, which is honoured for the
+  scheme.
+- **Keep `~/recipe-editor/settings` private.** Better Auth's
+  `secondaryStorage` keys each session by its token, so `settings/auth`
+  holds live session tokens in plain text (Better Auth's design). The
+  cookie is the token signed with `AUTH_SECRET`, so whoever can read that
+  LMDB file and the secret (`uraninite.env`, the container's env) can sign in
+  as the owner until the session ends. It is outside the
+  content repo (never committed, never synced), but treat the volume like a
+  password file — no world-readable permissions, no backups to shared
+  places. Sign out everywhere (Settings → Maintenance) ends them all.
 - **`next/font/google` fails a build now and then** ("next/font/google queries
   have exactly one entry"), when the fetch from Google Fonts drops. One retry
   has always been enough.
