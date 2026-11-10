@@ -11,7 +11,7 @@
 
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded · 📝 proposed.
 
-**Now:** 47a (2026-11-09), after epic 46's close-out and deploys.
+**Now:** 47a in gates, 47e building, 47d canvases in progress (2026-11-09); epic 46 closed and deployed the same day.
 
 ## Context
 
@@ -59,10 +59,11 @@ Epics 43–46's way of working, unchanged:
 
 | Phase    | What                                            | Size        | Status |
 | -------- | ----------------------------------------------- | ----------- | ------ |
-| 47a      | DNS-rebinding fix in the fetch guard            | M           | 📝     |
+| 47a      | DNS-rebinding fix in the fetch guard            | M           | 🟡     |
 | 47b      | Guard the CMS `fileImportUrl` fetch (portfolio) | S           | 📝     |
 | 47c      | Content round: four themes                      | M (content) | 📝     |
-| 47d      | Design canvases for four page groups            | M (design)  | 📝     |
+| 47d      | Design canvases for four page groups            | M (design)  | 🟡     |
+| 47e      | Auth on Better Auth (Roger's ask)               | L           | 🟡     |
 | 47-close | Doc, memory, morning report, picks page         | S           | 📝     |
 
 47a runs first; 47b builds on its shared guard. 47c and 47d are the
@@ -149,6 +150,40 @@ orchestrator's and run while the code phases are in review or CI.
 - **Scoping assumptions** written into each canvas's notes, since the run
   is unattended.
 - Roger picks in a later session; epic 48 builds the picks.
+
+### 47e: Auth on Better Auth (L; branch `agent/47e-auth`; Roger's ask, 2026-11-09)
+
+Added mid-session. Roger: "Can we redo the whole auth system to be more
+first-class integrated and updated? There's this annoying thing where if you
+try to log in from an unexpected URL the site will redirect you to a broken
+page at the set URL."
+
+- **The bug (survey, 2026-11-09).** No code sets `AUTH_URL`. Next 16.4
+  builds `request.url` from the bind address, not the Host header
+  (`resolve-routes.js:118`): `http://localhost:3000` on the Pi (`next start`
+  without `-H`), `http://0.0.0.0:3000` on the workstation (`-H 0.0.0.0`).
+  Auth.js's stock sign-in page posts to `${origin}/api/auth/callback/credentials`
+  and checks `callbackUrl` against that origin, so a visit as `uraninite`, a
+  LAN IP or a Tailscale name posts to and lands on `localhost:3000`.
+  `deploy-pi.sh`'s "NEXTAUTH_URL is not needed (trustHost)" is the mistaken
+  assumption: `trustHost` skips a check, it doesn't change the origin.
+  Playwright never sees it (it uses `localhost`).
+- **Roger's picks:** **Better Auth** (over reworking Auth.js v5 beta.30 or a
+  minimal fix); **password only**; **remember this device longer**, with
+  **sign out everywhere** in Settings.
+- **Scope:** one shared auth package for both editors; an app-owned
+  `/login` page whose every URL and redirect stays on the host the person
+  used (no single base URL required; open redirects refused); users stay in
+  the content repo's `users/` files (with their API tokens; bcrypt hashes
+  still verify), sessions and rate limits outside it; the `rcp_` bearer
+  tokens unchanged; rate limiting; an Origin check for cookie-authenticated
+  unsafe API calls; next-auth, the dead `auth.config.ts` and the un-awaited
+  `getUser` gone. Existing sessions end at the switch (everyone signs in
+  once).
+- **Tests:** sign-in via `127.0.0.1:<port>` and via `localhost:<port>` each
+  staying on its host (the bug's regression test), remember-me lifetimes,
+  wrong password, sign out everywhere, the rate limiter, every signed-in
+  spec on the new storage state, portfolio's signed-in specs.
 
 ### 47-close
 
