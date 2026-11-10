@@ -94,6 +94,74 @@ orchestrator's and run while the code phases are in review or CI.
   roundup, fill, photo-import, ytdlp, jobs and new-recipe specs in Docker.
   Plus the main-checkout-shaped build (a new dependency).
 
+#### Results (47a)
+
+- **The mechanism.** `checkUrl` (`urlGuard.ts`; `urlRefusal` is now its
+  refusal alone) does the hop's one lookup and, on a pass, hands back the
+  addresses it checked. `guardedFetch` sends that hop through a dispatcher
+  of its own, `pinnedDispatcher(addresses)` (`controller/pinnedDispatcher.ts`):
+  an undici `Agent({ connect: { lookup } })` whose `lookup`
+  (`pinnedLookup`) answers those addresses for the name — every one with
+  `all`, else the first, filtered by `family` — and never calls DNS. So a
+  name that answers public to the check and private to a second lookup
+  connects to the public answer, and there is no second lookup.
+  - **TLS stays on the name.** undici gives `tls.connect` the URL's host as
+    `host` and `servername`; only the dialled address comes from the lookup,
+    so SNI and the certificate check are the name's.
+  - **Literals and allowed hosts** get no dispatcher: `net` never resolves
+    an address literal, and an allowed test host is exempt from the check.
+  - **Bounded.** One `Agent` per hop, `close()`d as soon as the hop's
+    headers are in (`destroy()` if `fetch` throws). `close()` is graceful:
+    the one request, its body still streaming, finishes first (a test
+    streams five chunks after the close); nothing new is sent through it, so
+    it ends when the body is read, cancelled (a redirect's) or timed out
+    (undici's `bodyTimeout`). No cache, no `Map`.
+  - Kept: `CheckedFetch` branding (only `guardedFetch.ts` marks one),
+    `allowHosts`, the injected `lookup`, every 46a refusal and code,
+    `response.url` as the final URL (checked through a redirect with a real
+    dispatcher), the per-hop timeout and the caller's `AbortSignal`.
+- **Ga1 — undici 6.29.1, exact, a dependency of `recipe-editor`**, with the
+  global `fetch` and a `dispatcher` (not undici's own `fetch`).
+  - Why the global `fetch`: 17 test files stub it (`vi.stubGlobal`), and
+    `response` stays the runtime's own `Response`.
+  - Why 6.x: it is the major Node 22 bundles, and Node 22 is what runs it —
+    the workstation (22.23, bundled 6.28.1), CI's vitest and lint (22), the
+    Pi's image (`node:22.14.0-alpine`, bundled 6.21.1). Measured (a local
+    server, a GET through a manual redirect, a streamed body after `close()`,
+    a POST; `compat/check.cjs` in the 47a scratch): undici 6.29.1 and
+    7.30.2 both work with the global `fetch` of Node 20.20, 22.14, 22.23 and
+    the Playwright image's Node 24.21 (bundled 7.29.1). undici 8.12.4 fails
+    on Node 22: `fetch failed`, cause `invalid onRequestStart method` — the
+    cross-major trap, and why 8 is out (it also wants Node ≥ 22.19, past the
+    Pi's 22.14). Revisit when the Pi image moves to Node 24.
+- **Ga2 — `RECIPE_TEST_DNS` answers the check only.** Playwright's
+  stand-in resolver (`*=203.0.113.10`, 46a's Ta1) answers every name with a
+  documentation address; pinned, a spec's real image host
+  (`kingarthurbaking.com`) would dial TEST-NET-3 and time out. So
+  `fetchGuardOptions` marks it `checkOnlyLookup`, and under it `checkUrl`
+  answers `resolveAtConnect`: the hop goes through `checkingDispatcher()`,
+  whose lookup resolves for real once and refuses a name with any blocked
+  answer — the guard's own rule, at connect. One real lookup per hop, as
+  before 47a, and the specs still exercise a userland `Agent` under Next.
+  Only `TEST_MODE` / `VITEST` reach it (46a's gate); a lookup passed
+  explicitly (`setFetchGuardTesting`, `AgentToolsetTesting`, tests) pins.
+- **Tests.** `test/guardedFetchPinning.test.ts` spies on `net.connect` /
+  `tls.connect` (what undici dials, the global `fetch`'s and the pinned
+  `Agent`'s alike), records the host and asks the connection's own `lookup`
+  what it answers, then dials a fixture server on 127.0.0.1, which stands in
+  for every "public" address: a name answering `203.0.113.10` then
+  `127.0.0.1` connects with the first and is looked up once; a redirect
+  chain pins each hop to its own set (one of them dual-stack); an IPv6-only
+  name pins its v6 answer; IPv4 and IPv6 literals dial as given with no
+  lookup; a streamed body survives the close; HTTPS keeps `servername` and
+  `host` the name's; the Playwright stand-in resolves at connect and
+  refuses `localhost`; `pinnedLookup`'s callback shapes and families;
+  `checkUrl`'s answers. Run against `origin/main`'s guard (its two files
+  swapped in), 6 of the 9 fail: the rebinding, redirect, IPv6 and TLS tests
+  (the connection has no lookup of the guard's), and the two that need
+  `checkUrl`; on the branch 9/9 pass.
+- **Gates.** _Pending review._
+
 ### 47b: The CMS `fileImportUrl` fetch (S; branch `agent/47b-cms-import`)
 
 - **The gap.** `writeUploadFile`'s `fileImportUrl` branch

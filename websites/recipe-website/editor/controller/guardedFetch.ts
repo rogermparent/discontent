@@ -1,8 +1,9 @@
 /**
  * `fetch`, with the SSRF guard on every hop (46a).
  *
- * `guardedFetch` checks the URL (`urlRefusal`: the scheme, a private or
- * reserved host, and every address its name resolves to), asks with
+ * `guardedFetch` checks the URL (`checkUrl`, `urlRefusal`'s own: the
+ * scheme, a private or reserved host, and every address its name resolves
+ * to), asks with
  * `redirect: "manual"`, and follows a redirect itself — at most
  * `maxRedirects` — checking each target the same way before a byte is sent
  * there. The answer is the last hop's own `Response`, so its `url` is where
@@ -16,18 +17,29 @@
  * `web_fetch` follows its redirects through `guardedFetch` too, with its own
  * options.
  *
- * Not caught: DNS rebinding between the guard's lookup and `fetch`'s own
- * (Eb4, open — closing it needs a dispatcher with a checked `lookup`, and
- * undici is not a dependency).
+ * **Each hop connects to the addresses its check vetted (47a).** The
+ * guard's one lookup per hop (`checkUrl`) hands back the answers it
+ * checked, and the request goes through a dispatcher of that hop's own
+ * (`pinnedDispatcher.ts`) whose `connect.lookup` answers those and never
+ * asks DNS again — so a name that answers public to the check and private
+ * to the connect (DNS rebinding, Eb4 / Da3) still reaches only the public
+ * address. TLS stays on the name (SNI, the certificate). An address literal
+ * or an allowed test host needs none: nothing resolves it. The dispatcher
+ * is closed as soon as the hop's headers are in, gracefully: the body the
+ * caller streams still arrives.
  */
 import {
   markCheckedFetch,
   type CheckedFetch,
 } from "recipe-website-common/util/politeFetch";
+import type { Dispatcher } from "undici";
 import { UrlRefusedError } from "./curation/errors";
+import { checkingDispatcher, pinnedDispatcher } from "./pinnedDispatcher";
 import {
+  checkUrl,
   fetchGuardOptions,
   urlRefusal,
+  type UrlCheck,
   type UrlGuardOptions,
   type UrlRefusal,
 } from "./urlGuard";
@@ -99,6 +111,16 @@ function redirectedInit(init: RequestInit, status: number): RequestInit {
 }
 
 /**
+ * The hop's own dispatcher (`pinnedDispatcher.ts`), or none for an address
+ * literal or an allowed host.
+ */
+function hopDispatcher(check: UrlCheck): Dispatcher | undefined {
+  if (check.addresses) return pinnedDispatcher(check.addresses);
+  if (check.resolveAtConnect) return checkingDispatcher();
+  return undefined;
+}
+
+/**
  * `fetch(url, init)` with every hop checked (above). Throws
  * `UrlRefusedError` for a refused URL or redirect — nothing is sent there —
  * and `FetchChainError` for a name that does not resolve, a redirect loop
@@ -113,7 +135,8 @@ export async function guardedFetch(
   let current = new URL(input);
   let request = init;
   for (let hop = 0; ; hop += 1) {
-    const refusal = await urlRefusal(current, { ...options, hop });
+    const check = await checkUrl(current, { ...options, hop });
+    const refusal = check.refusal;
     if (refusal) {
       if (refusal.code === "fetch_failed") {
         throw new FetchChainError(refusal.message);
@@ -130,11 +153,22 @@ export async function guardedFetch(
               AbortSignal.timeout(options.timeoutMs),
             ])
           : AbortSignal.timeout(options.timeoutMs);
-    const response = await fetch(current.href, {
-      ...request,
-      redirect: "manual",
-      ...(signal ? { signal } : {}),
-    });
+    const dispatcher = hopDispatcher(check);
+    let response: Response;
+    try {
+      /* `dispatcher`: undici's `fetch` option, not in DOM's `RequestInit`. */
+      response = await fetch(current.href, {
+        ...request,
+        redirect: "manual",
+        ...(signal ? { signal } : {}),
+        ...(dispatcher ? { dispatcher } : {}),
+      } as RequestInit);
+    } catch (error) {
+      void dispatcher?.destroy().catch(() => {});
+      throw error;
+    }
+    /* Graceful: its one request — the body still to read — finishes first. */
+    void dispatcher?.close().catch(() => {});
     /* Test stubs (and nothing real) may omit `headers`. */
     const location = response.headers?.get("location");
     if (!REDIRECT.has(response.status) || !location) return response;

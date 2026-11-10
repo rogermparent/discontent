@@ -12,8 +12,10 @@
  * A URL is refused when it is not http(s), when its host is local or private
  * by name or literal (`isPrivateHost`, plus `isBlockedAddress` for every
  * literal form), or when any address its name resolves to is (a DNS lookup).
- * DNS rebinding between this lookup and the fetch's own is not caught (Eb4,
- * still open after 46a).
+ * `checkUrl` also hands back the addresses it checked, and `guardedFetch`
+ * connects to those and nothing else (47a, `pinnedDispatcher.ts`): the name
+ * is not resolved again, so DNS rebinding between the check and the connect
+ * (Eb4, Da3) is closed.
  *
  * **The test allowance.** `allowHosts` exempts named hosts — a test's
  * fixture server. Callers pass it explicitly (the agent's
@@ -37,6 +39,14 @@ export interface UrlGuardOptions {
    * another host (`127.0.0.1` when `localhost` is allowed) is still checked.
    */
   allowHosts?: readonly string[];
+  /**
+   * **Test runs only** (47a; `fetchGuardOptions` sets it with
+   * `RECIPE_TEST_DNS`): `lookup` answers the check alone, and the connection
+   * resolves the name for real, checking each answer at connect
+   * (`checkingLookup`). The Playwright stand-in resolver answers every name
+   * with a documentation address (46a's Ta1), which no connection can use.
+   */
+  checkOnlyLookup?: boolean;
 }
 
 /** Why a URL was refused, for a message of the caller's own. */
@@ -173,24 +183,51 @@ export function hostAllowed(
   );
 }
 
+/**
+ * What the guard found (47a): a refusal, or the addresses it checked —
+ * the only ones the connection may use. No `addresses` for an address
+ * literal or an allowed host, which nothing resolves; `resolveAtConnect`
+ * under `checkOnlyLookup`.
+ */
+export type UrlCheck =
+  | { refusal: UrlRefusal; addresses?: undefined; resolveAtConnect?: undefined }
+  | {
+      refusal?: undefined;
+      addresses?: readonly string[];
+      resolveAtConnect?: boolean;
+    };
+
 /** Why `url` may not be fetched (`UrlRefusal`), or nothing. */
 export async function urlRefusal(
   url: URL,
   options: UrlGuardOptions & { hop?: number } = {},
 ): Promise<UrlRefusal | undefined> {
+  return (await checkUrl(url, options)).refusal;
+}
+
+/**
+ * `urlRefusal`, and on a pass the addresses checked (`UrlCheck`): one
+ * lookup, whose answers `guardedFetch` connects to.
+ */
+export async function checkUrl(
+  url: URL,
+  options: UrlGuardOptions & { hop?: number } = {},
+): Promise<UrlCheck> {
   const hop = options.hop ?? 0;
   const refusal = (
     code: UrlRefusal["code"],
     reason: UrlRefusalReason,
     message: string,
     address?: string,
-  ): UrlRefusal => ({
-    code,
-    reason,
-    message,
-    url: url.href,
-    hop,
-    ...(address ? { address } : {}),
+  ): UrlCheck => ({
+    refusal: {
+      code,
+      reason,
+      message,
+      url: url.href,
+      hop,
+      ...(address ? { address } : {}),
+    },
   });
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     return hop === 0
@@ -202,7 +239,7 @@ export async function urlRefusal(
         );
   }
   const host = hostName(url);
-  if (hostAllowed(url, options.allowHosts)) return undefined;
+  if (hostAllowed(url, options.allowHosts)) return {};
   const where = hop === 0 ? url.href : `a redirect to ${url.href}`;
   if (isPrivateHost(url.href)) {
     return refusal(
@@ -214,7 +251,7 @@ export async function urlRefusal(
   if (isIP(host)) {
     return isBlockedAddress(host)
       ? refusal("forbidden", "reserved", `Refused ${where}: a reserved address`)
-      : undefined;
+      : {};
   }
   let addresses: string[];
   try {
@@ -238,7 +275,9 @@ export async function urlRefusal(
       blocked,
     );
   }
-  return undefined;
+  return options.checkOnlyLookup
+    ? { resolveAtConnect: true }
+    : { addresses: [...addresses] };
 }
 
 /* ------------------------------------------------------------------ */
@@ -313,7 +352,7 @@ export function fetchGuardOptions(
   const dns = env[TEST_DNS_ENV]?.trim();
   return {
     ...(allowHosts.length ? { allowHosts } : {}),
-    ...(dns ? { lookup: stubLookup(dns) } : {}),
+    ...(dns ? { lookup: stubLookup(dns), checkOnlyLookup: true } : {}),
   };
 }
 

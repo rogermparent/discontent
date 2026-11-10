@@ -194,6 +194,7 @@ Decisions:
   the address that was checked (an undici `Agent` with a `connect.lookup`
   hook, passed as `dispatcher`), and undici is not a dependency; a new
   dependency is a #269-class change. Recorded as a backlog row.
+  **Closed in 47a** (`agent-epic-47.md`: `pinnedDispatcher`, Ga1–Ga2).
 - **Da4 — A name that does not resolve is not a refusal.**
   `assertFetchableUrl` lets it pass (the fetch fails in its own words), and
   `guardedFetch` throws `FetchChainError`, which the importer reports as a
