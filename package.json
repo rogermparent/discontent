@@ -47,6 +47,7 @@
   },
   "packageManager": "pnpm@10.24.0",
   "dependencies": {
+    "@discontent/auth": "^1.0.0",
     "@discontent/cms": "^1.0.0",
     "@discontent/component-library": "^1.0.0",
     "execa": "^9.6.1",

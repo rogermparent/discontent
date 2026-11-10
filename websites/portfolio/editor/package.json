@@ -20,6 +20,7 @@
     "e2e-codegen": "playwright codegen http://localhost:${PLAYWRIGHT_PORT:-3029}"
   },
   "dependencies": {
+    "@discontent/auth": "^1.0.0",
     "@discontent/cms": "^1.0.0",
     "@discontent/component-library": "^1.0.0",
     "@discontent/menus-collection": "^1.0.0",
@@ -41,7 +42,6 @@
     "lodash": "^4.18.1",
     "markdown-to-jsx": "~9.10.3",
     "next": "16.4.2",
-    "next-auth": "5.0.0-beta.30",
     "portfolio-website-common": "^1.0.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
