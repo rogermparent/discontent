@@ -103,6 +103,14 @@ test.describe("Sign-in stays on the host you used (47e)", () => {
     await expect(page).toHaveURL(`http://localhost:${PORT}/`, {
       timeout: 15_000,
     });
+    /*
+     * Signed in, /login sends the owner straight on — and a path whose dot
+     * segments normalise to `//example.com` must not take them off-site.
+     */
+    for (const sneaky of ["/.//example.com", "/a/..//example.com"]) {
+      await page.goto(`/login?redirectTo=${encodeURIComponent(sneaky)}`);
+      await expect(page).toHaveURL(`http://localhost:${PORT}/`);
+    }
   });
 
   test("a wrong password says so plainly and stays on /login", async ({
