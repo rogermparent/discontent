@@ -508,10 +508,49 @@ password, createdAt?, tokens?}`); nothing in sign-in writes them, so no API
   `<settings>/auth` (Better Auth's `secondaryStorage` design). The cookie
   is the token signed with `AUTH_SECRET`, so that file plus the secret is a
   sign-in: keep the settings volume private (`deploy-pi.md`).
+- **Te7 — The `/login` form posts a server action, not a navigation.**
+  Playwright's `click()` returns before the action lands, so a spec that
+  signed in and went straight on with `page.goto` cancelled the request
+  before its `Set-Cookie` arrived and found itself on `/login` (the first
+  Docker run: every signed-in accessibility case). `fillSignInForm` in both
+  editors now waits until the page is off `/login` or shows the form's
+  error. Auth.js's stock form was a native POST, which `click()` waits for.
+- **Te8 — `getByRole("alert")` also finds Next's route announcer**
+  (`#__next-route-announcer__`, `role="alert"`, on every App Router page).
+  Scope the form's error to `main`.
 
 #### Gates
 
-(filled in after review)
+After the review fixes and the merge of `origin/main` 45c96471 (#333, 47a),
+all through the heavy slot:
+
+- `pnpm install --frozen-lockfile` after the merge: clean (the lockfile
+  merged without a conflict).
+- `pnpm --filter recipe-editor typecheck`, `pnpm --filter recipe-website exec
+tsc --noEmit`, `pnpm --filter portfolio-website-editor typecheck`: green.
+- Full vitest: VITEST_COUNTS. `test/editorAuth.test.ts` +
+  `test/editorAuthNext.test.ts` 88/88.
+- Docker, production build (`DOCKER=1 heavy-pw.sh`, e2e + mobile):
+  `sign-in-hosts`, `signin`, `accessibility` (axe on `/login` included),
+  `settings-nav`, `edit`, `new-recipe`, `curator`, `jobs`, `git`,
+  `shopping`, `guest-controls` — **210/211**, the one failure Te8 (the
+  wrong-password case's locator); fixed and `sign-in-hosts` rerun alone,
+  **7/7**. The run before found Te7 (every signed-in accessibility case). The remember-me
+  case reads the cookie the browser holds after the sign-in
+  (`context.cookies()`): 90 days on, a session cookie off.
+- `sign-in-hosts` in dev mode (Docker, `next dev`): 7/7.
+- The screenshot specs that could see the footer, ⌘K or Settings
+  (`footer`, `header`, `command-palette`, `visual`, `mobile`, `empty-state`,
+  `menus`), Docker production: 110/110, no recipe baseline moved.
+- Portfolio, Docker (`docker-pw.sh portfolio`, dev, as CI): 88/89 — the one
+  failure was `visual.spec` "the settings sidebar", moved by the new
+  Sign-in card; regenerated in Docker (`settings-e2e.png`, checked by eye:
+  the card below Save, nothing else moved) and green.
+- The main-checkout-shaped build (`editor/content` a link out of the
+  workspace, `export/public/{image,uploads}` absolute links through it):
+  `next build` exit 0, no "Dynamic filesystem access causes tracing of the
+  whole project", no "leaves the filesystem root"; `/login` and
+  `/api/health` in the route list. Links removed after.
 
 **Roger to confirm:** "Remember this device" off by default (De6); 90 days
 (De6); sign out everywhere includes this device (De7) and is per editor —
