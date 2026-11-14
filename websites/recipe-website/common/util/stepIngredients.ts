@@ -17,6 +17,15 @@
  * section, when an instruction group's name is an ingredient heading's
  * ("Crust" / "For the crust:"), where only that heading's lines compete.
  *
+ * A line is listed where it comes in, not everywhere it is named: "whisk
+ * the egg whites into the mixture" brings in nothing when a step before beat
+ * them, so `matchStepIngredients` keeps a line's first mention only — unless
+ * the line itself says it is used more than once ("divided", "plus 1
+ * tablespoon", "more for serving"). Each option of a set of alternatives
+ * (45e) starts from what the steps before the set brought in.
+ * `matchStepMentions` is every mention, for the form's "is every line
+ * named?" check.
+ *
  * Pure, and safe in the browser; the recipe page runs it on the server.
  */
 import type { Ingredient, InstructionEntry } from "../controller/types";
@@ -117,6 +126,10 @@ interface LineNames {
   names: string[][];
   /** The heads usable on their own (from names of two words or more). */
   heads: string[];
+  /** A compound's last word, usable when no other line has it (`BARE_COMPOUNDS`). */
+  bareHeads: string[];
+  /** Whether the line says it is used more than once ("divided"). */
+  repeats: boolean;
   /** The heading the line sits under, as a `sectionKey`; "" for none. */
   section: string;
 }
@@ -159,6 +172,29 @@ function headsOf(words: string[]): string[] {
     : [head];
 }
 
+/**
+ * Compounds a step names by their last word alone: "the milk and cream" is
+ * the heavy cream, "the yolks" the egg yolks. Such a word stands for the
+ * line only when no other line has it in a name at all — `sour cream` and
+ * `cream cheese` beside `heavy cream` leave a bare "cream" to nobody.
+ */
+const BARE_COMPOUNDS: Record<string, string> = {
+  "heavy cream": "cream",
+  "egg yolk": "yolk",
+};
+
+/** The bare words a line's one-word compound names go by. */
+function bareHeadsOf(names: string[][]): string[] {
+  return [
+    ...new Set(
+      names
+        .filter((words) => words.length === 1)
+        .map(([word]) => BARE_COMPOUNDS[word])
+        .filter((bare): bare is string => Boolean(bare)),
+    ),
+  ];
+}
+
 function qualifiedHead(words: string[]): boolean {
   const needs = QUALIFIED_HEADS[headOf(words)];
   return !needs || words.some((word) => needs.includes(word));
@@ -173,6 +209,14 @@ function usableHead(word: string): boolean {
     !UNSAFE_HEADS.has(word)
   );
 }
+
+/**
+ * A line that says it goes in more than once: every mention of it is a use.
+ * "1/3 cup sugar, plus 1 tablespoon", "butter, divided", "nutmeg, plus more
+ * for serving", "parsley, for garnish".
+ */
+const REPEATS =
+  /\b(?:divided|separated|plus|more for|for (?:serving|garnish|garnishing|dusting|sprinkling|topping|the top|finishing|rolling|greasing|brushing|drizzling))\b/i;
 
 /** What each line goes by. Headings (stored or detected) set the section. */
 export function lineNames(ingredients: readonly Ingredient[]): LineNames[] {
@@ -212,7 +256,14 @@ export function lineNames(ingredients: readonly Ingredient[]): LineNames[] {
           .filter(usableHead),
       ),
     ];
-    out.push({ index, names, heads, section });
+    out.push({
+      index,
+      names,
+      heads,
+      bareHeads: bareHeadsOf(names),
+      repeats: REPEATS.test(readable),
+      section,
+    });
   });
   return out;
 }
@@ -277,12 +328,23 @@ function matchStep(text: string, lines: LineNames[], scope: string): number[] {
     competitors(line, (other) =>
       other.names.some((theirs) => occurrences(theirs, words).length > 0),
     );
+  /* A bare compound head is anyone's whose name has the word at all, joined
+   * compounds included: `sour cream` is one word that still says "cream". */
+  const wordElsewhere = (line: LineNames, word: string) =>
+    competitors(line, (other) =>
+      other.names.some((theirs) =>
+        theirs.some((theirWord) => theirWord.split(" ").includes(word)),
+      ),
+    );
   for (const line of lines) {
     for (const words of line.names) {
       record(line, words, !containedElsewhere(line, words));
     }
     for (const head of line.heads) {
       record(line, [head], !containedElsewhere(line, [head]));
+    }
+    for (const bare of line.bareHeads) {
+      record(line, [bare], !wordElsewhere(line, bare));
     }
   }
 
@@ -306,8 +368,8 @@ function matchStep(text: string, lines: LineNames[], scope: string): number[] {
   return [...used].sort((a, b) => a - b);
 }
 
-/** For each step of each entry, the ingredient lines it uses (D3). */
-export function matchStepIngredients(
+/** For each step of each entry, every ingredient line it names (D3). */
+export function matchStepMentions(
   ingredients: readonly Ingredient[] = [],
   instructions: readonly InstructionEntry[] = [],
 ): StepLines {
@@ -319,6 +381,57 @@ export function matchStepIngredients(
       "instructions" in entry && entry.name ? sectionKey(entry.name) : "";
     const scope = sections.has(groupKey) ? groupKey : "";
     return texts[i].map((text) => matchStep(text, lines, scope));
+  });
+}
+
+/** A group's set of alternatives, as a key; "" for an ordinary entry. */
+function choiceKey(entry: InstructionEntry): string {
+  return "instructions" in entry && typeof entry.choice === "string"
+    ? entry.choice.trim().toLowerCase()
+    : "";
+}
+
+/**
+ * For each step of each entry, the ingredient lines it brings in: a line's
+ * first mention, and every mention of a line that says it is used more than
+ * once. The options of one set of alternatives are parallel, so each starts
+ * from what came before the set.
+ */
+export function matchStepIngredients(
+  ingredients: readonly Ingredient[] = [],
+  instructions: readonly InstructionEntry[] = [],
+): StepLines {
+  const mentions = matchStepMentions(ingredients, instructions);
+  const repeats = new Set(
+    lineNames(ingredients)
+      .filter((line) => line.repeats)
+      .map((line) => line.index),
+  );
+  /* Lines brought in so far; inside a set, `before` is the state at its
+   * start and `inSet` what any of its options brought in. */
+  let seen = new Set<number>();
+  let before = seen;
+  let inSet = new Set<number>();
+  let setKey = "";
+  return mentions.map((steps, i) => {
+    const key = choiceKey(instructions[i]);
+    if (key !== setKey) {
+      if (setKey) seen = new Set([...before, ...inSet]);
+      setKey = key;
+      before = seen;
+      inSet = new Set();
+    }
+    if (key) seen = new Set(before);
+    const out = steps.map((lines) =>
+      lines.filter((line) => {
+        if (repeats.has(line)) return true;
+        if (seen.has(line)) return false;
+        seen.add(line);
+        return true;
+      }),
+    );
+    if (key) for (const line of seen) inSet.add(line);
+    return out;
   });
 }
 

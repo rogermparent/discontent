@@ -9,7 +9,7 @@
  */
 import { detectHeading } from "../../util/detectHeading";
 import { hostnameLabel } from "../../util/hostnameLabel";
-import { matchStepIngredients } from "../../util/stepIngredients";
+import { matchStepMentions } from "../../util/stepIngredients";
 import { formatDurationCompact } from "../../util/formatDuration";
 import {
   DRINK_METHOD_LABELS,
@@ -144,7 +144,7 @@ export function allLinesUsed(values: RecipeFormValues): boolean {
   if (lines.length === 0 || values.instructions.length === 0) return false;
   let matched: number[][][];
   try {
-    matched = matchStepIngredients(values.ingredients, values.instructions);
+    matched = matchStepMentions(values.ingredients, values.instructions);
   } catch {
     return false;
   }
