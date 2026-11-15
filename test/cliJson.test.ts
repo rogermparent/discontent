@@ -125,6 +125,7 @@ function run(args: string[], env: NodeJS.ProcessEnv = {}, input?: string) {
         RECIPE_LLM_API: undefined,
         RECIPE_LLM_API_KEY: undefined,
         RECIPE_LLM_VISION_MODEL: undefined,
+        RECIPE_LLM_USES: undefined,
         ...env,
       },
     },
@@ -1516,6 +1517,178 @@ describe("import tooling as a process (26b)", () => {
       });
     },
     TIMEOUT * 2,
+  );
+
+  it(
+    "fill has the model read what each step uses, and the patch carries it (47g)",
+    async () => {
+      const draftPath = join(scratch, "fill-uses.json");
+      await writeFile(
+        draftPath,
+        JSON.stringify({
+          name: "Bowl Cake",
+          slug: "bowl-cake",
+          description: "Mine.",
+          recipeYield: "1 cake",
+          prepTime: 10,
+          cookTime: 30,
+          totalTime: 40,
+          ingredients: ["2 cups flour", "1 egg", "butter, for the pan"],
+          /* The stand-in reads "everything" as every line and "the bowl" as
+           * nothing; it has no opinion on the last step. */
+          instructions: [
+            "Mix everything together.",
+            "Beat the egg into the bowl again.",
+            "Bake until golden.",
+          ],
+          source: { url: `${origin}/paper-plane.html` },
+        }),
+      );
+      expect(
+        (await run(["create", "--file", draftPath, "--json"])).exitCode,
+      ).toBe(0);
+      const before = await commitCount();
+      const model = {
+        RECIPE_LLM_URL: `${origin}/multi`,
+        RECIPE_LLM_MODEL: "qwen3:8b",
+      };
+
+      /* The stand-in is a local model: not asked unless --uses (or
+       * RECIPE_LLM_USES=1) says so (Dg2). */
+      const unasked = JSON.parse(
+        (await run(["fill", "bowl-cake", "--json"], model)).stdout,
+      );
+      expect(unasked.uses).toBeUndefined();
+      expect(unasked.patch.instructions).toBeUndefined();
+      const opted = JSON.parse(
+        (
+          await run(["fill", "bowl-cake", "--json"], {
+            ...model,
+            RECIPE_LLM_USES: "1",
+          })
+        ).stdout,
+      );
+      expect(opted.uses.steps).toEqual([1]);
+
+      const patchPath = join(scratch, "fill-uses-patch.json");
+      const filled = await run(
+        ["fill", "bowl-cake", "--uses", "--out", patchPath, "--json"],
+        model,
+      );
+      expect(filled.exitCode).toBe(0);
+      const result = JSON.parse(filled.stdout);
+      expect(result.uses).toMatchObject({
+        model: "local model qwen3:8b",
+        /* Step 2's answer (nothing) is what the page shows once step 1
+         * stores the egg: only step 1 needs a list. */
+        steps: [1],
+        answers: [
+          { number: 1, uses: ["flour", "egg", "butter"], lines: [0, 1, 2] },
+          { number: 2, uses: [], lines: [] },
+        ],
+      });
+      expect(result.patch.instructions).toEqual([
+        { text: "Mix everything together.", uses: ["flour", "egg", "butter"] },
+        "Beat the egg into the bowl again.",
+        "Bake until golden.",
+      ]);
+      expect(await commitCount()).toBe(before);
+
+      /* The words: which steps, what each would list, and that it is a suggestion. */
+      const text = await run(["fill", "bowl-cake", "--uses"], model);
+      expect(text.stdout).toContain(
+        "uses suggested by local model qwen3:8b for step 1 (a suggestion: read it before you write it):",
+      );
+      expect(text.stdout).toContain("  step 1: flour, egg, butter");
+
+      /* --no-uses: no model is asked, opted in or not; with --uses or
+       * --all-uses it is a usage error. */
+      const off = await run(["fill", "bowl-cake", "--no-uses", "--json"], {
+        ...model,
+        RECIPE_LLM_USES: "1",
+      });
+      expect(off.exitCode).toBe(0);
+      expect(JSON.parse(off.stdout).uses).toBeUndefined();
+      expect(JSON.parse(off.stdout).patch.instructions).toBeUndefined();
+      for (const other of ["--all-uses", "--uses"]) {
+        const both = await run(
+          ["fill", "bowl-cake", "--no-uses", other, "--json"],
+          model,
+        );
+        expect(both.exitCode).toBe(1);
+        expect(JSON.parse(both.stdout).error.code).toBe("usage");
+      }
+
+      /* No model: nothing suggested, even when forced, and nothing said. */
+      const none = await run(["fill", "bowl-cake", "--uses", "--json"]);
+      expect(none.exitCode).toBe(0);
+      expect(JSON.parse(none.stdout).uses).toBeUndefined();
+      expect(
+        JSON.stringify(JSON.parse(none.stdout).warnings ?? []),
+      ).not.toContain("step uses");
+
+      /* The write is `update` with that patch; a second fill then leaves the
+       * stored list alone, and --all-uses reads it again. */
+      expect(
+        (await run(["update", "bowl-cake", "--file", patchPath, "--json"]))
+          .exitCode,
+      ).toBe(0);
+      const shown = JSON.parse(
+        (await run(["show", "bowl-cake", "--json"])).stdout,
+      );
+      expect(shown.recipe.instructions[0]).toEqual({
+        text: "Mix everything together.",
+        uses: ["flour", "egg", "butter"],
+      });
+      const again = JSON.parse(
+        (await run(["fill", "bowl-cake", "--uses", "--json"], model)).stdout,
+      );
+      expect(again.uses.steps).toEqual([]);
+      expect(again.patch.instructions).toBeUndefined();
+      const patchTwo = join(scratch, "fill-uses-two.json");
+      await writeFile(
+        patchTwo,
+        JSON.stringify({
+          instructions: [
+            { text: "Mix everything together.", uses: ["flour"] },
+            "Beat the egg into the bowl again.",
+            "Bake until golden.",
+          ],
+        }),
+      );
+      expect(
+        (await run(["update", "bowl-cake", "--file", patchTwo, "--json"]))
+          .exitCode,
+      ).toBe(0);
+      const kept = JSON.parse(
+        (await run(["fill", "bowl-cake", "--uses", "--json"], model)).stdout,
+      );
+      /* The person's list on step 1 stands; step 2's guess is now the egg,
+       * and the model says nothing comes in there. */
+      expect(kept.uses.steps).toEqual([2]);
+      expect(kept.patch.instructions[0]).toEqual({
+        text: "Mix everything together.",
+        uses: ["flour"],
+      });
+      const all = JSON.parse(
+        (
+          await run(
+            ["fill", "bowl-cake", "--uses", "--all-uses", "--json"],
+            model,
+          )
+        ).stdout,
+      );
+      expect(all.uses.steps).toEqual([1]);
+      expect(all.patch.instructions[1]).toBe(
+        "Beat the egg into the bowl again.",
+      );
+      expect(all.patch.instructions[0].uses).toEqual([
+        "flour",
+        "egg",
+        "butter",
+      ]);
+    },
+    TIMEOUT * 8,
   );
 
   it(

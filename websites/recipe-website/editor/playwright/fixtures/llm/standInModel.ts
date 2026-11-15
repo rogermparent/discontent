@@ -14,6 +14,9 @@
  *   name, the lines up to the first blank line are the ingredients, and the
  *   paragraph after them is the method, a step a sentence. `invent` names
  *   recipes whose lines are made up instead (a reading the guard must catch).
+ * - **What each step uses** (47g, `USES_SYSTEM_PROMPT`): `usesAnswer` —
+ *   "everything" brings in every line, "the bowl" nothing, any other step
+ *   is left out.
  * - **A photo** (38e, the vision model's `TRANSCRIBE_SYSTEM_PROMPT`): the
  *   transcript filed for each picture's bytes as **sent** (`transcripts`,
  *   keyed by `sentPhotoKey`), as text.
@@ -41,6 +44,38 @@ export interface StandInOptions {
   estimate?: Record<string, unknown>;
   /** The look for alternatives' answer (46f) in place of the stand-in's own. */
   choices?: Record<string, unknown>;
+  /** The steps' "uses" answer (47g) in place of the stand-in's own. */
+  uses?: unknown;
+}
+
+/**
+ * What each step uses (47g, `USES_SYSTEM_PROMPT`), by two rules a fixture can
+ * aim at: a step that says "everything" brings in every numbered line, and a
+ * step that says "the bowl" brings in nothing (it was made before). A step
+ * that says neither is left out — no opinion — so the fixtures that predate
+ * 47g get no suggestion. Never a real model.
+ */
+export function usesAnswer(user: string): {
+  steps: { step: number; lines: number[] }[];
+} {
+  const [, lineText = "", stepText = ""] =
+    /Ingredient lines:\n([\s\S]*?)\n\nSteps:\n([\s\S]*)$/.exec(user) ?? [];
+  const numbered = (text: string) =>
+    text
+      .split("\n")
+      .map((line) => /^(\d+)\. (.*)$/.exec(line))
+      .filter((match): match is RegExpExecArray => match !== null)
+      .map((match) => ({ number: Number(match[1]), text: match[2] }));
+  const lines = numbered(lineText).map((line) => line.number);
+  const steps: { step: number; lines: number[] }[] = [];
+  for (const step of numbered(stepText)) {
+    if (/\beverything\b/i.test(step.text)) {
+      steps.push({ step: step.number, lines });
+    } else if (/\bthe bowl\b/i.test(step.text)) {
+      steps.push({ step: step.number, lines: [] });
+    }
+  }
+  return { steps };
 }
 
 /**
@@ -241,6 +276,18 @@ export function standInChat(
       done: true,
       prompt_eval_count: 300,
       eval_count: 40,
+    };
+  }
+  if (system.startsWith("You say which ingredient lines each step")) {
+    return {
+      model: body.model ?? "qwen3:8b",
+      message: {
+        role: "assistant",
+        content: JSON.stringify(options.uses ?? usesAnswer(user)),
+      },
+      done: true,
+      prompt_eval_count: 400,
+      eval_count: 60,
     };
   }
   if (system.startsWith("You find alternatives among")) {
