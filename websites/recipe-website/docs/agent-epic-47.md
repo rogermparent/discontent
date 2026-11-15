@@ -522,13 +522,17 @@ password, createdAt?, tokens?}`); nothing in sign-in writes them, so no API
 #### Gates
 
 After the review fixes and the merge of `origin/main` 45c96471 (#333, 47a),
-all through the heavy slot:
+all through the heavy slot; the install, the three typechecks and the full
+vitest again on 2026-11-15, after the merge of `origin/main` 81362f1c (#334):
 
 - `pnpm install --frozen-lockfile` after the merge: clean (the lockfile
   merged without a conflict).
 - `pnpm --filter recipe-editor typecheck`, `pnpm --filter recipe-website exec
 tsc --noEmit`, `pnpm --filter portfolio-website-editor typecheck`: green.
-- Full vitest: VITEST_COUNTS. `test/editorAuth.test.ts` +
+- Full vitest (2026-11-15, after the #334 merge): 174 files, **3913/3913**.
+  An earlier run under load (before that merge) was 3906/3908, the two
+  failures timeouts (the urlGuard source scan, `editFormRoundTrip`) that
+  passed alone, 43/43. `test/editorAuth.test.ts` +
   `test/editorAuthNext.test.ts` 88/88.
 - Docker, production build (`DOCKER=1 heavy-pw.sh`, e2e + mobile):
   `sign-in-hosts`, `signin`, `accessibility` (axe on `/login` included),
