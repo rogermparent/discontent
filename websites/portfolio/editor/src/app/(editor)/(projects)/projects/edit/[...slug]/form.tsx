@@ -8,6 +8,7 @@ import { Project } from "@discontent/projects-collection/controller/types";
 import { ProjectFormState } from "@discontent/projects-collection/controller/formState";
 import { updateProject } from "../../../../../../../controller/actions/projects";
 import Link from "next/link";
+import { SaveFailure } from "@/components/SaveFailure";
 
 export default function EditProjectForm({
   project,
@@ -47,6 +48,7 @@ export default function EditProjectForm({
       <div className="flex flex-row flex-nowrap my-1">
         <Button type="submit">Submit</Button>
       </div>
+      <SaveFailure state={state} />
       <div>
         <Link href="/projects">Back to Projects</Link>
       </div>

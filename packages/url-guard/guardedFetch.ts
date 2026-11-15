@@ -1,0 +1,186 @@
+/**
+ * `fetch`, with the SSRF guard on every hop (46a in the recipe editor; this
+ * package's since 47b, so the portfolio editor's image import uses it too).
+ *
+ * `guardedFetch` checks the URL (`checkUrl`: the scheme, a private or
+ * reserved host, and every address its name resolves to), asks with
+ * `redirect: "manual"`, and follows a redirect itself — at most
+ * `maxRedirects` — checking each target the same way before a byte is sent
+ * there. The answer is the last hop's own `Response`, so its `url` is where
+ * the request ended up.
+ *
+ * **Each hop connects to the addresses its check vetted (47a).** The
+ * guard's one lookup per hop (`checkUrl`) hands back the answers it
+ * checked, and the request goes through a dispatcher of that hop's own
+ * (`pinnedDispatcher.ts`) whose `connect.lookup` answers those and never
+ * asks DNS again — so a name that answers public to the check and private
+ * to the connect (DNS rebinding, Eb4 / Da3) still reaches only the public
+ * address. TLS stays on the name (SNI, the certificate). An address literal
+ * or an allowed test host needs none: nothing resolves it. The dispatcher
+ * is closed as soon as the hop's headers are in, gracefully: the body the
+ * caller streams still arrives.
+ *
+ * What a caller adds stays the caller's: the recipe editor wraps this in
+ * its own `guardedFetch` (its `UrlRefusedError`, through `refused`), its
+ * test allowance and the `CheckedFetch` brand.
+ */
+import type { Dispatcher } from "undici";
+import { checkingDispatcher, pinnedDispatcher } from "./pinnedDispatcher";
+import {
+  checkUrl,
+  type UrlCheck,
+  type UrlGuardOptions,
+  type UrlRefusal,
+} from "./urlGuard";
+
+export const GUARDED_FETCH_MAX_REDIRECTS = 5;
+
+const REDIRECT = new Set([301, 302, 303, 307, 308]);
+
+export interface GuardedFetchOptions extends UrlGuardOptions {
+  /** Default `GUARDED_FETCH_MAX_REDIRECTS`. */
+  maxRedirects?: number;
+  /** Each hop's own clock, from when it is sent (`web_fetch`'s, Eb5). */
+  timeoutMs?: number;
+  /** Told each URL just before it is asked for: the first, then each hop. */
+  onHop?: (url: string) => void;
+  /**
+   * The error a refusal throws; default `FetchRefusedError`. The recipe
+   * editor's is its curation layer's `UrlRefusedError`.
+   */
+  refused?: (refusal: UrlRefusal) => Error;
+}
+
+/**
+ * A fetch the redirect chain ended without an answer to read: a name that
+ * does not resolve, too many redirects, or a `Location` that is no URL.
+ */
+export class FetchChainError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FetchChainError";
+  }
+}
+
+const INSIDE = "imports only read public sites";
+
+/** A refusal as a plain sentence for a person (a form, a 422's body). */
+export function refusalSentence(refusal: UrlRefusal): string {
+  const subject =
+    refusal.hop === 0 ? refusal.url : `It redirects to ${refusal.url}, which`;
+  switch (refusal.reason) {
+    case "scheme":
+      return refusal.hop === 0
+        ? `Only http and https addresses can be imported, not ${refusal.url}.`
+        : `${subject} is not an http or https address; ${INSIDE}.`;
+    case "resolves-private":
+      return `${subject} points inside your network (${new URL(refusal.url).hostname} resolves to ${refusal.address}); ${INSIDE}.`;
+    default:
+      return `${subject} points inside your network; ${INSIDE}.`;
+  }
+}
+
+/**
+ * The guard refused a URL or a redirect: nothing was sent there. `message`
+ * is `refusalSentence`'s, for a person; `refusal` says what and why.
+ */
+export class FetchRefusedError extends Error {
+  constructor(public readonly refusal: UrlRefusal) {
+    super(refusalSentence(refusal));
+    this.name = "FetchRefusedError";
+  }
+}
+
+/** The redirected request's method and body, as `fetch` itself would. */
+function redirectedInit(init: RequestInit, status: number): RequestInit {
+  const method = (init.method ?? "GET").toUpperCase();
+  if (
+    (status === 303 && method !== "GET" && method !== "HEAD") ||
+    ((status === 301 || status === 302) && method === "POST")
+  ) {
+    const { body: _body, ...rest } = init;
+    void _body;
+    return { ...rest, method: "GET" };
+  }
+  return init;
+}
+
+/**
+ * The hop's own dispatcher (`pinnedDispatcher.ts`), or none for an address
+ * literal or an allowed host.
+ */
+function hopDispatcher(check: UrlCheck): Dispatcher | undefined {
+  if (check.addresses) return pinnedDispatcher(check.addresses);
+  if (check.resolveAtConnect) return checkingDispatcher();
+  return undefined;
+}
+
+/**
+ * `fetch(url, init)` with every hop checked (above). Throws
+ * `FetchRefusedError` (or `refused`'s error) for a refused URL or redirect —
+ * nothing is sent there — and `FetchChainError` for a name that does not
+ * resolve, a redirect loop or an unreadable `Location`; anything `fetch`
+ * throws passes through.
+ */
+export async function guardedFetch(
+  input: string | URL,
+  init: RequestInit = {},
+  options: GuardedFetchOptions = {},
+): Promise<Response> {
+  const maxRedirects = options.maxRedirects ?? GUARDED_FETCH_MAX_REDIRECTS;
+  const { refused = (refusal) => new FetchRefusedError(refusal) } = options;
+  let current = new URL(input);
+  let request = init;
+  for (let hop = 0; ; hop += 1) {
+    const check = await checkUrl(current, { ...options, hop });
+    const refusal = check.refusal;
+    if (refusal) {
+      if (refusal.code === "fetch_failed") {
+        throw new FetchChainError(refusal.message);
+      }
+      throw refused(refusal);
+    }
+    options.onHop?.(current.href);
+    const signal =
+      options.timeoutMs === undefined
+        ? request.signal
+        : request.signal
+          ? AbortSignal.any([
+              request.signal,
+              AbortSignal.timeout(options.timeoutMs),
+            ])
+          : AbortSignal.timeout(options.timeoutMs);
+    const dispatcher = hopDispatcher(check);
+    let response: Response;
+    try {
+      /* `dispatcher`: undici's `fetch` option, not in DOM's `RequestInit`. */
+      response = await fetch(current.href, {
+        ...request,
+        redirect: "manual",
+        ...(signal ? { signal } : {}),
+        ...(dispatcher ? { dispatcher } : {}),
+      } as RequestInit);
+    } catch (error) {
+      void dispatcher?.destroy().catch(() => {});
+      throw error;
+    }
+    /* Graceful: its one request — the body still to read — finishes first. */
+    void dispatcher?.close().catch(() => {});
+    /* Test stubs (and nothing real) may omit `headers`. */
+    const location = response.headers?.get("location");
+    if (!REDIRECT.has(response.status) || !location) return response;
+    await response.body?.cancel().catch(() => {});
+    if (hop >= maxRedirects) {
+      throw new FetchChainError(
+        `${new URL(input).href} redirected more than ${maxRedirects} times`,
+      );
+    }
+    if (!URL.canParse(location, current)) {
+      throw new FetchChainError(
+        `${current.href} redirected to an unreadable location`,
+      );
+    }
+    request = redirectedInit(request, response.status);
+    current = new URL(location, current);
+  }
+}

@@ -5,16 +5,20 @@ import { updateContent } from "./updateContent";
 import { getContentDirectory } from "../fs/getContentDirectory";
 import { MergeInProgressError } from "../git/commit";
 import { RepositoryBusyError, withWriteLock } from "../git/writeLock";
+import { UploadImportError } from "./errors";
 
 /**
  * A write the repository refused rather than one that broke: busy (another
- * write holds the lock — retry) or mid-merge. Its own message, not "Failed
- * to …", so the person knows to wait or to finish the merge.
+ * write holds the lock — retry) or mid-merge — or an upload's import URL
+ * that was refused or did not download (47b's `UploadImportError`). Its own
+ * message, not "Failed to …", so the person knows to wait, to finish the
+ * merge, or to pick another image.
  */
 function refusalMessage(error: unknown): string | undefined {
   if (
     error instanceof RepositoryBusyError ||
-    error instanceof MergeInProgressError
+    error instanceof MergeInProgressError ||
+    error instanceof UploadImportError
   ) {
     return error.message;
   }
@@ -211,6 +215,7 @@ export function createGenericActions<
         author: { name: email, email },
         commitMessage: `Add new ${label}: ${slug}`,
         uploads,
+        uploadFetch: editorConfig.uploadFetch,
       });
     } catch (e) {
       if (e instanceof SlugConflictError) {
@@ -286,6 +291,7 @@ export function createGenericActions<
             author: { name: email, email },
             commitMessage: `Add new ${label}: ${slug}`,
             uploads,
+            uploadFetch: editorConfig.uploadFetch,
           });
         },
       );
@@ -371,6 +377,7 @@ export function createGenericActions<
         author: { name: email, email },
         commitMessage: `Update ${label}: ${slug}`,
         uploads,
+        uploadFetch: editorConfig.uploadFetch,
       });
     } catch (e) {
       return {
@@ -453,6 +460,7 @@ export function createGenericActions<
             author: { name: email, email },
             commitMessage: `Update ${label}: ${slug}`,
             uploads,
+            uploadFetch: editorConfig.uploadFetch,
           });
         },
       );

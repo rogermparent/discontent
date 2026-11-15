@@ -121,6 +121,7 @@ React hooks.
 
 - **`ReferenceSpec`** — Describes a content type that references another by slug. Used by `updateContent` to automatically update references when a slug changes.
 - **`UploadSpec`** — Per-field upload specification: a `File`, a `fileImportUrl`, a `clearFile` flag, or an existing filename.
+- **`UploadFetch`** — How a `fileImportUrl` is downloaded: `fetch`'s shape, passed as `uploadFetch` to `createContent` / `updateContent` (or on an `EditorContentConfig`). The engine never fetches a URL itself: without one, a `fileImportUrl` is refused with `UploadImportError`, as is a fetcher's refusal or an answer that is not a success. Pass an SSRF-guarded fetch (`@discontent/url-guard`'s `guardedFetch`).
 - **`FileUploadData`** — Resolved upload data passed to custom `processUploads` callbacks.
 
 ## Part of [Discontent](https://github.com/rogermparent/discontent)

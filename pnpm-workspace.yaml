@@ -11,6 +11,7 @@ packages:
   - packages/projects-collection
   - packages/pages-collection
   - packages/menus-collection
+  - packages/url-guard
   - packages/cms
   - packages/auth
   - packages/cms/demo

@@ -111,6 +111,7 @@ async function updateContentLocked<TData, TIndexValue, TKey extends Key>(
     commitMessage,
     commit = true,
     uploads,
+    uploadFetch,
     processUploads,
   } = options;
 
@@ -145,7 +146,7 @@ async function updateContentLocked<TData, TIndexValue, TKey extends Key>(
   if (uploads) {
     const resolvedUploads: Record<string, FileUploadData | undefined> = {};
     for (const [fieldName, spec] of Object.entries(uploads)) {
-      resolvedUploads[fieldName] = await getUploadInfo(spec);
+      resolvedUploads[fieldName] = await getUploadInfo(spec, uploadFetch);
     }
 
     const uploadProcessor = processUploads || defaultUpdateUploadsProcessor;

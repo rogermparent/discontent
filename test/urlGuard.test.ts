@@ -814,12 +814,13 @@ describe("the test allowance stays in tests", () => {
       ].some(([, first]) => first !== "/");
       if (outside) fetching.add(path);
     }
+    /* `guardedFetch.ts` left the list in 47b: its `fetch` is the shared
+     * guard's now (`packages/url-guard/guardedFetch.ts`), which it wraps. */
     expect([...fetching].sort()).toEqual(
       [
         "editor/cli/backend/http.ts",
         "editor/cli/backend/local.ts",
         "editor/controller/agent/tools/webSearch.ts",
-        "editor/controller/guardedFetch.ts",
         "editor/controller/instance/notify.ts",
         "editor/controller/instance/pinger.ts",
         "editor/controller/instance/refresh.ts",

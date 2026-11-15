@@ -1,5 +1,5 @@
 import type { ContentFormState } from "../forms/formState";
-import type { ContentTypeConfig, UploadSpec } from "./types";
+import type { ContentTypeConfig, UploadFetch, UploadSpec } from "./types";
 import type { Key } from "lmdb";
 
 export type ContentSuccessConfig = {
@@ -84,6 +84,14 @@ export interface EditorContentConfig<
    * check at all, callable by anyone who could reach the action endpoint.
    */
   authenticate: () => Promise<string | null>;
+
+  /**
+   * What downloads an upload's `fileImportUrl` (47b), injected for the same
+   * reason as `authenticate`: the guard is the app's to choose (the portfolio
+   * editor's is `@discontent/url-guard`'s). Without one, an upload's
+   * `fileImportUrl` is refused and the form says so.
+   */
+  uploadFetch?: UploadFetch;
 
   checkSlugConflict?: (
     slug: string,

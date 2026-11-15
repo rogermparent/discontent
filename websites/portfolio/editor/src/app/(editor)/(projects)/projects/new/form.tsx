@@ -7,6 +7,7 @@ import { Button } from "@discontent/component-library/components/Button";
 import { ProjectFormState } from "@discontent/projects-collection/controller/formState";
 import { createProject } from "../../../../../../controller/actions/projects";
 import Link from "next/link";
+import { SaveFailure } from "@/components/SaveFailure";
 
 export default function NewProjectForm({
   allTags = [],
@@ -32,6 +33,7 @@ export default function NewProjectForm({
       <div className="flex flex-row flex-nowrap my-1">
         <Button type="submit">Submit</Button>
       </div>
+      <SaveFailure state={state} />
       <div>
         <Link href="/projects">Back to Projects</Link>
       </div>

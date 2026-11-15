@@ -11,3 +11,21 @@ export class SlugConflictError extends Error {
     this.name = "SlugConflictError";
   }
 }
+
+/**
+ * An upload's `fileImportUrl` could not be imported (47b): no fetcher was
+ * given (`uploadFetch`), the fetcher refused the URL (a guard's refusal),
+ * the download failed, or the answer was not a success. Nothing was
+ * written. `message` is for a person: `createGenericActions` shows it on the
+ * form as it is.
+ */
+export class UploadImportError extends Error {
+  constructor(
+    message: string,
+    public readonly url: string,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+    this.name = "UploadImportError";
+  }
+}
