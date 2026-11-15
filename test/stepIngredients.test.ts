@@ -5,6 +5,7 @@ import type {
 } from "recipe-website-common/controller/types";
 import {
   matchStepIngredients,
+  matchStepMentions,
   sectionKey,
   stepNumbers,
 } from "recipe-website-common/util/stepIngredients";
@@ -119,9 +120,17 @@ describe("matchStepIngredients — cornbread stuffing", () => {
     ]);
   });
 
-  it("step 5: broth and sausage again, and the pecans by their own word", () => {
-    /* "sausage mixture" re-mentions the sausage: a true match, if a late one. */
-    expect(names(found[4])).toEqual([
+  it("step 5 combines two bowls: only the pecans come in", () => {
+    /* "Pour sausage mixture into the broth + egg" names what steps 3 and 4
+     * already brought in; the pecans are new. */
+    expect(names(found[4])).toEqual(["optional: 1 cup (125g) pecan halves"]);
+  });
+
+  it("every mention is still there for the form's checks", () => {
+    const mentions = matchStepMentions(STUFFING_INGREDIENTS, STUFFING_STEPS);
+    expect(
+      names(mentions[1][2].map((i) => STUFFING_INGREDIENTS[i].ingredient)),
+    ).toEqual([
       "2 1/2 cups (600ml) reduced-sodium chicken broth",
       "1 pound (454g) uncooked mild Italian sausage",
       "optional: 1 cup (125g) pecan halves",
@@ -221,10 +230,31 @@ describe("matchStepIngredients — sub-recipes", () => {
     );
     expect(uses(ingredients, instructions)).toEqual([
       [ingredients[0].ingredient],
-      /* "cream" alone is not `heavy cream`, and `cream` is no usable head
-       * past `heavy cream`, which is one word. */
-      [ingredients[1].ingredient],
+      /* "the cream" is the heavy cream when no other line says cream. */
+      [ingredients[1].ingredient, ingredients[2].ingredient],
     ]);
+  });
+
+  it("a bare 'cream' is nobody's beside sour cream or cream cheese", () => {
+    const steps2 = steps("Whisk the cream into the sauce.");
+    for (const other of ["sour cream", "cream cheese, softened"]) {
+      const ingredients = lines(
+        `${m("1")} cup heavy cream`,
+        `${m("1/2")} cup ${other}`,
+      );
+      expect(uses(ingredients, steps2)).toEqual([[]]);
+    }
+  });
+
+  it("'the yolks' are the egg yolks; whipping cream is heavy cream", () => {
+    const ingredients = lines(
+      `${m("4")} egg yolks`,
+      `${m("1")} cup whipping cream`,
+      `${m("4")} egg whites`,
+    );
+    expect(
+      uses(ingredients, steps("Beat the yolks, then add the milk and cream.")),
+    ).toEqual([[ingredients[0].ingredient, ingredients[1].ingredient]]);
   });
 
   it("a leftover from another recipe goes by that recipe's name too", () => {
@@ -319,9 +349,10 @@ describe("matchStepIngredients — shared and partial names", () => {
         ),
       ),
     ).toEqual([
-      /* `egg yolk` is the first line's head, and no other line has it. */
+      /* `egg yolk` is the first line's head, and no other line has it;
+       * the second mention brings nothing in. */
       [ingredients[0].ingredient],
-      [ingredients[0].ingredient],
+      [],
       /* `egg` is the second line's whole name, but the first line's name
        * contains it too: either could be meant, so neither (D3). */
       [],
@@ -432,5 +463,64 @@ describe("matchStepIngredients — shared and partial names", () => {
     expect(
       matchStepIngredients(lines("For the sauce:"), steps("Make the sauce.")),
     ).toEqual([[[]]]);
+  });
+});
+
+describe("matchStepIngredients — a line is listed where it comes in", () => {
+  const ingredients = lines(
+    `${m("4")} egg yolks`,
+    `${m("1/3")} cup sugar, plus ${m("1")} tablespoon`,
+    `${m("1")} pint whole milk`,
+    `${m("1")} cup heavy cream`,
+    `${m("1")} teaspoon freshly grated nutmeg, plus more for serving`,
+    `${m("4")} egg whites`,
+  );
+
+  it("combining two bowls brings nothing in; a 'plus' line is used each time", () => {
+    expect(
+      uses(
+        ingredients,
+        steps(
+          "Beat the egg yolks, then add the 1/3 cup sugar. Add the milk, cream and nutmeg.",
+          "Beat the egg whites to soft peaks. Add the 1 tablespoon of sugar.",
+          "Whisk the egg whites into the mixture. Chill and serve with nutmeg.",
+        ),
+      ),
+    ).toEqual([
+      [
+        ingredients[0].ingredient,
+        ingredients[1].ingredient,
+        ingredients[2].ingredient,
+        ingredients[3].ingredient,
+        ingredients[4].ingredient,
+      ],
+      [ingredients[1].ingredient, ingredients[5].ingredient],
+      [ingredients[4].ingredient],
+    ]);
+  });
+
+  it("each option of a set of alternatives starts from what came before it", () => {
+    const instructions: InstructionEntry[] = [
+      { text: "Warm the milk." },
+      {
+        name: "Uncooked",
+        choice: "Method",
+        instructions: [{ text: "Stir the egg yolks into the milk." }],
+      },
+      {
+        name: "Cooked",
+        choice: "Method",
+        instructions: [
+          { text: "Temper the egg yolks with the milk and cook until thick." },
+        ],
+      },
+      { text: "Fold in the egg whites, then pour over the egg yolks." },
+    ];
+    expect(uses(ingredients, instructions)).toEqual([
+      [ingredients[2].ingredient],
+      [ingredients[0].ingredient],
+      [ingredients[0].ingredient],
+      [ingredients[5].ingredient],
+    ]);
   });
 });
