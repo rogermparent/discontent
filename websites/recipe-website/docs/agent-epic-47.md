@@ -930,6 +930,247 @@ exec tsc --noEmit`: green, again after the picker change (Tf5).
     outside both sections; the picker says why (Df12). The alternative is
     to store the line's position for that case only.
 
+### 47g: The model fills a step's "uses", on demand (M; branch `agent/47g-fill-uses`; Roger's ask, 2026-11-13)
+
+47f let a recipe say what a step uses. This phase has the model suggest it.
+Roger's pick (2026-11-15): **on demand only** — as part of "Fill gaps from
+the source" on the edit page and `pnpm recipes fill` — never on an import,
+and every model-made change marked and approved before Save.
+
+#### Results
+
+- **The reading.** `suggestUses` (`editor/controller/llm/suggestUses.ts`):
+  one `chatJson` call with its own prompt and schema. The model is shown
+  the recipe's ingredient lines and steps, each numbered (`usesOutline` in
+  `common/util/usesSuggestions.ts`; headings and group names in brackets,
+  with no number; an option of a set of alternatives says it is "one way
+  to do" its set), and answers `{steps: [{step, lines}]}` — numbers only.
+- **The check** (`checkUsesAnswer`): an answer that is not a list of steps
+  is refused whole. One step's answer is dropped, and the others stand,
+  when it is not `{step, lines}` of whole numbers, when its step is not one
+  of the recipe's (or is blank, or is answered twice), or when any of its
+  line numbers is not a numbered line. A heading has no number, so it can
+  never be answered. A step the answer leaves out gets no suggestion (not
+  an empty list). The numbers then become names through 47f's `usesName`,
+  in the list's order, each checked to find its own line again
+  (`usesLine`).
+- **What changes** (`usesChanges`): the steps are settled in reading
+  order. A step gets a `uses` only where the model's lines differ from
+  what the page would show once the lists before it are stored (47f Df5:
+  a stored list moves the guess of the steps after it). A step that
+  already stores a `uses` is not touched, unless asked (`--all-uses`).
+- **The fill job.** `fillRecipe` runs the reading after the source fill and
+  the estimate, over the recipe as filled, as an `llm.uses` step ("Model
+  reads what each step uses", "N steps read"). `FillResult.uses` is
+  `{model, answers, steps}`: every step's checked answer, and the numbers
+  of the steps the patch changes. The patch's `instructions` carry the new
+  lists, written by `patchInstructions`, which keeps every field of a
+  step and a group (`toDraft` keeps only the name and the text).
+- **The form.** When a fill lands, the form checks the answers against the
+  steps it holds now (`usesOffers`: the same place, the same text, every
+  name still finding a line). Each suggestion that differs from what its
+  step shows appears under that step with a dashed tape, "suggested by
+  <model>", the lines it would list, **Accept** and **Dismiss**. Accept
+  stores the names in the form; the tape stays, with "Accepted. Not saved
+  yet." and **Undo**. Above the steps one card names the steps with a
+  suggestion and, for two or more, offers **Accept all N**. The fill's
+  summary says "Suggested by <model>: what steps 3 and 4 use — not
+  applied". Nothing is stored unless it was accepted and then saved; the
+  fill's own Undo takes every suggestion away.
+- **The CLI.** `pnpm recipes fill <slug> [--uses | --no-uses]
+[--all-uses]`: the text output lists "uses suggested by <model> for
+  steps …" with each step's names, and the patch carries them. `--json`
+  has `uses`. `POST /api/recipe/<slug>/fill` takes `{uses?, usesAll?}`.
+  MCP is unchanged (59 tools / 45 pre-approved).
+- **Not on import** (Roger's pick). The import form says nothing new; that
+  optional line from the brief was left out.
+- **A measurement script**, `editor/scripts/measure-step-uses.ts`, for a
+  later model: fixtures directory, hand answers, one JSON line a recipe.
+
+#### Decisions
+
+- **Dg1 — Numbers in, names out.** The model never writes a name. This is
+  the prompt-injection defence: whatever a recipe's text says, the only
+  thing that can reach a suggestion is a whole number that names one of
+  the recipe's own ingredient lines, for a step the recipe has. Each line
+  and step is flattened to one line of text before it is numbered, so a
+  recipe cannot add a numbered line of its own. A unit test sends a recipe
+  that tells the model to answer line 99 and a step 7, with a model that
+  obeys: both are dropped.
+- **Dg2 — The Claude API is asked; a local model is not, unless opted
+  in.** qwen3:8b was right on 25 of 36 steps, the same count as the
+  automatic guess, and its misses are large (every ingredient under one
+  step, on steps the guess had right). Offering those would cost more
+  reading than they save. `usesModelAsked`: the Claude API always; a
+  local model only with `RECIPE_LLM_USES=1` (read from `editor/.env` too)
+  or `recipes fill --uses`. With a local model the fill's strip does not
+  mention uses, and nothing is warned.
+- **Dg3 — Offered, then accepted; not applied and undone.** 45b's
+  estimates are put in the form and marked, and Save keeps them. A step's
+  suggestion is only shown until Accept. So Save with open offers stores
+  none of them. This is the stricter reading of "approved before Save",
+  and it follows 45e2's suggested choices.
+- **Dg4 — A suggestion is for the text the model read.** It is held with
+  the step's place and text. Edit the step's words, move it, or remove an
+  ingredient one of its names needs, and the suggestion goes.
+- **Dg5 — The form offers what differs now; the patch stores the fewest
+  lists.** In the form each offer is compared with what its step shows at
+  that moment, so accepting step 3 ("the whites come in here") makes step
+  4's offer ("nothing") go away: step 4 already shows nothing. The CLI's
+  patch does the same in one pass and stores one list.
+- **Dg6 — A stored list is the person's.** The job never changes a step
+  that stores a `uses` (`--all-uses` is the ask). In the form, "Back to
+  automatic" on a step is the ask: its suggestion is then offered.
+- **Dg7 — The lines are stored in the list's order,** whatever order the
+  model gave, so an accepted list reads like a guessed one.
+- **Dg8 — All or nothing for one step.** A step with one bad number loses
+  its whole answer. A list with a line missing would be a wrong list.
+- **Dg9 — `--no-estimate` and `--no-uses` are separate.** Each turns off
+  one model call.
+- **Dg10 — No model, or a model that is not asked, says nothing.** The
+  estimate's "No model is configured" note already covers the first.
+- **Dg11 — A recipe over 16,000 characters of outline is not asked** (a
+  warning says so). It is never cut, because a cut list has wrong numbers.
+
+#### Traps
+
+- **Tg1 — Two lines written the same cannot be suggested.** The
+  upside-down cake has "1/2 cup (100g) packed light or dark brown sugar"
+  twice, with no headings. Both models answered step 4 correctly, and the
+  answer could not be stored: no name finds the second line (47f Df12).
+  The fill says "No suggestion for step 4: it uses an ingredient line
+  written the same as another, which a name cannot tell apart." Putting
+  the two halves under headings fixes it.
+- **Tg2 — The stand-in model is a local model.** `fill-uses.spec` turns
+  it on with `/settings/test-llm?url=…&uses=1`; without `uses=1` the
+  editor does not ask it (Dg2), which the spec's last case checks.
+  `playwright.config.ts` pins `RECIPE_LLM_USES` empty. The stand-in's rule
+  (`usesAnswer`): "everything" brings in every line, "the bowl" nothing,
+  any other step is left out — so the fixtures from before 47g get no
+  suggestion.
+- **Tg3 — A stored list changes its neighbours.** Accepting one
+  suggestion can make another disappear (it now matches) or appear (the
+  step after now guesses a line the model did not give it). That is 47f
+  Df5, seen live. The form therefore keeps every fitting answer, not only
+  the ones offered when the fill landed.
+- **Tg4 — `toDraft` drops step fields.** A patch built with it loses
+  `uses`, and a group's `choice`, yield and times. The uses patch is built
+  with `patchInstructions`.
+- **Tg5 — A step's title ending in a colon** ("Make the cake batter:")
+  was written "…batter:: Whisk…" in the first outline; the colon is now
+  dropped from the title.
+- **Tg6 — The machine has no `nvidia-smi`** (the GPU is an AMD card). The
+  free-GPU check before the local run read
+  `/sys/class/drm/card1/device/mem_info_vram_used` (910 MB of 8,176 MB
+  used) and Ollama's `/api/ps` (no model loaded).
+
+#### Measurement (2026-11-15)
+
+Five recipes, 36 steps, copied read-only from the content repo into
+scratch fixtures (never run against the repo), each scored against an
+answer written by hand before the runs. A step is right when the checked
+answer names exactly the hand answer's lines. "Guess" is the matcher
+alone, with no model.
+
+| Recipe                                       | Steps | Guess | Claude Sonnet 5 | qwen3:8b |
+| -------------------------------------------- | ----- | ----- | --------------- | -------- |
+| `ree-drummonds-eggnog`                       | 5     | 5     | 5               | 3        |
+| `alton-browns-eggnog`                        | 7     | 4     | 7               | 4        |
+| `caramel-apple-upside-down-cake` (two bowls) | 8     | 5     | 7               | 7        |
+| `tom-and-jerry-anediblemosaic` (sections)    | 6     | 2     | 6               | 3        |
+| `jamaican-jerk-pork-shoulder` (a choice)     | 10    | 9     | 10              | 8        |
+| **Total**                                    | 36    | 25    | **35**          | 25       |
+
+|                    | Claude Sonnet 5 (`claude-sonnet-5`) | qwen3:8b (Ollama, GPU) |
+| ------------------ | ----------------------------------- | ---------------------- |
+| Tokens in / out    | 8,822 / 648                         | 4,901 / 822            |
+| Time, five recipes | 7.7 s (1.4–1.9 s each)              | 32.9 s (3.6–10.4 s)    |
+| Cost               | $0.024 (about half a cent a recipe) | none                   |
+
+- Claude's one miss is Tg1: its answer for the cake's step 4 was right and
+  could not be stored.
+- A first Claude run, before one prompt change, scored 34: it listed the
+  Tom and Jerry's "3 large eggs, separated" under the whites' step only.
+  The prompt now names separated eggs among the lines used in parts, and
+  the second run listed the line under both steps. Both runs are counted
+  in the spend: **$0.048 in total**.
+- qwen3:8b ran once, with the final prompt. Its 11 misses: every line
+  under one step (the eggnog's steps 3 and 5; the jerk pork's 17 marinade
+  lines again under "inject the reserved marinade", in both methods),
+  lines 1–10 under each of the Tom and Jerry's first three steps, and the
+  "plus 1 tablespoon" of sugar missed twice. Hence Dg2. `qwen3:14b`
+  (9.3 GB) was not measured: it does not fit this 8 GB card and would run
+  partly on the CPU, on a shared machine.
+- The hand answer for Alton Brown's eggnog lists the cooked version's
+  ingredients again under its steps (5–7), since those steps do bring
+  them in. Claude answered the same way.
+
+#### Gates (47g)
+
+All through the heavy slot, 2026-11-15, on `origin/main` 8dfe5bac (#337):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: green.
+- Full vitest, one run: 180 files, **4001/4003**. The two failures were
+  5-second timeouts with the whole suite running: `fillUses.test.tsx`
+  "Accept stores the names…" (new here; its form cases now have 30 s) and
+  `editFormRoundTrip.test.tsx` "cleared and retyped, its headings follow
+  once, on blur" (not touched here). Those two files alone: **52/52**. New:
+  `fillUses.test.tsx`, 35 cases; one case in `cliJson.test.ts`.
+- Playwright, Docker, production build (`DOCKER=1 heavy-pw.sh`, e2e +
+  mobile): `fill-uses` (new, 4 cases, axe on the form with suggestions
+  offered and again with one accepted), `fill-gaps`, `step-uses`,
+  `alternatives-model`, `photo-import`, `multi-recipe`, `edit-form-frame` —
+  **29/29**. A first run of `fill-uses` and `fill-gaps`: 10/10. No baseline
+  moved (a form with no fill shows nothing new).
+- `fill-uses` in dev mode (Docker, `next dev`): 4/4, the first case passing
+  on its retry — the 15 s wait for the recipe page after Save was too short
+  on the run's first save. The wait is now 45 s and the two long cases are
+  marked slow; then each case twice over: **8/8**, none retried.
+- No dependency or Next-config change, so no main-checkout-shaped build.
+
+#### Roger to confirm (47g)
+
+1. A suggestion is offered and stored only if you press Accept (Dg3). The
+   alternative is to put every suggestion into the form marked, as the
+   estimated times are, so that Save keeps them unless you undo.
+2. Only the Claude API is asked; qwen is not unless `RECIPE_LLM_USES=1`
+   is set (Dg2). The alternative is to ask qwen too and live with its
+   misses, or to try a larger local model first.
+3. On the Pi every "Fill gaps" press now makes one more Claude call, about
+   half a cent. The alternative is a separate button for the uses reading.
+4. The reading rides on "Fill gaps", so a recipe with no source link or
+   video cannot get one. The alternative is a "Suggest what each step
+   uses" button in the Steps section, like "Look for alternatives with
+   the model".
+5. A step that already stores a list is skipped; in the form you ask for
+   it again by pressing "Back to automatic" on that step, on the command
+   line with `--all-uses` (Dg6). The alternative is a tick box by the
+   Fill button, "also re-read steps I set".
+6. A step whose text you edited after the fill loses its suggestion
+   (Dg4). The alternative is to keep it and say the text has changed.
+7. "Accept all N" is offered when two or more steps have a suggestion.
+   The alternative is one at a time only.
+8. An accepted list is stored in the ingredient list's order (Dg7). The
+   alternative is the order the step's text names them in.
+9. A step that uses one of two identically written lines gets no
+   suggestion, with a note that says why (Tg1). The alternative is to
+   suggest the other lines and leave that one out.
+10. `--no-estimate` no longer means "no model at all": `--no-uses` turns
+    the other call off (Dg9). The alternative is one `--no-model` switch.
+11. The import form does not mention that Fill gaps can suggest uses. The
+    alternative is one line under the steps of a new import.
+12. The words: "suggested by <model>", "Accept", "Dismiss", "Accepted.
+    Not saved yet.", "Undo", "Accept all N", "Suggested by <model>: what
+    steps 3 and 4 use — not applied: accept or dismiss each in Steps."
+
+#### Roger's steps (47g)
+
+- None to get the feature on the Pi beyond the usual deploy when you want
+  it (Claude is asked by default). No reindex.
+- Optional, workstation: `RECIPE_LLM_USES=1` in `editor/.env` to try the
+  local model's suggestions anyway.
+
 ### 47-close
 
 - The Close-out, the CLAUDE.md bullet, backlog strikes and rows, memory

@@ -65,6 +65,13 @@ async function useModel(
 
 const SLUG = "bowl-cake";
 
+/*
+ * The wait for the recipe page after Save. In dev mode the first save of a
+ * run compiles the recipe page and downloads the source's picture: 15 s was
+ * not always enough there (the first dev run needed a retry).
+ */
+const SAVE_WAIT = 45_000;
+
 const STEPS = [
   "Mix everything together.",
   "Beat the egg into the bowl again.",
@@ -153,6 +160,8 @@ test.describe("Fill gaps suggests what each step uses (47g)", () => {
     baseURL,
     createApiToken,
   }) => {
+    /* A fill, two axe passes and a save (or two): long in dev mode. */
+    test.slow();
     await useModel(request, modelUrl);
     await writeCake(request, await createApiToken(), baseURL!);
     await openEdit(page);
@@ -252,7 +261,7 @@ test.describe("Fill gaps suggests what each step uses (47g)", () => {
     await expect(chips(page, 1)).toHaveText(["flour", "egg", "butter"]);
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/recipe/${SLUG}$`), {
-      timeout: 15_000,
+      timeout: SAVE_WAIT,
     });
     expect(await storedSteps(request)).toEqual([
       { text: STEPS[0], uses: ["flour", "egg", "butter"] },
@@ -267,6 +276,8 @@ test.describe("Fill gaps suggests what each step uses (47g)", () => {
     baseURL,
     createApiToken,
   }) => {
+    /* A fill, two axe passes and a save (or two): long in dev mode. */
+    test.slow();
     await useModel(request, modelUrl);
     await writeCake(request, await createApiToken(), baseURL!);
     await openEdit(page);
@@ -276,7 +287,7 @@ test.describe("Fill gaps suggests what each step uses (47g)", () => {
     /* Save with both offers still open: no step gains a list. */
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/recipe/${SLUG}$`), {
-      timeout: 15_000,
+      timeout: SAVE_WAIT,
     });
     expect(await storedSteps(request)).toEqual(STEPS.map((text) => ({ text })));
 
@@ -297,7 +308,7 @@ test.describe("Fill gaps suggests what each step uses (47g)", () => {
     ).toHaveCount(2);
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/recipe/${SLUG}$`), {
-      timeout: 15_000,
+      timeout: SAVE_WAIT,
     });
     expect(await storedSteps(request)).toEqual([
       { text: STEPS[0], uses: ["flour", "egg", "butter"] },
