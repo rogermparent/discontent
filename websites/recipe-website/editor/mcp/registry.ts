@@ -359,6 +359,14 @@ const CHOICE_DESCRIPTION =
   "for `Bagels`) holds that option's extra lines, up to the next heading. An " +
   "import's `suggestedChoices` are hints only: set `choice` yourself when it fits. " +
   "Instructions that break these rules are refused as `validation`.";
+/** A step's stored "uses" on recipe_create / recipe_update (47f). */
+const USES_DESCRIPTION =
+  "A step object may carry `uses`: the ingredient lines it brings in, each by " +
+  'name ("heavy cream", "egg whites"), in order. Leave it out and the page ' +
+  "guesses them from the step's text; set it only where the guess is wrong, and " +
+  "`[]` for a step that brings nothing in. A name no ingredient line goes by is " +
+  "kept and shown nowhere but the edit form. recipe_get answers each step's " +
+  "`uses` as stored.";
 const IDEMPOTENT_WRITE = { readOnlyHint: false, idempotentHint: true } as const;
 const DESTRUCTIVE_WRITE = {
   readOnlyHint: false,
@@ -729,6 +737,8 @@ export function recipeToolDefinitions(
         "Write a new recipe. Ingredients and instructions accept prose strings as well " +
         "as objects. " +
         CHOICE_DESCRIPTION +
+        " " +
+        USES_DESCRIPTION +
         " `overwrite` replaces an existing recipe at the same slug. " +
         "`dryRun` validates and returns the resolved slug, whether it is taken, the " +
         "record that would be stored and the image's filename — writing nothing.",
@@ -759,6 +769,8 @@ export function recipeToolDefinitions(
         "entry naming the old slug is rewritten in the same commit. `dryRun` returns " +
         "the record the patch would produce without writing it. " +
         CHOICE_DESCRIPTION +
+        " " +
+        USES_DESCRIPTION +
         " A patch's `instructions` (or `ingredients`) replaces the whole list.",
       inputSchema: z.strictObject({
         slug: Slug,
