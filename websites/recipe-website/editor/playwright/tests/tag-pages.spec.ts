@@ -609,7 +609,7 @@ test.describe("Tag pages", () => {
   test("a new tag gets its own page", async ({ page }) => {
     await page.goto("/new-recipe");
     const signIn = page.getByRole("button", {
-      name: "Sign in with Credentials",
+      name: "Sign in",
       exact: true,
     });
     if (await signIn.isVisible()) await fillSignInForm(page);

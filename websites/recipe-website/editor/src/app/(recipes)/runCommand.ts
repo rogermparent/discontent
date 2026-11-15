@@ -1,7 +1,7 @@
 import { execa } from "execa";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { unstable_noStore } from "next/cache";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import { Readable } from "stream";
 import {
   exportUnavailableReason,
@@ -36,7 +36,7 @@ export async function runCommand(
   unstable_noStore();
   const user = await auth();
   if (!user) {
-    return signIn();
+    return redirectToLogin("/export");
   }
   if (running[RUNNING]) {
     return "A build is already currently running!";

@@ -76,17 +76,26 @@ export async function expectMode(page: Page, mode: Mode): Promise<void> {
 }
 
 /**
- * No WCAG violations on the page. `exclude` leaves out selectors the page
- * does not own — a third-party embed. Kept, though nothing passes it since
- * 46b: youtube-video-element's `<iframe>` had no title (45e2), and
- * `VideoPlayer` now names it.
+ * Selectors the page does not own, left out of every scan. YouTube's player
+ * inside youtube-video-element's `<iframe>` is YouTube's markup: on
+ * 2026-11-13 its `#movie_player` gained an `aria-label` on a role-less
+ * `<div>` and failed every spec with a video, with nothing here changed.
+ * The `<iframe>` itself is still named by `VideoPlayer` (46b).
+ */
+const THIRD_PARTY = ["youtube-video"];
+
+/**
+ * No WCAG violations on the page. `exclude` leaves out further selectors the
+ * page does not own, on top of `THIRD_PARTY`.
  */
 export async function expectNoViolations(
   page: Page,
   { exclude = [] }: { exclude?: string[] } = {},
 ): Promise<void> {
   let builder = new AxeBuilder({ page }).withTags(WCAG_TAGS);
-  for (const selector of exclude) builder = builder.exclude(selector);
+  for (const selector of [...THIRD_PARTY, ...exclude]) {
+    builder = builder.exclude(selector);
+  }
   const results = await builder.analyze();
   expect(results.violations).toEqual([]);
 }

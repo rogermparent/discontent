@@ -81,7 +81,7 @@ if [ -z "${AUTH_SECRET:-}" ] && [ -f websites/recipe-website/editor/.env.local ]
 fi
 export AUTH_SECRET="${AUTH_SECRET:-}"
 if [ -z "$AUTH_SECRET" ]; then
-  echo "warning: AUTH_SECRET is empty; next-auth will raise MissingSecret on every page" >&2
+  echo "warning: AUTH_SECRET is empty; a production build of the editor refuses to start without it" >&2
 fi
 
 SHARDS=()

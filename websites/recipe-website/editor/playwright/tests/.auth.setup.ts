@@ -13,12 +13,11 @@ setup("authenticate as admin", async ({ page, request }) => {
   // Held like every fixture reset (41b): the release is the invalidation.
   await withWritesHeld(request, () => resetData());
 
-  await page.goto("/", { waitUntil: "domcontentloaded" });
-  await page
-    .getByRole("button", { name: "Sign In", exact: true })
-    .click({ timeout: 30_000 });
+  // The app's own sign-in page (47e), coming back to the homepage.
+  await page.goto("/login?redirectTo=%2F", { waitUntil: "domcontentloaded" });
   await fillSignInForm(page);
 
+  await expect(page).toHaveURL(/\/$/, { timeout: 30_000 });
   await expect(
     page.getByRole("button", { name: "Sign Out", exact: true }),
   ).toBeVisible({ timeout: 30_000 });

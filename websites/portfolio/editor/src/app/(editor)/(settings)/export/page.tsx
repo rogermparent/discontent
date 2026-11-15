@@ -1,12 +1,10 @@
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import { Exporters } from "./exporter";
 
 export default async function SettingsPage() {
   const user = await auth();
   if (!user) {
-    return signIn(undefined, {
-      redirectTo: `/export`,
-    });
+    return redirectToLogin(`/export`);
   }
   return (
     <main className="h-full w-full p-2 max-w-xl mx-auto grow">

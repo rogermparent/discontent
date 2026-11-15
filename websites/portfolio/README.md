@@ -1,6 +1,6 @@
 # Portfolio
 
-A portfolio built on Discontent. The editor is a CMS gated by NextAuth; the
+A portfolio built on Discontent. The editor is a CMS gated by password sign-in (Better Auth, `packages/auth`); the
 export generates a fully static site from the same content directory.
 
 The design thesis, in one line: **a portfolio's most characteristic artifact is

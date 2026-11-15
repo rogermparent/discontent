@@ -96,7 +96,7 @@ test.describe("Accessibility (axe)", () => {
     await resetData();
     await page.goto("/settings");
     await expect(
-      page.getByRole("button", { name: "Sign in with Credentials" }),
+      page.getByRole("button", { name: "Sign in", exact: true }),
     ).toBeVisible();
     await expectNoViolations(page);
   });

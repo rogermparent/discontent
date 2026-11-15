@@ -14,7 +14,7 @@
 // stub `vitest.config.js` aliases in.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { auth, signIn } from "./stub_auth.js";
+import { auth, redirectToLogin } from "./stub_auth.js";
 
 const mocks = vi.hoisted(() => ({
   rebuildAllIndexes: vi.fn(async () => {}),
@@ -78,8 +78,8 @@ const { buildExport } =
 
 beforeEach(() => {
   auth.mockReset();
-  signIn.mockReset();
-  signIn.mockResolvedValue("signed out");
+  redirectToLogin.mockReset();
+  redirectToLogin.mockReturnValue("signed out");
 });
 
 afterEach(() => {
@@ -90,7 +90,7 @@ describe("buildExport", () => {
   it("does nothing for a signed-out caller", async () => {
     auth.mockResolvedValue(null);
     expect(await buildExport()).toBe("signed out");
-    expect(signIn).toHaveBeenCalled();
+    expect(redirectToLogin).toHaveBeenCalledWith("/export");
     expect(mocks.exportUnavailableReason).not.toHaveBeenCalled();
     expect(mocks.rebuildAllIndexes).not.toHaveBeenCalled();
     expect(mocks.readSettings).not.toHaveBeenCalled();

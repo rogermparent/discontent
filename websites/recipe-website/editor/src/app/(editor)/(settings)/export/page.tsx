@@ -1,4 +1,4 @@
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import { readSettings } from "@/settings";
 import { Exporters } from "./exporter";
 import { ShareInventoryForm } from "./ShareInventoryForm";
@@ -13,9 +13,7 @@ import {
 export default async function SettingsPage() {
   const user = await auth();
   if (!user) {
-    return signIn(undefined, {
-      redirectTo: `/export`,
-    });
+    return redirectToLogin(`/export`);
   }
   const [unavailable, settings] = await Promise.all([
     exportUnavailableReason(),

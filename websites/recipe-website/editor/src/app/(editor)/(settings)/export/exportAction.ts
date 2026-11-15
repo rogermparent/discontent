@@ -1,6 +1,6 @@
 "use server";
 
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import { runCommand } from "@/app/(recipes)/runCommand";
 import { readSettings } from "@/settings";
 import { rebuildAllIndexes } from "recipe-editor/controller/actions";
@@ -22,7 +22,7 @@ export async function buildExport() {
    * reindex would already have run.)
    */
   if (!(await auth())) {
-    return signIn();
+    return redirectToLogin("/export");
   }
   /* Before the rebuild below, which would otherwise run for nothing. */
   const unavailable = await exportUnavailableReason();

@@ -3,7 +3,7 @@ import { recipeItems } from "recipe-website-common/controller/data/readRecipeIte
 import EditForm from "./form";
 import { notFound } from "next/navigation";
 import { getTransformedRecipeImageProps } from "recipe-website-common/components/RecipeImage";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import { PageMain } from "recipe-website-common/components/PageLayout";
 import { fillSourceUrl } from "recipe-editor/controller/curation/fillGaps";
 import {
@@ -34,9 +34,9 @@ export default async function Recipe({
   const fillJob = fillJobParam((await searchParams).fill);
   const user = await auth();
   if (!user) {
-    return signIn(undefined, {
-      redirectTo: `/recipe/${slug}/edit${fillJob ? `?fill=${fillJob}` : ""}`,
-    });
+    return redirectToLogin(
+      `/recipe/${slug}/edit${fillJob ? `?fill=${fillJob}` : ""}`,
+    );
   }
   const recipe = await recipeItems.read(slug);
   if (!recipe) notFound();

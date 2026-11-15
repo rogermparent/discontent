@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import {
   PageMain,
   PageSection,
@@ -53,7 +53,7 @@ export default async function EditTermPage({
 
   const user = await auth();
   if (!user) {
-    return signIn(undefined, { redirectTo: `/tags/${tag}/edit` });
+    return redirectToLogin(`/tags/${tag}/edit`);
   }
 
   /*

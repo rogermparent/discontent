@@ -7,7 +7,7 @@ import {
   PageMain,
   PageSection,
 } from "recipe-website-common/components/PageLayout";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,7 @@ export default async function EditGroupPage({
 
   const user = await auth();
   if (!user) {
-    return signIn(undefined, { redirectTo: `/group/${slug}/edit` });
+    return redirectToLogin(`/group/${slug}/edit`);
   }
 
   let group;

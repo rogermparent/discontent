@@ -1,5 +1,5 @@
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import { ShoppingPage } from "recipe-website-common/components/ShoppingPage";
 import {
   PageMain,
@@ -30,7 +30,7 @@ export const metadata = { title: "Shopping list" };
 export default async function ShoppingListPage() {
   const session = await auth();
   if (!session?.user?.email) {
-    return signIn(undefined, { redirectTo: "/shopping" });
+    return redirectToLogin("/shopping");
   }
   const ctx = { contentDirectory: getContentDirectory() };
   const [{ items, settings }, inventory] = await Promise.all([

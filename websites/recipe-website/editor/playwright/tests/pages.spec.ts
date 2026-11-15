@@ -8,7 +8,7 @@ test.describe("Page Editor", () => {
       await page.goto("/pages");
       await expect(
         page.getByRole("button", {
-          name: "Sign in with Credentials",
+          name: "Sign in",
           exact: true,
         }),
       ).toBeVisible();
@@ -22,7 +22,7 @@ test.describe("Page Editor", () => {
       await page.goto("/pages/edit/about");
       await expect(
         page.getByRole("button", {
-          name: "Sign in with Credentials",
+          name: "Sign in",
           exact: true,
         }),
       ).toBeVisible();

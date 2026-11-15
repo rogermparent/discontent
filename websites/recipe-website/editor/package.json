@@ -31,6 +31,7 @@
     "generate-fixtures": "playwright test --project=generators"
   },
   "dependencies": {
+    "@discontent/auth": "^1.0.0",
     "@discontent/cms": "^1.0.0",
     "@discontent/component-library": "^1.0.0",
     "@discontent/menus-collection": "^1.0.0",
@@ -57,7 +58,6 @@
     "markdown-to-jsx": "~9.10.3",
     "mdast-util-to-markdown": "^2.2.0",
     "next": "16.4.2",
-    "next-auth": "5.0.0-beta.30",
     "parse5": "^8.0.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",

@@ -4,7 +4,7 @@ import {
   PageMain,
   PageSection,
 } from "recipe-website-common/components/PageLayout";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 
 export default async function NewGroup({
   searchParams,
@@ -22,7 +22,7 @@ export default async function NewGroup({
     const redirectTo = preselectedRecipe
       ? `/group/new?recipe=${preselectedRecipe}`
       : "/group/new";
-    return signIn(undefined, { redirectTo });
+    return redirectToLogin(redirectTo);
   }
 
   const tagPicker = await readTagPicker();

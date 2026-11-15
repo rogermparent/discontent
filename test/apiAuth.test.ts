@@ -120,3 +120,88 @@ describe("authenticateRequest", () => {
     });
   });
 });
+
+/*
+ * 47e: the session cookie writes only from this host's own pages. A bearer
+ * token is exempt — a browser never attaches one on another site's behalf.
+ */
+describe("authenticateRequest and the request's origin (47e)", () => {
+  const signedIn = { user: { email: "someone@example.com" } };
+
+  it("refuses a cross-site write on the session cookie", async () => {
+    auth.mockResolvedValue(signedIn);
+    expect(
+      await authenticateRequest(
+        requestWith({
+          host: "uraninite:3000",
+          origin: "http://evil.example",
+          "sec-fetch-site": "cross-site",
+        }),
+        contentDirectory,
+      ),
+    ).toBeNull();
+    expect(auth).not.toHaveBeenCalled();
+  });
+
+  it("refuses an Origin from another host when Fetch Metadata is absent", async () => {
+    auth.mockResolvedValue(signedIn);
+    expect(
+      await authenticateRequest(
+        requestWith({
+          host: "uraninite:3000",
+          origin: "http://uraninite:3001",
+        }),
+        contentDirectory,
+      ),
+    ).toBeNull();
+  });
+
+  it("accepts a same-origin write on the session cookie, on any host", async () => {
+    auth.mockResolvedValue(signedIn);
+    for (const host of [
+      "uraninite:3000",
+      "192.168.1.20:3000",
+      "127.0.0.1:3019",
+    ]) {
+      expect(
+        await authenticateRequest(
+          requestWith({ host, origin: `http://${host}` }),
+          contentDirectory,
+        ),
+      ).toEqual({ email: "someone@example.com", scope: "write" });
+      expect(
+        await authenticateRequest(
+          requestWith({ host, "sec-fetch-site": "same-origin" }),
+          contentDirectory,
+        ),
+      ).toEqual({ email: "someone@example.com", scope: "write" });
+    }
+  });
+
+  it("lets a bearer token write from anywhere", async () => {
+    expect(
+      await authenticateRequest(
+        requestWith({
+          authorization: `Bearer ${token}`,
+          origin: "http://evil.example",
+          "sec-fetch-site": "cross-site",
+        }),
+        contentDirectory,
+      ),
+    ).toEqual({ email: "admin@nextmail.com", scope: "write" });
+  });
+
+  it("lets a cross-site GET read the session (reads are not CSRF)", async () => {
+    auth.mockResolvedValue(signedIn);
+    const request = new Request("http://localhost/api/recipes", {
+      headers: {
+        origin: "http://evil.example",
+        "sec-fetch-site": "cross-site",
+      },
+    });
+    expect(await authenticateRequest(request, contentDirectory)).toEqual({
+      email: "someone@example.com",
+      scope: "write",
+    });
+  });
+});

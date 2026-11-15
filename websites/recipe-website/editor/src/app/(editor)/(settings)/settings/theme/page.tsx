@@ -1,4 +1,4 @@
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import { readSettings } from "@/settings";
 import {
   PageMain,
@@ -12,7 +12,7 @@ import { ThemeEditor } from "../ThemeEditor";
 export default async function ThemePage() {
   const user = await auth();
   if (!user) {
-    return signIn(undefined, { redirectTo: `/settings/theme` });
+    return redirectToLogin(`/settings/theme`);
   }
   const settings = await readSettings();
   return (

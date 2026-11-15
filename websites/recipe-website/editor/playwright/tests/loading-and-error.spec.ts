@@ -12,7 +12,7 @@ test.describe("Loading and Error States", () => {
     await page.goto("/settings");
     await expect(
       page.getByRole("button", {
-        name: "Sign in with Credentials",
+        name: "Sign in",
         exact: true,
       }),
     ).toBeVisible({ timeout: 10_000 });

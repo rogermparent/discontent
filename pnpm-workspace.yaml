@@ -13,6 +13,7 @@ packages:
   - packages/menus-collection
   - packages/url-guard
   - packages/cms
+  - packages/auth
   - packages/cms/demo
 onlyBuiltDependencies:
   - "@parcel/watcher"
