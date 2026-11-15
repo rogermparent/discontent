@@ -704,6 +704,192 @@ the workstation's does not reach the Pi (De13); the rate-limit design
 client's), plus per account 10 per 15 minutes (so a stranger who knows the
 email can hold the owner off for 15 minutes) and 60 a minute overall.
 
+### 47f: A step's stored "uses" (M; branch `agent/47f-step-uses`; Roger's ask, 2026-11-13)
+
+Roger, reading `ree-drummonds-eggnog`: the "Uses" under a step is a guess
+from the step's text. #334 fixed two faults in the guess; this phase lets a
+recipe say what a step uses, and the edit form edit it. 47g (the model
+filling it, on demand) is a separate phase and is not in this branch.
+
+#### Results
+
+- **The field.** `Instruction.uses?: string[]` (`common/controller/types.ts`)
+  on a step, top-level or inside a group. Not on a group.
+- **One resolver.** `resolveStepUses(ingredients, instructions)` in
+  `common/util/stepIngredients.ts` answers, per step: `lines` (what it
+  brings in), `mentions` (every line its text or its stored list names),
+  `stored` and `unresolved` (the stored names no line goes by).
+  `stepUses(…)` is its `lines`, and is what the recipe page
+  (`View/index.tsx`, so the cook view and the export site too) now calls.
+  `matchStepIngredients` stays as "the guess alone" and `matchStepMentions`
+  as "the text alone"; with no `uses` anywhere `stepUses` equals
+  `matchStepIngredients` (a unit test says so), so nothing changes for the
+  recipes there are today.
+- **The form.** Under each step, `StepUsesEditor`
+  (`Form/Instructions/StepUses.tsx`): every line is a chip with a remove
+  button, "Add an ingredient…" is a picker of the recipe's other lines
+  (shown whole, so two butter lines can be told apart), and a step whose
+  list is stored has "Back to automatic". A guessed list says "guessed from
+  the text"; a stored one does not; a stored empty one says "uses nothing".
+  A name no line goes by is a dashed chip with "No ingredient called “X”."
+  under it. Focus stays in the list after every edit (the chip that took the
+  removed one's place, else the picker).
+- **Posting.** A stored list posts as hidden inputs:
+  `instructions[i].usesSet=1` and `instructions[i].uses[k]`. A guessed step
+  posts neither, so `parseRecipeFormData` writes nothing for it.
+- **Seats.** One schema (`InstructionObjectSchema` in
+  `curation/schema.ts`) serves `recipes create` / `update`, the JSON API and
+  MCP `recipe_create` / `recipe_update`; `recipe_get`, `recipes show` and
+  `GET /api/recipe/<slug>` answer the record, so `uses` comes back as
+  stored. The two MCP tool descriptions say how to use it, the skill has a
+  "What a step uses" paragraph with an example, and
+  `skillText.generated.ts` was regenerated (`generate-skill-text`). The
+  curator's condensed view for qwen writes steps as plain strings, so it has
+  no step fields to add to.
+- **Not indexed.** `buildIndexValue.ts` does not read `instructions`, and
+  no index or search code does: no `indexVersion` change, no reindex.
+
+#### Decisions
+
+- **Df1 — Names, not numbers or whole lines** (given). An entry is an
+  ingredient name as a person writes it.
+- **Df2 — Absent is the guess; present is exactly these, in this order;
+  `[]` brings nothing in** (given).
+- **Df3 — How a name finds its line.** Three kinds of match, the first kind
+  with any candidate deciding: (1) the line written out whole (markup
+  stripped, case and spacing ignored); (2) one of the line's names from
+  `lineNames` — the same pipeline the guess uses, so "egg whites" is
+  `egg white` and "whole milk" is `milk`; (3) a head or a bare compound's
+  word ("yolks", "cream"). Two candidates of one kind: the one under the
+  step's section (the group's name as a `sectionKey`), else the first.
+  Unlike the guess, ambiguity does not show nothing — a person wrote the
+  name, so the first line wins.
+- **Df4 — A name no line goes by** is kept in the data, skipped on the
+  page, and said in the form. The write schema does not refuse it: a list
+  may be written before the ingredients are, and an ingredient edit later
+  would otherwise make a saved recipe unsaveable.
+- **Df5 — A stored list stands for its step in the guess of the others.**
+  The steps after it do not list its lines again as a first mention, and a
+  line it leaves out is listed by the next step whose text names it. So
+  taking the cream off step 2 can make it appear under step 4, which is
+  where the text next says it.
+- **Df6 — "Is every line named?" counts both.** The Steps section's check
+  and the rail's "all lines used" read `mentions`: a line is named if a
+  step's text names it or a step's stored list has it. Removing a chip does
+  not make a line "not named" while the text still names it.
+- **Df7 — What the form stores.** On the first edit of a step the whole
+  list is stored: each line by its chip label when that label finds the line
+  again (`usesName`), else by another of its names, else written out whole
+  (the second of two "butter" lines). A stored list is edited entry by
+  entry — the other names stay as they were written. A second name for a
+  line already listed shows no chip and is dropped at the next edit.
+- **Df8 — An empty list needs a marker in FormData** (`usesSet`), because
+  FormData cannot carry an empty array (T11) and "brings nothing in" is one.
+- **Df9 — The schema's limits:** a name is trimmed, 1–200 characters; at
+  most 100 names a step. `uses` on a group is refused (strict objects).
+- **Df10 — The chips are always editable**, with no "Edit" switch first:
+  one click removes, and the picker is beside them. Every step with
+  ingredients to pick from therefore shows "uses" and the picker, where a
+  step with no guess showed nothing before.
+
+#### Traps
+
+- **Tf1 — The chip's label is the matcher's name, not the line's words.**
+  "1/3 cup sugar" is the chip `granulated sugar`, "whole milk" is `milk`,
+  "4 egg yolks" is `egg yolk`. The form stores those. A name written by hand
+  or by an agent ("whole milk") still shows the line's chip (`milk`).
+- **Tf2 — "unsalted butter" and "butter, for greasing":** the name `butter`
+  is the greasing line's (its name is exactly `butter`); the other is
+  `unsalted butter`. Exact names win over heads.
+- **Tf3 — `FlatStep` in the cook view** extended `Instruction` with its own
+  `uses: number[]`; the new field made that a type clash. It is now
+  `Omit<Instruction, "uses"> & {…}`: the cook view's `uses` are line
+  numbers from `stepUses`, never the stored names.
+- **Tf4 — A patch's `instructions` replaces the list.** An agent that
+  rewrites steps without reading them drops their `uses`. The skill says to
+  read, change and send them all back.
+- **Tf5 — Not a `Select` for the picker.** The first build used the Radix
+  `ui/select`. Inside a form Radix adds a hidden native `<select>` holding
+  every option's text — once per step — and `ingredient-preview.spec`'s
+  `getByText("2 tsp pepper")` then matched twice. The picker is a popover of
+  buttons, as the ingredient rows' "⋯" menu is: nothing is in the page until
+  it opens, Tab moves through the lines, Escape closes it.
+
+#### Gates (47f)
+
+All through the heavy slot, 2026-11-15, on `origin/main` d49678c5 (#336):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: green, again after the picker change (Tf5).
+- Full vitest: 179 files, **3963/3963**, no timeouts. That run was before
+  the picker became a popover; after it, the five files that load the form
+  or the matcher (`stepUsesForm`, `editFormRoundTrip`, `stepIngredients`,
+  `editFormFields`, `specVersions`) again: 118/118. New here:
+  `stepIngredients.test.ts` +17 (order, `[]`, ambiguity, unresolved, choice
+  sets, `usesName` round trip), `stepUsesForm.test.tsx` 9 (the form posting
+  nothing for an untouched step, a stored list back as stored, remove and
+  Back to automatic, `parseRecipeFormData`, the write schema), one case each
+  in `mcp.test.ts` and `cliJson.test.ts`.
+- Playwright, Docker, production build (`DOCKER=1 heavy-pw.sh`, e2e +
+  mobile): `step-uses` (new, 5 cases: the page and cook view, a save with
+  no changes, remove / add by mouse and keyboard / reload / back to
+  automatic, an empty list, an unknown name with axe on the form),
+  `ingredient-preview`, `visual`, `edit-form-frame`, `accessibility` —
+  **121/121**.
+- The run before that, with the first picker (a `Select`), over thirteen
+  specs that open the form (`step-uses`, `edit-form-frame`, `accessibility`,
+  `alternatives-form`, `fill-gaps`, `paste-replace`, `paste-review`,
+  `ingredient-preview`, `visual`, `mobile`, `cook-view`, `edit`,
+  `new-recipe`): 214/218 — the one real failure Tf5, the other three
+  `visual`'s form baselines. `recipe-cooking-order` passed in the first run
+  (its recipe-page baseline did not move).
+- `step-uses` in dev mode (Docker, `next dev`): 5/5.
+- **Baselines.** Five moved, all of the edit form, each by the new "uses"
+  row under the steps and nothing else; regenerated in Docker (production,
+  `docker-pw.sh … --update-snapshots`) and opened:
+  `edit-form-frame.spec.ts/new-recipe-imported-e2e.png`,
+  `edit-form-frame.spec.ts/edit-form-mobile-mobile.png`,
+  `visual.spec.ts/edit-form-populated-e2e.png`,
+  `visual.spec.ts/edit-form-overwrite-e2e.png`,
+  `visual.spec.ts/markdown-source-mode-e2e.png`. No recipe-page or
+  cook-view baseline moved.
+- No dependency or Next-config change, so no main-checkout-shaped build.
+
+#### Roger to confirm (47f)
+
+1. The chips are editable straight away, so every step shows "uses" and an
+   "Add an ingredient…" picker (Df10). The alternative is a small "Edit"
+   button per step that reveals them, which keeps the form as quiet as it
+   was.
+2. The form stores the matcher's short names — "granulated sugar" for a
+   line that says "sugar", "milk" for "whole milk" (Tf1). The alternative is
+   to store the line's own words without the amount.
+3. A name that matches no ingredient is accepted by every write and only
+   the edit form says so (Df4). The alternative is to refuse the write.
+4. A name two lines go by picks the one in the step's section, else the
+   first (Df3). The alternative is to treat it like a name that matches
+   nothing and say so in the form.
+5. Taking a line off a step lets a later step whose text names it list it
+   (Df5). The alternative is that a line a person removed shows nowhere
+   until someone adds it.
+6. "Every ingredient is named in a step" still counts a line whose chip was
+   removed, as long as some step's text names it (Df6). The alternative is
+   to count only what the steps list.
+7. The picker lists all of the recipe's other lines, whole, in the list's
+   order. The alternative is to put the step's own section first.
+8. Chips cannot be reordered in the form; a new one goes last, and the
+   order is changed by removing and adding. The alternative is move
+   buttons on each chip.
+9. A stored list stays as it is when the step's text is edited afterwards;
+   only "Back to automatic" returns it to the guess. The alternative is to
+   offer the new guess when the text changes.
+10. The recipe page shows a stored list and a guessed one the same way. The
+    alternative is a small mark on one of them.
+11. The words: "guessed from the text", "Back to automatic", "uses
+    nothing", "No ingredient called “X”. It is kept as written and shown
+    nowhere else; remove it, or add the line it meant."
+12. Limits on a write: 100 names a step, 200 characters a name (Df9).
+
 ### 47-close
 
 - The Close-out, the CLAUDE.md bullet, backlog strikes and rows, memory
