@@ -286,11 +286,9 @@ ADDRCONFIG}` (the resolver's order kept), for the check and for
   - undici 6.29.1 moved from `recipe-editor`'s dependencies to the
     package's; the lockfile still has one undici. `typescript` and
     `@types/node` (`^25.9.9`, the workspace's) are its devDependencies
-    (review: it type-checked only through `shamefully-hoist`). A side
-    effect in the lockfile: `recipe-website-common`, which declares no
-    `@types/node`, had its peers (`next`, `sharp`, `jest`) resolved against
-    an auto-installed 26.6.5; they now resolve against the workspace's
-    25.9.9. Types only.
+    (review: it type-checked only through `shamefully-hoist`). After the
+    merge of main (47e), the lockfile is main's plus the package's importer
+    entries and the moved undici, nothing else.
   - What stayed in the recipe editor: the test allowance
     (`fetchGuardOptions`, `setFetchGuardTesting`, `RECIPE_TEST_*`,
     `isTestAllowedUrl`), `UrlRefusedError` (its `guardedFetch` passes
@@ -347,7 +345,24 @@ ADDRCONFIG}` (the resolver's order kept), for the check and for
   write, as it did before 47b.
 - **Roger to confirm:** Gb1's wording for an editor with no fetcher, and
   Gb5 (no test allowance in the portfolio until a spec needs one).
-- **Gates** (after the review fixes): GATES_PENDING
+- **Gates** (2026-11-15, after the review fixes and a merge of
+  `origin/main` at 8152c9c4: the step matcher #334, 47e's Better Auth
+  #335. No source conflicts; `pnpm-lock.yaml` is main's, regenerated with
+  `pnpm install`).
+  - Typecheck clean ×4: `recipe-editor`, `recipe-website tsc --noEmit`,
+    the portfolio editor, and `@discontent/url-guard`.
+  - Full vitest, one run: 178 files, 3,935 tests, all passed (before the
+    merge, 2026-11-09: 176 files, 3,837 / 3,837).
+  - Main-checkout-shaped build: `editor/content` linked to a scratch
+    directory outside the workspace, `export/public/{image,uploads}`
+    absolute links through it. `pnpm install --frozen-lockfile` passed;
+    the editor's `next build` passed with no "Dynamic filesystem access",
+    no "leaves the filesystem root" and no warnings. The links were
+    removed afterwards.
+  - Playwright: not run locally (the previous worker died in a machine
+    OOM before its gates; one heavy job at a time since). CI's four Recipe
+    shards and the Portfolio job are the gate; no spec changed, and no
+    portfolio spec imports an image by URL (Gb5).
 
 ### 47c: Content round (M, content; the orchestrator)
 
