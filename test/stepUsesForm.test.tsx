@@ -1,0 +1,518 @@
+// 47f: a step's stored "uses" through the edit form and the write schema.
+// The form posts nothing for a step the person did not touch, posts a stored
+// list back as stored (an empty one and a name no line goes by included),
+// and stores names — not line numbers — on the first edit. The browser
+// builds FormData from the DOM as the page does, and the editor's own
+// `parseRecipeFormData` reads it. The picker is Radix's and is driven in
+// Playwright (`step-uses.spec.ts`).
+
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+
+import RecipeFields from "recipe-website-common/components/Form";
+import { RecipeFormShell } from "recipe-website-common/components/Form/RecipeFormShell";
+import type {
+  InstructionEntry,
+  Recipe,
+} from "recipe-website-common/controller/types";
+import { allLinesUsed } from "recipe-website-common/components/Form/sections";
+import { recipeToFormValues } from "recipe-website-common/components/Form/formContext";
+import {
+  USES_MAX_NAMES,
+  USES_MAX_NAME_LENGTH,
+} from "recipe-website-common/util/stepIngredients";
+import parseRecipeFormData from "../websites/recipe-website/editor/controller/parseFormData";
+import {
+  RecipeInputSchema,
+  RecipePatchSchema,
+  toInstructions,
+} from "../websites/recipe-website/editor/controller/curation/schema";
+
+vi.mock("next/link", () => ({
+  default: ({ href, children }: { href: string; children: unknown }) => (
+    <a href={href}>{children as never}</a>
+  ),
+}));
+
+beforeAll(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+});
+afterAll(() => {
+  vi.unstubAllGlobals();
+});
+
+const m = (n: string) => `<Multiplyable baseNumber="${n}" />`;
+
+/** An eggnog in two bowls, as an import leaves it: nothing stored. */
+const EGGNOG: Recipe = {
+  name: "Eggnog",
+  date: 1_760_400_000_000,
+  ingredients: [
+    { ingredient: `${m("4")} egg yolks` },
+    { ingredient: `${m("1/3")} cup sugar, plus ${m("1")} tablespoon` },
+    { ingredient: `${m("1")} pint whole milk` },
+    { ingredient: `${m("1")} cup heavy cream` },
+    { ingredient: `${m("4")} egg whites` },
+  ],
+  instructions: [
+    { text: "Beat the egg yolks, then add the 1/3 cup sugar." },
+    {
+      name: "Finish",
+      instructions: [
+        { text: "Stir in the milk and cream." },
+        { text: "Whisk the egg whites into the mixture." },
+      ],
+    },
+  ],
+};
+
+/** The same with a list on two steps: one out of order, one empty. */
+const STORED: Recipe = {
+  ...EGGNOG,
+  instructions: [
+    { text: "Beat the egg yolks, then add the 1/3 cup sugar." },
+    {
+      name: "Finish",
+      instructions: [
+        {
+          text: "Stir in the milk and cream.",
+          uses: ["heavy cream", "bourbon", "whole milk"],
+        },
+        { text: "Whisk the egg whites into the mixture.", uses: [] },
+      ],
+    },
+  ],
+};
+
+async function renderForm(recipe: Recipe) {
+  const view = render(
+    <RecipeFormShell action={() => {}} recipe={recipe} slug="eggnog">
+      <RecipeFields recipe={recipe} slug="eggnog" />
+    </RecipeFormShell>,
+  );
+  /* Let the Lexical fields mount and mirror their values. */
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  return view;
+}
+
+/** The steps as they would land in recipe.json. */
+function posted(container: HTMLElement): InstructionEntry[] {
+  const form = container.querySelector("form#recipe-form") as HTMLFormElement;
+  const parsed = parseRecipeFormData(new FormData(form));
+  expect(parsed.success).toBe(true);
+  return JSON.parse(JSON.stringify(parsed.data!.instructions));
+}
+
+const uses = (step: number) =>
+  screen.getByRole("group", { name: `What step ${step} uses` });
+const chips = (step: number) =>
+  within(uses(step))
+    .queryAllByTestId("step-uses-chip")
+    .map((chip) => chip.textContent);
+
+describe("the edit form's editable uses (47f)", () => {
+  it("an untouched recipe stores nothing: the chips are the guess, and say so", async () => {
+    const { container } = await renderForm(EGGNOG);
+    expect(chips(1)).toEqual(["egg yolk", "granulated sugar"]);
+    expect(chips(2)).toEqual(["milk", "heavy cream"]);
+    expect(chips(3)).toEqual(["egg white"]);
+    for (const step of [1, 2, 3]) {
+      expect(uses(step).getAttribute("data-stored")).toBe("false");
+      expect(uses(step).textContent).toContain("guessed from the text");
+      expect(
+        within(uses(step)).queryByRole("button", {
+          name: `Back to automatic for step ${step}`,
+        }),
+      ).toBeNull();
+    }
+    expect(container.querySelector('input[name$=".usesSet"]')).toBeNull();
+    expect(container.querySelector('input[name*=".uses["]')).toBeNull();
+    expect(posted(container)).toEqual(EGGNOG.instructions);
+  });
+
+  it("a stored list posts back as stored: its order, an empty one, a name no line goes by", async () => {
+    const { container } = await renderForm(STORED);
+    /* Step 1 is still the guess. */
+    expect(uses(1).getAttribute("data-stored")).toBe("false");
+    /* Step 2: the stored order, and the name that matches nothing, dashed. */
+    expect(uses(2).getAttribute("data-stored")).toBe("true");
+    expect(chips(2)).toEqual(["heavy cream", "bourbon", "milk"]);
+    expect(uses(2).textContent).not.toContain("guessed from the text");
+    expect(
+      within(uses(2)).getByTestId("step-uses-unresolved").textContent,
+    ).toContain("No ingredient called “bourbon”.");
+    /* Step 3 brings nothing in, and says so. */
+    expect(chips(3)).toEqual([]);
+    expect(uses(3).textContent).toContain("nothing");
+    expect(posted(container)).toEqual(STORED.instructions);
+  });
+
+  it("removing a chip stores the rest by name; Back to automatic stores nothing again", async () => {
+    const { container } = await renderForm(EGGNOG);
+    fireEvent.click(
+      within(uses(2)).getByRole("button", {
+        name: "Remove milk from step 2",
+      }),
+    );
+    expect(chips(2)).toEqual(["heavy cream"]);
+    expect(uses(2).getAttribute("data-stored")).toBe("true");
+    /* Focus stays in the list: the chip that took its place. */
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "Remove heavy cream from step 2",
+    );
+    const steps = posted(container);
+    expect(steps[0]).toEqual(EGGNOG.instructions![0]);
+    expect(steps[1]).toEqual({
+      name: "Finish",
+      instructions: [
+        { text: "Stir in the milk and cream.", uses: ["heavy cream"] },
+        { text: "Whisk the egg whites into the mixture." },
+      ],
+    });
+
+    /* The last chip off: an empty list is stored, not no list. */
+    fireEvent.click(
+      within(uses(2)).getByRole("button", {
+        name: "Remove heavy cream from step 2",
+      }),
+    );
+    expect(chips(2)).toEqual([]);
+    expect(
+      (posted(container)[1] as { instructions: unknown[] }).instructions[0],
+    ).toEqual({ text: "Stir in the milk and cream.", uses: [] });
+
+    fireEvent.click(
+      within(uses(2)).getByRole("button", {
+        name: "Back to automatic for step 2",
+      }),
+    );
+    expect(chips(2)).toEqual(["milk", "heavy cream"]);
+    expect(uses(2).getAttribute("data-stored")).toBe("false");
+    expect(posted(container)).toEqual(EGGNOG.instructions);
+  });
+
+  it("removing the name that matches nothing keeps the others as written", async () => {
+    const { container } = await renderForm(STORED);
+    fireEvent.click(
+      within(uses(2)).getByRole("button", {
+        name: "Remove bourbon from step 2",
+      }),
+    );
+    expect(within(uses(2)).queryByTestId("step-uses-unresolved")).toBeNull();
+    expect(
+      (posted(container)[1] as { instructions: unknown[] }).instructions[0],
+    ).toEqual({
+      text: "Stir in the milk and cream.",
+      uses: ["heavy cream", "whole milk"],
+    });
+  });
+
+  it("a stored line counts as named for the Steps section's check", () => {
+    const values = (instructions: InstructionEntry[]) =>
+      recipeToFormValues({ ...EGGNOG, instructions });
+    /* The whites are named by no step's text … */
+    const silent: InstructionEntry[] = [
+      { text: "Beat the egg yolks with the sugar, milk and cream." },
+      { text: "Fold the two bowls together." },
+    ];
+    expect(allLinesUsed(values(silent))).toBe(false);
+    /* … until a step stores them. */
+    expect(
+      allLinesUsed(values([silent[0], { ...silent[1], uses: ["egg whites"] }])),
+    ).toBe(true);
+  });
+
+  it("two lines written the same: the one no name can find is not offered, and nothing is stored twice", async () => {
+    /* Steps outside both sections, so neither salt is the nearer one. */
+    const twoSalts: Recipe = {
+      name: "Pie",
+      date: 1_760_400_000_000,
+      ingredients: [
+        { ingredient: "For the crust", type: "heading" },
+        { ingredient: `${m("1")} tsp salt` },
+        { ingredient: `${m("1")} cup flour` },
+        { ingredient: "For the filling", type: "heading" },
+        { ingredient: `${m("1")} tsp salt` },
+        { ingredient: `${m("2")} apples` },
+      ],
+      instructions: [{ text: "Get everything out." }],
+    };
+    const { container } = await renderForm(twoSalts);
+    const open = () =>
+      fireEvent.click(
+        within(uses(1)).getByRole("button", {
+          name: "Add an ingredient to step 1",
+        }),
+      );
+    const picker = () =>
+      within(
+        screen.getByRole("dialog", { name: "Ingredients to add to step 1" }),
+      ).getAllByRole("button");
+    open();
+    expect(picker().map((button) => button.textContent)).toEqual([
+      "1 tsp salt",
+      "1 cup flour",
+      "1 tsp saltCan’t be added: written the same as another line",
+      "2 apples",
+    ]);
+    expect(
+      picker().map((button) => (button as HTMLButtonElement).disabled),
+    ).toEqual([false, false, true, false]);
+    /* The first salt goes in; the second is still not offered after it. */
+    fireEvent.click(picker()[0]);
+    expect(chips(1)).toEqual(["salt"]);
+    open();
+    expect(
+      picker().map((button) => (button as HTMLButtonElement).disabled),
+    ).toEqual([false, true, false]);
+    /* Even pressed, it adds nothing: one name, posted once. */
+    fireEvent.click(picker()[1]);
+    expect(chips(1)).toEqual(["salt"]);
+    expect(posted(container)).toEqual([
+      { text: "Get everything out.", uses: ["salt"] },
+    ]);
+  });
+
+  it("a stored list moves with its step: move, insert and delete around it", async () => {
+    const three: Recipe = {
+      ...EGGNOG,
+      instructions: [
+        { text: "Beat the egg yolks.", uses: ["egg whites", "milk"] },
+        { text: "Stir in the milk and cream." },
+        { text: "Whisk it all together.", uses: [] },
+      ],
+    };
+    const { container } = await renderForm(three);
+    /** The top-level step's own row of controls. */
+    const control = (step: number, name: string) =>
+      within(uses(step).closest("li") as HTMLElement).getByRole("button", {
+        name,
+      });
+    const [first, second, third] = three.instructions!;
+
+    fireEvent.click(control(1, "Move item down"));
+    expect(posted(container)).toEqual([second, first, third]);
+    expect(chips(2)).toEqual(["egg white", "milk"]);
+    expect(uses(1).getAttribute("data-stored")).toBe("false");
+
+    /* A blank step inserted above it is dropped by the save; the list
+     * stays on its own step, now the third. */
+    fireEvent.click(control(2, "Insert item"));
+    expect(chips(3)).toEqual(["egg white", "milk"]);
+    expect(chips(2)).toEqual([]);
+    expect(uses(2).getAttribute("data-stored")).toBe("false");
+    expect(posted(container)).toEqual([second, first, third]);
+
+    /* The step before it removed: the list is still its own. */
+    fireEvent.click(control(1, "Remove item"));
+    fireEvent.click(control(1, "Remove item"));
+    expect(posted(container)).toEqual([first, third]);
+    expect(chips(1)).toEqual(["egg white", "milk"]);
+    expect(uses(2).textContent).toContain("nothing");
+
+    /* The step with the list removed: nothing of it is left behind. */
+    fireEvent.click(control(1, "Remove item"));
+    expect(posted(container)).toEqual([third]);
+    expect(container.querySelectorAll('input[name$=".usesSet"]')).toHaveLength(
+      1,
+    );
+  });
+
+  it("a stored list on a step inside an option of a choice", async () => {
+    const dough: Recipe = {
+      name: "Everything Dough",
+      date: 1_760_400_000_000,
+      ingredients: [
+        { ingredient: `${m("500")} g bread flour` },
+        { ingredient: `${m("2")} tbsp molasses` },
+        { ingredient: `${m("1/4")} cup baking soda` },
+      ],
+      instructions: [
+        { name: "Dough", instructions: [{ text: "Mix the flour and water." }] },
+        {
+          name: "Bagels",
+          choice: "Then make",
+          instructions: [
+            { text: "Shape and boil.", uses: ["molasses", "bread flour"] },
+          ],
+        },
+        {
+          name: "Pretzels",
+          choice: "Then make",
+          instructions: [{ text: "Dip in the baking soda." }],
+        },
+      ],
+    };
+    const { container } = await renderForm(dough);
+    /* Steps number through the options: the bagels' step is 2. */
+    expect(chips(2)).toEqual(["molasses", "bread flour"]);
+    expect(uses(2).getAttribute("data-stored")).toBe("true");
+    expect(chips(3)).toEqual(["baking soda"]);
+    expect(uses(3).getAttribute("data-stored")).toBe("false");
+    expect(posted(container)).toEqual(dough.instructions);
+
+    fireEvent.click(
+      within(uses(2)).getByRole("button", {
+        name: "Remove bread flour from step 2",
+      }),
+    );
+    fireEvent.click(
+      within(uses(3)).getByRole("button", {
+        name: "Remove baking soda from step 3",
+      }),
+    );
+    expect(posted(container)).toEqual([
+      dough.instructions![0],
+      {
+        name: "Bagels",
+        choice: "Then make",
+        instructions: [{ text: "Shape and boil.", uses: ["molasses"] }],
+      },
+      {
+        name: "Pretzels",
+        choice: "Then make",
+        instructions: [{ text: "Dip in the baking soda.", uses: [] }],
+      },
+    ]);
+  });
+});
+
+describe("parseRecipeFormData reads a step's uses (47f)", () => {
+  const form = (fields: Record<string, string>) => {
+    const data = new FormData();
+    data.set("name", "Eggnog");
+    for (const [key, value] of Object.entries(fields)) data.set(key, value);
+    return parseRecipeFormData(data).data!.instructions;
+  };
+
+  it("no marker, no list — whatever names ride along", () => {
+    expect(
+      form({
+        "instructions[0].text": "Beat.",
+        "instructions[0].uses[0]": "egg yolks",
+      }),
+    ).toEqual([{ name: undefined, text: "Beat." }]);
+  });
+
+  it("the marker alone is an empty list; names are trimmed and blanks dropped", () => {
+    expect(
+      form({
+        "instructions[0].text": "Fold.",
+        "instructions[0].usesSet": "1",
+        "instructions[1].name": "Finish",
+        "instructions[1].instructions[0].text": "Stir.",
+        "instructions[1].instructions[0].usesSet": "1",
+        "instructions[1].instructions[0].uses[0]": " heavy cream ",
+        "instructions[1].instructions[0].uses[1]": "  ",
+        "instructions[1].instructions[0].uses[2]": "milk",
+      }),
+    ).toEqual([
+      { name: undefined, text: "Fold.", uses: [] },
+      {
+        name: "Finish",
+        instructions: [
+          { name: undefined, text: "Stir.", uses: ["heavy cream", "milk"] },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps the other seats' limits, and says which step", () => {
+    const parse = (fields: Record<string, string>) => {
+      const data = new FormData();
+      data.set("name", "Eggnog");
+      data.set("instructions[0].text", "Beat.");
+      data.set("instructions[1].name", "Finish");
+      data.set("instructions[1].instructions[0].text", "Stir.");
+      for (const [key, value] of Object.entries(fields)) data.set(key, value);
+      return parseRecipeFormData(data);
+    };
+    const names = (prefix: string, count: number) =>
+      Object.fromEntries([
+        [`${prefix}.usesSet`, "1"],
+        ...Array.from({ length: count }, (_, index) => [
+          `${prefix}.uses[${index}]`,
+          `spice ${index}`,
+        ]),
+      ]);
+    const messages = (result: ReturnType<typeof parse>) =>
+      result.success ? [] : result.error.issues.map((issue) => issue.message);
+
+    /* At the limits: saved, and the write schema takes the same list. */
+    const most = parse({
+      ...names("instructions[0]", USES_MAX_NAMES),
+      "instructions[1].instructions[0].usesSet": "1",
+      "instructions[1].instructions[0].uses[0]": "x".repeat(
+        USES_MAX_NAME_LENGTH,
+      ),
+    });
+    expect(most.success).toBe(true);
+    expect(
+      RecipeInputSchema.safeParse({
+        name: "Eggnog",
+        instructions: JSON.parse(JSON.stringify(most.data!.instructions)),
+      }).success,
+    ).toBe(true);
+
+    /* One over, each: refused where the other seats would refuse it. */
+    expect(
+      messages(parse(names("instructions[0]", USES_MAX_NAMES + 1))),
+    ).toEqual(["Step 1 lists more than 100 ingredients under “uses”"]);
+    expect(
+      messages(
+        parse({
+          "instructions[1].instructions[0].usesSet": "1",
+          "instructions[1].instructions[0].uses[0]": "x".repeat(
+            USES_MAX_NAME_LENGTH + 1,
+          ),
+        }),
+      ),
+    ).toEqual(["Step 2 has a “uses” name longer than 200 characters"]);
+  });
+});
+
+describe("the write schema takes a step's uses (47f)", () => {
+  it("on a step and on a group's step, trimmed, an empty list kept", () => {
+    const parsed = RecipeInputSchema.parse({
+      name: "Eggnog",
+      instructions: [
+        "Beat the yolks.",
+        { text: "Stir.", uses: [" heavy cream ", "milk"] },
+        { name: "Finish", instructions: [{ text: "Fold.", uses: [] }] },
+      ],
+    });
+    expect(toInstructions(parsed.instructions!)).toEqual([
+      { text: "Beat the yolks." },
+      { text: "Stir.", uses: ["heavy cream", "milk"] },
+      { name: "Finish", instructions: [{ text: "Fold.", uses: [] }] },
+    ]);
+    /* A patch carries it the same way. */
+    expect(
+      RecipePatchSchema.parse({
+        instructions: [{ text: "Stir.", uses: ["milk"] }],
+      }).instructions,
+    ).toEqual([{ text: "Stir.", uses: ["milk"] }]);
+  });
+
+  it("refuses a blank name, a list that is not one, and `uses` on a group", () => {
+    const bad = (instructions: unknown[]) =>
+      RecipeInputSchema.safeParse({ name: "Eggnog", instructions }).success;
+    expect(bad([{ text: "Stir.", uses: ["  "] }])).toBe(false);
+    expect(bad([{ text: "Stir.", uses: "milk" }])).toBe(false);
+    expect(bad([{ text: "Stir.", uses: [3] }])).toBe(false);
+    expect(
+      bad([{ name: "Finish", uses: ["milk"], instructions: [{ text: "A" }] }]),
+    ).toBe(false);
+    /* A name no line goes by is not this layer's to refuse. */
+    expect(bad([{ text: "Stir.", uses: ["saffron"] }])).toBe(true);
+  });
+});

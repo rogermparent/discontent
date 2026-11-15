@@ -332,6 +332,57 @@ describe("the MCP registry over an in-memory transport", () => {
     });
   });
 
+  it("carries a step's `uses` through create, get and update (47f)", async () => {
+    await createCake({
+      instructions: [
+        "Sift the flour.",
+        { text: "Fold the bowls together.", uses: [] },
+      ],
+    });
+    const steps = async () =>
+      (
+        (await call("recipe_get", { slug: "chocolate-cake" })).data
+          .recipe as Record<string, unknown>
+      ).instructions;
+    expect(await steps()).toEqual([
+      { text: "Sift the flour." },
+      { text: "Fold the bowls together.", uses: [] },
+    ]);
+
+    /* A patch's steps replace the list: each carries the `uses` it keeps. */
+    const patched = await call("recipe_update", {
+      slug: "chocolate-cake",
+      patch: {
+        instructions: [
+          { text: "Sift the flour.", uses: ["cocoa", " flour "] },
+          { text: "Fold the bowls together." },
+        ],
+      },
+    });
+    expect(patched.isError).toBe(false);
+    expect(await steps()).toEqual([
+      { text: "Sift the flour.", uses: ["cocoa", "flour"] },
+      { text: "Fold the bowls together." },
+    ]);
+
+    /* A blank name is the SDK's refusal, before dispatch (T28). */
+    const refused = await client.callTool({
+      name: "recipe_update",
+      arguments: {
+        slug: "chocolate-cake",
+        patch: { instructions: [{ text: "Sift.", uses: [""] }] },
+      },
+    });
+    expect(refused.isError).toBe(true);
+
+    const tools = (await client.listTools()).tools;
+    for (const name of ["recipe_create", "recipe_update"]) {
+      expect(tools.find((tool) => tool.name === name)?.description).toContain(
+        "A step object may carry `uses`",
+      );
+    }
+  });
+
   /* ---------------------------------------------------------------- */
   /* 5. The two error shapes (T28)                                     */
   /* ---------------------------------------------------------------- */

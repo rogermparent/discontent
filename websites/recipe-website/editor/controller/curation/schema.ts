@@ -35,6 +35,10 @@ import {
   choiceProblems,
   everySet,
 } from "recipe-website-common/util/choiceChecks";
+import {
+  USES_MAX_NAMES,
+  USES_MAX_NAME_LENGTH,
+} from "recipe-website-common/util/stepIngredients";
 import { z } from "zod";
 import { ValidationError, issuesOf } from "./errors";
 
@@ -88,6 +92,25 @@ export const IngredientInputSchema = z.union([
 const InstructionObjectSchema = z.strictObject({
   name: z.string().optional(),
   text: z.string(),
+  /**
+   * The ingredient lines the step brings in (47f), by name ("heavy cream"),
+   * in order: it replaces the guess from the step's text. `[]` is a step
+   * that brings nothing in. A name no ingredient line goes by is not an
+   * error here — the list may be written before the lines are — and shows
+   * nowhere but the edit form.
+   */
+  uses: z
+    .array(
+      z
+        .string()
+        .trim()
+        .min(1, { error: "A step's `uses` names can't be blank" })
+        .max(USES_MAX_NAME_LENGTH, {
+          error: "A step's `uses` name is too long",
+        }),
+    )
+    .max(USES_MAX_NAMES, { error: "A step's `uses` lists too many names" })
+    .optional(),
 });
 
 /**

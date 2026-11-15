@@ -79,8 +79,9 @@ interface FocusViewProps {
   uses?: StepLines;
 }
 
-type FlatStep = Instruction & {
+type FlatStep = Omit<Instruction, "uses"> & {
   group?: string;
+  /** The lines it brings in (`stepUses`), not the names it stores. */
   uses?: number[];
   /** What its timers are keyed by on the page (45e): the same timer here. */
   timerKey?: number | string;

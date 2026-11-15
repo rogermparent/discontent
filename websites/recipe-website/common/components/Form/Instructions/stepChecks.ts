@@ -13,25 +13,48 @@ import {
   stripMarkup,
 } from "../../../util/ingredientNames";
 import {
-  matchStepIngredients,
+  resolveStepUses,
+  type ResolvedStepUses,
   type StepLines,
 } from "../../../util/stepIngredients";
 import { stepPlainText } from "../../../util/stepPlainText";
 import { findStepTimes } from "../../../util/timeText";
 import { formatDurationCompact } from "../../../util/formatDuration";
 
-/** The lines each step uses, or no lines at all when the matcher throws. */
+/**
+ * The lines each step uses — its stored list (47f) or the guess — with what
+ * `resolveStepUses` says beside them; no lines at all when the matcher
+ * throws.
+ */
 export function stepLines(
   ingredients: readonly Ingredient[],
   instructions: readonly InstructionEntry[],
-): StepLines {
+): ResolvedStepUses {
   try {
-    return matchStepIngredients(ingredients, instructions);
+    return resolveStepUses(ingredients, instructions);
   } catch {
-    return instructions.map((entry) =>
-      "instructions" in entry ? entry.instructions.map(() => []) : [[]],
-    );
+    const each = <T>(value: () => T): T[][] =>
+      instructions.map((entry) =>
+        "instructions" in entry ? entry.instructions.map(value) : [value()],
+      );
+    return {
+      lines: each(() => []),
+      mentions: each(() => []),
+      stored: each(() => false),
+      unresolved: each(() => []),
+    };
   }
+}
+
+/** The ingredient lines (not headings) a step could use, as the list has them. */
+export function pickableLines(ingredients: readonly Ingredient[]): number[] {
+  const out: number[] = [];
+  ingredients.forEach((line, index) => {
+    const text = stripMarkup(line.ingredient ?? "").trim();
+    if (!text || line.type === "heading" || detectHeading(text)) return;
+    out.push(index);
+  });
+  return out;
 }
 
 /**

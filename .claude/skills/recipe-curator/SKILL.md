@@ -316,6 +316,26 @@ Make it a choice only when the person's ask or the recipe plainly says the
 reader does one of them (not sequential parts — a filling and an assembly
 are both made), and say so in the report.
 
+**What a step uses.** Under each step the page lists the ingredient lines
+it brings in — a guess from the step's text. Where the guess is wrong, a
+step object may carry `uses`: the lines by **name**, as a person would say
+them ("heavy cream", "egg whites"), in the order to show them. Not a line
+number and not the whole line with its amount.
+
+- Leave `uses` out and the step keeps the guess. Set it only for the steps
+  that need it; `recipe_get` shows what each step stores.
+- `"uses": []` is a step that brings nothing in ("fold the two bowls
+  together").
+- A name must be one of the recipe's ingredient lines. One that matches
+  none is kept, shows nowhere on the page, and the edit form says "No
+  ingredient called …" — check the names against `ingredients` first.
+- A patch's `instructions` replaces the whole list: read the recipe, change
+  the steps, and send them all back, each with the `uses` it had.
+
+```json
+recipe_update {"slug": "eggnog", "patch": {"instructions": [{"text": "Whisk the yolks and sugar.", "uses": ["egg yolks", "sugar"]}, {"text": "Fold the whites into the base.", "uses": []}]}}
+```
+
 **Fixing an image later:**
 
 ```json

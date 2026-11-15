@@ -1455,6 +1455,70 @@ describe("import tooling as a process (26b)", () => {
   );
 
   it(
+    "create and update carry a step's `uses`, and show answers it (47f)",
+    async () => {
+      const draftPath = join(scratch, "uses.json");
+      await writeFile(
+        draftPath,
+        JSON.stringify({
+          name: "Two Bowl Nog",
+          ingredients: ["4 egg yolks", "1 cup heavy cream", "4 egg whites"],
+          instructions: [
+            { text: "Beat the yolks with the cream.", uses: ["heavy cream"] },
+            { text: "Fold the bowls together.", uses: [] },
+          ],
+        }),
+      );
+      const created = await run(["create", "--file", draftPath, "--json"]);
+      expect(created.exitCode).toBe(0);
+      const steps = async () =>
+        JSON.parse((await run(["show", "two-bowl-nog", "--json"])).stdout)
+          .recipe.instructions;
+      expect(await steps()).toEqual([
+        { text: "Beat the yolks with the cream.", uses: ["heavy cream"] },
+        { text: "Fold the bowls together.", uses: [] },
+      ]);
+
+      const patchPath = join(scratch, "uses-patch.json");
+      await writeFile(
+        patchPath,
+        JSON.stringify({
+          instructions: [
+            { text: "Beat the yolks with the cream." },
+            { text: "Fold in the whites.", uses: ["egg whites"] },
+          ],
+        }),
+      );
+      expect(
+        (await run(["update", "two-bowl-nog", "--file", patchPath, "--json"]))
+          .exitCode,
+      ).toBe(0);
+      expect(await steps()).toEqual([
+        { text: "Beat the yolks with the cream." },
+        { text: "Fold in the whites.", uses: ["egg whites"] },
+      ]);
+
+      /* A blank name is refused, naming the step. */
+      await writeFile(
+        patchPath,
+        JSON.stringify({ instructions: [{ text: "Beat.", uses: [" "] }] }),
+      );
+      const refused = await run([
+        "update",
+        "two-bowl-nog",
+        "--file",
+        patchPath,
+        "--json",
+      ]);
+      expect(refused.exitCode).toBe(1);
+      expect(JSON.parse(refused.stdout).error).toMatchObject({
+        code: "validation",
+      });
+    },
+    TIMEOUT * 2,
+  );
+
+  it(
     "sets an image from a file and clears it, one commit each",
     async () => {
       const picture = join(scratch, "new photo.jpg");
