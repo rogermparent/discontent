@@ -228,6 +228,20 @@ const ingredientsSchema = z
     return kept.length ? kept : undefined;
   });
 
+/**
+ * A step's stored "uses" (47f), from its hidden inputs: the names, when the
+ * `usesSet` marker says a list was posted — FormData cannot carry an empty
+ * one, and "brings nothing in" is one. No marker is no list: the step keeps
+ * the automatic guess, and nothing is stored for it.
+ */
+function usesOf(row: Record<string, unknown>): { uses?: string[] } {
+  if (!textOf(row.usesSet).trim()) return {};
+  const posted = Array.isArray(row.uses) ? row.uses : [];
+  return {
+    uses: posted.map((name) => textOf(name).trim()).filter(Boolean),
+  };
+}
+
 /** A line's start, for a message: "Divide cold dough into four…". */
 function excerpt(text: string, max = 30): string {
   const line = text.replace(/\s+/g, " ").trim();
@@ -303,7 +317,7 @@ const instructionsSchema = z
           return;
         }
         shaped({ text }, index);
-        kept.push({ name: name || undefined, text });
+        kept.push({ name: name || undefined, text, ...usesOf(entry) });
         return;
       }
       /* 45e2: in a set when `choice` was posted, even blank (a label being
@@ -337,7 +351,7 @@ const instructionsSchema = z
           }
           return;
         }
-        steps.push({ name: childName || undefined, text });
+        steps.push({ name: childName || undefined, text, ...usesOf(child) });
       });
       if (!name.trim() && steps.length === 0 && !refused) return;
       /* 46f: an option's times, from its card's hours and minutes (or a

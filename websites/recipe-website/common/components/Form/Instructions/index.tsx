@@ -79,20 +79,30 @@ import {
 import {
   flatSteps,
   ingredientChipLabel,
+  pickableLines,
   stepLines,
   stepWaits,
   unnamedLines,
 } from "./stepChecks";
-import type { StepLines } from "../../../util/stepIngredients";
+import {
+  stepSection,
+  type ResolvedStepUses,
+} from "../../../util/stepIngredients";
+import { StepUsesEditor } from "./StepUses";
 
 /**
  * What the Steps section knows about every step (43e2): the ingredient
- * lines each uses, their chip labels, and each step's number in reading
+ * lines each uses (47f: its stored list, else the guess), their chip
+ * labels, the lines a step could use, and each step's number in reading
  * order — computed once for the list, read by each step.
  */
 interface StepInfo {
-  lines: StepLines;
+  uses: ResolvedStepUses;
+  ingredients: readonly Ingredient[];
   labels: string[];
+  pickable: number[];
+  /** Each entry's group as a `sectionKey`, "" for a step on its own. */
+  sections: string[];
   numbers: number[][];
 }
 
@@ -105,31 +115,49 @@ function useStepInfo(): StepInfo | null {
 const NOTE_CHIP =
   "rounded-sm border border-border px-1.5 py-1 font-mono text-xs leading-none text-muted-foreground";
 
-/** "uses flour · baking soda", "a wait in it: chill 1 hour" under a step. */
+/**
+ * "uses flour · baking soda" — editable (47f, `StepUsesEditor`) — and "a
+ * wait in it: chill 1 hour" under a step.
+ */
 function StepNotes({
+  namePrefix,
   entry,
   step,
   text,
 }: {
+  namePrefix: InstructionPrefix;
   entry: number;
   step: number;
   text: string;
 }) {
+  const form = useRecipeForm();
   const info = useStepInfo();
-  const used = info?.lines[entry]?.[step] ?? [];
   const waits = useMemo(() => stepWaits(text), [text]);
-  if (!used.length && !waits.length) return null;
   return (
-    <div className="mt-2 flex flex-col gap-1.5" data-testid="step-notes">
-      {used.length ? (
-        <p className="flex flex-wrap items-center gap-1">
-          <span className="text-xs text-muted-foreground">uses</span>
-          {used.map((line) => (
-            <span key={line} className={NOTE_CHIP}>
-              {info?.labels[line]}
-            </span>
-          ))}
-        </p>
+    <div
+      className="mt-2 flex flex-col gap-1.5 empty:hidden"
+      data-testid="step-notes"
+    >
+      {info ? (
+        <form.Field name={`${namePrefix}.uses`}>
+          {(field) => (
+            <StepUsesEditor
+              namePrefix={namePrefix}
+              number={info.numbers[entry]?.[step]}
+              section={info.sections[entry] ?? ""}
+              ingredients={info.ingredients}
+              labels={info.labels}
+              pickable={info.pickable}
+              guess={info.uses.lines[entry]?.[step] ?? []}
+              stored={
+                Array.isArray(field.state.value)
+                  ? (field.state.value as string[])
+                  : undefined
+              }
+              onChange={(uses) => field.handleChange(uses as never)}
+            />
+          )}
+        </form.Field>
       ) : null}
       {waits.length ? (
         <p className="flex flex-wrap items-center gap-1">
@@ -216,6 +244,7 @@ function InstructionFields({
                 onChange={field.handleChange}
               />
               <StepNotes
+                namePrefix={namePrefix}
                 entry={entry}
                 step={step}
                 text={(field.state.value as string) ?? ""}
@@ -582,7 +611,7 @@ export function InstructionsListInput({
     (state) => state.values.instructions,
   );
   const info = useMemo<StepInfo>(() => {
-    const lines = stepLines(ingredients, instructions);
+    const uses = stepLines(ingredients, instructions);
     const numbers: number[][] = [];
     for (const entry of instructions) {
       const start = numbers.flat().length;
@@ -590,13 +619,16 @@ export function InstructionsListInput({
       numbers.push(Array.from({ length: size }, (_, i) => start + i + 1));
     }
     return {
-      lines,
+      uses,
+      ingredients,
       labels: ingredients.map((line) => ingredientChipLabel(line)),
+      pickable: pickableLines(ingredients),
+      sections: instructions.map((entry) => stepSection(entry)),
       numbers,
     };
   }, [ingredients, instructions]);
   const unnamed = useMemo(
-    () => unnamedLines(ingredients, info.lines),
+    () => unnamedLines(ingredients, info.uses.mentions),
     [ingredients, info],
   );
   const hasSteps = flatSteps(instructions).some((step) => step.text.trim());

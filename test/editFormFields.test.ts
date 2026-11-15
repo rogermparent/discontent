@@ -414,12 +414,13 @@ describe("what the steps say (stepChecks)", () => {
   ];
 
   it("lists the lines a step uses with their short names", () => {
-    const lines = stepLines(ingredients, instructions);
+    const { lines, mentions, stored } = stepLines(ingredients, instructions);
     expect(lines).toEqual([[[0, 1]], [[2]], [[]]]);
+    expect(stored.flat()).toEqual([false, false, false]);
     /* The matcher's own name for the line (`toName`, 43n may shorten it). */
     expect(ingredientChipLabel(ingredients[0])).toBe("all purpose flour");
     expect(ingredientChipLabel(ingredients[2])).toBe("granulated sugar");
-    expect(unnamedLines(ingredients, lines)).toEqual([3]);
+    expect(unnamedLines(ingredients, mentions)).toEqual([3]);
   });
 
   it("names the waits: a waiting word before the time, or half an hour", () => {
