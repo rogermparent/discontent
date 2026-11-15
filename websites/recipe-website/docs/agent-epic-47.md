@@ -727,10 +727,13 @@ filling it, on demand) is a separate phase and is not in this branch.
   recipes there are today.
 - **The form.** Under each step, `StepUsesEditor`
   (`Form/Instructions/StepUses.tsx`): every line is a chip with a remove
-  button, "Add an ingredient…" is a picker of the recipe's other lines
-  (shown whole, so two butter lines can be told apart), and a step whose
-  list is stored has "Back to automatic". A guessed list says "guessed from
-  the text"; a stored one does not; a stored empty one says "uses nothing".
+  button, "Add an ingredient…" opens a list of the recipe's other lines
+  (shown whole, so two butter lines can be told apart; the open list is a
+  dialog named "Ingredients to add to step N"), and a step whose list is
+  stored has "Back to automatic". A guessed list has the words "guessed
+  from the text" after it; a stored one does not. A stored empty list
+  renders the label "uses" followed by the word "nothing" where the chips
+  would be, then the picker and "Back to automatic".
   A name no line goes by is a dashed chip with "No ingredient called “X”."
   under it. Focus stays in the list after every edit (the chip that took the
   removed one's place, else the picker).
@@ -785,8 +788,23 @@ filling it, on demand) is a separate phase and is not in this branch.
   line already listed shows no chip and is dropped at the next edit.
 - **Df8 — An empty list needs a marker in FormData** (`usesSet`), because
   FormData cannot carry an empty array (T11) and "brings nothing in" is one.
-- **Df9 — The schema's limits:** a name is trimmed, 1–200 characters; at
-  most 100 names a step. `uses` on a group is refused (strict objects).
+- **Df9 — The limits, the same on every seat:** a name is trimmed, 1–200
+  characters; at most 100 names a step (`USES_MAX_NAME_LENGTH`,
+  `USES_MAX_NAMES` in `stepIngredients.ts`). `uses` on a group is refused
+  (strict objects).
+- **Df11 — The form keeps the seats' limits (review).** `parseFormData.ts`
+  `usesOf` refuses a list over 100 names or a name over 200 characters,
+  naming the step ("Step 2 has a “uses” name longer than 200 characters"),
+  from the same two constants the write schema reads. Otherwise a form save
+  could store a recipe that the next CLI, API or MCP read-change-write is
+  refused for. The picker does not offer a line whose only name would be
+  over the limit.
+- **Df12 — A line no name can find is not offered (review).** When
+  `usesLine(usesName(line))` is not that line — two lines written the same,
+  in no section or in sections the step is in neither of — the picker shows
+  it disabled, with "Can’t be added: written the same as another line". An
+  add is also dropped when its name finds a line the step already lists, so
+  the stored list never gains a second name for one line.
 - **Df10 — The chips are always editable**, with no "Edit" switch first:
   one click removes, and the picker is beside them. Every step with
   ingredients to pick from therefore shows "uses" and the picker, where a
@@ -814,6 +832,17 @@ filling it, on demand) is a separate phase and is not in this branch.
   `getByText("2 tsp pepper")` then matched twice. The picker is a popover of
   buttons, as the ingredient rows' "⋯" menu is: nothing is in the page until
   it opens, Tab moves through the lines, Escape closes it.
+- **Tf6 — Two identical lines (review).** "1 tsp salt" under "For the
+  crust:" and again under "For the filling:": for a step in neither
+  section every name, the whole line included, finds the first. Before
+  Df12, picking the second stored a name for the first — a chip for the
+  wrong line, or no chip and a duplicate in the stored list. A step in a
+  group named after the second section can still pick it, because the
+  section breaks the tie.
+- **Tf7 — `lineNames` once (review).** Each stored chip called
+  `usesLine`, which parsed every ingredient line again, on every ingredient
+  keystroke. The Steps section now parses the lines once (`StepInfo`'s
+  `lineNames`) and `usesLine` / `usesName` take them as an argument.
 
 #### Gates (47f)
 
@@ -854,6 +883,12 @@ exec tsc --noEmit`: green, again after the picker change (Tf5).
   `visual.spec.ts/markdown-source-mode-e2e.png`. No recipe-page or
   cook-view baseline moved.
 - No dependency or Next-config change, so no main-checkout-shaped build.
+- **After the review** (Df11, Df12, Tf6, Tf7, the named dialog, the tests
+  for moving steps and for a choice's option): both typechecks green; full
+  vitest 179 files, **3967/3967** (`stepUsesForm.test.tsx` now 13); Docker,
+  production: `step-uses` (now with axe while the picker is open),
+  `edit-form-frame`, `visual`, `ingredient-preview`, `alternatives-form`,
+  `accessibility` — **130/130**, no baseline moved.
 
 #### Roger to confirm (47f)
 
@@ -885,10 +920,15 @@ exec tsc --noEmit`: green, again after the picker change (Tf5).
    offer the new guess when the text changes.
 10. The recipe page shows a stored list and a guessed one the same way. The
     alternative is a small mark on one of them.
-11. The words: "guessed from the text", "Back to automatic", "uses
-    nothing", "No ingredient called “X”. It is kept as written and shown
+11. The words: "guessed from the text", "Back to automatic", "uses" then
+    "nothing" for an empty list, "Can’t be added: written the same as
+    another line", "No ingredient called “X”. It is kept as written and shown
     nowhere else; remove it, or add the line it meant."
-12. Limits on a write: 100 names a step, 200 characters a name (Df9).
+12. Limits on a write: 100 names a step, 200 characters a name (Df9),
+    and the form refuses the same (Df11).
+13. The second of two identically written lines cannot be added to a step
+    outside both sections; the picker says why (Df12). The alternative is
+    to store the line's position for that case only.
 
 ### 47-close
 

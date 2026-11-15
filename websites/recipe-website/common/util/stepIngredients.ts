@@ -128,7 +128,7 @@ export function sectionKey(text: string): string {
   return toName(cleaned).words.join(" ");
 }
 
-interface LineNames {
+export interface LineNames {
   index: number;
   /** Every name the line goes by, as words. */
   names: string[][];
@@ -452,28 +452,39 @@ function resolveName(
   );
 }
 
-/** The line a stored name means in a step of `section` (`resolveName`). */
+/** The most names a step's `uses` may list, on every seat and in the form. */
+export const USES_MAX_NAMES = 100;
+/** The longest a name in a step's `uses` may be, in characters. */
+export const USES_MAX_NAME_LENGTH = 200;
+
+/**
+ * The line a stored name means in a step of `section` (`resolveName`).
+ * `lines` is `lineNames(ingredients)`, for a caller that asks many times.
+ */
 export function usesLine(
   ingredients: readonly Ingredient[],
   name: string,
   section = "",
+  lines: readonly LineNames[] = lineNames(ingredients),
 ): number | undefined {
-  return resolveName(name, ingredients, lineNames(ingredients), section);
+  return resolveName(name, ingredients, lines, section);
 }
 
 /**
  * The name to store for a line in a step's `uses` (47f): the short name
  * (`label`, the form's chip) when it finds its way back to the line, else
  * another of the line's names that does, else the line written out whole —
- * the second of two butter lines is not "butter".
+ * the second of two butter lines is not "butter". Two lines written the same
+ * cannot be told apart by any name: the answer then finds the other one, and
+ * the caller checks with `usesLine` (the form does not offer such a line).
  */
 export function usesName(
   ingredients: readonly Ingredient[],
   index: number,
   label: string,
   section = "",
+  lines: readonly LineNames[] = lineNames(ingredients),
 ): string {
-  const lines = lineNames(ingredients);
   const own = lines.find((line) => line.index === index);
   const candidates = [
     label,

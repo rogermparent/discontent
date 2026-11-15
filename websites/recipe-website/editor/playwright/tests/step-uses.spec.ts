@@ -105,7 +105,7 @@ const adder = (page: Page, n: number) =>
 /** The picker's list, open: the lines step `n` could add. */
 const choices = (page: Page, n: number) =>
   page
-    .getByRole("group", {
+    .getByRole("dialog", {
       name: `Ingredients to add to step ${n}`,
       exact: true,
     })
@@ -233,8 +233,11 @@ test.describe("A step's stored uses (47f)", () => {
      * chip's line by magic, since its text names none. */
     await expect(editor(page, 1)).toContainText("guessed from the text");
 
-    /* Add, with the mouse: the picker lists the lines the step lacks, whole. */
+    /* Add, with the mouse: the picker lists the lines the step lacks, whole.
+     * The open list is a named dialog, and passes axe. */
     await adder(page, 2).click();
+    await expect(choices(page, 2).first()).toBeVisible();
+    await expectNoViolations(page);
     await expect(choices(page, 2)).toHaveText([
       "4 egg yolks",
       "1/3 cup sugar, plus 1 tablespoon",

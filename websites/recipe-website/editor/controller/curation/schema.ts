@@ -35,6 +35,10 @@ import {
   choiceProblems,
   everySet,
 } from "recipe-website-common/util/choiceChecks";
+import {
+  USES_MAX_NAMES,
+  USES_MAX_NAME_LENGTH,
+} from "recipe-website-common/util/stepIngredients";
 import { z } from "zod";
 import { ValidationError, issuesOf } from "./errors";
 
@@ -101,9 +105,11 @@ const InstructionObjectSchema = z.strictObject({
         .string()
         .trim()
         .min(1, { error: "A step's `uses` names can't be blank" })
-        .max(200, { error: "A step's `uses` name is too long" }),
+        .max(USES_MAX_NAME_LENGTH, {
+          error: "A step's `uses` name is too long",
+        }),
     )
-    .max(100, { error: "A step's `uses` lists too many names" })
+    .max(USES_MAX_NAMES, { error: "A step's `uses` lists too many names" })
     .optional(),
 });
 

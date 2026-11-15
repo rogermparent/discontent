@@ -10,14 +10,19 @@ import {
 } from "@discontent/component-library/components/ui/popover";
 import type { Ingredient } from "../../../controller/types";
 import { stripMarkup } from "../../../util/ingredientNames";
-import { usesLine, usesName } from "../../../util/stepIngredients";
+import {
+  USES_MAX_NAME_LENGTH,
+  usesLine,
+  usesName,
+  type LineNames,
+} from "../../../util/stepIngredients";
 
 const CHIP =
   "inline-flex items-center gap-0.5 rounded-sm border border-border py-0 pr-0 pl-1.5 font-mono text-xs leading-none text-muted-foreground";
 
 /** A line in the picker's list (the ingredient rows' menu items). */
 const PICK =
-  "flex min-h-9 w-full items-center rounded-sm px-2 py-1 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-none";
+  "flex min-h-9 w-full items-center rounded-sm px-2 py-1 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-none disabled:pointer-events-none disabled:text-muted-foreground";
 
 /** One chip: a stored name with the line it means, or a guessed line. */
 interface UsesItem {
@@ -43,6 +48,7 @@ export function StepUsesEditor({
   number,
   section,
   ingredients,
+  lines,
   labels,
   pickable,
   guess,
@@ -56,6 +62,8 @@ export function StepUsesEditor({
   /** The step's group as a `sectionKey` ("" outside one). */
   section: string;
   ingredients: readonly Ingredient[];
+  /** `lineNames(ingredients)`, parsed once for the whole list of steps. */
+  lines: readonly LineNames[];
   /** Each ingredient line's chip label. */
   labels: readonly string[];
   /** The lines a step could use (no headings, no blanks). */
@@ -71,7 +79,8 @@ export function StepUsesEditor({
   const isStored = stored !== undefined;
   const step = number === undefined ? "this step" : `step ${number}`;
   const nameOf = (line: number) =>
-    usesName(ingredients, line, labels[line] ?? "", section);
+    usesName(ingredients, line, labels[line] ?? "", section, lines);
+  const lineOf = (name: string) => usesLine(ingredients, name, section, lines);
   /* The chips: the stored names, one per line (a second name for a line
    * already listed shows nothing, as on the recipe page), else the guess. */
   const items = useMemo<UsesItem[]>(() => {
@@ -80,7 +89,7 @@ export function StepUsesEditor({
     const out: UsesItem[] = [];
     for (const name of stored) {
       if (typeof name !== "string" || !name.trim()) continue;
-      const line = usesLine(ingredients, name, section);
+      const line = usesLine(ingredients, name, section, lines);
       if (line !== undefined) {
         if (seen.has(line)) continue;
         seen.add(line);
@@ -88,7 +97,7 @@ export function StepUsesEditor({
       out.push({ name, line });
     }
     return out;
-  }, [stored, guess, ingredients, section]);
+  }, [stored, guess, ingredients, section, lines]);
   const listed = new Set(items.map((item) => item.line));
   const options = pickable.filter((line) => !listed.has(line));
   const unresolved = items.filter((item) => item.line === undefined);
@@ -131,7 +140,7 @@ export function StepUsesEditor({
       <div className="flex flex-wrap items-center gap-1">
         <span className="text-xs text-muted-foreground">uses</span>
         {items.length ? (
-          <ul className="contents">
+          <ul role="list" className="contents">
             {items.map((item, index) => {
               const label =
                 item.line === undefined ? item.name : labels[item.line];
@@ -181,24 +190,45 @@ export function StepUsesEditor({
             </PopoverTrigger>
             <PopoverContent
               align="start"
+              aria-label={`Ingredients to add to ${step}`}
               className="max-h-72 w-80 max-w-[calc(100vw-2rem)] overflow-y-auto p-1"
             >
-              <div role="group" aria-label={`Ingredients to add to ${step}`}>
-                {options.map((line) => (
+              {options.map((line) => {
+                /* A line is offered only when a name finds it again: two
+                 * lines written the same cannot be told apart, and a name
+                 * over the limit could not be saved. */
+                const name = nameOf(line);
+                const found = lineOf(name);
+                const reason =
+                  name.length > USES_MAX_NAME_LENGTH
+                    ? "too long to name"
+                    : found !== line
+                      ? "written the same as another line"
+                      : undefined;
+                return (
                   <button
                     key={line}
                     type="button"
                     className={PICK}
+                    disabled={reason !== undefined}
                     onClick={() => {
                       setPicking(false);
                       focusNext.current = "add";
-                      onChange([...names(), nameOf(line)]);
+                      if (reason !== undefined || listed.has(found)) return;
+                      onChange([...names(), name]);
                     }}
                   >
-                    {stripMarkup(ingredients[line]?.ingredient ?? "").trim()}
+                    <span>
+                      {stripMarkup(ingredients[line]?.ingredient ?? "").trim()}
+                      {reason ? (
+                        <span className="block text-xs">
+                          Can’t be added: {reason}
+                        </span>
+                      ) : null}
+                    </span>
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </PopoverContent>
           </Popover>
         ) : null}

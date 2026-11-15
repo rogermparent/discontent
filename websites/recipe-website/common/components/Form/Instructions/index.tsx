@@ -85,7 +85,9 @@ import {
   unnamedLines,
 } from "./stepChecks";
 import {
+  lineNames,
   stepSection,
+  type LineNames,
   type ResolvedStepUses,
 } from "../../../util/stepIngredients";
 import { StepUsesEditor } from "./StepUses";
@@ -99,11 +101,22 @@ import { StepUsesEditor } from "./StepUses";
 interface StepInfo {
   uses: ResolvedStepUses;
   ingredients: readonly Ingredient[];
+  /** What each line goes by, parsed once for every step's chips. */
+  lineNames: readonly LineNames[];
   labels: string[];
   pickable: number[];
   /** Each entry's group as a `sectionKey`, "" for a step on its own. */
   sections: string[];
   numbers: number[][];
+}
+
+/** `lineNames`, or no names at all when the matcher throws (`stepLines`). */
+function safeLineNames(ingredients: readonly Ingredient[]): LineNames[] {
+  try {
+    return lineNames(ingredients);
+  } catch {
+    return [];
+  }
 }
 
 const StepInfoContext = createContext<StepInfo | null>(null);
@@ -146,6 +159,7 @@ function StepNotes({
               number={info.numbers[entry]?.[step]}
               section={info.sections[entry] ?? ""}
               ingredients={info.ingredients}
+              lines={info.lineNames}
               labels={info.labels}
               pickable={info.pickable}
               guess={info.uses.lines[entry]?.[step] ?? []}
@@ -621,6 +635,7 @@ export function InstructionsListInput({
     return {
       uses,
       ingredients,
+      lineNames: safeLineNames(ingredients),
       labels: ingredients.map((line) => ingredientChipLabel(line)),
       pickable: pickableLines(ingredients),
       sections: instructions.map((entry) => stepSection(entry)),
