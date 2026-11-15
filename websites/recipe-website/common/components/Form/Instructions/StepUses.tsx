@@ -1,21 +1,23 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef } from "react";
-import { X } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { ChevronDown, X } from "lucide-react";
 import { Button } from "@discontent/component-library/components/Button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@discontent/component-library/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@discontent/component-library/components/ui/popover";
 import type { Ingredient } from "../../../controller/types";
 import { stripMarkup } from "../../../util/ingredientNames";
 import { usesLine, usesName } from "../../../util/stepIngredients";
 
 const CHIP =
   "inline-flex items-center gap-0.5 rounded-sm border border-border py-0 pr-0 pl-1.5 font-mono text-xs leading-none text-muted-foreground";
+
+/** A line in the picker's list (the ingredient rows' menu items). */
+const PICK =
+  "flex min-h-9 w-full items-center rounded-sm px-2 py-1 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-none";
 
 /** One chip: a stored name with the line it means, or a guessed line. */
 interface UsesItem {
@@ -31,6 +33,10 @@ interface UsesItem {
  * "Back to automatic". The list is the guess until the first edit, which
  * stores it as names (`Instruction.uses`); an untouched step stores nothing
  * and posts nothing.
+ *
+ * The picker is a popover of buttons, as the ingredient rows' menu is, and
+ * not a `Select`: Radix puts a hidden native `<select>` with every option's
+ * text into a form, once per step.
  */
 export function StepUsesEditor({
   namePrefix,
@@ -61,6 +67,7 @@ export function StepUsesEditor({
   onChange: (uses: string[] | undefined) => void;
 }) {
   const noteId = useId();
+  const [picking, setPicking] = useState(false);
   const isStored = stored !== undefined;
   const step = number === undefined ? "this step" : `step ${number}`;
   const nameOf = (line: number) =>
@@ -159,31 +166,41 @@ export function StepUsesEditor({
           <span className="text-xs text-muted-foreground">nothing</span>
         ) : null}
         {options.length ? (
-          <Select
-            value=""
-            onValueChange={(value) => {
-              const line = Number(value);
-              if (!value || !Number.isInteger(line)) return;
-              focusNext.current = "add";
-              onChange([...names(), nameOf(line)]);
-            }}
-          >
-            <SelectTrigger
-              size="sm"
-              data-uses-add
-              aria-label={`Add an ingredient to ${step}`}
-              className="h-7 gap-1 bg-background px-2 py-0 text-xs max-sm:h-9"
+          <Popover open={picking} onOpenChange={setPicking}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                data-uses-add
+                aria-label={`Add an ingredient to ${step}`}
+                className="h-7 gap-1 px-2 text-xs font-normal text-muted-foreground max-sm:h-9"
+              >
+                Add an ingredient…
+                <ChevronDown className="size-3.5" aria-hidden />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className="max-h-72 w-80 max-w-[calc(100vw-2rem)] overflow-y-auto p-1"
             >
-              <SelectValue placeholder="Add an ingredient…" />
-            </SelectTrigger>
-            <SelectContent>
-              {options.map((line) => (
-                <SelectItem key={line} value={String(line)}>
-                  {stripMarkup(ingredients[line]?.ingredient ?? "").trim()}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+              <div role="group" aria-label={`Ingredients to add to ${step}`}>
+                {options.map((line) => (
+                  <button
+                    key={line}
+                    type="button"
+                    className={PICK}
+                    onClick={() => {
+                      setPicking(false);
+                      focusNext.current = "add";
+                      onChange([...names(), nameOf(line)]);
+                    }}
+                  >
+                    {stripMarkup(ingredients[line]?.ingredient ?? "").trim()}
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
         ) : null}
         {isStored ? (
           <Button

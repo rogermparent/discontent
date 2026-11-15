@@ -24,7 +24,7 @@ const INGREDIENTS = [
   "1/3 cup sugar, plus 1 tablespoon",
   "1 pint whole milk",
   "1 cup heavy cream",
-  "3 ounces bourbon",
+  "3 oz bourbon",
   "1 teaspoon freshly grated nutmeg",
   "4 egg whites",
 ];
@@ -98,10 +98,18 @@ const remove = (page: Page, n: number, label: string) =>
     exact: true,
   });
 const adder = (page: Page, n: number) =>
-  editor(page, n).getByRole("combobox", {
+  editor(page, n).getByRole("button", {
     name: `Add an ingredient to step ${n}`,
     exact: true,
   });
+/** The picker's list, open: the lines step `n` could add. */
+const choices = (page: Page, n: number) =>
+  page
+    .getByRole("group", {
+      name: `Ingredients to add to step ${n}`,
+      exact: true,
+    })
+    .getByRole("button");
 const back = (page: Page, n: number) =>
   editor(page, n).getByRole("button", {
     name: `Back to automatic for step ${n}`,
@@ -141,7 +149,7 @@ test.describe("A step's stored uses (47f)", () => {
     /* Step 2: the stored lines in the stored order — no nutmeg, though its
      * text names it. */
     await expect(pageUses(page, 2)).toHaveText([
-      "3 ounces bourbon",
+      "3 oz bourbon",
       "1 cup heavy cream",
       "1 pint whole milk",
     ]);
@@ -193,7 +201,8 @@ test.describe("A step's stored uses (47f)", () => {
     );
 
     /* And a stored recipe comes back as stored, the unknown name included. */
-    await openEdit(page, STORED);
+    await page.goto(`/recipe/${STORED}/edit`);
+    await markdownEditorReady(page, "description");
     await expectHydrated(adder(page, 2));
     await save(page, STORED);
     expect(await storedSteps(request, STORED)).toEqual(
@@ -226,13 +235,14 @@ test.describe("A step's stored uses (47f)", () => {
 
     /* Add, with the mouse: the picker lists the lines the step lacks, whole. */
     await adder(page, 2).click();
-    await expect(page.getByRole("option")).toHaveText([
+    await expect(choices(page, 2)).toHaveText([
       "4 egg yolks",
       "1/3 cup sugar, plus 1 tablespoon",
       "1 teaspoon freshly grated nutmeg",
       "4 egg whites",
     ]);
-    await page.getByRole("option", { name: "4 egg whites" }).click();
+    await choices(page, 2).filter({ hasText: "4 egg whites" }).click();
+    await expect(choices(page, 2)).toHaveCount(0);
     await expect(chips(page, 2)).toHaveText([
       "milk",
       "heavy cream",
@@ -241,11 +251,18 @@ test.describe("A step's stored uses (47f)", () => {
     ]);
     await expect(adder(page, 2)).toBeFocused();
 
-    /* Add, with the keyboard: open, the first line, Enter. */
+    /* Add, with the keyboard: Enter opens the list on its first line, Enter
+     * adds it; Escape closes the list and adds nothing. */
     await page.keyboard.press("Enter");
-    await expect(page.getByRole("listbox")).toBeVisible();
+    await expect(choices(page, 2).first()).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(choices(page, 2)).toHaveCount(0);
+    await expect(adder(page, 2)).toBeFocused();
+    await expect(chips(page, 2)).toHaveCount(4);
     await page.keyboard.press("Enter");
-    await expect(page.getByRole("listbox")).toHaveCount(0);
+    await expect(choices(page, 2).first()).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(choices(page, 2)).toHaveCount(0);
     await expect(chips(page, 2)).toHaveText([
       "milk",
       "heavy cream",
@@ -273,7 +290,7 @@ test.describe("A step's stored uses (47f)", () => {
     await expect(pageUses(page, 2)).toHaveText([
       "1 pint whole milk",
       "1 cup heavy cream",
-      "3 ounces bourbon",
+      "3 oz bourbon",
       "4 egg whites",
     ]);
     await expect(pageUses(page, 3)).toHaveText([
