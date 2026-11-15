@@ -26,9 +26,17 @@
  * `matchStepMentions` is every mention, for the form's "is every line
  * named?" check.
  *
+ * All of that is a guess, and a step may say otherwise (47f): its stored
+ * `uses` — ingredient names — replaces the guess for that step. `stepUses`
+ * is the one answer the recipe page, the cook view and the form read.
+ *
  * Pure, and safe in the browser; the recipe page runs it on the server.
  */
-import type { Ingredient, InstructionEntry } from "../controller/types";
+import type {
+  Ingredient,
+  Instruction,
+  InstructionEntry,
+} from "../controller/types";
 import { detectHeading } from "./detectHeading";
 import {
   DERIVED_FORMS,
@@ -377,8 +385,7 @@ export function matchStepMentions(
   const sections = new Set(lines.map((line) => line.section).filter(Boolean));
   const texts = entryTexts(instructions);
   return instructions.map((entry, i) => {
-    const groupKey =
-      "instructions" in entry && entry.name ? sectionKey(entry.name) : "";
+    const groupKey = stepSection(entry);
     const scope = sections.has(groupKey) ? groupKey : "";
     return texts[i].map((text) => matchStep(text, lines, scope));
   });
@@ -391,29 +398,151 @@ function choiceKey(entry: InstructionEntry): string {
     : "";
 }
 
+/** Each entry's steps: the entry itself, or a group's own. */
+function entrySteps(entry: InstructionEntry): readonly Instruction[] {
+  return "instructions" in entry ? (entry.instructions ?? []) : [entry];
+}
+
+/** The section a group's steps are read in: its name as a `sectionKey`. */
+export function stepSection(entry: InstructionEntry | undefined): string {
+  return entry && "instructions" in entry && entry.name
+    ? sectionKey(entry.name)
+    : "";
+}
+
+/** A line as a stored name may spell it out whole: folded, spaces single. */
+function wholeLine(text: string): string {
+  return stripMarkup(text).replace(/\s+/g, " ").trim().toLowerCase();
+}
+
 /**
- * For each step of each entry, the ingredient lines it brings in: a line's
- * first mention, and every mention of a line that says it is used more than
- * once. The options of one set of alternatives are parallel, so each starts
- * from what came before the set.
+ * The line a stored name means (47f), or `undefined` when no line goes by
+ * it. Tried in order, the first kind with a candidate deciding: the line
+ * written out whole, one of a line's names, a head or a bare compound's
+ * word. Among several candidates, the one under the step's section
+ * (`section`, a `sectionKey`), else the first.
  */
-export function matchStepIngredients(
+function resolveName(
+  entry: string,
+  ingredients: readonly Ingredient[],
+  lines: readonly LineNames[],
+  section: string,
+): number | undefined {
+  const pick = (candidates: LineNames[]) =>
+    (
+      (section && candidates.find((line) => line.section === section)) ||
+      candidates[0]
+    )?.index;
+  const whole = wholeLine(entry);
+  if (!whole) return undefined;
+  const written = lines.filter(
+    (line) => wholeLine(ingredients[line.index].ingredient ?? "") === whole,
+  );
+  if (written.length) return pick(written);
+  const name = toName(entry).words.join(" ");
+  if (!name) return undefined;
+  const named = lines.filter((line) =>
+    line.names.some((words) => words.join(" ") === name),
+  );
+  if (named.length) return pick(named);
+  return pick(
+    lines.filter(
+      (line) => line.heads.includes(name) || line.bareHeads.includes(name),
+    ),
+  );
+}
+
+/** The line a stored name means in a step of `section` (`resolveName`). */
+export function usesLine(
+  ingredients: readonly Ingredient[],
+  name: string,
+  section = "",
+): number | undefined {
+  return resolveName(name, ingredients, lineNames(ingredients), section);
+}
+
+/**
+ * The name to store for a line in a step's `uses` (47f): the short name
+ * (`label`, the form's chip) when it finds its way back to the line, else
+ * another of the line's names that does, else the line written out whole —
+ * the second of two butter lines is not "butter".
+ */
+export function usesName(
+  ingredients: readonly Ingredient[],
+  index: number,
+  label: string,
+  section = "",
+): string {
+  const lines = lineNames(ingredients);
+  const own = lines.find((line) => line.index === index);
+  const candidates = [
+    label,
+    ...(own?.names ?? []).map((words) => words.join(" ")),
+  ];
+  for (const candidate of candidates) {
+    if (resolveName(candidate, ingredients, lines, section) === index) {
+      return candidate;
+    }
+  }
+  return stripMarkup(ingredients[index]?.ingredient ?? "").trim();
+}
+
+/** What `resolveStepUses` knows about every step, entry → step. */
+export interface ResolvedStepUses {
+  /** The lines each step brings in: its stored `uses`, else the guess. */
+  lines: StepLines;
+  /** Every line each step names, in its text or in its stored `uses`. */
+  mentions: StepLines;
+  /** Whether the step's list is a stored one. */
+  stored: boolean[][];
+  /** The stored names no ingredient line goes by, as written. */
+  unresolved: string[][][];
+}
+
+/**
+ * For each step of each entry, the ingredient lines it brings in. A step
+ * with a stored `uses` (47f) lists exactly those lines, in that order — none
+ * for an empty list; a name no line goes by is reported and skipped, never
+ * thrown. Any other step lists the guess: a line's first mention, and every
+ * mention of a line that says it is used more than once, where a stored list
+ * stands for its step's mentions. The options of one set of alternatives
+ * are parallel, so each starts from what came before the set.
+ */
+export function resolveStepUses(
   ingredients: readonly Ingredient[] = [],
   instructions: readonly InstructionEntry[] = [],
-): StepLines {
-  const mentions = matchStepMentions(ingredients, instructions);
+  { guessOnly = false }: { guessOnly?: boolean } = {},
+): ResolvedStepUses {
+  const names = lineNames(ingredients);
+  const textMentions = matchStepMentions(ingredients, instructions);
   const repeats = new Set(
-    lineNames(ingredients)
-      .filter((line) => line.repeats)
-      .map((line) => line.index),
+    names.filter((line) => line.repeats).map((line) => line.index),
   );
+  const unresolved: string[][][] = [];
+  const set: (number[] | undefined)[][] = instructions.map((entry, i) => {
+    const section = stepSection(entry);
+    unresolved.push([]);
+    return entrySteps(entry).map((step) => {
+      const missing: string[] = [];
+      unresolved[i].push(missing);
+      if (guessOnly || !Array.isArray(step?.uses)) return undefined;
+      const lines: number[] = [];
+      for (const name of step.uses) {
+        if (typeof name !== "string" || !name.trim()) continue;
+        const line = resolveName(name, ingredients, names, section);
+        if (line === undefined) missing.push(name);
+        else if (!lines.includes(line)) lines.push(line);
+      }
+      return lines;
+    });
+  });
   /* Lines brought in so far; inside a set, `before` is the state at its
    * start and `inSet` what any of its options brought in. */
   let seen = new Set<number>();
   let before = seen;
   let inSet = new Set<number>();
   let setKey = "";
-  return mentions.map((steps, i) => {
+  const lines = textMentions.map((steps, i) => {
     const key = choiceKey(instructions[i]);
     if (key !== setKey) {
       if (setKey) seen = new Set([...before, ...inSet]);
@@ -422,17 +551,51 @@ export function matchStepIngredients(
       inSet = new Set();
     }
     if (key) seen = new Set(before);
-    const out = steps.map((lines) =>
-      lines.filter((line) => {
+    const out = steps.map((mentioned, j) => {
+      const stored = set[i][j];
+      if (stored) {
+        for (const line of stored) seen.add(line);
+        return stored;
+      }
+      return mentioned.filter((line) => {
         if (repeats.has(line)) return true;
         if (seen.has(line)) return false;
         seen.add(line);
         return true;
-      }),
-    );
+      });
+    });
     if (key) for (const line of seen) inSet.add(line);
     return out;
   });
+  return {
+    lines,
+    mentions: textMentions.map((steps, i) =>
+      steps.map((mentioned, j) => [
+        ...new Set([...mentioned, ...(set[i][j] ?? [])]),
+      ]),
+    ),
+    stored: set.map((steps) => steps.map((step) => step !== undefined)),
+    unresolved,
+  };
+}
+
+/**
+ * What each step brings in: its stored `uses`, else the guess. The one
+ * answer for the recipe page, the cook view and the form.
+ */
+export function stepUses(
+  ingredients: readonly Ingredient[] = [],
+  instructions: readonly InstructionEntry[] = [],
+): StepLines {
+  return resolveStepUses(ingredients, instructions).lines;
+}
+
+/** The guess alone, whatever the steps store (`stepUses` is the answer). */
+export function matchStepIngredients(
+  ingredients: readonly Ingredient[] = [],
+  instructions: readonly InstructionEntry[] = [],
+): StepLines {
+  return resolveStepUses(ingredients, instructions, { guessOnly: true }).lines;
 }
 
 export { stepNumbers } from "./stepNumbers";

@@ -27,7 +27,7 @@ import { formatDurationLong } from "../../util/formatDuration";
 import { tagSearchHref } from "../SearchForm/queryLanguage";
 import { RecipeCardPlaceholder } from "../List/shared";
 import { PathHeadsUpNotes } from "./HeadsUp";
-import { matchStepIngredients } from "../../util/stepIngredients";
+import { stepUses } from "../../util/stepIngredients";
 import { headsUpCandidates } from "../../util/headsUp";
 import { readChoices } from "../../util/readChoices";
 import { ChoicesProvider, PathTime, PathYield } from "./Choices";
@@ -70,7 +70,7 @@ export async function RecipeView({
 
   /* 42c1 (D3): worked out here, on the server, so neither the matcher nor
      `ingredientNames` ships to the browser. */
-  const stepLines = matchStepIngredients(ingredients, instructions);
+  const stepLines = stepUses(ingredients, instructions);
   /* 45e: every heads-up sentence, where it was found; the notes on the
      reader's path are chosen in the browser (`PathHeadsUpNotes`). */
   const headsUps = headsUpCandidates(instructions, timelines);

@@ -6,8 +6,12 @@ import type {
 import {
   matchStepIngredients,
   matchStepMentions,
+  resolveStepUses,
   sectionKey,
   stepNumbers,
+  stepUses,
+  usesLine,
+  usesName,
 } from "recipe-website-common/util/stepIngredients";
 
 /*
@@ -522,5 +526,219 @@ describe("matchStepIngredients — a line is listed where it comes in", () => {
       [ingredients[0].ingredient],
       [ingredients[5].ingredient],
     ]);
+  });
+});
+
+describe("stepUses — a step's stored `uses` replaces the guess (47f)", () => {
+  const ingredients = lines(
+    `${m("4")} egg yolks`,
+    `${m("1/3")} cup sugar, plus ${m("1")} tablespoon`,
+    `${m("1")} pint whole milk`,
+    `${m("1")} cup heavy cream`,
+    `${m("1")} teaspoon freshly grated nutmeg, plus more for serving`,
+    `${m("4")} egg whites`,
+  );
+  const texts = [
+    "Beat the egg yolks, then add the 1/3 cup sugar. Add the milk, cream and nutmeg.",
+    "Beat the egg whites to soft peaks. Add the 1 tablespoon of sugar.",
+    "Whisk the egg whites into the mixture. Chill and serve with nutmeg.",
+  ];
+  /** The lines each step lists, by index. */
+  const flat = (list: Ingredient[], instructions: InstructionEntry[]) =>
+    stepUses(list, instructions).flat();
+
+  it("no step stores one: the guess, exactly", () => {
+    const instructions = steps(...texts);
+    expect(stepUses(ingredients, instructions)).toEqual(
+      matchStepIngredients(ingredients, instructions),
+    );
+    expect(resolveStepUses(ingredients, instructions).stored.flat()).toEqual([
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  it("exactly the stored lines, in the stored order, by the names a person writes", () => {
+    const instructions: InstructionEntry[] = [
+      { text: texts[0], uses: ["Heavy Cream", "egg yolks", "milk"] },
+      { text: texts[1] },
+      { text: texts[2] },
+    ];
+    expect(flat(ingredients, instructions)).toEqual([[3, 0, 2], [1, 5], [4]]);
+    /* The guess is untouched by what is stored. */
+    expect(matchStepIngredients(ingredients, instructions).flat()).toEqual([
+      [0, 1, 2, 3, 4],
+      [1, 5],
+      [4],
+    ]);
+  });
+
+  it("an empty list is a step that brings nothing in", () => {
+    const instructions: InstructionEntry[] = [
+      { text: texts[0] },
+      { text: texts[1], uses: [] },
+      { text: texts[2] },
+    ];
+    const resolved = resolveStepUses(ingredients, instructions);
+    expect(resolved.lines.flat()).toEqual([[0, 1, 2, 3, 4], [], [4, 5]]);
+    expect(resolved.stored.flat()).toEqual([false, true, false]);
+  });
+
+  it("a line a stored step takes out is listed where the text next names it", () => {
+    /* Step 1 says it does not bring the cream in; step 2's text names it. */
+    const instructions: InstructionEntry[] = [
+      { text: "Beat the egg yolks with the milk and cream.", uses: ["milk"] },
+      { text: "Whip the cream and fold it in." },
+    ];
+    expect(flat(ingredients, instructions)).toEqual([[2], [3]]);
+  });
+
+  it("a stored line is not listed again by a later step that names it", () => {
+    const instructions: InstructionEntry[] = [
+      { text: "Get everything out.", uses: ["egg whites"] },
+      { text: "Beat the egg whites to soft peaks." },
+    ];
+    expect(flat(ingredients, instructions)).toEqual([[5], []]);
+  });
+
+  it("a head or a bare compound's word is enough: 'yolks', 'cream', 'nutmeg'", () => {
+    const instructions: InstructionEntry[] = [
+      { text: "Mix.", uses: ["yolks", "cream", "nutmeg"] },
+    ];
+    expect(flat(ingredients, instructions)).toEqual([[0, 3, 4]]);
+  });
+
+  it("the line written out whole finds it, amount and all", () => {
+    const instructions: InstructionEntry[] = [
+      { text: "Mix.", uses: ["1 pint whole milk", "  4   EGG whites "] },
+    ];
+    expect(flat(ingredients, instructions)).toEqual([[2, 5]]);
+  });
+
+  it("a name no line goes by is reported and skipped, never thrown", () => {
+    const instructions: InstructionEntry[] = [
+      { text: texts[0], uses: ["bourbon", "milk", "  "] },
+      {
+        name: "Whites",
+        instructions: [{ text: texts[1], uses: ["rum", "egg whites"] }],
+      },
+    ];
+    const resolved = resolveStepUses(ingredients, instructions);
+    expect(resolved.lines).toEqual([[[2]], [[5]]]);
+    expect(resolved.unresolved).toEqual([[["bourbon"]], [["rum"]]]);
+    /* The stored names are the caller's: nothing is rewritten. */
+    expect((instructions[0] as { uses: string[] }).uses).toEqual([
+      "bourbon",
+      "milk",
+      "  ",
+    ]);
+  });
+
+  it("two names for one line list it once", () => {
+    expect(
+      flat(ingredients, [{ text: "Mix.", uses: ["cream", "heavy cream"] }]),
+    ).toEqual([[3]]);
+  });
+
+  it("two candidates: the one under the step's section, else the first", () => {
+    const pie = lines(
+      "Crust:",
+      `${m("1/2")} cup butter`,
+      `${m("1")} cup flour`,
+      "Filling:",
+      `${m("2")} tablespoons butter`,
+      `${m("3")} apples`,
+    );
+    const instructions: InstructionEntry[] = [
+      { text: "Soften it.", uses: ["butter"] },
+      {
+        name: "For the filling",
+        instructions: [
+          { text: "Melt it in a pan.", uses: ["butter", "apples"] },
+        ],
+      },
+      {
+        name: "Serve",
+        instructions: [{ text: "Top with more.", uses: ["butter"] }],
+      },
+    ];
+    expect(stepUses(pie, instructions)).toEqual([[[1]], [[4, 5]], [[1]]]);
+  });
+
+  it("the options of a set are parallel for stored lists too", () => {
+    const instructions: InstructionEntry[] = [
+      { text: "Warm the milk." },
+      {
+        name: "Uncooked",
+        choice: "Method",
+        instructions: [{ text: "Stir it all together.", uses: ["egg yolks"] }],
+      },
+      {
+        name: "Cooked",
+        choice: "Method",
+        instructions: [
+          { text: "Temper the egg yolks with the milk and cook until thick." },
+        ],
+      },
+      { text: "Fold in the egg whites, then pour over the egg yolks." },
+    ];
+    /* The second option still lists the yolks the first one stored, and the
+     * step after the set does not list them again. */
+    expect(flat(ingredients, instructions)).toEqual([[2], [0], [0], [5]]);
+  });
+
+  it("a stored list counts as a mention; the text's own mentions stay", () => {
+    const instructions: InstructionEntry[] = [
+      { text: "Beat the egg yolks.", uses: ["nutmeg"] },
+    ];
+    const resolved = resolveStepUses(ingredients, instructions);
+    expect(resolved.lines.flat()).toEqual([[4]]);
+    expect(resolved.mentions.flat()).toEqual([[0, 4]]);
+    /* The text alone, for comparison. */
+    expect(matchStepMentions(ingredients, instructions).flat()).toEqual([[0]]);
+  });
+
+  it("a `uses` that is not a list is no list", () => {
+    const instructions = [
+      { text: "Beat the egg yolks.", uses: "egg whites" },
+    ] as unknown as InstructionEntry[];
+    expect(flat(ingredients, instructions)).toEqual([[0]]);
+  });
+});
+
+describe("usesName / usesLine — the name the form stores for a line (47f)", () => {
+  const two = lines(
+    `${m("1/2")} cup butter, softened`,
+    `${m("2")} cups all-purpose flour`,
+    `${m("1")} tablespoon butter, for greasing`,
+    `${m("3")} large eggs`,
+  );
+
+  it("the short name when it finds the line again", () => {
+    expect(usesName(two, 1, "flour")).toBe("flour");
+    expect(usesLine(two, usesName(two, 3, "egg"))).toBe(3);
+  });
+
+  it("the second of two lines of one name is written out whole", () => {
+    /* "butter" is the first butter line's; the greasing butter needs more. */
+    const stored = usesName(two, 2, "butter");
+    expect(stored).not.toBe("butter");
+    expect(usesLine(two, stored)).toBe(2);
+    expect(usesLine(two, usesName(two, 0, "butter"))).toBe(0);
+  });
+
+  it("every line of a recipe comes back from the name stored for it", () => {
+    const list = [...STUFFING_INGREDIENTS, ...two];
+    list.forEach((line, index) => {
+      if (line.type === "heading") return;
+      expect(usesLine(list, usesName(list, index, ""))).toBe(index);
+    });
+  });
+
+  it("no line: undefined", () => {
+    expect(usesLine(two, "saffron")).toBeUndefined();
+    expect(usesLine(two, "")).toBeUndefined();
+    expect(usesLine([], "butter")).toBeUndefined();
   });
 });

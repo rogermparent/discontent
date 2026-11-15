@@ -41,7 +41,8 @@ const stepComponents = {
 
 /**
  * A step's "Uses" list (42c1, canvas B): the ingredient lines it confidently
- * names (`matchStepIngredients`, D3), each rendered as the ingredient list
+ * names (`stepUses`: D3's guess, or the list the step stores), each
+ * rendered as the ingredient list
  * renders it — scaled, in the reader's unit. Smaller on a phone, where the
  * list sits a scroll away rather than beside the step.
  */
@@ -234,7 +235,7 @@ export function Instructions({
   instructions: InstructionEntry[] | undefined;
   /** The recipe's ingredient lines, for each step's "Uses" list (42c1). */
   ingredients?: Ingredient[];
-  /** `matchStepIngredients`' answer, computed on the server. */
+  /** `stepUses`' answer, computed on the server. */
   uses?: StepLines;
   /** Placement in the recipe page's grid (42c1). */
   className?: string;

@@ -20,6 +20,16 @@ export type Ingredient = {
 export interface Instruction {
   name?: string;
   text: string;
+  /**
+   * The ingredient lines this step brings in (47f), each by a name a person
+   * would write ("heavy cream", "egg whites") — not an index, which moves
+   * when a line is inserted, and not the whole line, which breaks when an
+   * amount is edited. Absent: the guess from the step's text
+   * (`stepIngredients.ts`). Present: exactly these lines, in this order;
+   * `[]` is a step that brings nothing in. A name no line goes by is kept
+   * and shown nowhere but the edit form. Resolved by `stepUses`.
+   */
+  uses?: string[];
 }
 
 export interface InstructionGroup {
