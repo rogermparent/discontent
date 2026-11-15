@@ -24,7 +24,8 @@
  *   the stdio MCP server find the model the workstation's editor uses. They
  *   change what an import reads, never which corpus it writes to; so does
  *   `RECIPE_LLM_VISION_MODEL` (38e), the model a photo import transcribes
- *   with, and `RECIPE_LLM_API_KEY` (38g), the Claude API's key (or an
+ *   with, `RECIPE_LLM_USES` (47g), whether a fill asks a local model what
+ *   each step uses, and `RECIPE_LLM_API_KEY` (38g), the Claude API's key (or an
  *   OpenAI-style server's bearer) — a secret like `RECIPE_API_TOKEN`, which
  *   the job log's redaction already scrubs by its name (37-D2);
  * - `RECIPE_SEARCH_URL` — the SearXNG server a local model's `web_search`
@@ -101,6 +102,7 @@ export const EDITOR_ENV_KEYS = [
   "RECIPE_LLM_API",
   "RECIPE_LLM_API_KEY",
   "RECIPE_LLM_VISION_MODEL",
+  "RECIPE_LLM_USES",
   "RECIPE_SEARCH_URL",
   "RECIPE_AGENT_NUM_CTX",
   "RECIPE_AGENT_THINK",

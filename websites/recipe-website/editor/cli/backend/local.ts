@@ -273,6 +273,8 @@ export function createLocalBackend({
           ...corpusOf(ctx),
           slug,
           ...(options.estimate === false ? { estimate: false } : {}),
+          ...(typeof options.uses === "boolean" ? { uses: options.uses } : {}),
+          ...(options.usesAll === true ? { usesAll: true } : {}),
         },
         run,
       );

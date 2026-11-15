@@ -192,6 +192,14 @@ export type JobSpec =
       slug: string;
       /** False: the source's values only, no estimate (`--no-estimate`). */
       estimate?: boolean;
+      /**
+       * What each step uses (47g): false, no model is asked (`--no-uses`);
+       * true, a local model is asked too (`--uses`); unset, the Claude API
+       * is and a local model is not (`usesModelAsked`).
+       */
+      uses?: boolean;
+      /** True: steps that already store a `uses` are read too (`--all-uses`). */
+      usesAll?: boolean;
     })
   /**
    * The model looks for alternatives in a recipe's steps (46f): the edit
@@ -456,7 +464,11 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
     return fillRecipe(
       contextFor(spec, ctx),
       spec.slug,
-      spec.estimate === false ? { estimate: false } : {},
+      {
+        ...(spec.estimate === false ? { estimate: false } : {}),
+        ...(typeof spec.uses === "boolean" ? { uses: spec.uses } : {}),
+        ...(spec.usesAll === true ? { usesAll: true } : {}),
+      },
       job,
     );
   },
@@ -639,7 +651,7 @@ export function jobLabel(spec: JobSpec): string {
     case "agent":
       return agentLabel(spec.prompt, spec.continues !== undefined);
     case "fill":
-      return `fill ${spec.slug} from its source${spec.estimate === false ? " (no estimate)" : ""}`;
+      return `fill ${spec.slug} from its source${spec.estimate === false ? " (no estimate)" : ""}${spec.uses === false ? " (no uses)" : ""}`;
     case "choices":
       return `look for alternatives in ${spec.slug}`;
     default:

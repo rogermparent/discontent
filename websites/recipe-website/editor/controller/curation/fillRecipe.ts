@@ -12,13 +12,23 @@
  *    (`estimateTimes`, F4/F5) — unless asked not to, or there is nothing to
  *    estimate from. No model configured: the fill is the source's alone,
  *    and a warning says the estimate was skipped.
+ * 4. The model reads what each step brings in (47g, `suggestUses`) — the
+ *    Claude API by default, a local model only when opted in — unless asked
+ *    not to, or the recipe has no ingredient lines or steps. Its answer is
+ *    numbers, checked, and never applied by itself: a step that already
+ *    stores a `uses` is left alone unless `usesAll`.
  *
  * The result is what the source offers (`source`, for the form to fill its
- * own current values from), the estimate, what filling the stored recipe
- * would change (`filled`, `estimated`) and that as a patch `recipes update`
- * takes. Nothing is written: the form's Save, or `update`, is the write.
+ * own current values from), the estimate, the steps' answers (`uses`), what
+ * filling the stored recipe would change (`filled`, `estimated`,
+ * `uses.steps`) and that as a patch `recipes update` takes. Nothing is written: the form's Save, or `update`, is the write.
  */
+import type { InstructionEntry } from "recipe-website-common/controller/types";
 import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
+import {
+  usesChanges,
+  type StepUsesAnswer,
+} from "recipe-website-common/util/usesSuggestions";
 import { jobContext, type JobRun } from "../jobs/context";
 import type { LlmImportInfo, LlmMode } from "../llm/importWithLlm";
 import type { CurationContext } from "./context";
@@ -42,6 +52,31 @@ export interface FillOptions {
   estimate?: boolean;
   /** How the source is read (default `auto`, as an import's). */
   llm?: LlmMode;
+  /**
+   * Ask the model what each step uses (47g). Unset: the Claude API is
+   * asked, a local model only when `RECIPE_LLM_USES` says so
+   * (`usesModelAsked`). `true`: whatever model is configured is asked.
+   * `false`: none is.
+   */
+  uses?: boolean;
+  /**
+   * Suggest for the steps that already store a `uses` as well (default
+   * false: a stored list is a person's, and is left alone).
+   */
+  usesAll?: boolean;
+}
+
+/** What the model read each step as using (47g). */
+export interface FillUses {
+  /** Who read them: "local model qwen3:8b", "the Claude API (…)". */
+  model: string;
+  /**
+   * Every step's checked answer, the ones the page already shows included:
+   * the form offers those that differ from what it holds.
+   */
+  answers: StepUsesAnswer[];
+  /** The numbers of the steps the patch gives a `uses`, in reading order. */
+  steps: number[];
 }
 
 /** The estimate a fill made (F4). */
@@ -72,6 +107,8 @@ export interface FillResult {
   filled: FillField[];
   /** The model's estimate, when one was made and passed. */
   estimated?: FillEstimate;
+  /** The model's reading of what each step uses, when it gave one (47g). */
+  uses?: FillUses;
   /**
    * The same fill as a patch for `recipes update` (`RecipePatchSchema`):
    * plain ingredient lines, the picture as `imageImportUrl`.
@@ -136,6 +173,41 @@ export function fillPatch(
 }
 
 /**
+ * Steps as a write takes them (`InstructionInputSchema`), every field kept —
+ * a step's `uses`, a group's `choice`, yield and times — where `toDraft`
+ * keeps the name and the text only. A group with no name is flattened, as
+ * `toDraft` does: the schema's groups need one.
+ */
+export function patchInstructions(
+  instructions: readonly InstructionEntry[],
+): NonNullable<RecipePatch["instructions"]> {
+  const object = (one: { name?: string; text: string; uses?: string[] }) => ({
+    ...(one.name ? { name: one.name } : {}),
+    text: one.text,
+    ...(Array.isArray(one.uses) ? { uses: [...one.uses] } : {}),
+  });
+  const step = (one: { name?: string; text: string; uses?: string[] }) =>
+    one.name || Array.isArray(one.uses) ? object(one) : one.text;
+  return instructions.flatMap(
+    (entry): NonNullable<RecipePatch["instructions"]> => {
+      if (!("instructions" in entry)) return [step(entry)];
+      if (!entry.name) return entry.instructions.map(step);
+      return [
+        {
+          name: entry.name,
+          instructions: entry.instructions.map(object),
+          ...(entry.choice ? { choice: entry.choice } : {}),
+          ...(entry.recipeYield ? { recipeYield: entry.recipeYield } : {}),
+          ...(entry.prepTime ? { prepTime: entry.prepTime } : {}),
+          ...(entry.cookTime ? { cookTime: entry.cookTime } : {}),
+          ...(entry.totalTime ? { totalTime: entry.totalTime } : {}),
+        },
+      ];
+    },
+  );
+}
+
+/**
  * Read `slug`'s source and fill its gaps — written nowhere (see the module
  * note). `usage` when the recipe has no source link or video; the import's
  * own errors (`import_failed`: the page could not be fetched, or holds no
@@ -144,7 +216,12 @@ export function fillPatch(
 export async function fillRecipe(
   ctx: CurationContext,
   slug: string,
-  { estimate = true, llm = "auto" }: FillOptions = {},
+  {
+    estimate = true,
+    llm = "auto",
+    uses: askUses,
+    usesAll = false,
+  }: FillOptions = {},
   run?: JobRun,
 ): Promise<FillResult> {
   const job = jobContext(run);
@@ -201,13 +278,50 @@ export async function fillRecipe(
     }
   }
 
+  /* 47g: what each step brings in, read by the model — over the recipe as
+   * filled, so steps the source just gave are read too. */
+  let uses: FillUses | undefined;
+  let usesPatch: Pick<RecipePatch, "instructions"> = {};
+  if (askUses !== false) {
+    const { suggestUses } = await import("../llm/suggestUses");
+    const read = await suggestUses(recipe, { job, force: askUses === true });
+    warnings.push(...read.warnings);
+    if (read.model && read.answers.length > 0) {
+      const changes = usesChanges(
+        recipe.ingredients ?? [],
+        recipe.instructions ?? [],
+        read.answers,
+        { all: usesAll },
+      );
+      uses = {
+        model: read.model,
+        answers: read.answers,
+        steps: changes.changed.map((answer) => answer.number),
+      };
+      if (changes.changed.length > 0) {
+        usesPatch = { instructions: patchInstructions(changes.instructions) };
+      }
+      log.info(
+        "fill",
+        changes.changed.length > 0
+          ? `uses suggested for step${changes.changed.length === 1 ? "" : "s"} ${uses.steps.join(", ")}`
+          : "the model's reading of what each step uses is what the page shows",
+        { uses: uses.steps },
+      );
+    }
+  }
+
   return {
     slug,
     url,
     source,
     filled,
     ...(estimated ? { estimated } : {}),
-    patch: fillPatch(recipe, [...filled, ...(estimated?.fields ?? [])]),
+    ...(uses ? { uses } : {}),
+    patch: {
+      ...fillPatch(recipe, [...filled, ...(estimated?.fields ?? [])]),
+      ...usesPatch,
+    },
     ...(filledRecipe.suggestedTags?.length
       ? { suggestedTags: filledRecipe.suggestedTags }
       : {}),

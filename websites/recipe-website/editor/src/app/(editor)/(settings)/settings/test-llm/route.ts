@@ -8,6 +8,7 @@ import {
   setVisionModelOverride,
   visionConfig,
 } from "recipe-editor/controller/llm/vision";
+import { setLocalUsesOverride } from "recipe-editor/controller/llm/suggestUses";
 
 /**
  * Test-only (36e): `GET /settings/test-llm?url=http://127.0.0.1:4567` makes
@@ -20,6 +21,10 @@ import {
  * `&vision=<model>` (38e) turns photo import on too, with the same stand-in
  * answering the vision model's transcription (`standInModel.ts`); no
  * `vision` turns it off again.
+ *
+ * `&uses=1` (47g) has a fill ask the stand-in what each step uses, as it
+ * asks the Claude API: a local model is not asked otherwise. No `uses`
+ * turns it off again.
  */
 export async function GET(request: Request) {
   if (!process.env.TEST_MODE) {
@@ -42,6 +47,7 @@ export async function GET(request: Request) {
   }
   setLlmUrlOverride(url ?? undefined);
   setVisionModelOverride(url ? (vision ?? undefined) : undefined);
+  setLocalUsesOverride(url ? params.get("uses") === "1" : undefined);
   return Response.json(
     {
       model: publicConfig(llmConfig()),

@@ -328,7 +328,7 @@ export interface CuratorBackend {
    */
   fillRecipe(
     slug: string,
-    options?: Pick<FillOptions, "estimate">,
+    options?: Pick<FillOptions, "estimate" | "uses" | "usesAll">,
     run?: SeatRun,
   ): Promise<FillResult>;
   /** Set (from a URL or a `File`) or clear one recipe's image, one commit (26b). */
