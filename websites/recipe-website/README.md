@@ -1,6 +1,6 @@
 # Recipe Website
 
-A recipe book application built on Discontent. The editor has basic user-gating with NextAuth and the export generates a fully static site suitable for deployment on any static host (Netlify is supported out of the box).
+A recipe book application built on Discontent. The editor has password sign-in (Better Auth, `packages/auth`) and the export generates a fully static site suitable for deployment on any static host (Netlify is supported out of the box).
 
 ## Sub-packages
 
@@ -28,11 +28,17 @@ Create a first user with the `create-user` script:
 pnpm run create-user
 ```
 
-Generate an OpenSSL secret key for NextAuth:
+Generate a secret for signing session cookies, and put it in `editor/.env.local`
+as `AUTH_SECRET=…` (both editors read `AUTH_SECRET`, or `BETTER_AUTH_SECRET`):
 
 ```bash
-npx auth secret
+echo "AUTH_SECRET=$(openssl rand -base64 32)" >> editor/.env.local
 ```
+
+Sign-in is the editor's `/login` page. It works on whatever host and port you
+open the editor at (`localhost`, a LAN IP, a hostname): there is no base URL to
+configure. Sessions live in the settings directory (`settings/auth`), never in
+the content repo.
 
 Run the development server to try things out quickly:
 

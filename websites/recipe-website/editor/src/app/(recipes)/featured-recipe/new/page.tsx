@@ -3,7 +3,7 @@ import {
   PageMain,
   PageSection,
 } from "recipe-website-common/components/PageLayout";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 
 export default async function NewFeaturedRecipe({
   searchParams,
@@ -33,7 +33,7 @@ export default async function NewFeaturedRecipe({
         : preselectedTerm
           ? `/featured-recipe/new?term=${preselectedTerm}`
           : "/featured-recipe/new";
-    return signIn(undefined, { redirectTo });
+    return redirectToLogin(redirectTo);
   }
 
   return (

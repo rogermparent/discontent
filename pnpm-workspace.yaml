@@ -12,6 +12,7 @@ packages:
   - packages/pages-collection
   - packages/menus-collection
   - packages/cms
+  - packages/auth
   - packages/cms/demo
 onlyBuiltDependencies:
   - "@parcel/watcher"

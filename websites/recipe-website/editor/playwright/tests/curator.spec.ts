@@ -502,7 +502,7 @@ test.describe("Curator", () => {
     await page.goto("/curator", { timeout: FIRST_VISIT });
     await expect(
       page.getByRole("button", {
-        name: "Sign in with Credentials",
+        name: "Sign in",
         exact: true,
       }),
     ).toBeVisible({ timeout: 10_000 });

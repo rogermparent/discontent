@@ -12,9 +12,8 @@ const execFileAsync = promisify(execFile);
  *
  * Two claims, and the second is the one the phase exists for.
  *
- * **Every write is authenticated.** There is no middleware in this editor (the
- * `authorized` callback in `auth.config.ts` is unreferenced and guests are
- * allowed), so each handler calls `authenticateRequest` itself. A route that
+ * **Every write is authenticated.** There is no middleware in this editor
+ * (guests are allowed; 47e kept it so), so each handler calls `authenticateRequest` itself. A route that
  * forgot would be an unauthenticated write path with nothing above it to catch
  * the omission, so every method here is asserted both without a token and with
  * one.

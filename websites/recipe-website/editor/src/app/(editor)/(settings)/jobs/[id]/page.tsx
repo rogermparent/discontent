@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import {
   PageMain,
   PageSection,
@@ -21,7 +21,7 @@ export default async function JobPage({
   const { id } = await params;
   const user = await auth();
   if (!user) {
-    return signIn(undefined, { redirectTo: `/jobs/${encodeURIComponent(id)}` });
+    return redirectToLogin(`/jobs/${encodeURIComponent(id)}`);
   }
   const meta = await findJob(jobsDirectory(), id).catch(() => undefined);
   if (!meta) notFound();

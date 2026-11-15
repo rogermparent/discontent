@@ -1,4 +1,4 @@
-import { auth, signIn, signOut } from "@/auth";
+import { auth } from "@/auth";
 import { buttonVariants } from "@discontent/component-library/components/ui/button";
 import { cn } from "@discontent/component-library/lib/utils";
 import {
@@ -7,6 +7,7 @@ import {
   footerLinkClass,
 } from "recipe-website-common/components/AppLayout/nav";
 import { askAvailable } from "recipe-editor/controller/ask/available";
+import { signOutAction, startSignInAction } from "./authActions";
 
 const manageLinks = [
   { name: "New Recipe", href: "/new-recipe" },
@@ -40,16 +41,20 @@ export async function OwnerFooterLinks() {
         {links.map((item) => (
           <FooterLink key={item.href} item={item} className={footerLinkClass} />
         ))}
+        {/*
+          47e: both go back to the page they were pressed on (its Referer,
+          same host only) — Sign In by way of /login.
+        */}
         <form
           className="contents"
-          action={async () => {
-            "use server";
-            if (session) {
-              await signOut();
-            } else {
-              await signIn();
-            }
-          }}
+          action={
+            session
+              ? async () => {
+                  "use server";
+                  await signOutAction();
+                }
+              : startSignInAction
+          }
         >
           <button
             type="submit"

@@ -1,4 +1,4 @@
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import NewForm from "./form";
 import {
   PageMain,
@@ -9,9 +9,7 @@ import {
 export default async function NewPage() {
   const user = await auth();
   if (!user) {
-    return signIn(undefined, {
-      redirectTo: `/pages/new`,
-    });
+    return redirectToLogin(`/pages/new`);
   }
   return (
     <PageMain>

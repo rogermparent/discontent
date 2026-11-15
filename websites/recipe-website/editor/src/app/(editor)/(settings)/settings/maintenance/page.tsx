@@ -2,7 +2,8 @@ import { rebuildRecipeIndex } from "recipe-editor/controller/actions";
 import { rebuildFeaturedRecipeIndex } from "recipe-editor/controller/actions/featuredRecipes";
 import { rebuildGroupIndex } from "recipe-editor/controller/actions/groups";
 import { rebuildTermIndex } from "recipe-editor/controller/actions/tagTerms";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
+import { signOutEverywhereAction } from "@/app/authActions";
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
 import {
   PageMain,
@@ -10,6 +11,7 @@ import {
   PageHeading,
 } from "recipe-website-common/components/PageLayout";
 import { rebuildIndexesAction } from "recipe-editor/controller/actions/sync";
+import { isMirror } from "recipe-website-common/config/role";
 import { SettingsCard } from "../../SettingsCard";
 import { IndexStaleBanner } from "../../IndexStaleBanner";
 import { SyncAttentionBanner } from "../../SyncAttentionBanner";
@@ -17,8 +19,16 @@ import { SyncAttentionBanner } from "../../SyncAttentionBanner";
 export default async function MaintenancePage() {
   const user = await auth();
   if (!user) {
-    return signIn(undefined, { redirectTo: `/settings/maintenance` });
+    return redirectToLogin(`/settings/maintenance`);
   }
+  /* Which editor's sessions the button ends (epic 28's roles). */
+  const mirror = isMirror();
+  const thisEditor = mirror
+    ? "this editor (the mirror)"
+    : "this editor (the workstation)";
+  const otherEditor = mirror
+    ? "The workstation's editor"
+    : "A mirror's editor (the Pi)";
   return (
     <PageMain>
       <PageSection maxWidth="4xl" grow>
@@ -58,6 +68,23 @@ export default async function MaintenancePage() {
                 <SubmitButton>Reload Term Database</SubmitButton>
               </form>
             </div>
+          </SettingsCard>
+          {/*
+            47e: every session of this account *on this editor* ends — this
+            browser's too — and the next page is /login. Sessions live in
+            each editor's settings directory, not the synced content repo, so
+            the workstation and the Pi each keep their own (De13). API tokens
+            are not sessions: they keep working (`pnpm revoke-token`).
+          */}
+          <SettingsCard
+            title="Sign-in"
+            description={`Signed in on a device you no longer use, or a shared computer? End every session of this account on ${thisEditor} — every device signed in here, this one included. ${otherEditor} keeps its own sign-ins: sign out there too. API tokens keep working.`}
+          >
+            <form action={signOutEverywhereAction}>
+              <SubmitButton variant="outline" pendingChildren="Signing out…">
+                Sign out everywhere
+              </SubmitButton>
+            </form>
           </SettingsCard>
         </div>
       </PageSection>

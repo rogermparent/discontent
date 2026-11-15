@@ -19,7 +19,7 @@ test.describe("404 Routes", () => {
     await page.goto("/recipe/does-not-exist/edit");
     await expect(
       page.getByRole("button", {
-        name: "Sign in with Credentials",
+        name: "Sign in",
         exact: true,
       }),
     ).toBeVisible();

@@ -1,7 +1,7 @@
 import getMenuBySlug from "@discontent/menus-collection/controller/data/read";
 import EditForm from "./form";
 import { deleteMenu } from "../../../../../../../controller/actions/menus";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 import { ConfirmDeleteButton } from "@discontent/component-library/components/ConfirmDelete";
 
 async function maybeGetMenu(slug: string) {
@@ -24,9 +24,7 @@ export default async function Menu({
   const { slug: slugSegments } = await params;
   const user = await auth();
   if (!user) {
-    return signIn(undefined, {
-      redirectTo: `/menus/edit/${slugSegments.join("/")}`,
-    });
+    return redirectToLogin(`/menus/edit/${slugSegments.join("/")}`);
   }
   const slug = slugSegments.join("/");
   const deleteThisMenu = deleteMenu.bind(null, slug);

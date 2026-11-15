@@ -12,6 +12,7 @@ COPY package.json /app/package.json
 COPY pnpm-workspace.yaml /app/pnpm-workspace.yaml
 COPY pnpm-lock.yaml /app/pnpm-lock.yaml
 COPY packages/cms/package.json /app/packages/cms/package.json
+COPY packages/auth/package.json /app/packages/auth/package.json
 COPY packages/menus-collection/package.json /app/packages/menus-collection/package.json
 COPY packages/pages-collection/package.json /app/packages/pages-collection/package.json
 COPY packages/component-library/package.json /app/packages/component-library/package.json

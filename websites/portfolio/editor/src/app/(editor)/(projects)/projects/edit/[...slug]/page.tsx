@@ -2,7 +2,7 @@ import getProjectBySlug from "@discontent/projects-collection/controller/data/re
 import { getProjectUploadUrl } from "@discontent/projects-collection/controller/uploadUrl";
 import EditForm from "./form";
 import { notFound } from "next/navigation";
-import { auth, signIn } from "@/auth";
+import { auth, redirectToLogin } from "@/auth";
 
 /*
  * Never cached. The form must show what is on disk *now*: this page was being
@@ -21,9 +21,7 @@ export default async function Project({
   const slug = slugSegments.join("/");
   const user = await auth();
   if (!user) {
-    return signIn(undefined, {
-      redirectTo: `/projects/edit/${slug}`,
-    });
+    return redirectToLogin(`/projects/edit/${slug}`);
   }
   let project;
   try {

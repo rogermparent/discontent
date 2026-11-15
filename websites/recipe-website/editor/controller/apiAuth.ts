@@ -7,17 +7,21 @@
  *    is what the CLI's HTTP backend and the curator skill send.
  * 2. The session cookie, through `authenticateUser()`. Kept as a fallback so a
  *    signed-in browser can hit the same routes from devtools without minting a
- *    token, and so the routes and the form actions agree about identity.
+ *    token, and so the routes and the form actions agree about identity. For
+ *    an unsafe method the cookie only counts from a page on this host (47e:
+ *    `isSameOriginRequest`, Fetch Metadata or `Origin` against `Host`), so
+ *    another site the owner has open cannot write through it. Tokens are
+ *    exempt: a bearer header is never sent by a browser on its own.
  *
  * **This module is outside `controller/curation/`** and cannot move in: it
  * reaches `@/auth` through `actions/shared`, which the D8 allow-list forbids
  * (and rightly — `@/` resolves only under Next). Everything the routes call
  * that *is* transport-agnostic lives on the other side of that line.
  *
- * The editor allows guests (`authorized` in `auth.config.ts` returns true), so
- * nothing intercepts these routes; every write handler calls this itself. Fact
- * 1 of the phase doc: there is no middleware.
+ * The editor allows guests, so nothing intercepts these routes; every write
+ * handler calls this itself. There is no middleware (47e kept it that way).
  */
+import { isSameOriginRequest } from "@discontent/auth/origin";
 import { findUserByToken, type TokenIdentity } from "../src/users";
 import { authenticateUser } from "./actions/shared";
 
@@ -50,6 +54,7 @@ export async function authenticateRequest(
      */
     if (identity) return identity;
   }
+  if (!isSameOriginRequest(request)) return null;
   const email = await authenticateUser();
   return email ? { email, scope: "write" } : null;
 }

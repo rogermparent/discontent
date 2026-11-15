@@ -285,25 +285,31 @@ reindex_remote() {
   note "reindexed on the Pi in $((SECONDS - start)) s"
 }
 
-# Poll <path> until it answers 2xx, for up to <seconds>.
+# Poll <path> until it answers 2xx, for up to <seconds>. <path> may be
+# several paths separated by `|`: any one answering is enough.
 wait_for() {
-  local path=$1 limit=$2 deadline=$((SECONDS + $2))
-  until curl -fsS -o /dev/null --max-time 10 "$PI_URL$path"; do
+  local paths=$1 limit=$2 deadline=$((SECONDS + $2)) path
+  while :; do
+    for path in ${paths//|/ }; do
+      curl -fsS -o /dev/null --max-time 10 "$PI_URL$path" && return 0
+    done
     if [ "$SECONDS" -ge "$deadline" ]; then
-      note "$PI_URL$path did not answer within $limit s"
+      note "$PI_URL$paths did not answer within $limit s"
       return 1
     fi
     sleep 2
   done
 }
 
-# Two checks, either side of the indexes. `/api/auth/providers` answers as
+# Two checks, either side of the indexes. `/api/health` (47e) answers as
 # soon as Next is up and reads no index; `/` renders from the indexes, so it
 # is only meaningful once they match the code — after a schema change it 500s
-# until the rebuild (the first cutover failed exactly so).
+# until the rebuild (the first cutover failed exactly so). Images before 47e
+# have no `/api/health` but answered Auth.js's `/api/auth/providers` the same
+# way, so either counts (a rollback to one still passes).
 wait_up() {
   step "Wait for $PI_URL"
-  wait_for /api/auth/providers 90 && note "up"
+  wait_for '/api/health|/api/auth/providers' 90 && note "up"
 }
 wait_healthy() {
   step "Health check $PI_URL/ (renders from the indexes)"
@@ -475,7 +481,10 @@ cd ~/recipe-editor
 mkdir -p settings jobs
 old=~/content-engine/websites/recipe-website/editor
 # AUTH_SECRET from the old checkout's .env.local, never through the
-# workstation's terminal. NEXTAUTH_URL is not needed (trustHost).
+# workstation's terminal. Better Auth (47e) reads the same AUTH_SECRET, and
+# needs no base URL: sign-in follows the Host header, so the Pi answers as
+# uraninite, its IP or a Tailscale name alike. Never set BETTER_AUTH_URL —
+# it would pin one host again.
 # `docker --env-file` keeps quotes as part of the value, so dotenv-style
 # quotes come off.
 if [ ! -s .env ]; then
