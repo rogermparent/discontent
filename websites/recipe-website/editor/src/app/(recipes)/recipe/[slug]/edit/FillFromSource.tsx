@@ -8,6 +8,7 @@ import {
   fieldList,
   type FillMarks,
 } from "recipe-website-common/components/Form/fillMarks";
+import { numberList } from "recipe-website-common/util/usesSuggestions";
 import type { Recipe } from "recipe-website-common/controller/types";
 import {
   isEmptyField,
@@ -60,6 +61,7 @@ export default function FillFromSource({
   sourceUrl,
   stored,
   llmModel,
+  usesModel,
   initialJob,
   applied,
   onApply,
@@ -72,6 +74,11 @@ export default function FillFromSource({
   stored: Recipe;
   /** The editor's model, or none (then nothing is estimated). */
   llmModel?: string;
+  /**
+   * The model that also reads what each step uses (47g): the Claude API's,
+   * or a local one that was opted in. None: nothing is suggested.
+   */
+  usesModel?: string;
   /** `?fill=<job>`: a fill to follow (or whose result to apply) at once. */
   initialJob?: string;
   /** The marks of the fill the form holds now, if any. */
@@ -273,7 +280,12 @@ export default function FillFromSource({
               Fill gaps from the source
             </span>
           )}
-          <p className="text-sm text-muted-foreground">Nothing looks empty.</p>
+          <p className="text-sm text-muted-foreground">
+            Nothing looks empty.
+            {usesModel
+              ? ` ${usesModel} can still suggest what each step uses.`
+              : ""}
+          </p>
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -297,7 +309,7 @@ export default function FillFromSource({
               and fills only what is empty — now{" "}
               <span data-testid="fill-empty">{fieldList(empty)}</span>.{" "}
               {llmModel
-                ? `Times and yield it doesn't state are estimated by ${llmModel}.`
+                ? `Times and yield it doesn't state are estimated by ${llmModel}${usesModel ? ", which also suggests what each step uses" : ""}.`
                 : "No model is configured, so nothing is estimated."}{" "}
               Nothing is saved until you press Save.
             </p>
@@ -333,6 +345,9 @@ export default function FillFromSource({
       {outcome && "nothing" in outcome ? (
         <p role="status" className="text-sm" data-testid="fill-summary">
           Nothing new from the source: every field it has is already filled.
+          {result?.uses
+            ? ` What each step uses was read by ${result.uses.model}: no change to suggest.`
+            : ""}
         </p>
       ) : null}
 
@@ -356,6 +371,21 @@ export default function FillFromSource({
                 </b>{" "}
                 {fieldList(estimated)}
                 {marks.basis ? ` — ${marks.basis}` : ""}.
+              </p>
+            ) : null}
+            {marks.uses?.steps.length ? (
+              <p data-testid="fill-uses">
+                <b className="font-semibold">
+                  Suggested by {marks.uses.model}:
+                </b>{" "}
+                what step{marks.uses.steps.length === 1 ? "" : "s"}{" "}
+                {numberList(marks.uses.steps)} use
+                {marks.uses.steps.length === 1 ? "s" : ""} — not applied: accept
+                or dismiss each in{" "}
+                <a href="#recipe-section-steps" className="underline">
+                  Steps
+                </a>
+                .
               </p>
             ) : null}
             <p className="text-muted-foreground">

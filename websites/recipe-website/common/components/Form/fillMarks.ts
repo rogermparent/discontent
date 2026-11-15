@@ -74,6 +74,11 @@ export interface FillMarks {
   basis?: string;
   /** Who estimated: the model's name, for the text beside the basis. */
   model?: string;
+  /**
+   * The steps the model suggests a "uses" for (47g) — offered under each
+   * step, not applied: the numbers when the fill landed, and who suggested.
+   */
+  uses?: { model: string; steps: number[] };
 }
 
 /** How a section was filled: from the source, estimated, or both. */

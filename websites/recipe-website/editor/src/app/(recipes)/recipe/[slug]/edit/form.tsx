@@ -32,6 +32,7 @@ import { Recipe } from "recipe-website-common/controller/types";
 import { RecipeFormState } from "recipe-website-common/controller/formState";
 import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
 import { suggestChoices } from "recipe-website-common/util/suggestChoices";
+import { usesOffers } from "recipe-website-common/util/usesSuggestions";
 import { StaticImageProps } from "@discontent/next-static-image/src";
 import type { TagPickerData } from "recipe-website-common/components/Form/Tags/tagPicker";
 import {
@@ -135,6 +136,7 @@ export default function EditRecipeForm({
   tagPicker,
   fillSource,
   llmModel,
+  usesModel,
   initialFillJob,
   choicesModel,
   choicesUnavailable,
@@ -148,6 +150,8 @@ export default function EditRecipeForm({
   fillSource?: string;
   /** The editor's model, for the fill's estimate (45b). */
   llmModel?: string;
+  /** The model a fill asks what each step uses (47g); none, it asks none. */
+  usesModel?: string;
   /** `?fill=<job>`: a fill to follow, or to apply again (45b). */
   initialFillJob?: string;
   /** Who "Look for alternatives with the model" asks (46f). */
@@ -227,7 +231,21 @@ export default function EditRecipeForm({
         estimated,
         warnings,
       } = applyEstimate(filled, result.estimated?.values);
-      if (fields.length === 0 && estimated.length === 0) {
+      /* 47g: the model's reading of what each step uses, over the steps
+       * the form holds now — offered under each step, never applied. */
+      const uses = result.uses
+        ? usesOffers(
+            merged.ingredients ?? [],
+            merged.instructions ?? [],
+            result.uses.answers,
+          )
+        : undefined;
+      const offered = uses?.offered ?? [];
+      if (
+        fields.length === 0 &&
+        estimated.length === 0 &&
+        offered.length === 0
+      ) {
         return { nothing: true, warnings };
       }
       const pictures = pictureCarry(inputs, touched);
@@ -237,6 +255,9 @@ export default function EditRecipeForm({
         ...(estimated.length && result.estimated
           ? { basis: result.estimated.basis, model: result.estimated.model }
           : {}),
+        ...(offered.length && result.uses
+          ? { uses: { model: result.uses.model, steps: offered } }
+          : {}),
       };
       remounts.current += 1;
       /* 45e2: groups that look like alternatives — filled from the source
@@ -244,9 +265,18 @@ export default function EditRecipeForm({
       const suggestedChoices = suggestChoices(merged.instructions);
       setApplied({
         key: `fill-${remounts.current}`,
-        recipe: suggestedChoices.length
-          ? { ...merged, suggestedChoices }
-          : merged,
+        recipe: {
+          ...merged,
+          ...(suggestedChoices.length ? { suggestedChoices } : {}),
+          /* Every fitting answer, not only the ones offered now: one
+           * comes into play when its step's list changes (47f Df5), or
+           * when a stored list goes "Back to automatic". */
+          ...(uses?.steps.length && result.uses
+            ? {
+                suggestedUses: { model: result.uses.model, steps: uses.steps },
+              }
+            : {}),
+        },
         marks,
         extraChanges:
           (fields.includes("image") ? 1 : 0) +
@@ -282,6 +312,7 @@ export default function EditRecipeForm({
           sourceUrl={fillSource}
           stored={recipe}
           llmModel={llmModel}
+          usesModel={usesModel}
           initialJob={initialFillJob}
           applied={fill?.marks}
           onApply={onApply}
