@@ -206,7 +206,10 @@ test.describe("Featured Recipes", () => {
     }) => {
       await resetData("three-recipes");
 
+      // The reset removed test-settings, and the session store with it (47e,
+      // Te1/Te9): the beforeEach's sign-in is gone, so sign in again.
       await page.goto("/recipe/third-recipe");
+      await signIn(page);
       await page.getByRole("link", { name: "Feature", exact: true }).click();
       await page.getByRole("button", { name: "Submit", exact: true }).click();
       await expect(page).toHaveURL(/\/$/);

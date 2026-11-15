@@ -518,6 +518,12 @@ password, createdAt?, tokens?}`); nothing in sign-in writes them, so no API
 - **Te8 — `getByRole("alert")` also finds Next's route announcer**
   (`#__next-route-announcer__`, `role="alert"`, on every App Router page).
   Scope the form's error to `main`.
+- **Te9 — A `resetData` in the middle of a test signs the browser out.**
+  The reset removes `test-settings` and the session store with it (Te1);
+  Auth.js's session was a signed cookie and survived. CI's first run found
+  the one spec that resets after its `beforeEach` signed in
+  (`featured-recipes.spec` "should sort featured recipes by feature date":
+  no Feature link, 3/3 tries); it signs in again after the reset.
 
 #### Gates
 
