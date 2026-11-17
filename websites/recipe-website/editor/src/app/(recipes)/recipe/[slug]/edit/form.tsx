@@ -60,7 +60,7 @@ import {
   type EditField,
   type EditValues,
 } from "recipe-website-common/util/editRequest";
-import type { EditResult } from "recipe-editor/controller/llm/askEdit";
+import type { EditResult } from "recipe-editor/controller/llm/editResult";
 import {
   ModelChoicesProvider,
   type ModelChoices,

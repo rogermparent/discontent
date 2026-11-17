@@ -43,16 +43,18 @@ import {
   type LlmConfig,
 } from "./client";
 import { claudeCostEstimate, dollarText, modelPrice } from "./cost";
-import {
-  EDIT_JSON_SCHEMA,
-  checkEditAnswer,
-  editView,
-  type EditCheck,
-} from "./editCheck";
+import { EDIT_JSON_SCHEMA, checkEditAnswer, editView } from "./editCheck";
 import { readerLabel } from "./readerLabel";
+import type { EditBackend, EditResult, EditSpec } from "./editResult";
+
+export {
+  isEditResult,
+  type EditBackend,
+  type EditResult,
+  type EditSpec,
+} from "./editResult";
 import { usesModelAsked } from "./suggestUses";
 import type { RecipePatch } from "../curation/schema";
-import type { StepUsesAnswer } from "recipe-website-common/util/usesSuggestions";
 
 export const EDIT_MODEL_ENV = "RECIPE_LLM_EDIT_MODEL";
 export const CLAUDE_KEY_ENV = "RECIPE_LLM_CLAUDE_API_KEY";
@@ -106,9 +108,6 @@ export function editModels(env: NodeJS.ProcessEnv = process.env): EditModels {
       : {}),
   };
 }
-
-/** Which of them a request asked for: the default, or Claude. */
-export type EditBackend = "local" | "claude";
 
 /** The model a request runs on, or why there is none. */
 export function editModelFor(
@@ -169,61 +168,6 @@ export function editUserPrompt(values: EditValues, request: string): string {
     "",
     `Request: ${request.replace(/\s+/g, " ").trim()}`,
   ].join("\n");
-}
-
-/** What an `edit` job answers. */
-export type EditResult = {
-  /** The job that ran it: `recipes jobs show <job>` has its steps. */
-  job?: string;
-  slug: string;
-  /** Who answered, or who would have. */
-  model?: string;
-  backend?: EditBackend;
-  /** The tokens and the estimated cost (Claude only). */
-  promptTokens?: number;
-  outputTokens?: number;
-  durationMs?: number;
-  costEstimateUsd?: number;
-  /** Whether the Claude API is there to try instead (the panel's offer). */
-  claudeAvailable?: boolean;
-} & (
-  | ({ task: "request"; request: string } & (
-      | EditCheck
-      | { status: "failed"; problem: string; note: string; warnings: string[] }
-    ))
-  | {
-      task: "uses";
-      status: "uses" | "failed";
-      answers: StepUsesAnswer[];
-      /** The steps whose suggestion differs from what the page shows now. */
-      offered: number[];
-      problem?: string;
-      warnings: string[];
-    }
-);
-
-/** An `edit` job's spec, as `kinds.ts` holds it. */
-export interface EditSpec {
-  kind: "edit";
-  slug: string;
-  task: "request" | "uses";
-  /** The request as typed (`task: "request"`). */
-  request?: string;
-  /** The form's values the model reads. */
-  recipe: EditValues;
-  /** `claude`: the Claude API was asked for; else the default. */
-  backend?: EditBackend;
-}
-
-/** Whether `result` is an `edit` job's (the `?edit=` link, the panel). */
-export function isEditResult(value: unknown): value is EditResult {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    typeof (value as EditResult).slug === "string" &&
-    ((value as EditResult).task === "request" ||
-      (value as EditResult).task === "uses")
-  );
 }
 
 /** The worst a Claude call can cost: its prompt, and a full answer. */

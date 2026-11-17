@@ -26,7 +26,7 @@ import type { FillMarks } from "recipe-website-common/components/Form/fillMarks"
 import {
   isEditResult,
   type EditResult,
-} from "recipe-editor/controller/llm/askEdit";
+} from "recipe-editor/controller/llm/editResult";
 import { UNSTORED_KEEP_MS } from "recipe-editor/controller/jobs/unstored";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
 import ImportProgress, {
