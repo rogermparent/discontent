@@ -398,18 +398,29 @@ const ABOUT_SECTIONS =
 const ABOUT_CHOICES =
   /\b(choices?|alternatives?|options?|versions?|ways?|methods?|variations?)\b/i;
 const ABOUT_USES = /\b(uses|used|using)\b/i;
-const ABOUT_REMOVING =
-  /\b(remove|removing|delete|deleting|drop|dropping|cut|shorten|condense|simplify|fewer|trim)\b/i;
+/**
+ * A request that removes lines or steps themselves ("remove step 2",
+ * "delete the last two ingredients", "shorten the steps") — not one that
+ * removes something *from* them ("remove the parentheses from the
+ * ingredients", review).
+ */
+const ABOUT_REMOVING_ITEMS =
+  /\b(?:remove|delete|drop|cut)\s+(?:(?:the|all|any|every)\s+)?(?:[\w-]+\s+){0,2}?(?:lines?|steps?|ingredients?|items?|headings?|sections?|groups?)\b|\b(?:shorten|condense|simplify|fewer|trim)\b/i;
+
+/** A request to empty a list ("clear the steps", "remove all ingredients"). */
+const ABOUT_CLEARING =
+  /\b(?:clear|empty)\b|\b(?:remove|delete)\s+(?:all|every)\b/i;
 
 /**
  * A list that comes back much shorter than it went (Di7, the 47i
  * measurement: qwen3:8b answered "merge steps 2 and 3" with 6 of 14 steps):
- * at least 3 items, and more than a third of it, gone — unless the request
- * asks to remove or shorten something.
+ * emptied — unless the request clears it — or at least 3 items and more
+ * than a third of it gone, unless the request removes lines or steps.
  */
 function shrinks(before: number, after: number, request: string): boolean {
+  if (before > 0 && after === 0) return !ABOUT_CLEARING.test(request);
   const lost = before - after;
-  return lost >= 3 && lost * 3 > before && !ABOUT_REMOVING.test(request);
+  return lost >= 3 && lost * 3 > before && !ABOUT_REMOVING_ITEMS.test(request);
 }
 
 function steps(entries: readonly InstructionEntry[]): Instruction[] {
@@ -435,16 +446,64 @@ function structure(values: Pick<EditValues, "ingredients" | "instructions">) {
       "instructions" in entry ? entry.choice : undefined,
     ),
   ].filter((label): label is string => !!label?.trim());
-  const uses = steps(values.instructions).flatMap((step) =>
-    Array.isArray(step.uses) ? step.uses : [],
-  );
-  return { headings, groups, choices, uses };
+  return { headings, groups, choices };
 }
 
 /** The first of `before` whose key no entry of `after` has. */
 function lost(before: readonly string[], after: readonly string[]) {
+  /* As many as before, in place: renamed ("For the 9-inch crust" → "For
+   * the 23 cm crust" under "convert to metric"), not dropped (review). */
+  if (before.length === after.length) return [];
   const kept = new Set(after.map(key));
   return before.filter((one) => !kept.has(key(one)));
+}
+
+/** "flour, egg": a stored list's names as one key, case and order aside. */
+function usesKey(list: readonly string[] | undefined): string | undefined {
+  return list === undefined ? undefined : list.map(key).sort().join("|");
+}
+
+/**
+ * Whether the steps' stored `uses` lists survive (Di7, review): with as
+ * many steps as before, step by step — the same list on each, `[]` and
+ * none told apart; with a split, a merge or a removal, every name a kept
+ * step stored is still stored somewhere (a removed step's go with it when
+ * the request removes steps), and no name is stored that was not before.
+ */
+function usesProblem(
+  before: readonly InstructionEntry[],
+  after: readonly InstructionEntry[],
+  request: string,
+): string | undefined {
+  if (ABOUT_USES.test(request)) return undefined;
+  const was = steps(before);
+  const now = steps(after);
+  if (was.length === now.length) {
+    const at = was.findIndex(
+      (step, index) => usesKey(step.uses) !== usesKey(now[index].uses),
+    );
+    if (at < 0) return undefined;
+    return Array.isArray(was[at].uses)
+      ? `it changes what step ${at + 1} uses (its stored “uses”), which the request did not ask about`
+      : `it gives step ${at + 1} a stored “uses” list, which the request did not ask for`;
+  }
+  const names = (list: readonly Instruction[]) =>
+    new Set(list.flatMap((step) => (step.uses ?? []).map(key)));
+  const stored = names(was);
+  const kept = names(now);
+  const invented = [...kept].find((name) => !stored.has(name));
+  if (invented) {
+    return `it adds “${invented}” to what a step uses (its stored “uses”), which the request did not ask for`;
+  }
+  if (now.length < was.length && ABOUT_REMOVING_ITEMS.test(request)) {
+    return undefined;
+  }
+  const dropped = was
+    .flatMap((step) => step.uses ?? [])
+    .find((name) => !kept.has(key(name)));
+  return dropped
+    ? `it drops “${dropped}” from what a step uses (its stored “uses”), which the request did not ask about`
+    : undefined;
 }
 
 /**
@@ -504,12 +563,7 @@ export function structureProblem(
   if (choice) {
     return `it drops the set of alternatives “${choice}”, which the request did not ask about`;
   }
-  const uses = ABOUT_USES.test(request);
-  const name = lost(was.uses, now.uses).find(() => !uses);
-  if (name) {
-    return `it drops “${name}” from what a step uses (its stored “uses”), which the request did not ask about`;
-  }
-  return undefined;
+  return usesProblem(before.instructions, after.instructions, request);
 }
 
 /**

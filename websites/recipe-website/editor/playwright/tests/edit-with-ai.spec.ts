@@ -110,6 +110,9 @@ async function axeClean(page: Page) {
   expect(results.violations).toEqual([]);
 }
 
+/* The row's hidden input posts the stored line, its amount marked up. */
+const FLOUR = '<Multiplyable baseNumber="2" /> cups flour';
+
 const ingredientInputs = (page: Page) =>
   page.locator('#recipe-form [name$="].ingredient"]');
 
@@ -155,7 +158,7 @@ test.describe("Edit with AI (47i)", () => {
     );
 
     /* In the form, marked: the values, the headings, the rail. */
-    await expect(ingredientInputs(page).first()).toHaveValue("2 cups flour");
+    await expect(ingredientInputs(page).first()).toHaveValue(FLOUR);
     await expect(page.locator("#recipe-section-ingredients")).toContainText(
       "edited",
     );
@@ -183,7 +186,7 @@ test.describe("Edit with AI (47i)", () => {
       "edited",
     );
     /* The remount kept the request's other change. */
-    await expect(ingredientInputs(page).first()).toHaveValue("2 cups flour");
+    await expect(ingredientInputs(page).first()).toHaveValue(FLOUR);
 
     /* Accept the ingredients: the mark goes, the value stays. */
     await box
@@ -223,7 +226,7 @@ test.describe("Edit with AI (47i)", () => {
 
     /* Reloaded: the saved values, and no marks. */
     await openEdit(page);
-    await expect(ingredientInputs(page).first()).toHaveValue("2 cups flour");
+    await expect(ingredientInputs(page).first()).toHaveValue(FLOUR);
     await expect(page.getByTestId("edit-changes")).toHaveCount(0);
   });
 

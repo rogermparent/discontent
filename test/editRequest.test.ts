@@ -308,7 +308,7 @@ describe("the answer's check (checkEditAnswer)", () => {
     );
     expect(plain).toMatchObject({
       status: "refused",
-      problem: expect.stringContaining("“gochujang”"),
+      problem: expect.stringContaining("what step 2 uses"),
     });
     expect(
       checkEditAnswer(
@@ -379,6 +379,102 @@ describe("the answer's check (checkEditAnswer)", () => {
     ).toBe("changed");
   });
 
+  it("reads stored uses step by step (review): [] kept, none not invented, a removed step's names go", () => {
+    const recipe: Recipe = {
+      name: "Cake",
+      date: 1,
+      ingredients: [{ ingredient: "2 cups flour" }, { ingredient: "1 egg" }],
+      instructions: [
+        { text: "mix the flour.", uses: ["flour"] },
+        { text: "add the egg.", uses: ["egg"] },
+        { text: "bake.", uses: [] },
+      ],
+    };
+    const ask = (instructions: unknown[], request: string) =>
+      checkEditAnswer({ change: { instructions } }, values(recipe), request);
+    /* `[]` dropped from step 3. */
+    expect(
+      ask(
+        [
+          { text: "Mix the flour.", uses: ["flour"] },
+          { text: "Add the egg.", uses: ["egg"] },
+          "Bake.",
+        ],
+        "Fix the capitalisation in the steps",
+      ),
+    ).toMatchObject({
+      status: "refused",
+      problem: expect.stringContaining("step 3"),
+    });
+    /* A list added where there was none. */
+    expect(
+      ask(
+        [
+          { text: "mix the flour.", uses: ["flour"] },
+          { text: "add the egg.", uses: ["egg"] },
+          { text: "bake.", uses: [] },
+          { text: "cool.", uses: ["flour"] },
+        ],
+        "Add a step to cool it",
+      ).status,
+    ).toBe("changed");
+    expect(
+      ask(
+        [
+          { text: "Mix the flour.", uses: ["flour", "egg"] },
+          { text: "Add the egg.", uses: ["egg"] },
+          { text: "Bake.", uses: [] },
+        ],
+        "Fix the capitalisation in the steps",
+      ).status,
+    ).toBe("refused");
+    /* "Remove step 2": its names go with it. */
+    expect(
+      ask(
+        [
+          { text: "mix the flour.", uses: ["flour"] },
+          { text: "bake.", uses: [] },
+        ],
+        "Remove step 2",
+      ).status,
+    ).toBe("changed");
+    /* A merge keeps both names. */
+    expect(
+      ask(
+        [
+          { text: "mix the flour, add the egg.", uses: ["flour", "egg"] },
+          { text: "bake.", uses: [] },
+        ],
+        "Merge steps 1 and 2",
+      ).status,
+    ).toBe("changed");
+  });
+
+  it("a heading renamed in place is a rename, not a dropped section (review)", () => {
+    const recipe: Recipe = {
+      name: "Pie",
+      date: 1,
+      ingredients: [
+        { ingredient: "For the 9-inch crust", type: "heading" },
+        { ingredient: "2 cups flour" },
+      ],
+    };
+    expect(
+      checkEditAnswer(
+        {
+          change: {
+            ingredients: [
+              { ingredient: "For the 23 cm crust", type: "heading" },
+              "250 g flour",
+            ],
+          },
+        },
+        values(recipe),
+        "Convert to metric",
+      ).status,
+    ).toBe("changed");
+  });
+
   it("refuses a change that drops a set of alternatives", () => {
     const recipe: Recipe = {
       name: "Jerk",
@@ -424,6 +520,33 @@ describe("the answer's check (checkEditAnswer)", () => {
     });
     expect(
       checkEditAnswer(two, values(recipe), "Remove the steps after c").status,
+    ).toBe("changed");
+    /* Removing something *from* the lines is not removing lines (review). */
+    expect(
+      checkEditAnswer(
+        { change: { ingredients: ["2 pounds chicken wings"] } },
+        values(),
+        "Remove the parentheses from the ingredients",
+      ),
+    ).toMatchObject({
+      status: "refused",
+      problem:
+        "it leaves 1 of the 4 ingredient lines, which the request did not ask for",
+    });
+    /* Emptied, unless asked to clear it. */
+    expect(
+      checkEditAnswer(
+        { change: { instructions: [] } },
+        values(recipe),
+        "Fix the capitalisation",
+      ).status,
+    ).toBe("refused");
+    expect(
+      checkEditAnswer(
+        { change: { instructions: [] } },
+        values(recipe),
+        "Clear the steps",
+      ).status,
     ).toBe("changed");
     /* One step fewer is a merge, not a loss. */
     expect(
@@ -766,6 +889,8 @@ describe("the edit job", () => {
       tools?: unknown;
     };
     expect(body.format).toEqual(EDIT_JSON_SCHEMA);
+    /* The local model thinks first by default (the measurement). */
+    expect((body as { think?: boolean }).think).toBe(true);
     expect(body.tools).toBeUndefined();
     expect(body.messages[1].content).toMatch(/Request: Rename it to Wings$/);
     expect(body.messages[1].content).toContain(

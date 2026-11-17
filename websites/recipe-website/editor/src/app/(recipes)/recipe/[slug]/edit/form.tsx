@@ -10,6 +10,7 @@ import {
   useActionState,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -48,6 +49,7 @@ import FillFromSource, { type FillOutcome } from "./FillFromSource";
 import EditWithAi, {
   type EditApplied,
   type EditModelsShown,
+  type EditUndone,
 } from "./EditWithAi";
 import {
   acceptEdit,
@@ -200,9 +202,6 @@ export default function EditRecipeForm({
   const [applied, setApplied] = useState<AppliedFill | null>(null);
   /* The fill or request the form holds now, for the callbacks below. */
   const appliedNow = useRef<AppliedFill | null>(null);
-  useEffect(() => {
-    appliedNow.current = applied;
-  }, [applied]);
   /* Remounts the form: a fill, then an Undo, each a fresh instance. */
   const [undoKey, setUndoKey] = useState<string>();
   const remounts = useRef(0);
@@ -223,6 +222,11 @@ export default function EditRecipeForm({
   const shown = passed ? initialState : state;
   /* After a failed save the form holds what was sent: no fill marks then. */
   const fill = failed ? undefined : applied;
+  /* 47i review: what the callbacks build on is what the form shows — no
+   * marks after a failed save — and is current before any event runs. */
+  useLayoutEffect(() => {
+    appliedNow.current = fill ?? null;
+  }, [fill]);
   const effectiveRecipe = failed
     ? { ...recipe, ...failed.formData }
     : (fill?.recipe ?? recipe);
@@ -439,17 +443,31 @@ export default function EditRecipeForm({
   }, []);
 
   /* 47i: Undo puts fields back to before the requests changed them. */
+  /* A field edited by hand since the request is the person's: its mark
+   * goes, its value stays (47i review) — Undo never wipes typing. */
   const onUndoEdit = useCallback(
-    (fields: readonly EditField[]) => {
+    (fields: readonly EditField[]): EditUndone => {
       const reading = readForm.current?.();
       const held = appliedNow.current;
-      if (!reading || !held) return;
-      const undone = undoEdit(held.marks, editValuesOf(reading.values), fields);
+      if (!reading || !held?.marks.edited) return { undone: [], kept: [] };
+      const current = editValuesOf(reading.values);
+      const after = held.marks.edited.after;
+      const kept = fields.filter(
+        (field) => !sameEditValue(current[field], after[field]),
+      );
+      const undone = undoEdit(held.marks, current, fields);
+      for (const field of kept) {
+        (undone.values as Record<string, unknown>)[field] = current[field];
+      }
       remountWith(
         reading,
         { ...reading.values, ...undone.values },
         undone.marks,
       );
+      return {
+        undone: fields.filter((field) => !kept.includes(field)),
+        kept,
+      };
     },
     [remountWith],
   );
@@ -500,6 +518,7 @@ export default function EditRecipeForm({
                   busy={active.busy}
                   onStart={active.startedFill}
                   onRunning={active.fillRunning}
+                  nested={active.nested}
                 />
               )
             : undefined

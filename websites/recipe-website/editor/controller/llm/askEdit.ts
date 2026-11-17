@@ -62,7 +62,12 @@ export const CLAUDE_MODEL_ENV = "RECIPE_LLM_CLAUDE_MODEL";
 
 export const EDIT_SCHEMA_NAME = "recipe_edit";
 
-/** `1`: a local model thinks before it answers a request (Ollama `think`). */
+/**
+ * A local model thinks before it answers a request (Ollama `think`) unless
+ * this says 0 / false / off / no: the 47i measurement had qwen3:8b right on
+ * 5 of 10 requests thinking, against 2 of 10 not, and nothing wrong reached
+ * the form — at about 20 s a request instead of 7.
+ */
 export const EDIT_THINK_ENV = "RECIPE_LLM_EDIT_THINK";
 
 /** Room for a local model's thinking, on top of the answer. */
@@ -223,7 +228,7 @@ export async function runEdit(
   const who = readerLabel(config);
   const think =
     config.api === "ollama" &&
-    /^(1|true|on|yes)$/i.test(process.env[EDIT_THINK_ENV]?.trim() ?? "");
+    !/^(0|false|off|no)$/i.test(process.env[EDIT_THINK_ENV]?.trim() ?? "");
   const user = editUserPrompt(spec.recipe, request);
   const promptTokens =
     estimateTokens(EDIT_SYSTEM_PROMPT) + estimateTokens(user);

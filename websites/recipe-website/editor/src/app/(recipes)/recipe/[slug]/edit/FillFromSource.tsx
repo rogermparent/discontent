@@ -70,6 +70,7 @@ export default function FillFromSource({
   busy = false,
   onStart,
   onRunning,
+  nested = false,
 }: {
   slug: string;
   /** The link the fill reads: the source, or the video. */
@@ -102,7 +103,10 @@ export default function FillFromSource({
   onStart?(): void;
   /** 47i: whether a fill is running, for the box's other actions. */
   onRunning?(running: boolean): void;
+  /** 47i: inside "Edit with AI" (an h3), or alone with no model (an h2). */
+  nested?: boolean;
 }) {
+  const Heading = nested ? "h3" : "h2";
   const titleId = useId();
   const [job, setJob] = useState<string | undefined>(initialJob);
   const [settled, setSettled] = useState<string | undefined>();
@@ -309,12 +313,12 @@ export default function FillFromSource({
       ) : (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <div className="min-w-0 flex-1 basis-64">
-            <h3
+            <Heading
               id={titleId}
               className="font-display text-base leading-6 font-semibold tracking-[-0.01em]"
             >
               Fill gaps from the source
-            </h3>
+            </Heading>
             <p className="text-sm text-muted-foreground">
               Reads{" "}
               <a

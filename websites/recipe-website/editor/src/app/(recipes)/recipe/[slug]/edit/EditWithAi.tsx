@@ -49,6 +49,12 @@ export interface EditApplied {
   offered?: number[];
 }
 
+/** What Undo did: the fields put back, and those kept (typed over since). */
+export interface EditUndone {
+  undone: EditField[];
+  kept: EditField[];
+}
+
 /** The examples beside the field (Roger's own, 2026-11-17, first). */
 export const EDIT_EXAMPLES = [
   "Remove the parentheses from the ingredients",
@@ -64,6 +70,8 @@ export interface FillSlot {
   busy: boolean;
   startedFill(): void;
   fillRunning(running: boolean): void;
+  /** Inside the box (its heading an h3), or alone (an h2). */
+  nested: boolean;
 }
 
 /** The latest request's outcome, for the panel's words. */
@@ -118,7 +126,7 @@ export default function EditWithAi({
   onEdit(result: EditResult, sent: EditValues): EditApplied;
   onUses(result: EditResult, sent: EditValues): EditApplied;
   onAccept(field: EditField): void;
-  onUndo(fields: readonly EditField[]): void;
+  onUndo(fields: readonly EditField[]): EditUndone;
   /** The fill strip, when the recipe has a source (45b). */
   fill?: (slot: FillSlot) => ReactNode;
 }) {
@@ -289,6 +297,10 @@ export default function EditWithAi({
         started.stored === false ? { job: started.job } : undefined,
       );
       setJob(started.job);
+    } catch (error) {
+      setMessage(
+        `The request did not start: ${error instanceof Error ? error.message : String(error)}`,
+      );
     } finally {
       setStarting(false);
     }
@@ -316,9 +328,22 @@ export default function EditWithAi({
     );
   };
   const undo = (fields: readonly EditField[]) => {
-    onUndo(fields);
+    const { undone, kept } = onUndo(fields);
+    const are = (list: readonly EditField[]) =>
+      list.length === 1 && !EDIT_FIELD_LABELS[list[0]].endsWith("s")
+        ? "is"
+        : "are";
     setSaid(
-      `Undone: the ${editFieldList(fields)} ${fields.length === 1 && !EDIT_FIELD_LABELS[fields[0]].endsWith("s") ? "is" : "are"} back to what ${fields.length === 1 ? "it" : "they"} held before the request.`,
+      [
+        undone.length
+          ? `Undone: the ${editFieldList(undone)} ${are(undone)} back to what ${undone.length === 1 ? "it" : "they"} held before the request.`
+          : "",
+        kept.length
+          ? `The ${editFieldList(kept)} ${are(kept)} kept as you typed ${kept.length === 1 ? "it" : "them"} since; only the mark is gone.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
     );
   };
 
@@ -331,6 +356,7 @@ export default function EditWithAi({
           busy: false,
           startedFill: () => undefined,
           fillRunning: setFillRunning,
+          nested: false,
         })
       : null;
   }
@@ -458,6 +484,7 @@ export default function EditWithAi({
           setSaid("");
         },
         fillRunning: setFillRunning,
+        nested: true,
       })}
 
       {latest === "edit" && job ? (
@@ -484,7 +511,11 @@ export default function EditWithAi({
         </p>
       ) : null}
 
-      {result ? <ResultLine result={result} applied={last?.applied} /> : null}
+      {/* Mounted before the result arrives, so its words are announced
+          (47i review): the summary, a refusal or a failure alike. */}
+      <div role="status" className="empty:hidden">
+        {result ? <ResultLine result={result} applied={last?.applied} /> : null}
+      </div>
 
       {tryClaude ? (
         <div>
@@ -626,7 +657,6 @@ function ResultLine({
   return (
     <div className="flex flex-col gap-1 text-sm">
       <p
-        role={alert ? "alert" : "status"}
         data-testid="edit-summary"
         className={cn(alert && "border-l-2 border-destructive pl-2")}
       >

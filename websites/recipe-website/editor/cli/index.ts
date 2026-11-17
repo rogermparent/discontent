@@ -285,6 +285,9 @@ Environment:
                        The local model \`revise\` (and the edit page's "Edit
                        with AI") asks, on RECIPE_LLM_URL's server (default
                        RECIPE_LLM_MODEL); read from editor/.env too
+  RECIPE_LLM_EDIT_THINK
+                       0 to have that local model answer without thinking
+                       first (default: it thinks — slower, measured better)
   RECIPE_LLM_CLAUDE_API_KEY
                        The Claude API's key beside a local model: \`revise
                        --claude\` and the edit page's "Use Claude" (never
