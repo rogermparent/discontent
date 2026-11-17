@@ -6,7 +6,10 @@
  * **Dismiss**; once accepted the step's chips are the suggestion's and the
  * mark stays, with **Undo**, until Save. Nothing is applied by itself and
  * nothing is stored but an accepted list (memory `ai-changes-need-approval`,
- * as 45e2's suggested choices).
+ * as 45e2's suggested choices). "Accepted" is what the person pressed in
+ * this form, kept in state — never read off the step's list, so a list a
+ * person saved is never shown as the model's, and Undo puts back exactly
+ * what the step had.
  *
  * A suggestion is for the step's text as the model read it, and for the
  * ingredient lines its names still find: edit the step and it goes. It is
@@ -32,7 +35,11 @@ export interface UsesSuggestions {
   model: string;
   /** `entry:step` → the suggestion in play there. */
   at: ReadonlyMap<string, StepSuggestion>;
+  /** Note that the step's suggestion is being accepted, over `previous`. */
+  accept: (entry: number, step: number, previous: string[] | undefined) => void;
   dismiss: (entry: number, step: number) => void;
+  /** Forget the acceptance; answers what the step stored before it. */
+  undo: (entry: number, step: number) => string[] | undefined;
 }
 
 /** The dashed tape a suggestion wears until Save (45b's estimated tape). */

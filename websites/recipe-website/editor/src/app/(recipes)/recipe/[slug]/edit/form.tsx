@@ -268,9 +268,10 @@ export default function EditRecipeForm({
         recipe: {
           ...merged,
           ...(suggestedChoices.length ? { suggestedChoices } : {}),
-          /* Every fitting answer, not only the ones offered now: one
-           * comes into play when its step's list changes (47f Df5), or
-           * when a stored list goes "Back to automatic". */
+          /* Every fitting answer for a step that stores no list now, not
+           * only the ones offered: one comes into play when a list before
+           * it changes its step's guess (47f Df5). A step that stores a
+           * list gets none (`usesOffers`): that list is the person's. */
           ...(uses?.steps.length && result.uses
             ? {
                 suggestedUses: { model: result.uses.model, steps: uses.steps },

@@ -92,8 +92,10 @@ import {
   type ResolvedStepUses,
 } from "../../../util/stepIngredients";
 import {
+  numberList,
   sameLines,
   stepKey,
+  usesChanges,
   type SuggestedUses,
 } from "../../../util/usesSuggestions";
 import { StepUsesEditor } from "./StepUses";
@@ -212,6 +214,13 @@ function StepNotes({
                   labels={info.labels}
                   onAccept={() => {
                     focusNext.current = ["data-uses-undo", "data-uses-add"];
+                    suggestions.accept(
+                      entry,
+                      step,
+                      Array.isArray(field.state.value)
+                        ? [...(field.state.value as string[])]
+                        : undefined,
+                    );
                     field.handleChange([...suggestion.uses] as never);
                   }}
                   onDismiss={() => {
@@ -220,7 +229,8 @@ function StepNotes({
                   }}
                   onUndo={() => {
                     focusNext.current = ["data-uses-accept", "data-uses-add"];
-                    field.handleChange(undefined as never);
+                    /* Exactly what the step had before Accept. */
+                    field.handleChange(suggestions.undo(entry, step) as never);
                   }}
                 />
               ) : null}
@@ -707,12 +717,20 @@ export function InstructionsListInput({
   /*
    * 47g: where each of the model's suggestions stands. One is in play while
    * its step still has the text the model read and its names still find
-   * lines: accepted when the step stores exactly its names; offered when the
-   * step stores nothing, shows something else, and it was not dismissed.
+   * lines. Offered: the step stores nothing, shows something else, and the
+   * offer was not dismissed. Accepted: the person pressed Accept (or Accept
+   * all) in this form — kept here, with what the step stored before — and
+   * the step still stores exactly those names. A stored list nobody accepted
+   * here is the person's: no mark, no Undo.
    */
   const [dismissedUses, setDismissedUses] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const [acceptedUses, setAcceptedUses] = useState<
+    ReadonlyMap<string, string[] | undefined>
+  >(() => new Map());
+  /* What the last press did, for a screen reader (the buttons move). */
+  const [usesStatus, setUsesStatus] = useState("");
   const usesSuggestions = useMemo<UsesSuggestions | null>(() => {
     if (!suggestedUses?.steps.length) return null;
     const at = new Map<string, StepSuggestion>();
@@ -739,6 +757,7 @@ export function InstructionsListInput({
       const found = { uses: suggestion.uses, lines: lines as number[] };
       if (Array.isArray(step.uses)) {
         if (
+          acceptedUses.has(`${key}:${text}`) &&
           step.uses.length === suggestion.uses.length &&
           step.uses.every((name, i) => name === suggestion.uses[i])
         ) {
@@ -757,20 +776,59 @@ export function InstructionsListInput({
       }
       at.set(key, { status: "offered", ...found });
     }
+    const sessionKey = (entry: number, step: number) => {
+      const one = suggestedUses.steps.find(
+        (other) => other.entry === entry && other.step === step,
+      );
+      return one ? `${entry}:${step}:${stepKey(one.text)}` : undefined;
+    };
+    const named = (entry: number, step: number) => {
+      const number = baseInfo.numbers[entry]?.[step];
+      return number === undefined ? "this step" : `step ${number}`;
+    };
     return {
       model: suggestedUses.model,
       at,
-      dismiss: (entry, step) => {
-        const one = suggestedUses.steps.find(
-          (other) => other.entry === entry && other.step === step,
-        );
-        if (!one) return;
-        setDismissedUses(
-          (old) => new Set([...old, `${entry}:${step}:${stepKey(one.text)}`]),
+      accept: (entry, step, previous) => {
+        const key = sessionKey(entry, step);
+        if (!key) return;
+        setAcceptedUses((old) => new Map(old).set(key, previous));
+        setUsesStatus(
+          `Accepted the suggested ingredients for ${named(entry, step)}. Not saved yet.`,
         );
       },
+      dismiss: (entry, step) => {
+        const key = sessionKey(entry, step);
+        if (!key) return;
+        setDismissedUses((old) => new Set([...old, key]));
+        setUsesStatus(
+          `Dismissed the suggested ingredients for ${named(entry, step)}.`,
+        );
+      },
+      undo: (entry, step) => {
+        const key = sessionKey(entry, step);
+        const previous = key ? acceptedUses.get(key) : undefined;
+        if (key) {
+          setAcceptedUses((old) => {
+            const next = new Map(old);
+            next.delete(key);
+            return next;
+          });
+        }
+        setUsesStatus(
+          `Undone: ${named(entry, step)} is back to what it had before the suggestion.`,
+        );
+        return previous;
+      },
     };
-  }, [suggestedUses, instructions, ingredients, baseInfo, dismissedUses]);
+  }, [
+    suggestedUses,
+    instructions,
+    ingredients,
+    baseInfo,
+    dismissedUses,
+    acceptedUses,
+  ]);
   const info = useMemo<StepInfo>(
     () => ({ ...baseInfo, suggestions: usesSuggestions }),
     [baseInfo, usesSuggestions],
@@ -779,16 +837,11 @@ export function InstructionsListInput({
     () =>
       [...(usesSuggestions?.at ?? [])]
         .filter(([, suggestion]) => suggestion.status === "offered")
-        .map(([key, suggestion]) => {
+        .map(([key]) => {
           const [entry, step] = key.split(":").map(Number);
-          return {
-            entry,
-            step,
-            number: baseInfo.numbers[entry]?.[step] ?? 0,
-            uses: suggestion.uses,
-          };
+          return baseInfo.numbers[entry]?.[step] ?? 0;
         })
-        .sort((a, b) => a.number - b.number),
+        .sort((a, b) => a - b),
     [usesSuggestions, baseInfo],
   );
   const unnamed = useMemo(
@@ -870,6 +923,39 @@ export function InstructionsListInput({
 
   const setInstructions = (next: InstructionEntry[]) =>
     form.setFieldValue("instructions", next);
+  /**
+   * Accept all (47g Dg5): the same forward pass as the CLI's patch
+   * (`usesChanges`) over every suggestion not dismissed, so the form stores
+   * the fewest lists that show what the model said — a step whose offer the
+   * lists before it already settle stores nothing.
+   */
+  const acceptAllUses = () => {
+    if (!suggestedUses) return;
+    const pool = suggestedUses.steps
+      .filter(
+        (one) =>
+          !dismissedUses.has(`${one.entry}:${one.step}:${stepKey(one.text)}`),
+      )
+      .map((one) => ({ ...one, number: 0, lines: [] }));
+    const changes = usesChanges(ingredients, instructions, pool);
+    if (changes.changed.length === 0) return;
+    setAcceptedUses((old) => {
+      const next = new Map(old);
+      for (const answer of changes.changed) {
+        next.set(
+          `${answer.entry}:${answer.step}:${stepKey(answer.text)}`,
+          undefined,
+        );
+      }
+      return next;
+    });
+    setInstructions(changes.instructions);
+    const numbers = changes.changed.map((answer) => answer.number);
+    setUsesStatus(
+      `Accepted the suggested ingredients for step${numbers.length === 1 ? "" : "s"} ${numberList(numbers)}. Not saved yet.`,
+    );
+    requestFocus("uses-undo", "add-step", "start");
+  };
   const setIngredients = (next: Ingredient[]) => {
     const old = form.state.values.ingredients;
     if (next.length === old.length && next.every((line, i) => line === old[i]))
@@ -1199,36 +1285,20 @@ export function InstructionsListInput({
       <FieldWrapper label={label} id={id}>
         <div ref={container}>
           {usesSuggestions ? (
-            <UsesSuggestionsSummary
-              model={usesSuggestions.model}
-              offered={offeredUses.map((offer) => offer.number)}
-              onAcceptAll={() => {
-                /* Every offer at once; each step's mark then says
-                 * "Accepted", with its own Undo. */
-                const at = new Map(
-                  offeredUses.map((offer) => [
-                    `${offer.entry}:${offer.step}`,
-                    offer.uses,
-                  ]),
-                );
-                setInstructions(
-                  instructions.map((entry, i) => {
-                    if ("instructions" in entry) {
-                      return {
-                        ...entry,
-                        instructions: entry.instructions.map((step, j) => {
-                          const uses = at.get(`${i}:${j}`);
-                          return uses ? { ...step, uses: [...uses] } : step;
-                        }),
-                      };
-                    }
-                    const uses = at.get(`${i}:0`);
-                    return uses ? { ...entry, uses: [...uses] } : entry;
-                  }),
-                );
-                requestFocus("uses-undo", "add-step", "start");
-              }}
-            />
+            <>
+              <UsesSuggestionsSummary
+                model={usesSuggestions.model}
+                offered={offeredUses}
+                onAcceptAll={acceptAllUses}
+              />
+              <p
+                role="status"
+                className="sr-only"
+                data-testid="step-uses-status"
+              >
+                {usesStatus}
+              </p>
+            </>
           ) : null}
           <form.Field name="instructions" mode="array">
             {(arrayField) => {
