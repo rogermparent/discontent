@@ -83,10 +83,16 @@ export const fillCommand: CommandDef<FillResult> = {
         : undefined,
       ...suggested.map(
         (answer) =>
-          `  step ${answer.number}: ${answer.uses.length > 0 ? answer.uses.join(", ") : "nothing"}`,
+          `  step ${answer.number}: ${answer.uses.length > 0 ? answer.uses.join(", ") : "nothing"}${uses?.replaced?.includes(answer.number) ? " (replaces its stored list)" : ""}`,
       ),
       uses && suggested.length === 0
         ? `uses: ${uses.model} read ${uses.answers.length} step${uses.answers.length === 1 ? "" : "s"} and suggests no change`
+        : undefined,
+      result.usesNotAsked
+        ? `uses: ${result.usesNotAsked} was not asked what each step uses — only the Claude API is by default; --uses (or RECIPE_LLM_USES=1) asks a local model`
+        : undefined,
+      suggested.length > 0
+        ? "the patch's instructions are the whole list of steps as they were read: write it before editing the steps, or the edits are undone"
         : undefined,
       nothing ? "nothing new: every field the source has is filled" : undefined,
       formatLlm(result.llm),

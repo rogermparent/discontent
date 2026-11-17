@@ -436,16 +436,20 @@ export interface SuggestedUses {
 /**
  * What the form is handed when a fill lands (45b's Fb2, for the steps): the
  * answers that fit what the form holds now, as suggestions, and the numbers
- * of the steps where one differs from what the step shows — none of them a
- * step with a stored list, which is the person's.
+ * of the steps where one differs from what the step shows. A step that
+ * stores a list when the fill lands is the person's (or a suggestion they
+ * saved before): it gets no suggestion at all, so nothing a person stored
+ * can be shown as the model's.
  */
 export function usesOffers(
   ingredients: readonly Ingredient[],
   instructions: readonly InstructionEntry[],
   answers: readonly StepUsesAnswer[],
 ): { steps: SuggestedStepUses[]; offered: number[] } {
-  const fitting = fittingAnswers(ingredients, instructions, answers);
   const shown = resolveStepUses(ingredients, instructions);
+  const fitting = fittingAnswers(ingredients, instructions, answers).filter(
+    (answer) => !shown.stored[answer.entry]?.[answer.step],
+  );
   return {
     steps: fitting.map(({ entry, step, text, uses }) => ({
       entry,
@@ -456,7 +460,6 @@ export function usesOffers(
     offered: fitting
       .filter(
         (answer) =>
-          !shown.stored[answer.entry]?.[answer.step] &&
           !sameLines(shown.lines[answer.entry]?.[answer.step], answer.lines),
       )
       .map((answer) => answer.number),

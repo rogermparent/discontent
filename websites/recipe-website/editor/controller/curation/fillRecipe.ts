@@ -77,6 +77,11 @@ export interface FillUses {
   answers: StepUsesAnswer[];
   /** The numbers of the steps the patch gives a `uses`, in reading order. */
   steps: number[];
+  /**
+   * Those of `steps` whose stored list the patch replaces (`usesAll`,
+   * `--all-uses`): `recipes fill` marks them so. Absent when none.
+   */
+  replaced?: number[];
 }
 
 /** The estimate a fill made (F4). */
@@ -109,6 +114,13 @@ export interface FillResult {
   estimated?: FillEstimate;
   /** The model's reading of what each step uses, when it gave one (47g). */
   uses?: FillUses;
+  /**
+   * The local model that was not asked what each step uses (47g Dg2), by
+   * its label ("local model qwen3:8b"): `recipes fill` says so and how to
+   * ask it. Absent when a model was asked, or there was none, or nothing to
+   * read.
+   */
+  usesNotAsked?: string;
   /**
    * The same fill as a patch for `recipes update` (`RecipePatchSchema`):
    * plain ingredient lines, the picture as `imageImportUrl`.
@@ -175,8 +187,9 @@ export function fillPatch(
 /**
  * Steps as a write takes them (`InstructionInputSchema`), every field kept —
  * a step's `uses`, a group's `choice`, yield and times — where `toDraft`
- * keeps the name and the text only. A group with no name is flattened, as
- * `toDraft` does: the schema's groups need one.
+ * keeps the name and the text only. A group stays a group whatever its
+ * name: the schema takes an empty one, and a stored recipe's shape is not
+ * this patch's to change (`toDraft` flattens an import's unnamed group).
  */
 export function patchInstructions(
   instructions: readonly InstructionEntry[],
@@ -191,10 +204,9 @@ export function patchInstructions(
   return instructions.flatMap(
     (entry): NonNullable<RecipePatch["instructions"]> => {
       if (!("instructions" in entry)) return [step(entry)];
-      if (!entry.name) return entry.instructions.map(step);
       return [
         {
-          name: entry.name,
+          name: entry.name ?? "",
           instructions: entry.instructions.map(object),
           ...(entry.choice ? { choice: entry.choice } : {}),
           ...(entry.recipeYield ? { recipeYield: entry.recipeYield } : {}),
@@ -205,6 +217,90 @@ export function patchInstructions(
       ];
     },
   );
+}
+
+/** What `fillUses` answers: the reading, its patch, and what to say. */
+export interface FillUsesResult {
+  uses?: FillUses;
+  /** `instructions` with the new lists, when any step changes. */
+  patch: Pick<RecipePatch, "instructions">;
+  warnings: string[];
+  notAsked?: string;
+}
+
+type SuggestUses = (typeof import("../llm/suggestUses"))["suggestUses"];
+
+/**
+ * The fill's uses part (47g), whole: the model's reading, what it changes
+ * and that as a patch. Nothing in it can fail the fill — a throw anywhere
+ * (the call, the settling, the patch) is a warning, and the source's fill
+ * and the estimate stand. Only a cancel is rethrown.
+ */
+export async function fillUses(
+  recipe: Partial<ImportedRecipe>,
+  {
+    force = false,
+    usesAll = false,
+    job: run,
+    suggest,
+  }: {
+    /** Ask whatever model is configured (`--uses`). */
+    force?: boolean;
+    usesAll?: boolean;
+    job?: JobRun;
+    /** `suggestUses`, or a stand-in for it in a test. */
+    suggest?: SuggestUses;
+  } = {},
+): Promise<FillUsesResult> {
+  const job = jobContext(run);
+  const warnings: string[] = [];
+  try {
+    const ask = suggest ?? (await import("../llm/suggestUses")).suggestUses;
+    const read = await ask(recipe, { job, force });
+    warnings.push(...read.warnings);
+    if (!read.model || read.answers.length === 0) {
+      return {
+        patch: {},
+        warnings,
+        ...(read.notAsked ? { notAsked: read.notAsked } : {}),
+      };
+    }
+    const changes = usesChanges(
+      recipe.ingredients ?? [],
+      recipe.instructions ?? [],
+      read.answers,
+      { all: usesAll },
+    );
+    const instructions = recipe.instructions ?? [];
+    const replaced = changes.changed
+      .filter((answer) => {
+        const at = instructions[answer.entry];
+        const step =
+          at && "instructions" in at ? at.instructions?.[answer.step] : at;
+        return Array.isArray(step?.uses);
+      })
+      .map((answer) => answer.number);
+    return {
+      uses: {
+        model: read.model,
+        answers: read.answers,
+        steps: changes.changed.map((answer) => answer.number),
+        ...(replaced.length > 0 ? { replaced } : {}),
+      },
+      patch:
+        changes.changed.length > 0
+          ? { instructions: patchInstructions(changes.instructions) }
+          : {},
+      warnings,
+    };
+  } catch (error) {
+    if (job.signal?.aborted) throw error;
+    const why = error instanceof Error ? error.message : String(error);
+    return {
+      patch: {},
+      warnings: [...warnings, `What each step uses was not suggested: ${why}.`],
+    };
+  }
 }
 
 /**
@@ -280,35 +376,21 @@ export async function fillRecipe(
 
   /* 47g: what each step brings in, read by the model — over the recipe as
    * filled, so steps the source just gave are read too. */
-  let uses: FillUses | undefined;
-  let usesPatch: Pick<RecipePatch, "instructions"> = {};
-  if (askUses !== false) {
-    const { suggestUses } = await import("../llm/suggestUses");
-    const read = await suggestUses(recipe, { job, force: askUses === true });
-    warnings.push(...read.warnings);
-    if (read.model && read.answers.length > 0) {
-      const changes = usesChanges(
-        recipe.ingredients ?? [],
-        recipe.instructions ?? [],
-        read.answers,
-        { all: usesAll },
-      );
-      uses = {
-        model: read.model,
-        answers: read.answers,
-        steps: changes.changed.map((answer) => answer.number),
-      };
-      if (changes.changed.length > 0) {
-        usesPatch = { instructions: patchInstructions(changes.instructions) };
-      }
-      log.info(
-        "fill",
-        changes.changed.length > 0
-          ? `uses suggested for step${changes.changed.length === 1 ? "" : "s"} ${uses.steps.join(", ")}`
-          : "the model's reading of what each step uses is what the page shows",
-        { uses: uses.steps },
-      );
-    }
+  const read =
+    askUses === false
+      ? undefined
+      : await fillUses(recipe, { force: askUses === true, usesAll, job });
+  warnings.push(...(read?.warnings ?? []));
+  const uses = read?.uses;
+  const usesPatch = read?.patch ?? {};
+  if (uses) {
+    log.info(
+      "fill",
+      uses.steps.length > 0
+        ? `uses suggested for step${uses.steps.length === 1 ? "" : "s"} ${uses.steps.join(", ")}`
+        : "the model's reading of what each step uses is what the page shows",
+      { uses: uses.steps },
+    );
   }
 
   return {
@@ -318,6 +400,7 @@ export async function fillRecipe(
     filled,
     ...(estimated ? { estimated } : {}),
     ...(uses ? { uses } : {}),
+    ...(read?.notAsked ? { usesNotAsked: read.notAsked } : {}),
     patch: {
       ...fillPatch(recipe, [...filled, ...(estimated?.fields ?? [])]),
       ...usesPatch,

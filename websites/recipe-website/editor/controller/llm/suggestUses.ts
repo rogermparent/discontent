@@ -137,6 +137,11 @@ export interface SuggestUsesResult {
   model?: string;
   /** Why there is nothing, or what was dropped. */
   warnings: string[];
+  /**
+   * The local model that was there and was not asked (Dg2), by its label:
+   * the CLI says so, and how to ask it. Not a warning — the form is silent.
+   */
+  notAsked?: string;
   /** The call's numbers, when one was made. */
   durationMs?: number;
   promptTokens?: number;
@@ -158,14 +163,37 @@ export interface SuggestUsesOptions {
  * Ask the model once what each step of `recipe` brings in. Nothing is asked
  * — and nothing warned — when the recipe has no ingredient lines or no
  * steps with text, when no model is configured, or when the model is a local
- * one nobody opted in (`usesModelAsked`, `force`).
+ * one nobody opted in (`usesModelAsked`, `force`; `notAsked` names it).
+ *
+ * It never throws but for a cancel: whatever goes wrong — reading the
+ * recipe's lines, the call, the check — is no suggestion and a warning, so
+ * the fill it is part of keeps what the source and the estimate gave.
  */
 export async function suggestUses(
-  recipe: {
-    name?: string;
-    ingredients?: readonly Ingredient[];
-    instructions?: readonly InstructionEntry[];
-  },
+  recipe: UsesRecipe,
+  options: SuggestUsesOptions = {},
+): Promise<SuggestUsesResult> {
+  try {
+    return await readUses(recipe, options);
+  } catch (error) {
+    const signal = options.signal ?? jobContext(options.job).signal;
+    if (signal?.aborted) throw error;
+    const why = error instanceof Error ? error.message : String(error);
+    return {
+      answers: [],
+      warnings: [`What each step uses was not suggested: ${why}.`],
+    };
+  }
+}
+
+interface UsesRecipe {
+  name?: string;
+  ingredients?: readonly Ingredient[];
+  instructions?: readonly InstructionEntry[];
+}
+
+async function readUses(
+  recipe: UsesRecipe,
   {
     config = llmConfig(),
     force = false,
@@ -194,7 +222,7 @@ export async function suggestUses(
       "llm.uses",
       "a local model is not asked what each step uses (RECIPE_LLM_USES=1, or `recipes fill --uses`, asks it)",
     );
-    return { answers: [], warnings: [] };
+    return { answers: [], warnings: [], notAsked: readerLabel(config) };
   }
   if (outline.text.length > USES_TEXT_MAX_CHARS) {
     log.info("llm.uses", "the recipe is too long — not asked");

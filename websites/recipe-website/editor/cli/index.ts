@@ -375,7 +375,11 @@ model also reads what each step brings in (a step's \`uses\`): the patch's
 shows, listed as "uses suggested" — a suggestion to read before writing. A
 local model is asked only with --uses (or RECIPE_LLM_USES=1): qwen3:8b
 measured no better than the automatic guess. Steps that already store a
-\`uses\` are left alone unless --all-uses; --no-uses asks no model. Nothing
+\`uses\` are left alone unless --all-uses (then a new list replaces the
+stored one, marked "replaces its stored list"); --no-uses asks no model. A
+patch with a uses change carries the whole \`instructions\` array, every
+step as it was read, so write it before editing the steps: applied later,
+it puts the old steps back. Nothing
 is written: it prints the patch (--out patch.json writes it) for \`update
 <slug> --file patch.json\`. The editor's edit page has the same as "Fill
 gaps from the source", reviewed in the form before Save.
