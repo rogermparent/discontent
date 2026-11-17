@@ -36,7 +36,10 @@ import {
 } from "recipe-website-common/util/usesSuggestions";
 import parseRecipeFormData from "../websites/recipe-website/editor/controller/parseFormData";
 import { RecipePatchSchema } from "../websites/recipe-website/editor/controller/curation/schema";
-import { patchInstructions } from "../websites/recipe-website/editor/controller/curation/fillRecipe";
+import {
+  fillUses,
+  patchInstructions,
+} from "../websites/recipe-website/editor/controller/curation/fillRecipe";
 import type { FillResult } from "../websites/recipe-website/editor/controller/curation/fillRecipe";
 import type { LlmConfig } from "../websites/recipe-website/editor/controller/llm/client";
 import {
@@ -481,6 +484,52 @@ describe("usesChanges (what the answers would store)", () => {
     });
   });
 
+  it("hands the form nothing for a step that stores a list when the fill lands", () => {
+    /* Step 3 already stores exactly what the model says: a list the person
+     * saved (an earlier suggestion, or the same chips by hand). */
+    const saved: InstructionEntry[] = [
+      STEPS[0],
+      STEPS[1],
+      {
+        name: "Finish",
+        instructions: [
+          {
+            text: "Beat the whites to soft peaks with the tablespoon of sugar.",
+            uses: ["granulated sugar", "egg white"],
+          },
+          { text: "Whisk the egg whites into the mixture." },
+          { text: "" },
+        ],
+      },
+    ];
+    const offers = usesOffers(INGREDIENTS, saved, answers);
+    expect(offers.steps.map((step) => [step.entry, step.step])).toEqual([
+      [0, 0],
+      [1, 0],
+      [2, 1],
+    ]);
+    expect(offers.offered).toEqual([]);
+  });
+
+  it("stores one list when the model says step 2 uses nothing and step 3 uses the line (Dg5)", () => {
+    const lines: Ingredient[] = [
+      { ingredient: "1 cup milk" },
+      { ingredient: "1 cup heavy cream" },
+    ];
+    const checked = check(CREAM_ANSWER, lines, CREAM_STEPS);
+    /* The page: milk; the cream where it is first named; nothing. */
+    expect(stepUses(lines, CREAM_STEPS)).toEqual([[[0]], [[1]], [[]]]);
+    /* Both steps differ from the page… */
+    expect(usesOffers(lines, CREAM_STEPS, checked.answers).offered).toEqual([
+      2, 3,
+    ]);
+    /* …and one stored list settles both: with step 2 storing nothing, the
+     * cream is step 3's first mention. */
+    const changes = usesChanges(lines, CREAM_STEPS, checked.answers);
+    expect(changes.changed.map((answer) => answer.number)).toEqual([2]);
+    expect(stepUses(lines, changes.instructions)).toEqual([[[0]], [[]], [[1]]]);
+  });
+
   it("writes steps as a patch takes them, every field kept", () => {
     const patch = patchInstructions([
       { text: "Plain." },
@@ -504,7 +553,8 @@ describe("usesChanges (what the answers would store)", () => {
       "Plain.",
       { text: "Stored.", uses: [] },
       { name: "Named", text: "Named." },
-      { text: "Loose.", uses: ["milk"] },
+      /* A group with an empty name stays a group: the schema takes it. */
+      { name: "", instructions: [{ text: "Loose.", uses: ["milk"] }] },
       {
         name: "Bagels",
         choice: "Then make",
@@ -529,6 +579,20 @@ describe("usesChanges (what the answers would store)", () => {
     expect(numberList([2, 4, 5])).toBe("2, 4 and 5");
   });
 });
+
+/** Step 2 only sets the cream out; step 3 is where it goes in. */
+const CREAM_STEPS: InstructionEntry[] = [
+  { text: "Warm the milk." },
+  { text: "Set the heavy cream beside the stove." },
+  { text: "Whisk in the heavy cream." },
+];
+const CREAM_ANSWER = {
+  steps: [
+    { step: 1, lines: [1] },
+    { step: 2, lines: [] },
+    { step: 3, lines: [2] },
+  ],
+};
 
 const OLLAMA: LlmConfig = {
   url: "http://localhost:11434",
@@ -727,9 +791,11 @@ describe("suggestUses (a stubbed model)", () => {
     expect(usesModelAsked({ ...OLLAMA, api: "openai" })).toBe(false);
     expect(usesModelAsked(undefined)).toBe(false);
     const calls = stubModel(GOOD);
+    /* Not asked, not warned — and named, for the CLI's one line (review). */
     expect(await suggestUses(RECIPE, { config: OLLAMA })).toEqual({
       answers: [],
       warnings: [],
+      notAsked: "local model qwen3:8b",
     });
     expect(calls).toHaveLength(0);
     for (const on of ["1", "true", "on", "YES"]) {
@@ -763,6 +829,115 @@ describe("suggestUses (a stubbed model)", () => {
       ),
     ).toEqual({ answers: [], warnings: [] });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("never fails the fill: a throw while reading the recipe is a warning (review)", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const broken = {
+      get ingredient(): string {
+        throw new Error("line unreadable");
+      },
+    } as Ingredient;
+    const result = await suggestUses(
+      { name: "x", ingredients: [broken], instructions: STEPS },
+      { config: OLLAMA, force: true },
+    );
+    expect(result).toEqual({
+      answers: [],
+      warnings: ["What each step uses was not suggested: line unreadable."],
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("fillUses turns any throw into a warning, and rethrows only a cancel (review)", async () => {
+    const thrown = await fillUses(RECIPE, {
+      suggest: async () => {
+        throw new Error("boom");
+      },
+    });
+    expect(thrown).toEqual({
+      patch: {},
+      warnings: ["What each step uses was not suggested: boom."],
+    });
+    /* A reading whose answers cannot be settled (not a recipe's shape). */
+    const unsettled = await fillUses(
+      { ...RECIPE, instructions: null as never },
+      {
+        suggest: async () => ({
+          model: "local model qwen3:8b",
+          answers: check(GOOD).answers,
+          warnings: ["kept"],
+        }),
+      },
+    );
+    expect(unsettled.uses?.steps ?? []).toEqual([]);
+    expect(unsettled.warnings[0]).toBe("kept");
+    const cancelled = new AbortController();
+    cancelled.abort();
+    await expect(
+      fillUses(RECIPE, {
+        job: { signal: cancelled.signal },
+        suggest: async () => {
+          throw new Error("cancelled");
+        },
+      }),
+    ).rejects.toThrow("cancelled");
+    /* The good path: the reading, the fewest lists, and the patch. */
+    const good = await fillUses(RECIPE, {
+      suggest: async () => ({
+        model: "local model qwen3:8b",
+        answers: check(GOOD).answers,
+        warnings: [],
+      }),
+    });
+    expect(good.uses?.steps).toEqual([3]);
+    expect(good.uses?.replaced).toBeUndefined();
+    expect(good.patch.instructions).toHaveLength(3);
+    /* A stored list on step 3 is left alone, unless usesAll: then the
+     * reading replaces it, and says so. */
+    const stored: typeof RECIPE = {
+      ...RECIPE,
+      instructions: [
+        STEPS[0],
+        STEPS[1],
+        {
+          name: "Finish",
+          instructions: [
+            {
+              text: "Beat the whites to soft peaks with the tablespoon of sugar.",
+              uses: ["egg white"],
+            },
+            { text: "Whisk the egg whites into the mixture." },
+            { text: "" },
+          ],
+        },
+      ],
+    };
+    const reading = async () => ({
+      model: "local model qwen3:8b",
+      answers: check(GOOD, INGREDIENTS, stored.instructions).answers,
+      warnings: [],
+    });
+    const left = await fillUses(stored, { suggest: reading });
+    expect(left.uses?.steps).toEqual([]);
+    expect(left.patch).toEqual({});
+    const replaced = await fillUses(stored, {
+      suggest: reading,
+      usesAll: true,
+    });
+    expect(replaced.uses?.steps).toEqual([3]);
+    expect(replaced.uses?.replaced).toEqual([3]);
+    /* A local model that was not asked is passed on, for the CLI to say. */
+    expect(
+      await fillUses(RECIPE, {
+        suggest: async () => ({
+          answers: [],
+          warnings: [],
+          notAsked: "local model qwen3:8b",
+        }),
+      }),
+    ).toEqual({ patch: {}, warnings: [], notAsked: "local model qwen3:8b" });
   });
 
   it("names its step in the live panel", () => {
@@ -824,11 +999,40 @@ describe("recipes fill's output (47g)", () => {
     expect(text).toContain(
       "uses suggested by local model qwen3:8b for step 3 (a suggestion: read it before you write it):",
     );
-    expect(text).toContain("  step 3: granulated sugar, egg white");
+    expect(text).toContain("  step 3: granulated sugar, egg white\n");
+    expect(text).not.toContain("replaces its stored list");
     expect(text).not.toContain("step 4:");
     expect(text).not.toContain("nothing new");
     expect(text).toContain('"uses": [');
     expect(text).toContain("patch (recipes update <slug> --file patch.json):");
+    /* The patch replaces the steps: said once, where the patch is (review). */
+    expect(text).toContain(
+      "the patch's instructions are the whole list of steps as they were read: write it before editing the steps, or the edits are undone",
+    );
+  });
+
+  it("marks a step whose stored list --all-uses replaces (review)", () => {
+    const text = fillCommand.format({
+      ...result,
+      uses: { ...result.uses!, replaced: [3] },
+    });
+    expect(text).toContain(
+      "  step 3: granulated sugar, egg white (replaces its stored list)",
+    );
+  });
+
+  it("says when a local model was not asked, and how to ask it (review)", () => {
+    const text = fillCommand.format({
+      slug: "eggnog",
+      url: "https://example.com/eggnog",
+      source: {},
+      filled: [],
+      usesNotAsked: "local model qwen3:8b",
+      patch: {},
+    });
+    expect(text).toContain(
+      "uses: local model qwen3:8b was not asked what each step uses — only the Claude API is by default; --uses (or RECIPE_LLM_USES=1) asks a local model",
+    );
   });
 
   it("says so when the model's reading changes nothing", () => {
@@ -935,6 +1139,9 @@ describe("the edit form's suggested uses (47g)", { timeout: 30_000 }, () => {
      * — what the model said: its offer has nothing left to change (47f Df5). */
     expect(chips(4)).toEqual([]);
     expect(offers()).toEqual(["accepted"]);
+    expect(screen.getByTestId("step-uses-status").textContent).toBe(
+      "Accepted the suggested ingredients for step 3. Not saved yet.",
+    );
     expect(
       screen.getAllByTestId("step-uses-suggestion")[0].textContent,
     ).toContain("suggested by local model qwen3:8bAccepted. Not saved yet.");
@@ -955,6 +1162,9 @@ describe("the edit form's suggested uses (47g)", { timeout: 30_000 }, () => {
     expect(offers()).toEqual(["offered", "offered"]);
     expect(chips(3)).toEqual(["granulated sugar"]);
     expect(posted(container)).toEqual(STEPS.map(withoutBlank));
+    expect(screen.getByTestId("step-uses-status").textContent).toBe(
+      "Undone: step 3 is back to what it had before the suggestion.",
+    );
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -962,32 +1172,124 @@ describe("the edit form's suggested uses (47g)", { timeout: 30_000 }, () => {
       }),
     );
     expect(offers()).toEqual(["offered"]);
+    expect(screen.getByTestId("step-uses-status").textContent).toBe(
+      "Dismissed the suggested ingredients for step 4.",
+    );
     expect(screen.getByTestId("step-uses-suggestions").textContent).toContain(
       "suggests what step 3 uses.",
     );
     expect(screen.queryByRole("button", { name: /^Accept all/ })).toBeNull();
   });
 
-  it("Accept all stores every offer; a person's own edit after it drops the mark", async () => {
+  it("Accept all stores the fewest lists, as the patch does; a person's own edit after it drops the mark", async () => {
     const { container } = await renderForm(suggested(answers));
     fireEvent.click(screen.getByRole("button", { name: "Accept all 2" }));
-    expect(offers()).toEqual(["accepted", "accepted"]);
+    /* Step 3's list settles step 4's offer: one list, as `usesChanges`. */
+    expect(offers()).toEqual(["accepted"]);
     expect(screen.queryByTestId("step-uses-suggestions")).toBeNull();
+    expect(screen.getByTestId("step-uses-status").textContent).toBe(
+      "Accepted the suggested ingredients for step 3. Not saved yet.",
+    );
     const finish = posted(container)[2] as {
       instructions: { uses?: string[] }[];
     };
     expect(finish.instructions.map((step) => step.uses)).toEqual([
       ["granulated sugar", "egg white"],
-      [],
+      undefined,
     ]);
+    expect(posted(container)).toEqual(
+      usesChanges(INGREDIENTS, STEPS, answers).instructions.map(withoutBlank),
+    );
     /* The list is the person's once they change it. */
     fireEvent.click(
       screen.getByRole("button", {
         name: "Remove granulated sugar from step 3",
       }),
     );
-    expect(offers()).toEqual(["accepted"]);
+    expect(offers()).toEqual([]);
     expect(chips(3)).toEqual(["egg white"]);
+  });
+
+  it("Accept all, when the model says step 2 uses nothing and step 3 uses the line: one list", async () => {
+    const lines: Ingredient[] = [
+      { ingredient: "1 cup milk" },
+      { ingredient: "1 cup heavy cream" },
+    ];
+    const cream = check(CREAM_ANSWER, lines, CREAM_STEPS).answers;
+    const { container } = await renderForm({
+      ...EGGNOG,
+      ingredients: lines,
+      instructions: CREAM_STEPS,
+      suggestedUses: {
+        model: "local model qwen3:8b",
+        steps: usesOffers(lines, CREAM_STEPS, cream).steps,
+      },
+    });
+    expect(offers()).toEqual(["offered", "offered"]);
+    fireEvent.click(screen.getByRole("button", { name: "Accept all 2" }));
+    expect(posted(container)).toEqual([
+      { text: "Warm the milk." },
+      { text: "Set the heavy cream beside the stove.", uses: [] },
+      { text: "Whisk in the heavy cream." },
+    ]);
+    expect(chips(3)).toEqual(["heavy cream"]);
+    expect(offers()).toEqual(["accepted"]);
+    /* Undo puts step 2 back to exactly what it had: no list. */
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Undo the suggested ingredients for step 2",
+      }),
+    );
+    expect(posted(container)).toEqual(CREAM_STEPS);
+    expect(offers()).toEqual(["offered", "offered"]);
+  });
+
+  it("never marks a list the person stored as the model's, even when it equals the suggestion (review)", async () => {
+    const same = ["granulated sugar", "egg white"];
+    const saved: InstructionEntry[] = [
+      STEPS[0],
+      STEPS[1],
+      {
+        name: "Finish",
+        instructions: [
+          {
+            text: "Beat the whites to soft peaks with the tablespoon of sugar.",
+            uses: same,
+          },
+          { text: "Whisk the egg whites into the mixture." },
+        ],
+      },
+    ];
+    /* Even handed step 3's answer (a fill never hands it: `usesOffers`). */
+    const { container } = await renderForm({
+      ...EGGNOG,
+      instructions: saved,
+      suggestedUses: {
+        model: "local model qwen3:8b",
+        steps: usesOffers(INGREDIENTS, STEPS, answers).steps,
+      },
+    });
+    expect(offers()).toEqual([]);
+    expect(screen.queryByText("Accepted. Not saved yet.")).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "Undo the suggested ingredients for step 3",
+      }),
+    ).toBeNull();
+    expect(chips(3)).toEqual(["granulated sugar", "egg white"]);
+    expect(posted(container)).toEqual(saved);
+    /* "Back to automatic" is the ask: the step's suggestion is then offered,
+     * and accepting it marks it — this time it was accepted here. */
+    fireEvent.click(
+      screen.getByRole("button", { name: "Back to automatic for step 3" }),
+    );
+    expect(offers()).toEqual(["offered", "offered"]);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Accept the suggested ingredients for step 3",
+      }),
+    );
+    expect(offers()).toEqual(["accepted"]);
   });
 
   it("offers nothing for a step that already stores a list, or whose text has changed", async () => {

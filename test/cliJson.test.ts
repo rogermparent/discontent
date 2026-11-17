@@ -1560,6 +1560,13 @@ describe("import tooling as a process (26b)", () => {
       );
       expect(unasked.uses).toBeUndefined();
       expect(unasked.patch.instructions).toBeUndefined();
+      /* …and the CLI says so, with how to ask (review): --all-uses alone
+       * does not ask a local model either. */
+      expect(unasked.usesNotAsked).toBe("local model qwen3:8b");
+      const quiet = await run(["fill", "bowl-cake", "--all-uses"], model);
+      expect(quiet.stdout).toContain(
+        "uses: local model qwen3:8b was not asked what each step uses — only the Claude API is by default; --uses (or RECIPE_LLM_USES=1) asks a local model",
+      );
       const opted = JSON.parse(
         (
           await run(["fill", "bowl-cake", "--json"], {
@@ -1679,6 +1686,9 @@ describe("import tooling as a process (26b)", () => {
         ).stdout,
       );
       expect(all.uses.steps).toEqual([1]);
+      /* The stored list is replaced, and marked so (review). */
+      expect(all.uses.replaced).toEqual([1]);
+      expect(kept.uses.replaced).toBeUndefined();
       expect(all.patch.instructions[1]).toBe(
         "Beat the egg into the bowl again.",
       );
