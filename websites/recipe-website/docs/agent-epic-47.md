@@ -1800,7 +1800,9 @@ recipes** —
 | `make-ahead-eggnog-french-toast-casserole` | Recipe Notes        | 1     |
 | `dense-bean-salad`                         | Recipe Notes        | 1     |
 
-No other recipe has a step group named like notes anywhere in its steps.
+Each keeps its steps (4, 1, 2, 6 and 3 entries left; none is only its
+notes group). No other recipe has a step group named like notes anywhere
+in its steps.
 The four one-note recipes' notes are one step each that an old import glued
 ("…before serving.Storage: …"); they move as they are. The real run is the
 orchestrator's, through the CLI from the updated main checkout, after Roger
@@ -1808,7 +1810,52 @@ confirms this list.
 
 #### Gates (47j)
 
-GATES-PLACEHOLDER
+All through the heavy slot, 2026-11-17, on `origin/main` c4750fbf (#339):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: green, last after the review fixes. eslint on every
+  changed file: clean.
+- Full vitest before the review: **4,070/4,071** — the one failure
+  `jobs.test.ts`' inspect step list without the new `notes` step (fixed);
+  that file and the form tests then 134/134. After the review fixes:
+  **4,063/4,074** with the machine at a load of 17 — eleven
+  failures in four files that 47i saw time out under load too
+  (`editFormRoundTrip` ×5, `stepUsesForm` ×2, `editorAuthNext` ×2,
+  `cliJson` ×2); those four files alone: **83/83**. New: `recipeNotes.test.ts`, 35 cases (the linker and its
+  edge cases, the migration's pick, the write paths, three plugins on
+  hand-written fixture pages in `test/fixtures/notes/`, the selector
+  grammar, its check and a 20 × 40-deep page under a second, the outline,
+  the store, and the notes step with a stubbed model: learned once after a
+  refusal told why, reused, a miss counted, a failure remembered and
+  Forget, a known card asks nothing, nothing invented).
+- Playwright, Docker, production build (`DOCKER=1 heavy-pw.sh`, e2e +
+  mobile): `recipe-notes` (new: the page, the "(Note 1)" link, the cook
+  view, the form rows, an import's plugin and learned paths, Settings →
+  Tools and Forget, axe four times), `edit-with-ai`, `fill-gaps`,
+  `accessibility`, `cook-view`, `step-uses`, `new-recipe`,
+  `import-errors`, `jobs`, `recipe-cooking-order`, `alternatives-form`,
+  `api-write` and the settings specs — **205/209**: two specs' words and
+  rail numbers that the Notes section moves (fixed), and two of the new
+  spec's (a note link opened a new tab — every markdown link was
+  `target="_blank"`, now not for `#…` links — and a row in Source mode).
+  Then the baselines (below), then `recipe-notes`, `edit-form-frame`,
+  `visual`, `edit-with-ai`, `fill-gaps`: **45/45**.
+- **Baselines moved: seven, regenerated in Docker** and each opened:
+  `visual.spec.ts/` `edit-form-populated`, `edit-form-overwrite`,
+  `markdown-source-mode`, `new-recipe-form`, `new-recipe-form-overwrite`,
+  and `edit-form-frame.spec.ts/` `edit-form-mobile`, `new-recipe-imported` —
+  each the Notes section after Steps ("No notes…", Add a note) and the
+  rail's "6 Notes · none". No recipe page baseline moved (a recipe without
+  notes renders as before).
+- Dev mode (Docker, `next dev`): `recipe-notes` 3/3 with no retry;
+  `edit-form-frame` 3/3, two on a retry after a cold compile's 5 s timeout.
+- No dependency or Next-config change, so no main-checkout-shaped build
+  (the one shared-package change is `Markdown`'s link component).
+- A read-only review agent read the branch before the Playwright gates:
+  two blockers (the matcher's cost on deep pages, Tj6; the form rows' stale
+  text, Tj5) and four findings (no memory of a failed learning, the
+  linker's list/URL/component cases, the settings save's race, Tj7, and
+  the only-a-notes-group recipe), all taken.
 
 #### Roger to confirm (47j)
 
