@@ -29,13 +29,14 @@ import {
 import { cn } from "@discontent/component-library/lib/utils";
 import { useRecipeForm, type RecipeFormValues } from "./formContext";
 import { useDrinkShown } from "./drinkShown";
-import { fillSections, type FillMarks } from "./fillMarks";
+import { editedSections, fillSections, type FillMarks } from "./fillMarks";
 import {
   recipeSections,
   changeText,
   changedFields,
   sectionAnchor,
   sectionStatuses,
+  type RecipeSectionId,
   type SectionStatus,
   type StatusContext,
 } from "./sections";
@@ -392,9 +393,27 @@ export function RecipeFormRail(props: RecipeFormRailProps) {
         loaded,
         picture: pictureTouched ? "new" : picture,
         errors,
-        fill: filled,
+        /* 47i: a request's changes, while they hold what it left. */
+        fill: filled
+          ? {
+              ...filled,
+              edited: Object.keys(
+                editedSections(fill, values, defaults),
+              ) as RecipeSectionId[],
+            }
+          : undefined,
       }),
-    [values, fromLabel, loaded, picture, pictureTouched, errors, filled],
+    [
+      values,
+      fromLabel,
+      loaded,
+      picture,
+      pictureTouched,
+      errors,
+      filled,
+      fill,
+      defaults,
+    ],
   );
   const changes =
     changedFields(loaded, values).length + (pictureTouched ? 1 : extraChanges);
