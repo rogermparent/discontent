@@ -208,8 +208,9 @@ test.describe("A recipe's own notes (47j)", () => {
       NOTES[1],
     ]);
 
-    /* Every row removed: no `notes` at all. */
-    await openEdit(page, SLUG);
+    /* Every row removed: no `notes` at all (signed in already). */
+    await page.goto(`/recipe/${SLUG}/edit`);
+    await markdownEditorReady(page, "description");
     const again = page.locator("#recipe-section-notes");
     const remove = again.getByRole("button", {
       name: "Remove note 1",
