@@ -60,6 +60,12 @@ export const CLAUDE_MODEL_ENV = "RECIPE_LLM_CLAUDE_MODEL";
 
 export const EDIT_SCHEMA_NAME = "recipe_edit";
 
+/** `1`: a local model thinks before it answers a request (Ollama `think`). */
+export const EDIT_THINK_ENV = "RECIPE_LLM_EDIT_THINK";
+
+/** Room for a local model's thinking, on top of the answer. */
+export const EDIT_THINK_TOKENS = 2_048;
+
 /** One call; a local model may need its load and a long answer. */
 export const EDIT_TIMEOUT_MS = 180_000;
 
@@ -271,13 +277,19 @@ export async function runEdit(
   }
   const { config, backend } = chosen;
   const who = readerLabel(config);
+  const think =
+    config.api === "ollama" &&
+    /^(1|true|on|yes)$/i.test(process.env[EDIT_THINK_ENV]?.trim() ?? "");
   const user = editUserPrompt(spec.recipe, request);
   const promptTokens =
     estimateTokens(EDIT_SYSTEM_PROMPT) + estimateTokens(user);
   /* The answer may repeat the recipe whole (a list is written out whole). */
   const answerTokens =
     estimateTokens(JSON.stringify(editView(spec.recipe))) + 256;
-  if (config.api !== "anthropic" && promptTokens + answerTokens > LLM_NUM_CTX) {
+  if (
+    config.api !== "anthropic" &&
+    promptTokens + answerTokens + (think ? EDIT_THINK_TOKENS : 0) > LLM_NUM_CTX
+  ) {
     return {
       ...base,
       status: "failed",
@@ -315,7 +327,10 @@ export async function runEdit(
           schema: EDIT_JSON_SCHEMA as unknown as Record<string, unknown>,
           schemaName: EDIT_SCHEMA_NAME,
           config,
-          numCtx: contextStep(promptTokens + answerTokens),
+          numCtx: contextStep(
+            promptTokens + answerTokens + (think ? EDIT_THINK_TOKENS : 0),
+          ),
+          ...(think ? { think: true } : {}),
           timeoutMs: EDIT_TIMEOUT_MS,
           job,
         });

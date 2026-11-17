@@ -1816,8 +1816,9 @@ export function recipeToolDefinitions(
         "`live` (queued and running); `kind` by import-url, import-text, inspect, " +
         "inspect-list, import-list, import-photo, form-url, form-text, form-photo, " +
         "form-batch, reindex, git-sync, agent, fill (a recipe's gaps read from its " +
-        "source, written nowhere) or choices (the model looking for alternatives " +
-        "in a recipe's steps, written nowhere). A `waiting` " +
+        "source, written nowhere), choices (the model looking for alternatives " +
+        "in a recipe's steps, written nowhere) or edit (the edit page's \"Edit " +
+        'with AI" request, or `recipes revise`, written nowhere). A `waiting` ' +
         "job is in the queue for the GPU, yt-dlp or a site.",
       inputSchema: z.strictObject({
         status: z.enum(JOB_STATUS_FILTERS).optional(),

@@ -329,19 +329,22 @@ export const EDIT_JSON_SCHEMA = (() => {
           prepTime: number,
           cookTime: number,
           totalTime: number,
+          /* Every part required, "" for none (47i Ti2): the Claude API
+           * takes at most 24 optional parameters in a schema. */
           drink: {
             type: "object",
             properties: {
-              method: { type: "string", enum: [...DRINK_METHODS] },
+              method: { type: "string", enum: ["", ...DRINK_METHODS] },
               glass: string,
               ice: string,
               garnish: string,
             },
+            required: ["method", "glass", "ice", "garnish"],
           },
           source: {
             type: "object",
             properties: { url: string, name: string, author: string },
-            required: ["url"],
+            required: ["url", "name", "author"],
           },
         },
       },
@@ -479,6 +482,20 @@ export function structureProblem(
   );
   if (group) {
     return `it drops the step group “${group}”, which the request did not ask about`;
+  }
+  /* Added ones too (the 47i measurement: qwen3:8b made a group of every
+   * step it recapitalised). */
+  const addedHeading = lost(now.headings, was.headings).find(
+    (one) => !sections && !names(request, one),
+  );
+  if (addedHeading) {
+    return `it adds the ingredient section “${addedHeading}”, which the request did not ask for`;
+  }
+  const addedGroup = lost(now.groups, was.groups).find(
+    (one) => !sections && !names(request, one),
+  );
+  if (addedGroup) {
+    return `it adds the step group “${addedGroup}”, which the request did not ask for`;
   }
   const choices = ABOUT_CHOICES.test(request);
   const choice = lost(was.choices, now.choices).find(
@@ -738,6 +755,58 @@ function unresolvedWarnings(
   return warnings;
 }
 
+/**
+ * The drink spec's and the source's blank parts left out, as the schema
+ * has the model write them (`""` for none): a blank method is no method,
+ * and a source with a blank link is no source.
+ */
+function withoutBlankParts(raw: object): object {
+  const out: Record<string, unknown> = { ...raw };
+  for (const field of ["drink", "source"] as const) {
+    const parts = out[field];
+    if (!parts || typeof parts !== "object" || Array.isArray(parts)) continue;
+    const kept = Object.fromEntries(
+      Object.entries(parts).filter(
+        ([, part]) => !(typeof part === "string" && !part.trim()),
+      ),
+    );
+    out[field] =
+      field === "source" && !("url" in kept)
+        ? null
+        : Object.keys(kept).length
+          ? kept
+          : null;
+  }
+  return out;
+}
+
+/**
+ * How many optional properties `schema` has, counted as the Claude API
+ * counts them for its limit of 24 (47i Ti2): every property not in its
+ * object's `required`, wherever it sits.
+ */
+export function optionalProperties(schema: unknown): number {
+  if (!schema || typeof schema !== "object") return 0;
+  if (Array.isArray(schema)) {
+    return schema.reduce((sum, node) => sum + optionalProperties(node), 0);
+  }
+  const node = schema as Record<string, unknown>;
+  let count = 0;
+  if (node.properties && typeof node.properties === "object") {
+    const required = new Set(
+      Array.isArray(node.required) ? (node.required as string[]) : [],
+    );
+    for (const [name, child] of Object.entries(node.properties)) {
+      if (!required.has(name)) count += 1;
+      count += optionalProperties(child);
+    }
+  }
+  for (const key of ["items", "anyOf", "allOf"]) {
+    if (key in node) count += optionalProperties(node[key]);
+  }
+  return count;
+}
+
 /** A refusal, in the words the panel and the CLI say. */
 function refused(problem: string, note: string): EditCheck {
   return { status: "refused", problem, note, warnings: [] };
@@ -773,7 +842,7 @@ export function checkEditAnswer(
       note,
     );
   }
-  const parsed = ChangeSchema.safeParse(raw);
+  const parsed = ChangeSchema.safeParse(withoutBlankParts(raw));
   if (!parsed.success) {
     const [first] = issuesOf(parsed.error);
     return refused(
