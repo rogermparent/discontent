@@ -215,6 +215,11 @@ test.describe("Fill gaps suggests what each step uses (47g)", () => {
       name: "Undo the suggested ingredients for step 1",
     });
     await expect(undo).toBeFocused();
+    const status = page.getByTestId("step-uses-status");
+    await expect(status).toHaveText(
+      "Accepted the suggested ingredients for step 1. Not saved yet.",
+    );
+    await expect(status).toHaveAttribute("role", "status");
     await expect(chips(page, 1)).toHaveText(["flour", "egg", "butter"]);
     await expect(usesOf(page, 1)).toHaveAttribute("data-stored", "true");
     await expect(
@@ -234,6 +239,9 @@ test.describe("Fill gaps suggests what each step uses (47g)", () => {
     /* Undo by keyboard: back to the guess, the offers back, focus on Accept. */
     await page.keyboard.press("Enter");
     await expect(accept).toBeFocused();
+    await expect(status).toHaveText(
+      "Undone: step 1 is back to what it had before the suggestion.",
+    );
     await expect(chips(page, 1)).toHaveCount(0);
     await expect(usesOf(page, 1)).toHaveAttribute("data-stored", "false");
     await expect(suggestion(page, 2)).toBeVisible();
@@ -248,6 +256,9 @@ test.describe("Fill gaps suggests what each step uses (47g)", () => {
       })
       .click();
     await expect(suggestion(page, 2)).toHaveCount(0);
+    await expect(status).toHaveText(
+      "Dismissed the suggested ingredients for step 2.",
+    );
     await expect(chips(page, 2)).toHaveText(["egg"]);
     await expect(
       page.getByRole("button", { name: "Add an ingredient to step 2" }),
@@ -268,9 +279,30 @@ test.describe("Fill gaps suggests what each step uses (47g)", () => {
       { text: STEPS[1] },
       { text: STEPS[2] },
     ]);
+
+    /* Fill again: the saved list is the person's now. It is not shown as a
+     * suggestion "Accepted. Not saved yet.", and has no Undo to clear it. */
+    await page.goto(`/recipe/${SLUG}/edit`);
+    await markdownEditorReady(page, "description");
+    await fill(page);
+    await expect(page.getByTestId("fill-summary")).toContainText(
+      "What each step uses was read by local model qwen3:8b: no change to suggest.",
+    );
+    await expect(chips(page, 1)).toHaveText(["flour", "egg", "butter"]);
+    await expect(usesOf(page, 1)).toHaveAttribute("data-stored", "true");
+    await expect(page.getByTestId("step-uses-suggestion")).toHaveCount(0);
+    await expect(page.getByTestId("step-uses-suggested-mark")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", {
+        name: "Undo the suggested ingredients for step 1",
+      }),
+    ).toHaveCount(0);
+    await expect(page.getByTestId("recipe-form-changes")).toHaveText(
+      "No changes",
+    );
   });
 
-  test("a suggestion nobody accepted is not saved, and Accept all takes every offer", async ({
+  test("a suggestion nobody accepted is not saved, and Accept all stores the fewest lists", async ({
     page,
     request,
     baseURL,
@@ -299,20 +331,26 @@ test.describe("Fill gaps suggests what each step uses (47g)", () => {
     await expectHydrated(all);
     await all.click();
     await expect(chips(page, 1)).toHaveText(["flour", "egg", "butter"]);
-    await expect(usesOf(page, 2)).toContainText("nothing");
+    /* Step 1's list settles step 2's offer (nothing): one list is stored,
+     * the same as `recipes fill`'s patch (Dg5). */
+    await expect(chips(page, 2)).toHaveCount(0);
+    await expect(usesOf(page, 2)).toHaveAttribute("data-stored", "false");
     await expect(page.getByTestId("step-uses-suggestions")).toHaveCount(0);
+    await expect(page.getByTestId("step-uses-status")).toHaveText(
+      "Accepted the suggested ingredients for step 1. Not saved yet.",
+    );
     await expect(
       page.locator(
         '[data-testid="step-uses-suggestion"][data-state="accepted"]',
       ),
-    ).toHaveCount(2);
+    ).toHaveCount(1);
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/recipe/${SLUG}$`), {
       timeout: SAVE_WAIT,
     });
     expect(await storedSteps(request)).toEqual([
       { text: STEPS[0], uses: ["flour", "egg", "butter"] },
-      { text: STEPS[1], uses: [] },
+      { text: STEPS[1] },
       { text: STEPS[2] },
     ]);
   });
