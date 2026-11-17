@@ -451,7 +451,15 @@ export function createHttpBackend({
       return call<FillResult>(
         "POST",
         `/api/recipe/${encodeURIComponent(slug)}/fill`,
-        { body: options.estimate === false ? { estimate: false } : {} },
+        {
+          body: {
+            ...(options.estimate === false ? { estimate: false } : {}),
+            ...(typeof options.uses === "boolean"
+              ? { uses: options.uses }
+              : {}),
+            ...(options.usesAll === true ? { usesAll: true } : {}),
+          },
+        },
       );
     },
     /*

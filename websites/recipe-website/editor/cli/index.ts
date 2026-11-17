@@ -169,7 +169,8 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   jobs retry <id> [--fresh]
   create (--file recipe.json | --stdin) [--overwrite] [--dry-run]
   update <slug> (--file patch.json | --stdin) [--dry-run]
-  fill <slug> [--no-estimate] [--out patch.json] [--verbose]
+  fill <slug> [--no-estimate] [--uses | --no-uses] [--all-uses]
+       [--out patch.json] [--verbose]
   image <slug> (--url <image-url> | --file <path> | --clear)
   show <slug>
   list [--tag t] [--limit 20] [--offset 0]
@@ -272,6 +273,10 @@ Environment:
                        import --photo, on the same server (e.g.
                        qwen2.5vl:7b); unset, photo import is off — except
                        with anthropic, where it defaults to the model
+  RECIPE_LLM_USES      1 to have \`fill\` ask a local model what each step
+                       uses too (default: only the Claude API is asked;
+                       qwen3:8b measured no better than the automatic
+                       guess); read from editor/.env too
   RECIPE_LLM_API       ollama (default), openai (/v1/chat/completions) or
                        anthropic (the Claude API, /v1/messages)
   RECIPE_LLM_API_KEY   The Claude API's key (required with anthropic; never
@@ -364,10 +369,20 @@ and drink spec when absent; never the name, slug or tags (the source's tags
 come back as suggestions). The times and yield the source doesn't state are
 estimated by the configured model (RECIPE_LLM_*), one call, marked as
 estimated with its one-sentence basis; --no-estimate skips it, and with no
-model configured the fill is the source's alone. Nothing is written: it
-prints the patch (--out patch.json writes it) for \`update <slug> --file
-patch.json\`. The editor's edit page has the same as "Fill gaps from the
-source", reviewed in the form before Save.
+model configured the fill is the source's alone. With the Claude API the
+model also reads what each step brings in (a step's \`uses\`): the patch's
+\`instructions\` carry it for the steps where that differs from what the page
+shows, listed as "uses suggested" — a suggestion to read before writing. A
+local model is asked only with --uses (or RECIPE_LLM_USES=1): qwen3:8b
+measured no better than the automatic guess. Steps that already store a
+\`uses\` are left alone unless --all-uses (then a new list replaces the
+stored one, marked "replaces its stored list"); --no-uses asks no model. A
+patch with a uses change carries the whole \`instructions\` array, every
+step as it was read, so write it before editing the steps: applied later,
+it puts the old steps back. Nothing
+is written: it prints the patch (--out patch.json writes it) for \`update
+<slug> --file patch.json\`. The editor's edit page has the same as "Fill
+gaps from the source", reviewed in the form before Save.
 
 A roundup ("40+ Thanksgiving Pies"): \`inspect-list <url>\` lists its recipes,
 \`existing\` marked; \`import-list <url> --pick 1,3 [--term <slug>]\` imports

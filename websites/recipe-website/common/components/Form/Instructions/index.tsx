@@ -87,10 +87,24 @@ import {
 import {
   lineNames,
   stepSection,
+  usesLine,
   type LineNames,
   type ResolvedStepUses,
 } from "../../../util/stepIngredients";
+import {
+  numberList,
+  sameLines,
+  stepKey,
+  usesChanges,
+  type SuggestedUses,
+} from "../../../util/usesSuggestions";
 import { StepUsesEditor } from "./StepUses";
+import {
+  StepUsesSuggestion,
+  UsesSuggestionsSummary,
+  type StepSuggestion,
+  type UsesSuggestions,
+} from "./SuggestedUses";
 
 /**
  * What the Steps section knows about every step (43e2): the ingredient
@@ -108,6 +122,8 @@ interface StepInfo {
   /** Each entry's group as a `sectionKey`, "" for a step on its own. */
   sections: string[];
   numbers: number[][];
+  /** The model's suggestions in play (47g), when a fill brought any. */
+  suggestions?: UsesSuggestions | null;
 }
 
 /** `lineNames`, or no names at all when the matcher throws (`stepLines`). */
@@ -145,31 +161,80 @@ function StepNotes({
 }) {
   const form = useRecipeForm();
   const info = useStepInfo();
+  const suggestions = info?.suggestions;
+  const suggestion = suggestions?.at.get(`${entry}:${step}`);
   const waits = useMemo(() => stepWaits(text), [text]);
+  /* After Accept, Undo or Dismiss the pressed button is gone: focus goes to
+   * the one that took its place, else to the step's picker. */
+  const notes = useRef<HTMLDivElement>(null);
+  const focusNext = useRef<string[]>([]);
+  useEffect(() => {
+    const targets = focusNext.current;
+    if (!targets.length) return;
+    focusNext.current = [];
+    for (const target of targets) {
+      const element = notes.current?.querySelector<HTMLElement>(`[${target}]`);
+      if (element) {
+        element.focus();
+        return;
+      }
+    }
+  });
   return (
     <div
+      ref={notes}
       className="mt-2 flex flex-col gap-1.5 empty:hidden"
       data-testid="step-notes"
     >
       {info ? (
         <form.Field name={`${namePrefix}.uses`}>
           {(field) => (
-            <StepUsesEditor
-              namePrefix={namePrefix}
-              number={info.numbers[entry]?.[step]}
-              section={info.sections[entry] ?? ""}
-              ingredients={info.ingredients}
-              lines={info.lineNames}
-              labels={info.labels}
-              pickable={info.pickable}
-              guess={info.uses.lines[entry]?.[step] ?? []}
-              stored={
-                Array.isArray(field.state.value)
-                  ? (field.state.value as string[])
-                  : undefined
-              }
-              onChange={(uses) => field.handleChange(uses as never)}
-            />
+            <>
+              <StepUsesEditor
+                namePrefix={namePrefix}
+                number={info.numbers[entry]?.[step]}
+                section={info.sections[entry] ?? ""}
+                ingredients={info.ingredients}
+                lines={info.lineNames}
+                labels={info.labels}
+                pickable={info.pickable}
+                guess={info.uses.lines[entry]?.[step] ?? []}
+                stored={
+                  Array.isArray(field.state.value)
+                    ? (field.state.value as string[])
+                    : undefined
+                }
+                onChange={(uses) => field.handleChange(uses as never)}
+              />
+              {suggestions && suggestion ? (
+                <StepUsesSuggestion
+                  number={info.numbers[entry]?.[step]}
+                  model={suggestions.model}
+                  suggestion={suggestion}
+                  labels={info.labels}
+                  onAccept={() => {
+                    focusNext.current = ["data-uses-undo", "data-uses-add"];
+                    suggestions.accept(
+                      entry,
+                      step,
+                      Array.isArray(field.state.value)
+                        ? [...(field.state.value as string[])]
+                        : undefined,
+                    );
+                    field.handleChange([...suggestion.uses] as never);
+                  }}
+                  onDismiss={() => {
+                    focusNext.current = ["data-uses-add", "data-uses-remove"];
+                    suggestions.dismiss(entry, step);
+                  }}
+                  onUndo={() => {
+                    focusNext.current = ["data-uses-accept", "data-uses-add"];
+                    /* Exactly what the step had before Accept. */
+                    field.handleChange(suggestions.undo(entry, step) as never);
+                  }}
+                />
+              ) : null}
+            </>
           )}
         </form.Field>
       ) : null}
@@ -603,6 +668,7 @@ export function InstructionsListInput({
   label,
   suggestedChoices,
   suggestedBy = "suggested by the import",
+  suggestedUses,
 }: {
   name?: string;
   id: string;
@@ -617,6 +683,11 @@ export function InstructionsListInput({
   suggestedChoices?: readonly SuggestedChoice[];
   /** The mark's words: "suggested by the import". */
   suggestedBy?: string;
+  /**
+   * What a fill's model suggests each step uses (47g): offered under the
+   * step, marked, applied only when the person accepts, stored only on Save.
+   */
+  suggestedUses?: SuggestedUses;
 }) {
   const form = useRecipeForm();
   const ingredients = useStore(form.store, (state) => state.values.ingredients);
@@ -624,7 +695,7 @@ export function InstructionsListInput({
     form.store,
     (state) => state.values.instructions,
   );
-  const info = useMemo<StepInfo>(() => {
+  const baseInfo = useMemo<StepInfo>(() => {
     const uses = stepLines(ingredients, instructions);
     const numbers: number[][] = [];
     for (const entry of instructions) {
@@ -642,6 +713,137 @@ export function InstructionsListInput({
       numbers,
     };
   }, [ingredients, instructions]);
+
+  /*
+   * 47g: where each of the model's suggestions stands. One is in play while
+   * its step still has the text the model read and its names still find
+   * lines. Offered: the step stores nothing, shows something else, and the
+   * offer was not dismissed. Accepted: the person pressed Accept (or Accept
+   * all) in this form — kept here, with what the step stored before — and
+   * the step still stores exactly those names. A stored list nobody accepted
+   * here is the person's: no mark, no Undo.
+   */
+  const [dismissedUses, setDismissedUses] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [acceptedUses, setAcceptedUses] = useState<
+    ReadonlyMap<string, string[] | undefined>
+  >(() => new Map());
+  /* What the last press did, for a screen reader (the buttons move). */
+  const [usesStatus, setUsesStatus] = useState("");
+  const usesSuggestions = useMemo<UsesSuggestions | null>(() => {
+    if (!suggestedUses?.steps.length) return null;
+    const at = new Map<string, StepSuggestion>();
+    for (const suggestion of suggestedUses.steps) {
+      const entry = instructions[suggestion.entry];
+      const step =
+        entry && "instructions" in entry
+          ? entry.instructions[suggestion.step]
+          : suggestion.step === 0
+            ? (entry as Instruction | undefined)
+            : undefined;
+      const text = stepKey(suggestion.text);
+      if (!step || stepKey(step.text) !== text) continue;
+      const lines = suggestion.uses.map((name) =>
+        usesLine(
+          ingredients,
+          name,
+          baseInfo.sections[suggestion.entry] ?? "",
+          baseInfo.lineNames,
+        ),
+      );
+      if (lines.some((line) => line === undefined)) continue;
+      const key = `${suggestion.entry}:${suggestion.step}`;
+      const found = { uses: suggestion.uses, lines: lines as number[] };
+      if (Array.isArray(step.uses)) {
+        if (
+          acceptedUses.has(`${key}:${text}`) &&
+          step.uses.length === suggestion.uses.length &&
+          step.uses.every((name, i) => name === suggestion.uses[i])
+        ) {
+          at.set(key, { status: "accepted", ...found });
+        }
+        continue;
+      }
+      if (dismissedUses.has(`${key}:${text}`)) continue;
+      if (
+        sameLines(
+          baseInfo.uses.lines[suggestion.entry]?.[suggestion.step],
+          found.lines,
+        )
+      ) {
+        continue;
+      }
+      at.set(key, { status: "offered", ...found });
+    }
+    const sessionKey = (entry: number, step: number) => {
+      const one = suggestedUses.steps.find(
+        (other) => other.entry === entry && other.step === step,
+      );
+      return one ? `${entry}:${step}:${stepKey(one.text)}` : undefined;
+    };
+    const named = (entry: number, step: number) => {
+      const number = baseInfo.numbers[entry]?.[step];
+      return number === undefined ? "this step" : `step ${number}`;
+    };
+    return {
+      model: suggestedUses.model,
+      at,
+      accept: (entry, step, previous) => {
+        const key = sessionKey(entry, step);
+        if (!key) return;
+        setAcceptedUses((old) => new Map(old).set(key, previous));
+        setUsesStatus(
+          `Accepted the suggested ingredients for ${named(entry, step)}. Not saved yet.`,
+        );
+      },
+      dismiss: (entry, step) => {
+        const key = sessionKey(entry, step);
+        if (!key) return;
+        setDismissedUses((old) => new Set([...old, key]));
+        setUsesStatus(
+          `Dismissed the suggested ingredients for ${named(entry, step)}.`,
+        );
+      },
+      undo: (entry, step) => {
+        const key = sessionKey(entry, step);
+        const previous = key ? acceptedUses.get(key) : undefined;
+        if (key) {
+          setAcceptedUses((old) => {
+            const next = new Map(old);
+            next.delete(key);
+            return next;
+          });
+        }
+        setUsesStatus(
+          `Undone: ${named(entry, step)} is back to what it had before the suggestion.`,
+        );
+        return previous;
+      },
+    };
+  }, [
+    suggestedUses,
+    instructions,
+    ingredients,
+    baseInfo,
+    dismissedUses,
+    acceptedUses,
+  ]);
+  const info = useMemo<StepInfo>(
+    () => ({ ...baseInfo, suggestions: usesSuggestions }),
+    [baseInfo, usesSuggestions],
+  );
+  const offeredUses = useMemo(
+    () =>
+      [...(usesSuggestions?.at ?? [])]
+        .filter(([, suggestion]) => suggestion.status === "offered")
+        .map(([key]) => {
+          const [entry, step] = key.split(":").map(Number);
+          return baseInfo.numbers[entry]?.[step] ?? 0;
+        })
+        .sort((a, b) => a - b),
+    [usesSuggestions, baseInfo],
+  );
   const unnamed = useMemo(
     () => unnamedLines(ingredients, info.uses.mentions),
     [ingredients, info],
@@ -721,6 +923,39 @@ export function InstructionsListInput({
 
   const setInstructions = (next: InstructionEntry[]) =>
     form.setFieldValue("instructions", next);
+  /**
+   * Accept all (47g Dg5): the same forward pass as the CLI's patch
+   * (`usesChanges`) over every suggestion not dismissed, so the form stores
+   * the fewest lists that show what the model said — a step whose offer the
+   * lists before it already settle stores nothing.
+   */
+  const acceptAllUses = () => {
+    if (!suggestedUses) return;
+    const pool = suggestedUses.steps
+      .filter(
+        (one) =>
+          !dismissedUses.has(`${one.entry}:${one.step}:${stepKey(one.text)}`),
+      )
+      .map((one) => ({ ...one, number: 0, lines: [] }));
+    const changes = usesChanges(ingredients, instructions, pool);
+    if (changes.changed.length === 0) return;
+    setAcceptedUses((old) => {
+      const next = new Map(old);
+      for (const answer of changes.changed) {
+        next.set(
+          `${answer.entry}:${answer.step}:${stepKey(answer.text)}`,
+          undefined,
+        );
+      }
+      return next;
+    });
+    setInstructions(changes.instructions);
+    const numbers = changes.changed.map((answer) => answer.number);
+    setUsesStatus(
+      `Accepted the suggested ingredients for step${numbers.length === 1 ? "" : "s"} ${numberList(numbers)}. Not saved yet.`,
+    );
+    requestFocus("uses-undo", "add-step", "start");
+  };
   const setIngredients = (next: Ingredient[]) => {
     const old = form.state.values.ingredients;
     if (next.length === old.length && next.every((line, i) => line === old[i]))
@@ -1049,6 +1284,22 @@ export function InstructionsListInput({
     <StepInfoContext.Provider value={info}>
       <FieldWrapper label={label} id={id}>
         <div ref={container}>
+          {usesSuggestions ? (
+            <>
+              <UsesSuggestionsSummary
+                model={usesSuggestions.model}
+                offered={offeredUses}
+                onAcceptAll={acceptAllUses}
+              />
+              <p
+                role="status"
+                className="sr-only"
+                data-testid="step-uses-status"
+              >
+                {usesStatus}
+              </p>
+            </>
+          ) : null}
           <form.Field name="instructions" mode="array">
             {(arrayField) => {
               const items =

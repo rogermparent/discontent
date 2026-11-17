@@ -11,6 +11,7 @@ import {
   llmUnconfiguredMessage,
 } from "recipe-editor/controller/llm/client";
 import { readerLabel } from "recipe-editor/controller/llm/readerLabel";
+import { usesModelAsked } from "recipe-editor/controller/llm/suggestUses";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,9 @@ export default async function Recipe({
         tagPicker={tagPicker}
         fillSource={fillSource}
         llmModel={fillSource ? config?.model : undefined}
+        usesModel={
+          fillSource && usesModelAsked(config) ? config?.model : undefined
+        }
         choicesModel={choicesModel}
         choicesUnavailable={
           choicesModel

@@ -23,6 +23,7 @@ import {
 import { htmlToMarkdown as decodeText } from "./htmlMarkdown";
 import { isVideoUrl } from "./videoUrl";
 import type { SuggestedChoice } from "./suggestChoices";
+import type { SuggestedUses } from "./usesSuggestions";
 
 import { decodeHTML } from "entities";
 import {
@@ -175,6 +176,12 @@ export interface ImportedRecipe extends Recipe {
    * recipe carries no `choice` until a person accepts it and saves.
    */
   suggestedChoices?: SuggestedChoice[];
+  /**
+   * What a fill's model read each step as using (47g, `suggestUses`): a
+   * suggestion the form offers under the step, marked, and never applies by
+   * itself; a step stores a `uses` only when a person accepts it and saves.
+   */
+  suggestedUses?: SuggestedUses;
 }
 
 function createStep({

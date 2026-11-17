@@ -194,6 +194,9 @@ export function stepTitle(node: Pick<StepNode, "step" | "data">): string {
     /* 45b: the fill's estimate of the times and yield the source leaves out. */
     case "llm.estimate":
       return "Model estimates the times and yield";
+    /* 47g: the fill's reading of what each step brings in. */
+    case "llm.uses":
+      return "Model reads what each step uses";
     /* 46f: the edit page's "Look for alternatives with the model". */
     case "llm.choices":
       return "Model looks for alternatives";
@@ -257,6 +260,10 @@ export function stepDetail(node: Pick<StepNode, "step" | "data">): string[] {
     /* 45b: how many of the fields asked for the estimate gave. */
     if (Array.isArray(data.estimated)) {
       parts.push(`${data.estimated.length} estimated`);
+    }
+    /* 47g: how many steps' answers passed the check. */
+    if (typeof data.answered === "number") {
+      parts.push(`${data.answered} step${data.answered === 1 ? "" : "s"} read`);
     }
     if (typeof data.oneDish === "boolean") {
       parts.push(data.oneDish ? "one dish" : "separate dishes");

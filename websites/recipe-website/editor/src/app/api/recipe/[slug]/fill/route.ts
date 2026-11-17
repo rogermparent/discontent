@@ -1,7 +1,10 @@
 /**
  * `POST /api/recipe/<slug>/fill` — the recipe's gaps filled from its source,
- * written nowhere (45b): `recipes fill --remote`. The body is `{estimate?}`
- * (`false`: the source's values only); the answer is `FillResult` — what
+ * written nowhere (45b): `recipes fill --remote`. The body is `{estimate?,
+ * uses?, usesAll?}` (`estimate: false`: no estimate; `uses`: whether the
+ * model is asked what each step uses — unset, the Claude API is and a local
+ * model is not; `usesAll: true`: steps that store a `uses` are read too,
+ * 47g); the answer is `FillResult` — what
  * the source fills, what the model estimates, and the patch `PUT
  * /api/recipe/<slug>` takes.
  *
@@ -19,6 +22,8 @@ import { z } from "zod";
 
 const FillBodySchema = z.strictObject({
   estimate: z.boolean().optional(),
+  uses: z.boolean().optional(),
+  usesAll: z.boolean().optional(),
 });
 
 export async function POST(
@@ -28,7 +33,7 @@ export async function POST(
   try {
     const ctx = await requireCurationContext(request, { need: "read" });
     const { slug } = await params;
-    const { estimate } = parseInput(
+    const { estimate, uses, usesAll } = parseInput(
       FillBodySchema,
       (await readJsonBody(request, { optional: true })) ?? {},
     );
@@ -40,6 +45,8 @@ export async function POST(
           ...corpusOf(ctx),
           slug,
           ...(estimate === false ? { estimate: false } : {}),
+          ...(typeof uses === "boolean" ? { uses } : {}),
+          ...(usesAll === true ? { usesAll: true } : {}),
         },
         { ctx },
       ),

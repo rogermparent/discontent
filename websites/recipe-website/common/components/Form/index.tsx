@@ -454,6 +454,7 @@ export default function RecipeFields({
           id="recipe-form-instructions"
           suggestedChoices={recipe?.suggestedChoices}
           suggestedBy={fill ? "suggested by the fill" : undefined}
+          suggestedUses={recipe?.suggestedUses}
         />
         <Timelines />
       </FormSection>
