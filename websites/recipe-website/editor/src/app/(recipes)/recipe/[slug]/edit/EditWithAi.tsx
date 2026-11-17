@@ -322,6 +322,19 @@ export default function EditWithAi({
     );
   };
 
+  /* No model here: nothing to ask — the fill strip alone, as before 47i
+   * (a source is still read; nothing is estimated), or nothing at all. */
+  if (!asked) {
+    return fill
+      ? fill({
+          fill: true,
+          busy: false,
+          startedFill: () => undefined,
+          fillRunning: setFillRunning,
+        })
+      : null;
+  }
+
   return (
     <section
       aria-labelledby={titleId}
@@ -336,84 +349,82 @@ export default function EditWithAi({
           Edit with AI
         </h2>
         <p className="text-sm text-muted-foreground">
-          {asked
-            ? `Ask for a change in your own words: ${asked} reads the form as it is now and proposes it, marked for you to accept or undo. Nothing is saved until you press Save.`
-            : "No model is set up in this editor, so requests are off."}
+          Ask for a change in your own words: {asked} reads the form as it is
+          now and proposes it, marked for you to accept or undo. Nothing is
+          saved until you press Save.
         </p>
       </div>
 
-      {asked ? (
-        <form className="flex flex-col gap-2" onSubmit={send}>
-          <label htmlFor={requestId} className="text-sm font-medium">
-            What should change?
-          </label>
-          <div className="flex flex-wrap items-start gap-2">
-            <Textarea
-              ref={requestField}
-              id={requestId}
-              name="request"
-              rows={2}
-              maxLength={EDIT_REQUEST_MAX}
-              value={request}
-              onChange={(event) => setRequest(event.target.value)}
-              onKeyDown={(event) => {
-                if (
-                  event.key === "Enter" &&
-                  (event.metaKey || event.ctrlKey) &&
-                  !busy
-                ) {
-                  event.preventDefault();
-                  void start("request");
-                }
-              }}
-              placeholder="e.g. remove the parentheses from the ingredients"
-              className="min-h-11 min-w-0 flex-1 basis-64"
-            />
-            <Button
-              type="submit"
-              className="h-11 shrink-0 px-5 sm:h-9"
-              disabled={busy}
-            >
-              Send
-            </Button>
-          </div>
-          <div
-            className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm"
-            role="group"
-            aria-label="Example requests"
+      <form className="flex flex-col gap-2" onSubmit={send}>
+        <label htmlFor={requestId} className="text-sm font-medium">
+          What should change?
+        </label>
+        <div className="flex flex-wrap items-start gap-2">
+          <Textarea
+            ref={requestField}
+            id={requestId}
+            name="request"
+            rows={2}
+            maxLength={EDIT_REQUEST_MAX}
+            value={request}
+            onChange={(event) => setRequest(event.target.value)}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                (event.metaKey || event.ctrlKey) &&
+                !busy
+              ) {
+                event.preventDefault();
+                void start("request");
+              }
+            }}
+            placeholder="e.g. remove the parentheses from the ingredients"
+            className="min-h-11 min-w-0 flex-1 basis-64"
+          />
+          <Button
+            type="submit"
+            className="h-11 shrink-0 px-5 sm:h-9"
+            disabled={busy}
           >
-            <span className="text-muted-foreground">Try:</span>
-            {EDIT_EXAMPLES.map((example) => (
-              <Button
-                key={example}
-                type="button"
-                variant="outline"
-                size="sm"
-                className="min-h-8 rounded-full px-3 font-normal"
-                onClick={() => {
-                  setRequest(example);
-                  requestField.current?.focus();
-                }}
-              >
-                {example}
-              </Button>
-            ))}
+            Send
+          </Button>
+        </div>
+        <div
+          className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm"
+          role="group"
+          aria-label="Example requests"
+        >
+          <span className="text-muted-foreground">Try:</span>
+          {EDIT_EXAMPLES.map((example) => (
+            <Button
+              key={example}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-h-8 rounded-full px-3 font-normal"
+              onClick={() => {
+                setRequest(example);
+                requestField.current?.focus();
+              }}
+            >
+              {example}
+            </Button>
+          ))}
+        </div>
+        {both ? (
+          <div className="flex items-start gap-2 text-sm">
+            <Checkbox
+              id={claudeId}
+              className="mt-0.5"
+              checked={useClaude}
+              onCheckedChange={(value) => setUseClaude(value === true)}
+            />
+            <label htmlFor={claudeId}>
+              Use Claude ({models.claude}) instead of {models.local}
+            </label>
           </div>
-          {both ? (
-            <div className="flex items-start gap-2 text-sm">
-              <Checkbox
-                id={claudeId}
-                className="mt-0.5"
-                checked={useClaude}
-                onCheckedChange={(value) => setUseClaude(value === true)}
-              />
-              <label htmlFor={claudeId}>
-                Use Claude ({models.claude}) instead of {models.local}
-              </label>
-            </div>
-          ) : null}
-        </form>
-      ) : null}
+        ) : null}
+      </form>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
         {usesAsk && "model" in usesAsk ? (
@@ -549,7 +560,11 @@ function ResultLine({
   result: EditResult;
   applied?: EditApplied;
 }) {
-  const model = result.model ?? "The model";
+  const model = result.model ?? "the model";
+  /* "Local model qwen3:8b's answer…": a sentence starts with a capital. */
+  const Model = model.charAt(0).toUpperCase() + model.slice(1);
+  const note =
+    result.task === "request" ? result.note.replace(/[.\s]+$/, "") : "";
   const notes = result.warnings ?? [];
   let line: ReactNode;
   let alert = false;
@@ -575,7 +590,7 @@ function ResultLine({
         </>
       );
     } else {
-      line = `${model} read what each step uses: no change to suggest.`;
+      line = `${Model} read what each step uses: no change to suggest.`;
     }
   } else if (result.status === "changed") {
     const done = applied?.applied ?? [];
@@ -586,8 +601,7 @@ function ResultLine({
           <>
             <b className="font-semibold">Changed by {model}:</b>{" "}
             {editFieldList(done)}
-            {result.note ? ` — ${result.note}` : ""}. Review each below, then
-            Save.
+            {note ? ` — ${note}` : ""}. Review each below, then Save.
           </>
         ) : null}
         {skipped.length ? (
@@ -601,12 +615,12 @@ function ResultLine({
       </>
     );
   } else if (result.status === "no-change") {
-    line = `No change from ${model}${result.note ? `: ${result.note}` : "."}`;
+    line = `No change from ${model}${note ? `: ${note}.` : "."}`;
   } else {
     alert = true;
     line =
       result.status === "refused"
-        ? `${model}'s answer was not applied: ${result.problem}.`
+        ? `${Model}'s answer was not applied: ${result.problem}.`
         : `Nothing was changed: ${result.problem}.`;
   }
   return (

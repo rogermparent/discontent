@@ -14,6 +14,8 @@
  *   name, the lines up to the first blank line are the ingredients, and the
  *   paragraph after them is the method, a step a sentence. `invent` names
  *   recipes whose lines are made up instead (a reading the guard must catch).
+ * - **A request** (47i, `EDIT_SYSTEM_PROMPT`): `editAnswer`, by the
+ *   request's words.
  * - **What each step uses** (47g, `USES_SYSTEM_PROMPT`): `usesAnswer` —
  *   "everything" brings in every line, "the bowl" nothing, any other step
  *   is left out.
@@ -46,6 +48,8 @@ export interface StandInOptions {
   choices?: Record<string, unknown>;
   /** The steps' "uses" answer (47g) in place of the stand-in's own. */
   uses?: unknown;
+  /** An "Edit with AI" answer (47i) in place of the stand-in's own. */
+  edit?: unknown;
 }
 
 /**
@@ -76,6 +80,52 @@ export function usesAnswer(user: string): {
     }
   }
   return { steps };
+}
+
+/**
+ * "Edit with AI" (47i, `EDIT_SYSTEM_PROMPT`), by rule on the request's
+ * words: "parentheses" takes every "(…)" out of the ingredient lines,
+ * "vegetarian" adds that tag, "rename to X" renames, "slug" answers a slug
+ * change (which the check must refuse), and anything else is no change.
+ * Never a real model.
+ */
+export function editAnswer(user: string): {
+  change: Record<string, unknown>;
+  note: string;
+} {
+  const [, json = "{}", request = ""] =
+    /^Recipe:\n([\s\S]*)\n\nRequest: (.*)$/.exec(user) ?? [];
+  const recipe = JSON.parse(json) as {
+    tags?: string[];
+    ingredients?: unknown[];
+  };
+  const change: Record<string, unknown> = {};
+  const done: string[] = [];
+  if (/parenthes/i.test(request)) {
+    change.ingredients = (recipe.ingredients ?? []).map((line) =>
+      typeof line === "string"
+        ? line.replace(/\s*\([^)]*\)/g, "").trim()
+        : line,
+    );
+    done.push("took the parentheses out of the ingredients");
+  }
+  if (/vegetarian/i.test(request)) {
+    change.tags = [...(recipe.tags ?? []), "vegetarian"];
+    done.push("added the vegetarian tag");
+  }
+  const rename = /rename (?:it )?to (.+?)(?:\.|$)/i.exec(request);
+  if (rename) {
+    change.name = rename[1].trim();
+    done.push("renamed it");
+  }
+  if (/\bslug\b/i.test(request)) {
+    change.slug = "pwned";
+    done.push("changed the slug");
+  }
+  return {
+    change,
+    note: done.length ? `I ${done.join(" and ")}.` : "Nothing to change.",
+  };
 }
 
 /**
@@ -288,6 +338,18 @@ export function standInChat(
       done: true,
       prompt_eval_count: 400,
       eval_count: 60,
+    };
+  }
+  if (system.startsWith("You change a recipe the way a person asks")) {
+    return {
+      model: body.model ?? "qwen3:8b",
+      message: {
+        role: "assistant",
+        content: JSON.stringify(options.edit ?? editAnswer(user)),
+      },
+      done: true,
+      prompt_eval_count: 700,
+      eval_count: 90,
     };
   }
   if (system.startsWith("You find alternatives among")) {

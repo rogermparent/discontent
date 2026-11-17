@@ -395,6 +395,19 @@ const ABOUT_SECTIONS =
 const ABOUT_CHOICES =
   /\b(choices?|alternatives?|options?|versions?|ways?|methods?|variations?)\b/i;
 const ABOUT_USES = /\b(uses|used|using)\b/i;
+const ABOUT_REMOVING =
+  /\b(remove|removing|delete|deleting|drop|dropping|cut|shorten|condense|simplify|fewer|trim)\b/i;
+
+/**
+ * A list that comes back much shorter than it went (Di7, the 47i
+ * measurement: qwen3:8b answered "merge steps 2 and 3" with 6 of 14 steps):
+ * at least 3 items, and more than a third of it, gone — unless the request
+ * asks to remove or shorten something.
+ */
+function shrinks(before: number, after: number, request: string): boolean {
+  const lost = before - after;
+  return lost >= 3 && lost * 3 > before && !ABOUT_REMOVING.test(request);
+}
 
 function steps(entries: readonly InstructionEntry[]): Instruction[] {
   return entries.flatMap((entry) =>
@@ -442,6 +455,16 @@ export function structureProblem(
   after: Pick<EditValues, "ingredients" | "instructions">,
   request: string,
 ): string | undefined {
+  const lines = (values: Pick<EditValues, "ingredients">) =>
+    values.ingredients.filter((line) => line.type !== "heading").length;
+  if (shrinks(lines(before), lines(after), request)) {
+    return `it leaves ${lines(after)} of the ${lines(before)} ingredient lines, which the request did not ask for`;
+  }
+  const count = (values: Pick<EditValues, "instructions">) =>
+    steps(values.instructions).length;
+  if (shrinks(count(before), count(after), request)) {
+    return `it leaves ${count(after)} of the ${count(before)} steps, which the request did not ask for`;
+  }
   const was = structure(before);
   const now = structure(after);
   const sections = ABOUT_SECTIONS.test(request);
