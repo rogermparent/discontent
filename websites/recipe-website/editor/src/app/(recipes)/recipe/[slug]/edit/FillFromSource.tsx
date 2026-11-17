@@ -66,6 +66,10 @@ export default function FillFromSource({
   applied,
   onApply,
   onUndo,
+  quiet = false,
+  busy = false,
+  onStart,
+  onRunning,
 }: {
   slug: string;
   /** The link the fill reads: the source, or the video. */
@@ -87,6 +91,17 @@ export default function FillFromSource({
   onApply(result: FillResult): FillOutcome;
   /** Put the form back to the stored recipe. */
   onUndo(): void;
+  /**
+   * 47i: inside "Edit with AI" — a request ran after this fill, so its
+   * panel and words are the box's now (the fill's marks stay in the form).
+   */
+  quiet?: boolean;
+  /** 47i: a request is running in the box; the fill waits for it. */
+  busy?: boolean;
+  /** 47i: a fill started (the box's latest job is the fill's now). */
+  onStart?(): void;
+  /** 47i: whether a fill is running, for the box's other actions. */
+  onRunning?(running: boolean): void;
 }) {
   const titleId = useId();
   const [job, setJob] = useState<string | undefined>(initialJob);
@@ -100,6 +115,9 @@ export default function FillFromSource({
     (UnfollowedImport & { job: string }) | undefined
   >();
   const running = !!job && settled !== job;
+  useEffect(() => {
+    onRunning?.(running);
+  }, [running, onRunning]);
 
   const host = hostnameLabel(sourceUrl) ?? sourceUrl;
   const empty = HINT_FIELDS.filter((field) => isEmptyField(stored, field));
@@ -193,6 +211,7 @@ export default function FillFromSource({
   }, [unfollowedJob, settle]);
 
   const start = async () => {
+    onStart?.();
     setStarting(true);
     setMessage(undefined);
     setResult(undefined);
@@ -252,7 +271,7 @@ export default function FillFromSource({
           ? "-ml-2 h-9 shrink-0 px-2 text-sm"
           : "h-11 shrink-0 px-4 sm:h-9"
       }
-      disabled={starting}
+      disabled={starting || busy}
       onClick={start}
     >
       Fill gaps from the source
@@ -290,12 +309,12 @@ export default function FillFromSource({
       ) : (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <div className="min-w-0 flex-1 basis-64">
-            <h2
+            <h3
               id={titleId}
               className="font-display text-base leading-6 font-semibold tracking-[-0.01em]"
             >
               Fill gaps from the source
-            </h2>
+            </h3>
             <p className="text-sm text-muted-foreground">
               Reads{" "}
               <a
@@ -318,7 +337,7 @@ export default function FillFromSource({
         </div>
       )}
 
-      {job ? (
+      {!quiet && job ? (
         <ImportProgress
           key={job}
           job={job}
@@ -332,7 +351,7 @@ export default function FillFromSource({
         />
       ) : null}
 
-      {message ? (
+      {!quiet && message ? (
         <p
           role="alert"
           className="border-l-2 border-destructive pl-2 text-sm"
@@ -342,7 +361,7 @@ export default function FillFromSource({
         </p>
       ) : null}
 
-      {outcome && "nothing" in outcome ? (
+      {!quiet && outcome && "nothing" in outcome ? (
         <p role="status" className="text-sm" data-testid="fill-summary">
           Nothing new from the source: every field it has is already filled.
           {result?.uses
@@ -351,7 +370,7 @@ export default function FillFromSource({
         </p>
       ) : null}
 
-      {marks ? (
+      {!quiet && marks ? (
         <div
           role="status"
           className="flex flex-wrap items-start gap-x-4 gap-y-2 rounded-r-md border-l-2 border-primary bg-muted px-3 py-2.5"
@@ -404,13 +423,13 @@ export default function FillFromSource({
         </div>
       ) : null}
 
-      {undone ? (
+      {!quiet && undone ? (
         <p role="status" className="text-sm" data-testid="fill-undone">
           Undone: the form is back to the stored recipe.
         </p>
       ) : null}
 
-      {notes.length && !undone ? (
+      {!quiet && notes.length && !undone ? (
         <ul
           className="flex flex-col gap-1 text-sm text-muted-foreground"
           data-testid="fill-notes"

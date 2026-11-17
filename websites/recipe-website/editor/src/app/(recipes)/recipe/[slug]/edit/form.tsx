@@ -45,6 +45,22 @@ import {
   overwriteUpdateRecipe,
 } from "../../../../../../controller/actions";
 import FillFromSource, { type FillOutcome } from "./FillFromSource";
+import EditWithAi, {
+  type EditApplied,
+  type EditModelsShown,
+} from "./EditWithAi";
+import {
+  acceptEdit,
+  stackEdit,
+  undoEdit,
+} from "recipe-website-common/components/Form/editMarks";
+import {
+  editValuesOf,
+  sameEditValue,
+  type EditField,
+  type EditValues,
+} from "recipe-website-common/util/editRequest";
+import type { EditResult } from "recipe-editor/controller/llm/askEdit";
 import {
   ModelChoicesProvider,
   type ModelChoices,
@@ -97,7 +113,7 @@ function ValuesProbe({
 
 /** The form's values as a recipe, over the stored one (its picture, video…). */
 function valuesAsRecipe(
-  stored: Recipe,
+  stored: Partial<ImportedRecipe>,
   values: RecipeFormValues | undefined,
 ): Partial<ImportedRecipe> {
   if (!values) return stored;
@@ -140,6 +156,8 @@ export default function EditRecipeForm({
   initialFillJob,
   choicesModel,
   choicesUnavailable,
+  editModels,
+  usesAsk,
 }: {
   slug: string;
   recipe: Recipe;
@@ -158,6 +176,10 @@ export default function EditRecipeForm({
   choicesModel?: string;
   /** Why it is off, when no model is set up (46f). */
   choicesUnavailable?: string;
+  /** Who answers "Edit with AI" requests (47i): the local model, Claude. */
+  editModels?: EditModelsShown;
+  /** Who "Suggest step uses" asks (47i), or why nobody is. */
+  usesAsk?: { model: string } | { unavailable: string };
 }) {
   /* 46f: the Steps section's model action, bound to this recipe. */
   const modelChoices = useMemo<ModelChoices>(
@@ -176,6 +198,11 @@ export default function EditRecipeForm({
   const overwriteThisRecipe = overwriteUpdateRecipe.bind(null, date, slug);
   const [, overwriteDispatch] = useActionState(overwriteThisRecipe, null);
   const [applied, setApplied] = useState<AppliedFill | null>(null);
+  /* The fill or request the form holds now, for the callbacks below. */
+  const appliedNow = useRef<AppliedFill | null>(null);
+  useEffect(() => {
+    appliedNow.current = applied;
+  }, [applied]);
   /* Remounts the form: a fill, then an Undo, each a fresh instance. */
   const [undoKey, setUndoKey] = useState<string>();
   const remounts = useRef(0);
@@ -258,6 +285,10 @@ export default function EditRecipeForm({
         ...(offered.length && result.uses
           ? { uses: { model: result.uses.model, steps: offered } }
           : {}),
+        /* 47i Di8: a request's marks stay under a fill that lands after it. */
+        ...(appliedNow.current?.marks.edited
+          ? { edited: appliedNow.current.marks.edited }
+          : {}),
       };
       remounts.current += 1;
       /* 45e2: groups that look like alternatives — filled from the source
@@ -291,6 +322,138 @@ export default function EditRecipeForm({
     [recipe],
   );
 
+  /**
+   * 47i: remount the form on `values` (its other fields as they are), with
+   * `marks` — the picture and video inputs carried, and the fill's or the
+   * steps' open suggestions too (they follow their steps by themselves).
+   */
+  const remountWith = useCallback(
+    (
+      reading: FormReading,
+      values: RecipeFormValues,
+      marks: FillMarks,
+      extra: Partial<ImportedRecipe> = {},
+    ) => {
+      const held = appliedNow.current;
+      const inputs = reading.pictures;
+      const touched = pictureTouched(inputs, recipe);
+      const pictures = pictureCarry(inputs, touched);
+      remounts.current += 1;
+      setApplied({
+        key: `edit-${remounts.current}`,
+        recipe: {
+          ...valuesAsRecipe(held?.recipe ?? recipe, values),
+          ...extra,
+        },
+        marks,
+        extraChanges:
+          (marks.filled.includes("image") ? 1 : 0) +
+          (marks.filled.includes("video") ? 1 : 0) +
+          (pictures ? 1 : 0),
+        ...(pictures ? { pictures } : {}),
+      });
+      setPassedState(stateNow.current);
+    },
+    [recipe],
+  );
+
+  /* 47i: a request's checked change, laid on the form as it is now. */
+  const onEdit = useCallback(
+    (result: EditResult, sent: EditValues): EditApplied => {
+      const reading = readForm.current?.();
+      if (
+        !reading ||
+        result.task !== "request" ||
+        result.status !== "changed"
+      ) {
+        return { applied: [], skipped: [] };
+      }
+      const stacked = stackEdit(
+        appliedNow.current?.marks,
+        editValuesOf(reading.values),
+        sent,
+        {
+          fields: result.fields,
+          change: result.change,
+          request: {
+            request: result.request,
+            model: result.model ?? "the model",
+            ...(result.note ? { note: result.note } : {}),
+          },
+        },
+      );
+      if (stacked.applied.length > 0) {
+        remountWith(
+          reading,
+          { ...reading.values, ...stacked.values },
+          stacked.marks,
+        );
+      }
+      return { applied: stacked.applied, skipped: stacked.skipped };
+    },
+    [remountWith],
+  );
+
+  /* 47i: "Suggest step uses" — offered under each step, never applied. */
+  const onUses = useCallback(
+    (result: EditResult, sent: EditValues): EditApplied => {
+      const reading = readForm.current?.();
+      if (!reading || result.task !== "uses" || !result.model) {
+        return { applied: [], skipped: [] };
+      }
+      const values = reading.values;
+      if (
+        !sameEditValue(values.instructions, sent.instructions) ||
+        !sameEditValue(values.ingredients, sent.ingredients)
+      ) {
+        return { applied: [], skipped: ["instructions"] };
+      }
+      const uses = usesOffers(
+        values.ingredients,
+        values.instructions,
+        result.answers,
+      );
+      if (uses.offered.length === 0) return { applied: [], skipped: [] };
+      const held = appliedNow.current;
+      remountWith(
+        reading,
+        values,
+        {
+          ...(held?.marks ?? { filled: [], estimated: [] }),
+          uses: { model: result.model, steps: uses.offered },
+        },
+        {
+          suggestedUses: { model: result.model, steps: uses.steps },
+        },
+      );
+      return { applied: ["instructions"], skipped: [], offered: uses.offered };
+    },
+    [remountWith],
+  );
+
+  /* 47i: Accept takes a field's mark away; nothing is remounted. */
+  const onAcceptEdit = useCallback((field: EditField) => {
+    setApplied((held) =>
+      held ? { ...held, marks: acceptEdit(held.marks, field) } : held,
+    );
+  }, []);
+
+  /* 47i: Undo puts fields back to before the requests changed them. */
+  const onUndoEdit = useCallback(
+    (fields: readonly EditField[]) => {
+      const reading = readForm.current?.();
+      const held = appliedNow.current;
+      if (!reading || !held) return;
+      const undone = undoEdit(held.marks, editValuesOf(reading.values), fields);
+      remountWith(
+        reading,
+        { ...reading.values, ...undone.values },
+        undone.marks,
+      );
+    },
+    [remountWith],
+  );
+
   const onUndo = useCallback(() => {
     remounts.current += 1;
     setApplied(null);
@@ -307,19 +470,41 @@ export default function EditRecipeForm({
       }
       title={recipe.name}
     >
-      {fillSource ? (
-        <FillFromSource
-          slug={slug}
-          sourceUrl={fillSource}
-          stored={recipe}
-          llmModel={llmModel}
-          usesModel={usesModel}
-          initialJob={initialFillJob}
-          applied={fill?.marks}
-          onApply={onApply}
-          onUndo={onUndo}
-        />
-      ) : null}
+      <EditWithAi
+        slug={slug}
+        models={editModels ?? {}}
+        usesAsk={usesAsk}
+        marks={fill?.marks}
+        readValues={() => {
+          const reading = readForm.current?.();
+          return reading ? editValuesOf(reading.values) : undefined;
+        }}
+        onEdit={onEdit}
+        onUses={onUses}
+        onAccept={onAcceptEdit}
+        onUndo={onUndoEdit}
+        fill={
+          fillSource
+            ? (active) => (
+                <FillFromSource
+                  slug={slug}
+                  sourceUrl={fillSource}
+                  stored={recipe}
+                  llmModel={llmModel}
+                  usesModel={usesModel}
+                  initialJob={initialFillJob}
+                  applied={fill?.marks}
+                  onApply={onApply}
+                  onUndo={onUndo}
+                  quiet={!active.fill}
+                  busy={active.busy}
+                  onStart={active.startedFill}
+                  onRunning={active.fillRunning}
+                />
+              )
+            : undefined
+        }
+      />
       <ModelChoicesProvider value={modelChoices}>
         <RecipeFormShell
           key={failed ? failed.message : (fill?.key ?? undoKey)}

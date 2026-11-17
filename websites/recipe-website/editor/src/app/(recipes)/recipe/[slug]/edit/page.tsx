@@ -12,6 +12,10 @@ import {
 } from "recipe-editor/controller/llm/client";
 import { readerLabel } from "recipe-editor/controller/llm/readerLabel";
 import { usesModelAsked } from "recipe-editor/controller/llm/suggestUses";
+import {
+  editModels as editModelsOf,
+  usesModelFor,
+} from "recipe-editor/controller/llm/askEdit";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +64,9 @@ export default async function Recipe({
   /* 46f: who "Look for alternatives with the model" asks, or why none. */
   const config = llmConfig();
   const choicesModel = config ? readerLabel(config) : undefined;
+  /* 47i: who answers "Edit with AI", and who "Suggest step uses" asks. */
+  const models = editModelsOf();
+  const uses = usesModelFor(models);
   return (
     <PageMain>
       {/* 43e1: the form draws its own frame — heading, rail and sections. */}
@@ -80,6 +87,17 @@ export default async function Recipe({
             : `No model is set up in this editor, so none can be asked (${llmUnconfiguredMessage()}).`
         }
         initialFillJob={fillSource ? fillJob : undefined}
+        editModels={{
+          ...(models.local ? { local: readerLabel(models.local) } : {}),
+          ...(models.claude ? { claude: readerLabel(models.claude) } : {}),
+        }}
+        usesAsk={
+          "config" in uses
+            ? { model: readerLabel(uses.config) }
+            : models.local || models.claude
+              ? { unavailable: uses.problem }
+              : undefined
+        }
       />
     </PageMain>
   );
