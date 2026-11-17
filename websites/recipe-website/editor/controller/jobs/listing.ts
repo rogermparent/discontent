@@ -38,6 +38,8 @@ export const JOB_KIND_NAMES = [
   "fill",
   /* 46f: the model looks for alternatives in a recipe's steps (the edit page). */
   "choices",
+  /* 47i: "Edit with AI" on the edit page (a request, or step uses). */
+  "edit",
 ] as const;
 
 /**
