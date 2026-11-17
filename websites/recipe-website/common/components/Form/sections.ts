@@ -27,6 +27,7 @@ export const RECIPE_SECTIONS = [
   { id: "picture", label: "Picture" },
   { id: "ingredients", label: "Ingredients" },
   { id: "steps", label: "Steps" },
+  { id: "notes", label: "Notes" },
   { id: "times", label: "Times" },
   { id: "source", label: "Source" },
 ] as const;
@@ -73,6 +74,7 @@ const ERROR_SECTION: Record<string, RecipeSectionId> = {
   ingredients: "ingredients",
   instructions: "steps",
   timelines: "steps",
+  notes: "notes",
   prepTime: "times",
   cookTime: "times",
   totalTime: "times",
@@ -193,6 +195,7 @@ const SECTION_KEYS: Record<RecipeSectionId, (keyof RecipeFormValues)[]> = {
   picture: [],
   ingredients: ["ingredients"],
   steps: ["instructions"],
+  notes: ["notes"],
   times: ["prepTime", "cookTime", "totalTime"],
   source: [],
 };
@@ -237,6 +240,7 @@ export function sectionStatuses(
     (values.source.url.trim() && hostnameLabel(values.source.url.trim()));
 
   const checks = ingredientChecks(values);
+  const notes = values.notes.filter((note) => note.trim()).length;
   const method = values.drink.method as DrinkMethod | "";
   const statuses: Record<RecipeSectionId, SectionStatus> = {
     drink: method
@@ -271,6 +275,7 @@ export function sectionStatuses(
         ? { text: `${steps} · all lines used`, tone: "ok" }
         : { text: String(steps) }
       : { text: "none yet" },
+    notes: notes ? { text: String(notes) } : { text: "none" },
     times: total ? { text: formatDurationCompact(total) } : {},
     source: site ? { text: site } : {},
   };

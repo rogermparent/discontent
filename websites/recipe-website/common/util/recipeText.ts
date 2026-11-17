@@ -13,11 +13,18 @@ import type { InstructionEntry } from "../controller/types";
  * `\r\n` for every newline.
  */
 export function normalizeRecipeText<
-  T extends { description?: string; instructions?: InstructionEntry[] },
+  T extends {
+    description?: string;
+    instructions?: InstructionEntry[];
+    notes?: string[];
+  },
 >(data: T): T {
   const next = { ...data };
   if (typeof next.description === "string") {
     next.description = normalizeLineEndings(next.description);
+  }
+  if (Array.isArray(next.notes)) {
+    next.notes = next.notes.map((note) => normalizeLineEndings(note));
   }
   if (Array.isArray(next.instructions)) {
     next.instructions = next.instructions.map(normalizeEntry);

@@ -288,6 +288,8 @@ export async function buildRecipeWrite(
   put("source", input.source);
   put("drink", input.drink);
   put("timelines", input.timelines);
+  /* 47j: no notes is no `notes` key, never `[]`. */
+  put("notes", input.notes?.length === 0 ? null : input.notes);
 
   if (input.tags === null) {
     delete data.tags;

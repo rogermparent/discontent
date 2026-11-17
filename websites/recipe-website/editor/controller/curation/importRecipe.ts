@@ -387,6 +387,8 @@ export function importedToInput(
     ...(imported.ingredients ? { ingredients: imported.ingredients } : {}),
     ...(imported.instructions ? { instructions: imported.instructions } : {}),
     ...(imported.source ? { source: imported.source } : {}),
+    /* 47j: the page's own notes (a card plugin's block, a learned selector). */
+    ...(imported.notes?.length ? { notes: imported.notes } : {}),
     ...(imageImportUrl ? { imageImportUrl } : {}),
     ...(imported.videoImportUrl
       ? { videoImportUrl: imported.videoImportUrl }

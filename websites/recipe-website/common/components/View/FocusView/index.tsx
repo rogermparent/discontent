@@ -77,6 +77,34 @@ interface FocusViewProps {
   instructions?: InstructionEntry[];
   /** 42c1's step → ingredient-line matches, computed on the server. */
   uses?: StepLines;
+  /** The recipe's own notes (47j): a closed "Notes" block, not steps. */
+  notes?: string[];
+}
+
+/**
+ * The recipe's notes in the cook view (47j): one closed disclosure, after
+ * the ingredients (one step at a time) or the steps (all of them), so they
+ * are a tap away and never in the steps' way.
+ */
+function CookNotes({ notes }: { notes?: string[] }) {
+  if (!notes?.length) return null;
+  return (
+    <details
+      className="rounded-md border border-border bg-card px-4 py-2"
+      data-testid="cook-notes"
+    >
+      <summary className="cursor-pointer py-1 font-medium">
+        Notes ({notes.length})
+      </summary>
+      <ol className="list-decimal space-y-2 py-2 pl-6 text-lg sm:text-xl">
+        {notes.map((note, index) => (
+          <li key={index}>
+            <StyledMarkdown>{note}</StyledMarkdown>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
 }
 
 type FlatStep = Omit<Instruction, "uses"> & {
@@ -267,6 +295,7 @@ function FocusOverlay({
   ingredients = [],
   instructions,
   uses,
+  notes,
   label,
   defaultLayout,
   onClose,
@@ -612,6 +641,7 @@ function FocusOverlay({
                 />
               </details>
             )}
+            <CookNotes notes={notes} />
           </section>
         ) : (
           <>
@@ -678,6 +708,7 @@ function FocusOverlay({
                 </ol>
               </section>
             )}
+            <CookNotes notes={notes} />
           </>
         )}
 

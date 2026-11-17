@@ -28,6 +28,7 @@ export const FILL_FIELDS = [
   "image",
   "video",
   "drink",
+  "notes",
 ] as const;
 
 export type FillField = (typeof FILL_FIELDS)[number];
@@ -54,6 +55,7 @@ export const FILL_FIELD_SECTION: Record<FillField, RecipeSectionId> = {
   image: "picture",
   video: "picture",
   drink: "drink",
+  notes: "notes",
 };
 
 /** A person's name for a field, in a summary line. */
@@ -68,6 +70,7 @@ export const FILL_FIELD_LABELS: Record<FillField, string> = {
   image: "picture",
   video: "video",
   drink: "drink spec",
+  notes: "notes",
 };
 
 /** What a fill did to the form: the form and the rail mark these. */

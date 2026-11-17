@@ -58,6 +58,7 @@ function formDataFromParsed(parsed: ParsedRecipeFormData): RecipeFormData {
     date: parsed.date || undefined,
     ingredients: parsed.ingredients,
     instructions: parsed.instructions,
+    notes: parsed.notes,
     timelines: parsed.timelines,
     prepTime: parsed.prepTime,
     cookTime: parsed.cookTime,
@@ -128,6 +129,7 @@ async function buildRecipeData(
     tags,
     source,
     drink,
+    notes,
   } = parsed;
 
   // Determine final video value with priority handling
@@ -191,6 +193,7 @@ async function buildRecipeData(
     tags: tags && tags.length > 0 ? tags : undefined,
     source,
     drink,
+    notes,
   };
 
   /* A textarea submits `\r\n`; store `\n` (28d). */

@@ -37,6 +37,7 @@ export type RecipeFormData = {
   videoUrl?: string;
   source?: RecipeSource;
   drink?: DrinkSpec;
+  notes?: string[];
 };
 
 export type RecipeFormState = ContentFormState<

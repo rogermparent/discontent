@@ -148,6 +148,7 @@ function fillable(draft: Partial<ImportedRecipe>): Partial<ImportedRecipe> {
     "images",
     "videoImportUrl",
     "drink",
+    "notes",
     "suggestedTags",
   ];
   const out: Partial<ImportedRecipe> = {};
@@ -181,6 +182,9 @@ export function fillPatch(
   return {
     ...draft,
     ...(wanted.has("drink") && recipe.drink ? { drink: recipe.drink } : {}),
+    ...(wanted.has("notes") && recipe.notes?.length
+      ? { notes: recipe.notes }
+      : {}),
   } as RecipePatch;
 }
 

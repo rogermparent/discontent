@@ -28,6 +28,7 @@ const OWN_SENTENCES = new Set([
   "videoUrl",
   "ingredients",
   "instructions",
+  "notes",
   "source",
 ]);
 

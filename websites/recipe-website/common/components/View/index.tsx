@@ -32,7 +32,9 @@ import { headsUpCandidates } from "../../util/headsUp";
 import { readChoices } from "../../util/readChoices";
 import { ChoicesProvider, PathTime, PathYield } from "./Choices";
 import { drinkYieldBase, isDrinkRecipe } from "../../util/drinkCount";
+import { cleanNotes } from "../../util/recipeNotes";
 import { TimersProvider, TimerTray } from "./Timers";
+import { RecipeNotes } from "./Notes";
 
 export async function RecipeView({
   recipe,
@@ -64,6 +66,8 @@ export async function RecipeView({
     date,
     tags,
   } = recipe;
+  /* 47j: the recipe's own notes, after the steps. */
+  const notes = cleanNotes(recipe.notes);
 
   // Calculate the totalTime from prepTime and cookTime if not provided
   const totalTime = recipe.totalTime || (prepTime || 0) + (cookTime || 0);
@@ -200,6 +204,7 @@ export async function RecipeView({
                           ingredients={ingredients}
                           instructions={instructions}
                           uses={stepLines}
+                          notes={notes}
                         />
                         <BookmarkButton recipe={{ slug, date, name, image }} />
                       </div>
@@ -281,12 +286,26 @@ export async function RecipeView({
                     actions={ingredientActions}
                     className="recipe-area-ingredients"
                   />
-                  <Instructions
-                    instructions={instructions}
-                    ingredients={ingredients}
-                    uses={stepLines}
-                    className="recipe-area-steps"
-                  />
+                  {/* 47j: the notes follow the steps in their column; a
+                      recipe without them renders exactly as before. */}
+                  {notes.length > 0 ? (
+                    <div className="recipe-area-steps min-w-0">
+                      <Instructions
+                        instructions={instructions}
+                        ingredients={ingredients}
+                        uses={stepLines}
+                        noteCount={notes.length}
+                      />
+                      <RecipeNotes notes={notes} />
+                    </div>
+                  ) : (
+                    <Instructions
+                      instructions={instructions}
+                      ingredients={ingredients}
+                      uses={stepLines}
+                      className="recipe-area-steps"
+                    />
+                  )}
                   {/* After the recipe itself, because it is about the recipe rather
                 than part of it, and because it is the one block here that
                 reads a *different* content type's derived state (22b/D4). */}

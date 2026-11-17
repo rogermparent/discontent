@@ -19,6 +19,7 @@
 import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
 import type { DrinkSpec, Recipe } from "recipe-website-common/controller/types";
 import { videoHostName } from "recipe-website-common/util/videoUrl";
+import { cleanNotes } from "recipe-website-common/util/recipeNotes";
 import {
   ESTIMATE_FIELDS,
   FILL_FIELD_LABELS,
@@ -80,6 +81,9 @@ export function isEmptyField(
     case "ingredients":
     case "instructions":
       return emptyList(recipe[field]);
+    case "notes":
+      /* 47j: blank rows are no notes (the form drops them on Save). */
+      return cleanNotes(recipe.notes).length === 0;
     case "image":
       return emptyText(recipe.image);
     case "video":
@@ -132,6 +136,12 @@ function offered(
         : { videoImportUrl: draft.videoImportUrl };
     case "drink":
       return hasDrink(draft.drink) ? { drink: draft.drink } : undefined;
+    case "notes": {
+      /* 47j: the page's own notes, by the import's path (a card plugin's
+       * block, a learned selector) — never the model's words. */
+      const notes = cleanNotes(draft.notes);
+      return notes.length ? { notes } : undefined;
+    }
   }
 }
 
@@ -147,6 +157,7 @@ const ORDER: readonly FillField[] = [
   "cookTime",
   "totalTime",
   "drink",
+  "notes",
 ];
 
 export interface FillGapsResult {
