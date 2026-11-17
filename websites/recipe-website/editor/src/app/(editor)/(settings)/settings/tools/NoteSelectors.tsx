@@ -1,5 +1,9 @@
 import { Button } from "@discontent/component-library/components/ui/button";
-import { listNoteSelectors } from "recipe-editor/controller/notes/noteSelectors";
+import {
+  NOTE_SELECTOR_RETRY_DAYS,
+  listNoteSelectorFailures,
+  listNoteSelectors,
+} from "recipe-editor/controller/notes/noteSelectors";
 import { forgetNoteSelectorAction } from "./noteSelectorActions";
 
 /** "17 Nov 2026" — the server's own words, never re-rendered in the browser. */
@@ -21,8 +25,11 @@ function day(iso: string | undefined): string {
  * server component: the list is read from `settings.json` on each visit.
  */
 export async function NoteSelectors() {
-  const rows = await listNoteSelectors();
-  if (rows.length === 0) {
+  const [rows, failures] = await Promise.all([
+    listNoteSelectors(),
+    listNoteSelectorFailures(),
+  ]);
+  if (rows.length === 0 && failures.length === 0) {
     return (
       <p
         className="text-sm text-muted-foreground"
@@ -34,8 +41,37 @@ export async function NoteSelectors() {
       </p>
     );
   }
+  const forget = (site: string) => (
+    <form action={forgetNoteSelectorAction}>
+      <input type="hidden" name="site" value={site} />
+      <Button
+        type="submit"
+        variant="outline"
+        size="sm"
+        aria-label={`Forget the selector for ${site}`}
+      >
+        Forget
+      </Button>
+    </form>
+  );
   return (
     <ul className="divide-y divide-border" data-testid="note-selectors">
+      {failures.map((failure) => (
+        <li
+          key={`failed-${failure.site}`}
+          className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2"
+          data-testid="note-selector-failure"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">{failure.site}</p>
+            <p className="text-xs text-muted-foreground">
+              No selector found {day(failure.at)} ({failure.problem}); not asked
+              again for {NOTE_SELECTOR_RETRY_DAYS} days
+            </p>
+          </div>
+          {forget(failure.site)}
+        </li>
+      ))}
       {rows.map((row) => (
         <li
           key={row.site}
@@ -51,17 +87,7 @@ export async function NoteSelectors() {
               {row.misses ? `, missed ${row.misses}` : ""}
             </p>
           </div>
-          <form action={forgetNoteSelectorAction}>
-            <input type="hidden" name="site" value={row.site} />
-            <Button
-              type="submit"
-              variant="outline"
-              size="sm"
-              aria-label={`Forget the selector for ${row.site}`}
-            >
-              Forget
-            </Button>
-          </form>
+          {forget(row.site)}
         </li>
       ))}
     </ul>

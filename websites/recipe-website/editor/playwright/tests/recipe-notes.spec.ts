@@ -181,9 +181,22 @@ test.describe("A recipe's own notes (47j)", () => {
     await expect(
       page.locator('input[type="hidden"][name="notes[1]"]'),
     ).toHaveValue("Use a metal pan.");
+    /* What each row shows follows its note (review: rows keyed by index
+     * kept a moved note's old text in its editor). */
+    const rows = section.getByTestId("notes-rows").locator(":scope > li");
+    await expect(
+      rows.nth(1).locator("[data-lexical-editor='true']"),
+    ).toHaveText("Use a metal pan.");
     await section
       .getByRole("button", { name: "Remove note 1", exact: true })
       .click();
+    await expect(rows).toHaveCount(2);
+    await expect(
+      rows.nth(0).locator("[data-lexical-editor='true']"),
+    ).toHaveText("Use a metal pan.");
+    await expect(
+      rows.nth(1).locator("[data-lexical-editor='true']"),
+    ).toContainText("They freeze for a month.");
     await expectNoViolations(page);
     await save(page, SLUG);
     expect((await stored(request, SLUG)).notes).toEqual([

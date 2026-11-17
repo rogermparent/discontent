@@ -30,22 +30,28 @@ import { isDropRegion } from "./pageText";
 export interface NotesPage {
   tree: Root;
   parents: Map<Element, Parent>;
+  /** Each element's previous element sibling, for `+`. */
+  previous: Map<Element, Element>;
 }
 
 /** Parse a page once for every step below. */
 export function notesPage(html: string): NotesPage {
   const tree = fromHtml(html);
   const parents = new Map<Element, Parent>();
+  const previous = new Map<Element, Element>();
   const stack: Parent[] = [tree];
   while (stack.length > 0) {
     const node = stack.pop()!;
+    let before: Element | undefined;
     for (const child of node.children) {
       if (child.type !== "element") continue;
       parents.set(child, node);
+      if (before) previous.set(child, before);
+      before = child;
       stack.push(child);
     }
   }
-  return { tree, parents };
+  return { tree, parents, previous };
 }
 
 /** Whitespace collapsed. */
@@ -518,44 +524,52 @@ function previousElement(
   page: NotesPage,
   element: Element,
 ): Element | undefined {
-  const parent = page.parents.get(element);
-  if (!parent) return undefined;
-  const siblings = (parent.children as RootContent[]).filter(
-    (child): child is Element => child.type === "element",
-  );
-  const at = siblings.indexOf(element);
-  return at > 0 ? siblings[at - 1] : undefined;
+  return page.previous.get(element);
 }
 
-function matchesFrom(
-  page: NotesPage,
-  element: Element,
-  selector: ParsedSelector,
-  at: number,
-): boolean {
-  if (!matchesCompound(element, selector.compounds[at])) return false;
-  if (at === 0) return true;
-  const combinator = selector.combinators[at - 1];
-  if (combinator === "+") {
-    const before = previousElement(page, element);
-    return !!before && matchesFrom(page, before, selector, at - 1);
-  }
-  if (combinator === ">") {
+/**
+ * Whether `element` matches the selector's compounds `0..at`, the last at
+ * `element`. Memoised per `(element, at)` for one `selectAll` (47j review:
+ * descendant combinators backtrack through every ancestor, so without it a
+ * deep page cost O(n·depth^k) — seconds on a 40-deep builder page).
+ */
+function matcher(page: NotesPage, selector: ParsedSelector) {
+  const memo = new Map<Element, Int8Array>();
+  const matchesFrom = (element: Element, at: number): boolean => {
+    let row = memo.get(element);
+    if (!row) {
+      row = new Int8Array(selector.compounds.length);
+      memo.set(element, row);
+    }
+    if (row[at] !== 0) return row[at] === 1;
+    const result = compute(element, at);
+    row[at] = result ? 1 : -1;
+    return result;
+  };
+  const compute = (element: Element, at: number): boolean => {
+    if (!matchesCompound(element, selector.compounds[at])) return false;
+    if (at === 0) return true;
+    const combinator = selector.combinators[at - 1];
+    if (combinator === "+") {
+      const before = previousElement(page, element);
+      return !!before && matchesFrom(before, at - 1);
+    }
     const parent = page.parents.get(element);
-    return (
-      !!parent &&
-      parent.type === "element" &&
-      matchesFrom(page, parent, selector, at - 1)
-    );
-  }
-  for (
-    let parent = page.parents.get(element);
-    parent && parent.type === "element";
-    parent = page.parents.get(parent)
-  ) {
-    if (matchesFrom(page, parent, selector, at - 1)) return true;
-  }
-  return false;
+    if (combinator === ">") {
+      return (
+        !!parent && parent.type === "element" && matchesFrom(parent, at - 1)
+      );
+    }
+    for (
+      let node = parent;
+      node && node.type === "element";
+      node = page.parents.get(node)
+    ) {
+      if (matchesFrom(node, at - 1)) return true;
+    }
+    return false;
+  };
+  return matchesFrom;
 }
 
 /** Every element `selector` matches, in document order. */
@@ -564,9 +578,10 @@ export function selectAll(
   selector: ParsedSelector,
 ): Element[] {
   const last = selector.compounds.length - 1;
+  const matches = matcher(page, selector);
   const found: Element[] = [];
   walk(page.tree, (element) => {
-    if (matchesFrom(page, element, selector, last)) found.push(element);
+    if (matches(element, last)) found.push(element);
   });
   return found;
 }

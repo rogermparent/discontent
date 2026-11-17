@@ -65,6 +65,12 @@ export interface Settings extends ThemedSettings {
    * Forget.
    */
   noteSelectors?: Record<string, LearnedNoteSelector>;
+  /**
+   * 47j review: a site where learning found no selector, by the same key —
+   * when, and why — so its imports do not ask a model again for
+   * `NOTE_SELECTOR_RETRY_DAYS`. Forget clears it.
+   */
+  noteSelectorFailures?: Record<string, { at: string; problem: string }>;
 }
 
 /** One site's learned notes selector (47j). */

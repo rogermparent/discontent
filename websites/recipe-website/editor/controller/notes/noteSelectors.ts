@@ -18,6 +18,16 @@ import {
 
 export type { LearnedNoteSelector };
 
+/** How long a site where learning failed is left alone (47j review). */
+export const NOTE_SELECTOR_RETRY_DAYS = 30;
+
+/** A site where learning found no selector, and when. */
+export interface NoteSelectorFailure {
+  site: string;
+  at: string;
+  problem: string;
+}
+
 /** A stored selector with its site. */
 export interface NoteSelectorRow extends LearnedNoteSelector {
   site: string;
@@ -65,11 +75,68 @@ export async function storeNoteSelector(
     hits: 0,
     misses: 0,
   };
+  await updateSettings((current) => {
+    const next = {
+      ...current,
+      noteSelectors: { ...current.noteSelectors, [site]: entry },
+    };
+    return withoutFailure(next, site);
+  });
+  return { site, ...entry };
+}
+
+type SettingsShape = Awaited<ReturnType<typeof readSettings>>;
+
+function withoutFailure(settings: SettingsShape, site: string): SettingsShape {
+  if (!settings.noteSelectorFailures?.[site]) return settings;
+  const rest = { ...settings.noteSelectorFailures };
+  delete rest[site];
+  const next: SettingsShape = { ...settings, noteSelectorFailures: rest };
+  if (Object.keys(rest).length === 0) delete next.noteSelectorFailures;
+  return next;
+}
+
+/** Remember that learning found nothing for `url`'s site, and why. */
+export async function recordNoteSelectorFailure(
+  url: string,
+  problem: string,
+  now: Date = new Date(),
+): Promise<void> {
+  const site = noteSelectorSite(url);
+  if (!site) return;
   await updateSettings((current) => ({
     ...current,
-    noteSelectors: { ...current.noteSelectors, [site]: entry },
+    noteSelectorFailures: {
+      ...current.noteSelectorFailures,
+      [site]: { at: now.toISOString(), problem: problem.slice(0, 300) },
+    },
   }));
-  return { site, ...entry };
+}
+
+/**
+ * The failure recorded for `url`'s site within the last
+ * `NOTE_SELECTOR_RETRY_DAYS`, if any: its imports ask no model meanwhile.
+ */
+export async function recentNoteSelectorFailure(
+  url: string,
+  now: Date = new Date(),
+): Promise<NoteSelectorFailure | undefined> {
+  const site = noteSelectorSite(url);
+  if (!site) return undefined;
+  const failure = (await readSettings()).noteSelectorFailures?.[site];
+  if (!failure) return undefined;
+  const age = now.getTime() - Date.parse(failure.at);
+  if (!(age < NOTE_SELECTOR_RETRY_DAYS * 86_400_000)) return undefined;
+  return { site, ...failure };
+}
+
+/** Every recorded failure, the latest first. */
+export async function listNoteSelectorFailures(): Promise<
+  NoteSelectorFailure[]
+> {
+  return Object.entries((await readSettings()).noteSelectorFailures ?? {})
+    .map(([site, failure]) => ({ site, ...failure }))
+    .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
 }
 
 /**
@@ -98,19 +165,21 @@ export async function recordNoteSelectorUse(
   });
 }
 
-/** Forget `site`'s selector; `false` when there was none. */
+/** Forget `site`'s selector, or its failure; `false` when there was neither. */
 export async function forgetNoteSelector(site: string): Promise<boolean> {
   let had = false;
   await updateSettings((current) => {
-    if (!current.noteSelectors?.[site]) return undefined;
+    const failed = !!current.noteSelectorFailures?.[site];
+    const learned = !!current.noteSelectors?.[site];
+    if (!learned && !failed) return undefined;
     had = true;
-    const rest = { ...current.noteSelectors };
-    delete rest[site];
-    if (Object.keys(rest).length > 0) {
-      return { ...current, noteSelectors: rest };
+    let next: SettingsShape = withoutFailure(current, site);
+    if (learned) {
+      const rest = { ...next.noteSelectors };
+      delete rest[site];
+      next = { ...next, noteSelectors: rest };
+      if (Object.keys(rest).length === 0) delete next.noteSelectors;
     }
-    const next = { ...current };
-    delete next.noteSelectors;
     return next;
   });
   return had;

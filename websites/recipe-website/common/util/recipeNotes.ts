@@ -49,17 +49,23 @@ export const NOTES_ID = "recipe-notes";
 
 /**
  * Markdown a note reference must not be found inside: a link (its text and
- * its target), an autolink, inline code, and a component tag's attributes.
+ * its target), a reference link, inline code, a component element with
+ * what it holds (`<VideoTime …>note 1</VideoTime>`, a button), any other
+ * tag with its attributes (`<Multiplyable …/>`), and a bare URL
+ * (`https://x.example/note2`).
  */
 const PROTECTED =
-  /\[[^\]\n]*\]\([^)\n]*\)|<[^>\n]+>|`[^`\n]*`|\[[^\]\n]*\]\[[^\]\n]*\]/g;
+  /\[[^\]\n]*\]\([^)\n]*\)|\[[^\]\n]*\]\[[^\]\n]*\]|`[^`\n]*`|<([A-Z][\w.]*)\b[^>]*>[\s\S]*?<\/\1>|<[^>\n]+>|\bhttps?:\/\/\S+|\bwww\.\S+/g;
 
 /**
- * "Note 2", "note #3", "notes 1 and 3", "Notes 1, 2 & 4" — the word, then
- * one number or a list of them. A note number is one or two digits.
+ * "Note 2", "note #3", "notes 1 and 3", "Notes 1, 2 & 4" — the word, not
+ * inside one ("footnote", "keynote", "/note2"), then one number or a list
+ * of them. A list's later number must end the list or be followed by
+ * another "and"/"or"/comma: "notes 1, 2 cups" links note 1 only. A note
+ * number is one or two digits, never a decimal or fraction ("note 2.5").
  */
 const NOTE_REF =
-  /\b(notes?)(\s*#?\s*)(\d{1,2})((?:\s*(?:,|&|\band\b|\bor\b)\s*#?\s*\d{1,2}\b)*)(?![\d.,/]\d)/gi;
+  /(?<![\w/#.-])(notes?)(\s*#?\s*)(\d{1,2})(?![\d.,/]\d)((?:\s*(?:,|&|\band\b|\bor\b)\s*#?\s*\d{1,2}(?![\d.,/]\d)(?=\s*(?:,|&|\band\b|\bor\b|[).;:!?\]]|$)))*)/gi;
 
 /** One reference found in a step's text. */
 export interface NoteRef {

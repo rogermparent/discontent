@@ -8,6 +8,7 @@ import { isMirror, mirrorRefusal } from "recipe-website-common/config/role";
 import { auth } from "@/auth";
 import {
   readSettings,
+  updateSettings as updateSettingsLocked,
   writeSettings,
   type NamedPreset,
   type Settings,
@@ -54,8 +55,10 @@ export async function updateSettings(
     return { message: MIRROR_REFUSAL(), success: false };
   }
 
-  const existing = await readSettings();
-  const next: Settings = { ...existing };
+  /* The form's own keys, laid on settings.json under the engine's settings
+   * lock (47j review): an import may write a learned notes selector or its
+   * count meanwhile, and a read-then-write here would drop it. */
+  const next: Partial<Settings> = {};
 
   if (formData.has("ytdlpPath")) {
     const ytdlpPath = formData.get("ytdlpPath");
@@ -101,7 +104,7 @@ export async function updateSettings(
   }
 
   try {
-    await writeSettings(next);
+    await updateSettingsLocked((current) => ({ ...current, ...next }));
     // The site default is injected in the root layout, so refresh every route.
     revalidatePath("/", "layout");
     settingsSaved();

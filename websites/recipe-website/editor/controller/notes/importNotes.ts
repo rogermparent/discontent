@@ -28,7 +28,10 @@ import type { LlmMode } from "../llm/mode";
 import type { EditModels } from "../llm/askEdit";
 import type { SelectorAttempt } from "../llm/notesSelector";
 import {
+  NOTE_SELECTOR_RETRY_DAYS,
   noteSelectorFor,
+  recentNoteSelectorFailure,
+  recordNoteSelectorFailure,
   recordNoteSelectorUse,
   storeNoteSelector,
 } from "./noteSelectors";
@@ -146,12 +149,37 @@ async function findNotes(
         "a “Notes” heading, but no learned selector and no model asked",
     };
   }
+  /* 47j review: a site that taught nothing lately is not asked again. */
+  const failed = await recentNoteSelectorFailure(url).catch(() => undefined);
+  if (failed) {
+    return {
+      path: "none",
+      notes: [],
+      why: [
+        missed,
+        `no selector was learned for ${failed.site} on ${failed.at.slice(0, 10)} (${failed.problem}); asked again after ${NOTE_SELECTOR_RETRY_DAYS} days, or after Forget in Settings → Tools`,
+      ]
+        .filter(Boolean)
+        .join("; "),
+    };
+  }
   const { learnNotesSelector } = await import("../llm/notesSelector");
   const learned = await learnNotesSelector(url, page, {
     job: run,
     ...(models ? { models } : {}),
   });
   if (learned.status !== "learned") {
+    /* Only an answer the check refused, or none: a missing model or a
+     * failed call is no reason to stop asking. */
+    if (
+      learned.attempts.some(
+        (one) => !/^the call failed/.test(one.problem ?? ""),
+      )
+    ) {
+      await recordNoteSelectorFailure(url, learned.problem).catch(
+        () => undefined,
+      );
+    }
     return {
       path: "none",
       notes: [],

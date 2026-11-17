@@ -37,6 +37,7 @@ import { buildRecipeWrite } from "../websites/recipe-website/editor/controller/c
 import parseRecipeFormData from "../websites/recipe-website/editor/controller/parseFormData";
 import {
   forgetNoteSelector,
+  listNoteSelectorFailures,
   listNoteSelectors,
   noteSelectorFor,
   recordNoteSelectorUse,
@@ -91,6 +92,22 @@ describe("the (Note N) linker", () => {
     );
     expect(linkNoteRefs("Note: it is hot.", 3)).toBe("Note: it is hot.");
     expect(noteRefs("Preheat the oven.", 3)).toEqual([]);
+  });
+
+  it("leaves a list's unit, a URL and a component's words alone (review)", () => {
+    expect(linkNoteRefs("notes 1, 2 cups flour", 3)).toBe(
+      "[notes 1](#recipe-note-1), 2 cups flour",
+    );
+    expect(linkNoteRefs("see notes 1, 2 and 3.", 3)).toBe(
+      "see notes [1](#recipe-note-1), [2](#recipe-note-2) and [3](#recipe-note-3).",
+    );
+    expect(linkNoteRefs("https://x.example/note2 then note 1", 3)).toBe(
+      "https://x.example/note2 then [note 1](#recipe-note-1)",
+    );
+    expect(
+      linkNoteRefs('<VideoTime t="5">note 1</VideoTime> and note 2', 3),
+    ).toBe('<VideoTime t="5">note 1</VideoTime> and [note 2](#recipe-note-2)');
+    expect(linkNoteRefs("note 2.5 cups", 3)).toBe("note 2.5 cups");
   });
 
   it("says where each reference is", () => {
@@ -325,6 +342,19 @@ describe("the selector grammar and its check", () => {
     expect(of("article > div")).toHaveLength(0);
   });
 
+  it("matches a deep page fast, whatever the selector (review)", () => {
+    const chain = (depth: number) =>
+      "<div>".repeat(depth) + "<p>x</p>" + "</div>".repeat(depth);
+    const page = notesPage(
+      `<body>${Array.from({ length: 20 }, () => `<section>${chain(40)}</section>`).join("")}</body>`,
+    );
+    const started = performance.now();
+    expect(
+      selectAll(page, parseSelector("section div div div div span")!),
+    ).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
   it("keeps a selector for one block of notes by a notes heading", () => {
     const page = notesPage(fixture("plain-site"));
     expect(notesHeadings(page).map((h) => h.tagName)).toEqual(["h2"]);
@@ -545,6 +575,31 @@ describe("the learned selectors and the import's notes step", () => {
       why: expect.stringMatching(/card has no notes/),
     });
     expect(prompts).toHaveLength(0);
+  });
+
+  it("remembers a site that taught nothing, asks it no model for a while, and Forget clears it", async () => {
+    const prompts = stubModel(["article.recipe-page", ".recipe-method"]);
+    await readPageNotes(
+      "https://www.crackers.example/c",
+      fixture("plain-site"),
+      {
+        mode: "learn",
+        models: local,
+      },
+    );
+    expect(prompts).toHaveLength(2);
+    expect(await listNoteSelectorFailures()).toMatchObject([
+      { site: "crackers.example" },
+    ]);
+    const again = await readPageNotes(
+      "https://crackers.example/d",
+      fixture("plain-site"),
+      { mode: "learn", models: local },
+    );
+    expect(again.why).toMatch(/no selector was learned for crackers.example/);
+    expect(prompts).toHaveLength(2);
+    expect(await forgetNoteSelector("crackers.example")).toBe(true);
+    expect(await listNoteSelectorFailures()).toEqual([]);
   });
 
   it("never invents notes: every answer refused is none", async () => {
