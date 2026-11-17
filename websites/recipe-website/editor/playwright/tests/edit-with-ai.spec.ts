@@ -224,8 +224,9 @@ test.describe("Edit with AI (47i)", () => {
       uses: ["flour", "egg"],
     });
 
-    /* Reloaded: the saved values, and no marks. */
-    await openEdit(page);
+    /* Reloaded (signed in already): the saved values, and no marks. */
+    await page.goto(`/recipe/${SLUG}/edit`);
+    await markdownEditorReady(page, "description");
     await expect(ingredientInputs(page).first()).toHaveValue(FLOUR);
     await expect(page.getByTestId("edit-changes")).toHaveCount(0);
   });
