@@ -968,19 +968,25 @@ and every model-made change marked and approved before Save.
   step and a group (`toDraft` keeps only the name and the text).
 - **The form.** When a fill lands, the form checks the answers against the
   steps it holds now (`usesOffers`: the same place, the same text, every
-  name still finding a line). Each suggestion that differs from what its
-  step shows appears under that step with a dashed tape, "suggested by
-  <model>", the lines it would list, **Accept** and **Dismiss**. Accept
-  stores the names in the form; the tape stays, with "Accepted. Not saved
-  yet." and **Undo**. Above the steps one card names the steps with a
-  suggestion and, for two or more, offers **Accept all N**. The fill's
-  summary says "Suggested by <model>: what steps 3 and 4 use — not
-  applied". Nothing is stored unless it was accepted and then saved; the
-  fill's own Undo takes every suggestion away.
+  name still finding a line, and no list stored on the step). Each
+  suggestion that differs from what its step shows appears under that step
+  with a dashed tape, "suggested by <model>", the lines it would list,
+  **Accept** and **Dismiss**. Accept stores the names in the form; the tape
+  stays, with "Accepted. Not saved yet." and **Undo**, which puts back what
+  the step had. Above the steps one card names the steps with a suggestion
+  and, for two or more, offers **Accept all N**. Each press is announced in
+  a `role="status"` line. The fill's summary says "Suggested by <model>:
+  what steps 3 and 4 use — not applied". Nothing is stored unless it was
+  accepted and then saved; the fill's own Undo takes every suggestion away.
 - **The CLI.** `pnpm recipes fill <slug> [--uses | --no-uses]
 [--all-uses]`: the text output lists "uses suggested by <model> for
   steps …" with each step's names, and the patch carries them. `--json`
-  has `uses`. `POST /api/recipe/<slug>/fill` takes `{uses?, usesAll?}`.
+  has `uses`, and `usesNotAsked` when a local model was there and was not
+  asked; the text output then says so in one line, with how to ask it.
+  With `--all-uses` a replaced stored list is marked "(replaces its
+  stored list)" (`uses.replaced` in `--json`). Under a suggestion it says
+  the patch carries the whole `instructions` array, and so does the help.
+  `POST /api/recipe/<slug>/fill` takes `{uses?, usesAll?}`.
   MCP is unchanged (59 tools / 45 pre-approved).
 - **Not on import** (Roger's pick). The import form says nothing new; that
   optional line from the brief was left out.
@@ -1013,24 +1019,55 @@ and every model-made change marked and approved before Save.
 - **Dg4 — A suggestion is for the text the model read.** It is held with
   the step's place and text. Edit the step's words, move it, or remove an
   ingredient one of its names needs, and the suggestion goes.
-- **Dg5 — The form offers what differs now; the patch stores the fewest
-  lists.** In the form each offer is compared with what its step shows at
-  that moment, so accepting step 3 ("the whites come in here") makes step
-  4's offer ("nothing") go away: step 4 already shows nothing. The CLI's
-  patch does the same in one pass and stores one list.
+- **Dg5 — The form offers what differs now; Accept all and the patch
+  store the fewest lists.** In the form each offer is compared with what
+  its step shows at that moment, so accepting step 3 ("the whites come in
+  here") makes step 4's offer ("nothing") go away: step 4 already shows
+  nothing. **Accept all N** and the CLI's patch are the same forward pass
+  (`usesChanges`), so they store the same lists: N counts the offers, and
+  fewer lists may be stored (review; the first build of Accept all stored
+  every offer as it stood before the press).
 - **Dg6 — A stored list is the person's.** The job never changes a step
-  that stores a `uses` (`--all-uses` is the ask). In the form, "Back to
-  automatic" on a step is the ask: its suggestion is then offered.
+  that stores a `uses` (`--all-uses` is the ask). The form is handed no
+  suggestion for a step that stores a list when the fill lands. The ask
+  there is "Back to automatic" on the step and then "Fill gaps".
 - **Dg7 — The lines are stored in the list's order,** whatever order the
   model gave, so an accepted list reads like a guessed one.
 - **Dg8 — All or nothing for one step.** A step with one bad number loses
   its whole answer. A list with a line missing would be a wrong list.
 - **Dg9 — `--no-estimate` and `--no-uses` are separate.** Each turns off
   one model call.
-- **Dg10 — No model, or a model that is not asked, says nothing.** The
-  estimate's "No model is configured" note already covers the first.
+- **Dg10 — No model, or a model that is not asked, is no warning.** The
+  estimate's "No model is configured" note already covers the first. For
+  the second the CLI prints one line (review): "uses: local model qwen3:8b
+  was not asked what each step uses — only the Claude API is by default;
+  --uses (or RECIPE_LLM_USES=1) asks a local model". `--all-uses` alone
+  does not ask a local model. The form stays silent, and its strip does
+  not promise the reading.
 - **Dg11 — A recipe over 16,000 characters of outline is not asked** (a
   warning says so). It is never cut, because a cut list has wrong numbers.
+
+- **Dg12 — "Accepted" is what was pressed in this form (review).** It is
+  kept in the Steps section's state, with what the step stored before, as
+  the dismissed offers are. It is never read off the step's list. The
+  first build called a suggestion accepted whenever the step's stored
+  names equalled it, so a list saved earlier (an accepted suggestion, or
+  the same chips picked by hand) came back after the next fill as
+  "Accepted. Not saved yet." with an Undo that cleared the saved list.
+- **Dg13 — The uses part cannot fail a fill (review).** `suggestUses`
+  catches everything but a cancel, the recipe's own lines included, and
+  `fillUses` in `fillRecipe.ts` wraps the reading, the settling and the
+  patch the same way. A throw is one warning, "What each step uses was not
+  suggested: …"; what the source filled and the estimate stand.
+- **Dg14 — `patchInstructions` keeps a group with an empty name
+  (review).** The schema takes one, and a stored recipe's shape is not the
+  patch's to change. Only `toDraft`, for an import, flattens it.
+- **Dg15 — `--all-uses` replaces a stored list, marked (review).** With
+  `--all-uses` (`usesAll`) a step that stores a list is read again and, when
+  the reading differs, the patch replaces the list. `recipes fill` lists
+  that step with "(replaces its stored list)", and `--json` has
+  `uses.replaced`, the numbers of those steps. The form never asks for this
+  (Dg6).
 
 #### Traps
 
@@ -1063,6 +1100,11 @@ and every model-made change marked and approved before Save.
   free-GPU check before the local run read
   `/sys/class/drm/card1/device/mem_info_vram_used` (910 MB of 8,176 MB
   used) and Ollama's `/api/ps` (no model loaded).
+- **Tg7 — The patch carries every step (review).** A patch's
+  `instructions` replaces the list (47f Tf4), so a patch with a uses
+  change holds all the steps as they were read. Applied after the steps
+  were edited, it puts the old steps back. `recipes fill` says so under
+  the suggestion, and so does its help: write the patch before editing.
 
 #### Measurement (2026-11-15)
 
@@ -1128,6 +1170,16 @@ exec tsc --noEmit`: green.
   on the run's first save. The wait is now 45 s and the two long cases are
   marked slow; then each case twice over: **8/8**, none retried.
 - No dependency or Next-config change, so no main-checkout-shaped build.
+- **After the review** (Dg12–Dg15, Tg7, the status line, Accept all on
+  `usesChanges`, the CLI's "not asked" line), 2026-11-17, heavy slot:
+  both typechecks green. Full vitest, one run with the machine at load
+  ~33: 180 files, **4001/4011**; the ten failures were timeouts (5 s,
+  20 s, 30 s) and one 200 ms timing bound in `editFormRoundTrip`,
+  `stepUsesForm`, `cliJson` and `makePatterns`. Those four files alone:
+  **89/89**; `fillUses.test.tsx` with `specVersions`: **55/55** (new: 8
+  cases, and checks in 5 more). Playwright, Docker, production build,
+  e2e + mobile: `fill-uses` + `accessibility` **76/76** (fill-uses 4/4,
+  none retried). Dev mode for the changed spec: CI's Recipe shards.
 
 #### Roger to confirm (47g)
 
@@ -1144,13 +1196,15 @@ exec tsc --noEmit`: green.
    uses" button in the Steps section, like "Look for alternatives with
    the model".
 5. A step that already stores a list is skipped; in the form you ask for
-   it again by pressing "Back to automatic" on that step, on the command
-   line with `--all-uses` (Dg6). The alternative is a tick box by the
-   Fill button, "also re-read steps I set".
+   it again by pressing "Back to automatic" on that step and then "Fill
+   gaps", on the command line with `--all-uses` (Dg6). The alternative is
+   a tick box by the Fill button, "also re-read steps I set".
 6. A step whose text you edited after the fill loses its suggestion
    (Dg4). The alternative is to keep it and say the text has changed.
-7. "Accept all N" is offered when two or more steps have a suggestion.
-   The alternative is one at a time only.
+7. "Accept all N" is offered when two or more steps have a suggestion,
+   and stores only the lists that are needed, so fewer than N steps may
+   end up marked "Accepted" (Dg5). The alternative is to store a list on
+   every one of the N steps, or one at a time only.
 8. An accepted list is stored in the ingredient list's order (Dg7). The
    alternative is the order the step's text names them in.
 9. A step that uses one of two identically written lines gets no
@@ -1163,6 +1217,9 @@ exec tsc --noEmit`: green.
 12. The words: "suggested by <model>", "Accept", "Dismiss", "Accepted.
     Not saved yet.", "Undo", "Accept all N", "Suggested by <model>: what
     steps 3 and 4 use — not applied: accept or dismiss each in Steps."
+13. With a local model that is not opted in, `recipes fill` prints one
+    line saying it was not asked and how to ask it; the edit page says
+    nothing (Dg10). The alternative is the same line on the edit page.
 
 #### Roger's steps (47g)
 
