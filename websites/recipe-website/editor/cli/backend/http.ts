@@ -46,6 +46,7 @@ import type {
   DiffResult,
   FeaturedListResult,
   FeaturedWriteResult,
+  EditResult,
   FileAtResult,
   FillResult,
   GitWriteResult,
@@ -458,6 +459,18 @@ export function createHttpBackend({
               ? { uses: options.uses }
               : {}),
             ...(options.usesAll === true ? { usesAll: true } : {}),
+          },
+        },
+      );
+    },
+    reviseRecipe(slug, options) {
+      return call<EditResult>(
+        "POST",
+        `/api/recipe/${encodeURIComponent(slug)}/edit`,
+        {
+          body: {
+            request: options.request,
+            ...(options.claude ? { claude: true } : {}),
           },
         },
       );

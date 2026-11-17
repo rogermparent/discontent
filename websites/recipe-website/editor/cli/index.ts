@@ -41,6 +41,7 @@ import {
   unfeatureCommand,
 } from "./commands/featured";
 import { fillCommand } from "./commands/fill";
+import { reviseCommand } from "./commands/revise";
 import { gitCommands } from "./commands/git";
 import { groupCommands } from "./commands/group";
 import { holidaysCommand } from "./commands/holidays";
@@ -92,6 +93,8 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
   update: updateCommand,
   /* A recipe's gaps from its source, written nowhere (45b). */
   fill: fillCommand,
+  /* "Edit with AI" from the command line, written nowhere (47i). */
+  revise: reviseCommand,
   image: imageCommand,
   show: showCommand,
   list: listCommand,
@@ -171,6 +174,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   update <slug> (--file patch.json | --stdin) [--dry-run]
   fill <slug> [--no-estimate] [--uses | --no-uses] [--all-uses]
        [--out patch.json] [--verbose]
+  revise <slug> "<request>" [--claude] [--out patch.json] [--verbose]
   image <slug> (--url <image-url> | --file <path> | --clear)
   show <slug>
   list [--tag t] [--limit 20] [--offset 0]
@@ -277,6 +281,15 @@ Environment:
                        uses too (default: only the Claude API is asked;
                        qwen3:8b measured no better than the automatic
                        guess); read from editor/.env too
+  RECIPE_LLM_EDIT_MODEL
+                       The local model \`revise\` (and the edit page's "Edit
+                       with AI") asks, on RECIPE_LLM_URL's server (default
+                       RECIPE_LLM_MODEL); read from editor/.env too
+  RECIPE_LLM_CLAUDE_API_KEY
+                       The Claude API's key beside a local model: \`revise
+                       --claude\` and the edit page's "Use Claude" (never
+                       ANTHROPIC_API_KEY); RECIPE_LLM_CLAUDE_MODEL picks the
+                       model (default claude-sonnet-5). Read from editor/.env
   RECIPE_LLM_API       ollama (default), openai (/v1/chat/completions) or
                        anthropic (the Claude API, /v1/messages)
   RECIPE_LLM_API_KEY   The Claude API's key (required with anthropic; never
@@ -383,6 +396,17 @@ it puts the old steps back. Nothing
 is written: it prints the patch (--out patch.json writes it) for \`update
 <slug> --file patch.json\`. The editor's edit page has the same as "Fill
 gaps from the source", reviewed in the form before Save.
+
+Asking for a change: \`revise <slug> "remove the parentheses from the
+ingredients"\` sends the stored recipe and the request to the local model
+(RECIPE_LLM_EDIT_MODEL, else RECIPE_LLM_MODEL), or to the Claude API with
+--claude (or where it is the only model). The model has no tools; its answer
+is checked as the edit page checks it — the recipe's schema, never the slug,
+date, picture or video, and no ingredient section, step group, set of
+alternatives or stored \`uses\` dropped unless the request is about them —
+and printed as each changed field's before → after with the patch. Nothing
+is written: \`update <slug> --file patch.json\` is the write (--out writes
+it). The edit page has the same as "Edit with AI", reviewed in the form.
 
 A roundup ("40+ Thanksgiving Pies"): \`inspect-list <url>\` lists its recipes,
 \`existing\` marked; \`import-list <url> --pick 1,3 [--term <slug>]\` imports

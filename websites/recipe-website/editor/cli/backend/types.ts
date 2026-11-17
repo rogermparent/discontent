@@ -52,6 +52,7 @@ import type {
   FillResult,
 } from "../../controller/curation/fillRecipe";
 import type { JobContext } from "../../controller/jobs/context";
+import type { EditResult } from "../../controller/llm/askEdit";
 import type {
   AgentRunInput,
   AgentRunOutcome,
@@ -113,6 +114,7 @@ import type {
 
 export type {
   DiffResult,
+  EditResult,
   FillOptions,
   FillResult,
   HolidayGetResult,
@@ -331,6 +333,16 @@ export interface CuratorBackend {
     options?: Pick<FillOptions, "estimate" | "uses" | "usesAll">,
     run?: SeatRun,
   ): Promise<FillResult>;
+  /**
+   * "Edit with AI" over the stored recipe (47i), written nowhere: the
+   * request answered by the local model (or the Claude API, `claude`),
+   * checked, and the change as a patch `updateRecipe` takes.
+   */
+  reviseRecipe(
+    slug: string,
+    options: { request: string; claude?: boolean },
+    run?: SeatRun,
+  ): Promise<EditResult>;
   /** Set (from a URL or a `File`) or clear one recipe's image, one commit (26b). */
   setRecipeImage(
     slug: string,
