@@ -53,6 +53,7 @@ import {
   isVideoUrl,
   type FetchedPage,
 } from "recipe-website-common/util/importRecipeData";
+import { notesModeFor, withPageNotes } from "../notes/importNotes";
 import { jobContext, type JobContext, type JobRun } from "../jobs/context";
 import { fetchPageStep, headSha, parsePage } from "../jobs/steps";
 import {
@@ -635,13 +636,19 @@ async function importItem(
     recipe: imported,
     llm,
     warnings: llmWarnings,
-  } = await applyLlm({
-    url: item.url,
-    source: { html: page.html, ok: page.ok, meta: parsed.meta },
-    mapped,
-    mode,
-    job,
-  });
+  } = await withPageNotes(
+    await applyLlm({
+      url: item.url,
+      source: { html: page.html, ok: page.ok, meta: parsed.meta },
+      mapped,
+      mode,
+      job,
+    }),
+    item.url,
+    page.html,
+    /* 47j: one learning per site; its later pages reuse the selector. */
+    { mode: notesModeFor(mode), job },
+  );
   const said = llmWarnings.length ? ` (${llmWarnings.join("; ")})` : "";
   if (!imported) {
     throw new ImportError(

@@ -35,6 +35,7 @@ import {
   type ImportedRecipe,
 } from "recipe-website-common/util/importRecipeData";
 import { jobContext, type JobRun } from "../jobs/context";
+import { notesModeFor, withPageNotes } from "../notes/importNotes";
 import {
   fetchPageStep,
   headSha,
@@ -338,11 +339,17 @@ export async function importPage(
     ? undefined
     : mapRecipeNodes(pageUrl, parsed, { ok: page.ok });
   if (several) return schemaReadings(several, { mode, job });
-  return applyLlm({
+  const applied = await applyLlm({
     url: pageUrl,
     source: { html: page.html, ok: page.ok, meta: parsed.meta },
     mapped,
     mode,
+    job,
+  });
+  /* 47j: the page's own notes — a card plugin's, else the site's learned
+   * selector (one learned now when the page shows a "Notes" heading). */
+  return withPageNotes(applied, pageUrl, page.html, {
+    mode: notesModeFor(mode),
     job,
   });
 }

@@ -51,6 +51,7 @@ import { importListCommand, inspectListCommand } from "./commands/importList";
 import { inspectCommand } from "./commands/inspect";
 import { inventoryCommands } from "./commands/inventory";
 import { jobsCommands } from "./commands/jobs";
+import { notesCommands } from "./commands/notes";
 import { listCommand } from "./commands/list";
 import { reindexCommand } from "./commands/reindex";
 import { searchCommand } from "./commands/search";
@@ -129,6 +130,8 @@ const SUBCOMMAND_TABLES: Record<string, Record<string, CommandDef<unknown>>> = {
   term: termCommands,
   /* The job store (epic 37): list, show, log, cancel, retry. */
   jobs: jobsCommands,
+  /* A recipe's own notes (47j): the migration out of the steps. */
+  notes: notesCommands,
 };
 
 /**
@@ -175,6 +178,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   fill <slug> [--no-estimate] [--uses | --no-uses] [--all-uses]
        [--out patch.json] [--verbose]
   revise <slug> "<request>" [--claude] [--out patch.json] [--verbose]
+  notes migrate [--dry-run]
   image <slug> (--url <image-url> | --file <path> | --clear)
   show <slug>
   list [--tag t] [--limit 20] [--offset 0]
