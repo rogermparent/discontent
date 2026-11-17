@@ -279,6 +279,11 @@ export function createLocalBackend({
         run,
       );
     },
+    /* 47i: reads the recipe, asks a model, writes nothing — no identity. */
+    async reviseRecipe(slug, options, run) {
+      const { storedEditSpec } = await import("../../controller/llm/askEdit");
+      return runSeat(await storedEditSpec(ctx, slug, options), run);
+    },
     async setRecipeImage(slug, input) {
       await guard();
       return setRecipeImage(ctx, slug, input);

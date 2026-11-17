@@ -42,8 +42,10 @@ import { timesHint } from "./Instructions/stepChecks";
 import type { PictureInputs } from "./pictureCarry";
 import {
   FILL_FIELD_LABELS,
+  editedSections,
   fillSections,
   sectionFillLabel,
+  withEditedLabel,
   type EstimateField,
   type FillMarks,
 } from "./fillMarks";
@@ -312,10 +314,19 @@ export default function RecipeFields({
           .join(",")
       : "",
   );
+  /* 47i: a section with a request's change still waiting for a look. */
+  const editedNow = useStore(form.store, (state) =>
+    fill?.edited && fillDefaults
+      ? Object.keys(editedSections(fill, state.values, fillDefaults)).join(",")
+      : "",
+  );
   const filled = (section: RecipeSectionId) =>
-    keptSections.split(",").includes(section)
-      ? sectionFillLabel(filledSections[section])
-      : undefined;
+    withEditedLabel(
+      keptSections.split(",").includes(section)
+        ? sectionFillLabel(filledSections[section])
+        : undefined,
+      editedNow.split(",").includes(section),
+    );
 
   return (
     <VideoPlayerProvider>
@@ -386,7 +397,12 @@ export default function RecipeFields({
         </form.Field>
         <EstimatedMarks fill={fill} fields={["recipeYield"]} section="recipe" />
       </FormSection>
-      <FormSection id="tags" title="Tags" aside={<ChosenTags />}>
+      <FormSection
+        id="tags"
+        title="Tags"
+        aside={<ChosenTags />}
+        from={filled("tags")}
+      >
         <RecipeTagField suggestedTags={recipe?.suggestedTags} />
       </FormSection>
       <FormSection
@@ -515,7 +531,7 @@ export default function RecipeFields({
       <FormSection
         id="source"
         title="Source and address"
-        from={imported(recipe?.source?.url)}
+        from={filled("source") ?? imported(recipe?.source?.url)}
       >
         {/*
           Provenance (D6/22a). An import fills these in; typing a URL here by

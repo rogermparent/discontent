@@ -176,6 +176,11 @@ export interface StatusContext {
   fill?: {
     sections: Partial<Record<RecipeSectionId, SectionFill>>;
     values: RecipeFormValues;
+    /**
+     * 47i: the sections with a field an "Edit with AI" request changed,
+     * not accepted yet and still as the request left it.
+     */
+    edited?: RecipeSectionId[];
   };
 }
 
@@ -288,6 +293,18 @@ export function sectionStatuses(
           : FILL_WORD[how],
       /* A flag the section already raised ("2 checks") keeps its tone. */
       tone: tone === "warn" || how !== "source" ? "warn" : "active",
+    };
+  }
+  /* 47i: a request's change waiting for a look, after the count or the
+   * fill's word ("12 · edited", "filled · edited"). */
+  for (const section of fill?.edited ?? []) {
+    const { text: base, tone } = statuses[section];
+    statuses[section] = {
+      text:
+        base && (/^\d/.test(base) || /filled|est\./.test(base))
+          ? `${base} · edited`
+          : "edited",
+      tone: tone === "error" ? tone : "warn",
     };
   }
   for (const section of errorSections(errors)) {

@@ -200,6 +200,9 @@ export function stepTitle(node: Pick<StepNode, "step" | "data">): string {
     /* 46f: the edit page's "Look for alternatives with the model". */
     case "llm.choices":
       return "Model looks for alternatives";
+    /* 47i: "Edit with AI" — the model answers the person's request. */
+    case "llm.edit":
+      return "Model answers the request";
     case "llm.reload":
       return "Reload the model";
     case "llm.unload":

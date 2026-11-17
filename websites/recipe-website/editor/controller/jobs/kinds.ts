@@ -39,6 +39,7 @@ import type {
 } from "../curation/importList";
 import type { FillResult } from "../curation/fillRecipe";
 import type { DetectChoicesResult } from "../llm/detectChoices";
+import type { EditResult, EditSpec } from "../llm/askEdit";
 import type { OutlineEntry } from "recipe-website-common/util/choiceOutline";
 import type { InspectResult } from "../curation/inspect";
 import type { ReindexResult } from "../curation/reindex";
@@ -212,7 +213,15 @@ export type JobSpec =
       slug: string;
       name?: string;
       outline: OutlineEntry[];
-    };
+    }
+  /**
+   * "Edit with AI" on the edit page (47i), and `recipes revise`: a request
+   * ("remove the parentheses from the ingredients") or "Suggest step uses",
+   * over the form's values as the spec holds them — one model call with no
+   * tools, nothing read from the corpus, nothing written; the form shows
+   * the checked change marked, and Save is the write.
+   */
+  | EditSpec;
 
 /** Who asked for a rebuild — the label says it. */
 export type ReindexTrigger =
@@ -256,6 +265,7 @@ export interface JobResults {
   agent: AgentJobResult;
   fill: FillResult;
   choices: DetectChoicesResult;
+  edit: EditResult;
 }
 
 /** What "Import N selected" answers: one row per pick. */
@@ -476,6 +486,10 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
     const { detectChoices } = await import("../llm/detectChoices");
     return detectChoices(spec.name, spec.outline, { job });
   },
+  async edit(spec, { job }) {
+    const { runEdit } = await import("../llm/askEdit");
+    return runEdit(spec, { job });
+  },
   async agent(spec, { ctx, job, dir }) {
     const { runAgentJob } = await import("../agent/job");
     return runAgentJob(spec, {
@@ -654,6 +668,10 @@ export function jobLabel(spec: JobSpec): string {
       return `fill ${spec.slug} from its source${spec.estimate === false ? " (no estimate)" : ""}${spec.uses === false ? " (no uses)" : ""}`;
     case "choices":
       return `look for alternatives in ${spec.slug}`;
+    case "edit":
+      return spec.task === "uses"
+        ? `suggest what each step of ${spec.slug} uses`
+        : `edit ${spec.slug}: ${agentLabel(spec.request ?? "", false).replace(/^ask: /, "")}${spec.backend === "claude" ? " (Claude)" : ""}`;
     default:
       return shortUrl(spec.url);
   }
@@ -716,6 +734,9 @@ export function jobResources(spec: JobSpec): string[] {
     /* 46f: one model call over the form's outline, nothing fetched. */
     case "choices":
       return ["gpu"];
+    /* 47i: a local model's call takes the GPU line; the Claude API none. */
+    case "edit":
+      return spec.backend === "claude" ? [] : ["gpu"];
     case "inspect-list":
     /* The picks' pictures: the readings are in hand. */
     case "form-batch":

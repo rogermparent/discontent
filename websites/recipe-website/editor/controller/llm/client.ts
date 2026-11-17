@@ -622,6 +622,12 @@ export interface ChatJsonRequest {
    * or the Claude API, which take none.
    */
   numCtx?: number;
+  /**
+   * Let a thinking model (qwen3) think before it answers — Ollama's `think`
+   * (47i measured it for "Edit with AI"). Off unless asked, as every call
+   * since epic 36 has been. Not sent to an OpenAI-style server or Claude.
+   */
+  think?: boolean;
   /** The caller's abort; default the job's. */
   signal?: AbortSignal;
   /**
@@ -696,7 +702,7 @@ function requestBody(request: ChatRequest, config: LlmConfig) {
       ],
       ...(request.schema ? { format: request.schema } : {}),
       stream: false,
-      think: false,
+      think: request.think === true,
       keep_alive: LLM_KEEP_ALIVE,
       options: { num_ctx: sentNumCtx(request), temperature: 0 },
     };

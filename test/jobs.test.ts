@@ -553,6 +553,8 @@ describe("the registry", () => {
         "fill",
         /* 46f: the model looks for alternatives in a recipe's steps. */
         "choices",
+        /* 47i: "Edit with AI" — a request, or step uses. */
+        "edit",
       ].sort(),
     );
     const outline = [

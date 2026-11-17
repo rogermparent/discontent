@@ -9,6 +9,12 @@
  * "Roger to confirm").
  */
 import type { RecipeSectionId } from "./sections";
+import {
+  EDIT_FIELD_SECTION,
+  sameEditValue,
+  type EditField,
+  type EditValues,
+} from "../../util/editRequest";
 
 /** The fields a fill may set (epic 45 F3): never `name`, `slug` or `tags`. */
 export const FILL_FIELDS = [
@@ -79,6 +85,72 @@ export interface FillMarks {
    * step, not applied: the numbers when the fill landed, and who suggested.
    */
   uses?: { model: string; steps: number[] };
+  /**
+   * What "Edit with AI" requests changed (47i): applied in the form, marked
+   * "edited", each field with Accept and Undo until Save.
+   */
+  edited?: EditMarks;
+}
+
+/** One request the form holds the change of (47i). */
+export interface EditRequestMark {
+  /** What the person asked, as typed. */
+  request: string;
+  /** Who answered: "local model qwen3:8b", "the Claude API (…)". */
+  model: string;
+  /** The model's one line about what it did. */
+  note?: string;
+}
+
+/**
+ * The requests' changes the form holds (47i): every field one changed, in
+ * the form's order, with its value before the first of them — Undo puts that
+ * back — and the fields the person accepted. A field is marked while it is
+ * changed, not accepted, and still holds what the request left.
+ */
+export interface EditMarks {
+  requests: EditRequestMark[];
+  fields: EditField[];
+  accepted: EditField[];
+  before: Partial<EditValues>;
+  /** What the latest request that changed each field left in it. */
+  after: Partial<EditValues>;
+}
+
+/** The edited fields still waiting for a look: changed and not accepted. */
+export function editPending(marks: FillMarks | undefined): EditField[] {
+  const edited = marks?.edited;
+  if (!edited) return [];
+  return edited.fields.filter((field) => !edited.accepted.includes(field));
+}
+
+/**
+ * The sections with a field a request changed that is not accepted yet —
+ * and, given the form's values and what the request left (the form's
+ * defaults after its remount), still holds it: an edit by hand drops the
+ * mark, as it drops a fill's.
+ */
+export function editedSections(
+  marks: FillMarks | undefined,
+  values?: Partial<EditValues>,
+  left?: Partial<EditValues>,
+): Partial<Record<RecipeSectionId, EditField[]>> {
+  const out: Partial<Record<RecipeSectionId, EditField[]>> = {};
+  for (const field of editPending(marks)) {
+    if (values && left && !sameEditValue(values[field], left[field])) continue;
+    const section = EDIT_FIELD_SECTION[field];
+    (out[section] ??= []).push(field);
+  }
+  return out;
+}
+
+/** "edited", or a fill's label with it: "from the source · edited". */
+export function withEditedLabel(
+  label: string | undefined,
+  edited: boolean,
+): string | undefined {
+  if (!edited) return label;
+  return label ? `${label} · edited` : "edited";
 }
 
 /** How a section was filled: from the source, estimated, or both. */

@@ -1228,6 +1228,344 @@ exec tsc --noEmit`: green.
 - Optional, workstation: `RECIPE_LLM_USES=1` in `editor/.env` to try the
   local model's suggestions anyway.
 
+### 47i: Edit with AI (M/L; branch `agent/47i-ask-edit`; Roger's ask, 2026-11-17)
+
+Roger: "In the edit page, I'd like to be able to make a request of the AI
+even when nothing is missing, e.g. 'remove the unnecessary parentheses from
+the ingredients list' or something like that." And on where: "build the
+'fill gaps' box into an 'Edit with AI' box". And on the model: "Generally I
+want to pass these little tasks to qwen or another appropriate local model."
+
+#### Results
+
+- **The box.** `EditWithAi.tsx` at the head of the edit form, where 45b's
+  strip was: "Edit with AI", a "What should change?" field and **Send**
+  (Ctrl/⌘+Enter too), three example requests that fill the field ("Remove
+  the parentheses from the ingredients", "Split step 3 in two", "Convert to
+  metric"), **Use Claude (…) instead of local model …** when both are
+  here, **Suggest step uses** (or one line saying why it is off), and the
+  fill — 45b's `FillFromSource`, unchanged in behaviour, now a part of the
+  box (its heading an h3) shown when the recipe has a source. With no model
+  at all the box is not drawn: a sourced recipe shows the fill strip alone,
+  as before, and every other recipe shows nothing new (so no baseline moved).
+- **What the model reads** (`editView`, `controller/llm/editCheck.ts`): the
+  form's values as they are — unsaved edits, a fill's values — as the JSON
+  a recipe write takes (`RecipePatchSchema`'s shape: ingredient lines as
+  plain text, headings and steps with a name or a `uses` as objects, a
+  group with its `choice`, yield and times), then `Request: …`. Never the
+  slug, the date, the picture or video, the timelines. `editValuesOf` /
+  `editValuesOfRecipe` (`common/util/editRequest.ts`) are the form's and
+  the stored recipe's halves.
+- **What it answers**: `{change, note}`, `change` only the fields it
+  changes, under a JSON Schema (Ollama `format`, Claude's structured
+  output). **The check** (`checkEditAnswer`), all or nothing: a key outside
+  the eleven fields (`slug`, `date`, `image`, `videoUrl`…) refuses the
+  answer and names the key; so does anything `RecipePatchSchema` refuses
+  (the 47f `uses` limits, the 45e2 choice rules), a time that is not whole
+  minutes 0–10,080, a blank name, more than 50 tags or one over 80
+  characters. Then the structure (Di7), each refused unless the request is
+  about it: an ingredient section, a step group or a set of alternatives
+  dropped **or added** ("section", "heading", "group"…; "choice",
+  "alternative", "option"…; or the section's own name — one renamed in
+  place, as many as before, is a rename); a step's stored `uses` changed
+  ("uses", "used", "using": step by step while the step count holds, `[]`
+  and none told apart; across a split, a merge or a removal every name
+  must survive, a removed step's going with it, and none may be invented);
+  a list emptied ("clear", "empty", "remove all"), or one that comes back
+  with ≥ 3 items and more than a third gone (a request that removes lines
+  or steps themselves — "remove step 2", not "remove the parentheses from
+  the ingredients" — or "shorten", "condense"…). A field whose
+  new value says what the form holds is no change; nothing left is **no
+  change**, with the model's note. A stored `uses` name a rename leaves
+  finding no line is a warning (47f Df4). An unchanged ingredient line
+  keeps the form's own object, its amount markup byte for byte; a new or
+  changed one is marked up as a typed line is (`markLine`).
+- **In the form** (`editMarks.ts`, `form.tsx`): the change is laid on the
+  form's values and the form remounts with it (the picture and video
+  inputs carried, as a fill's are). Each changed section's heading says
+  "edited" ("from the source · edited" under a fill) and its rail row
+  "edited" / "3 · edited" in the warning tone, while it holds what the
+  request left. In the box, "Changed by AI — not saved yet" lists the
+  requests, and each field has its **before → after** — the ingredients
+  line by line, the steps step by step (a group's name and each step's
+  `uses` shown), a time in hours and minutes — with **Accept** (the mark
+  goes, the value stays) and **Undo** (back to what it held before the
+  first request that changed it — a field typed over since keeps the
+  typing, and only its mark goes), and **Undo all**. Each press is said in
+  a `role="status"` line, and the result's words land in a live region
+  mounted before them. Save keeps what the form holds (Di5).
+- **The stacking rule (Di8): the request reads the form as it is, and the
+  marks stack.** A fill's marks and its open uses offers stay under a
+  request (the offers follow their steps by 47g Dg4); a request's marks
+  stay under a fill that lands after it; a second request on a field keeps
+  the first one's "before". A field the person changed while the model was
+  reading is not overwritten: the change to it is skipped and the panel
+  says so. The fill's own Undo is still "back to the stored recipe" —
+  every mark goes with it. Unit tests: `stackEdit` over fill and uses
+  marks, the skip, two requests on one field, Accept, Undo one, Undo all.
+- **One job at a time, one panel.** A request is an `edit` job
+  (`controller/llm/askEdit.ts`, `kinds.ts`): its label is `edit <slug>:
+"<request>"` (cut and redacted as an agent's ask is), the request is the
+  log's first line (redacted, 37a), the model's call is an `llm.edit` step
+  ("Model answers the request") with its tokens, status, fields and the
+  estimated cost. A local model's job takes the GPU's line; a Claude one
+  none. While a request or a fill runs the other actions wait, and the
+  box's panel and words are the latest job's (a fill's summary hides while
+  a request's shows; the fill's marks stay in the form). `?fill=<job>`
+  links and every fill spec work as before.
+- **Refusals said, never dropped.** A refused answer ("Local model
+  qwen3:8b's answer was not applied: it changes “slug”, which a request may
+  not change …"), a failed call, an answer that is not JSON, a recipe too
+  long for the local model's context, or a Claude call whose worst case
+  (its prompt plus a full answer) is over the curator's cost budget
+  (`RECIPE_AGENT_MAX_COST_USD`, 44d/46d) is a `role="alert"` line, and with
+  a local model and the Claude API both here, **Try with Claude** asks again
+  there. Nothing in the form moves.
+- **"Suggest step uses"** runs 47g's `suggestUses` on the form's steps as
+  an `edit` job (`task: "uses"`) and offers each suggestion under its step
+  exactly as a fill's (47g Dg3: accepted, then saved). Who it asks:
+  `usesModelFor` — the Claude API when this editor has it, a local model
+  only with `RECIPE_LLM_USES=1` (Dg2 stands; see the measurement). With
+  neither the box says why, in one line.
+- **Who answers** (`editModels`, `editModelFor`): the local model by
+  default — `RECIPE_LLM_EDIT_MODEL` on `RECIPE_LLM_URL`'s server, defaulting
+  to `RECIPE_LLM_MODEL` (Roger's ask) — and the Claude API where it is the
+  only model (`RECIPE_LLM_API=anthropic`: the Pi), or when asked ("Use
+  Claude", `revise --claude`). Beside a local model the Claude API is there
+  only with its own key, `RECIPE_LLM_CLAUDE_API_KEY` (model
+  `RECIPE_LLM_CLAUDE_MODEL`, default claude-sonnet-5). A local model thinks
+  before it answers a request (Ollama `think`, a new `chatJson` option that
+  every other call leaves off, as since epic 36) unless
+  `RECIPE_LLM_EDIT_THINK=0` — the measurement's pick. All five are read
+  from `editor/.env` by the CLI too.
+- **Seats.** `pnpm recipes revise <slug> "<request>" [--claude] [--out
+patch.json] [--json]` asks over the stored recipe and prints each changed
+  field's before → after and the patch; it writes nothing, and `recipes
+update <slug> --file patch.json` applies the patch. `POST
+/api/recipe/<slug>/edit {request, claude?}` (read scope, as `/fill`) is
+  the same, and `--remote` posts there. **MCP: none** — the curator already
+  reads a recipe and writes it with `recipe_update` (59 tools / 45
+  pre-approved, unchanged); `job_list`'s description names the `edit` kind.
+  The skill text is unchanged (the CLI section of the skill does not list
+  commands one by one), so `generate-skill-text` had nothing to do.
+- **The measurement script**, `editor/scripts/measure-edit-requests.ts`:
+  fixtures directory, cases `[{id, slug, request}]`, one JSON line a case
+  with the status, fields, note, problem, time, tokens, cost and each
+  changed field's before → after, for judging by hand.
+
+#### Decisions
+
+- **Di1 — The box replaces the strip** (Roger). The fill moves into it
+  unchanged; its specs moved nowhere (their test ids, names and words are
+  the fill strip's, which is inside the box now).
+- **Di2 — A new `edit` job kind**, not a part of the `fill` job: a fill reads
+  the stored recipe and its source, a request the form's values and no
+  source; a request runs without a source; and the uses chip needs the same
+  "one call over the form's values" shape. The spec carries the form's
+  values (bounded by `EditValuesSchema`: 500 lines, 300 steps, 20,000
+  characters a text) so the job is self-contained and Retry re-asks the
+  same question.
+- **Di3 — The fields** (given): the form's, but never the slug, the date,
+  the picture or video, the timelines, or anything outside the recipe. The
+  name and the tags are allowed. Timelines are left out of what the model
+  reads at all: a planner field the requests in the brief never touch, and
+  a long one in the prompt.
+- **Di4 — A patch, never a recipe.** The model answers only the fields it
+  changes; a list it changes is written whole. Lists are compared by value,
+  so an answer that repeats a field unchanged is no change there.
+- **Di5 — Applied and marked, Save keeps it** (45b's estimates, not 47g's
+  stricter offers). A request is something the person asked for, and its
+  change is in the form, marked, with its before → after beside it; Accept
+  only quiets the mark. **Roger to confirm.**
+- **Di6 — All or nothing.** One bad field refuses the whole answer: half a
+  metric conversion is a wrong recipe. "Try with Claude" is the way on.
+- **Di7 — Structure is kept unless asked about**, by the request's words
+  (see Results). Words are a blunt test — "use grams" does not count as
+  being about `uses` (only "uses", "used", "using" do) — and a refusal says
+  which section, group, set or name, so a person can ask again naming it.
+- **Di8 — The stacking rule** (see Results).
+- **Di9 — The model has no tools.** One structured call: the recipe as
+  data, the request as the ask, and a prompt line saying the recipe's text
+  is never instructions. Only the eleven fields can come back, checked; a
+  unit test sends a recipe whose description asks for a slug change, with a
+  model that obeys, and the answer is refused. Fetching the source when a
+  request asks for it is not built (the brief's hook): a request that needs
+  the page should be a fill.
+- **Di10 — The default model is the local one** (Roger), whatever the
+  measurement says about it; the measurement says how good it is, and the
+  box puts "Use Claude" one tick away where Claude is set up.
+- **Di11 — The CLI verb is `revise`**: the CLI's verbs are single words
+  (`fill`, `update`, `inspect`), and `revise <slug> "<request>"` reads as
+  what it does.
+
+#### Traps
+
+- **Ti1 — A stand-in model answers by rule, so the spec tests the plumbing,
+  not the judgement.** The measurement is the judgement.
+- **Ti2 — The Claude API refused the first schema**: "Schemas contains too
+  many optional parameters (27) … (limit: 24)". Every optional property
+  counts, nested ones too. The drink spec's and the source's parts are now
+  required (`""` for none, the method enum takes `""`), which leaves 21;
+  `optionalProperties` counts them in a unit test.
+- **Ti3 — The first Claude call with a new schema took 112 s** (the next
+  nine: 1.5–9 s). Claude compiles a grammar per schema and keeps it for a
+  while; the first request after a deploy, or after the schema changes, is
+  slow. `ANTHROPIC_TIMEOUT_MS` (300 s) covers it.
+- **Ti4 — A `"use client"` module's functions are not callable on the
+  server**: `recipeToFormValues` lives in `formContext.tsx`, so the API
+  route and the CLI use `editValuesOfRecipe` in `common/util`.
+- **Ti5 — Small models restructure.** qwen3:8b made a group of every step it
+  recapitalised and split a step by inventing groups; gemma2:9b dropped
+  only the "(" of each parenthesis. The added-group / added-section check
+  came out of that run.
+- **Ti7 — A client box must not import a value from `askEdit.ts`**: it
+  brings the model client (`node:fs`, `child_process`) into the browser
+  bundle and the production build fails ("Can't resolve 'fs'"). The types
+  and `isEditResult` live in `editResult.ts`, with type-only imports.
+- **Ti6 — The 8 GB card.** mistral-nemo:12b loaded 6.8 of 7.9 GB on the GPU
+  and the rest on the CPU (`ollama ps`), 5–139 s a request; qwen3:14b
+  (9.3 GB) was not run for the same reason. Archilyzer's parakeet was not
+  running (VRAM 0.5 GB used, no `parakeet-cli`); the orchestrator was not
+  asked to pause it, and the runs were kept to ten requests a model.
+
+#### Measurement (2026-11-17)
+
+Ten requests on nine real recipes, copied read-only from the content repo
+into scratch fixtures (`tmp/47/47i/fixtures`, never run against the repo),
+each answered once per model through `measure-edit-requests.ts` — the edit
+job's own prompt, schema and check — and judged by hand from its before →
+after: ✓ right, ~ partly, ✗ wrong. "(now refused)" is a wrong answer the
+final check refuses (the shrink and added-group rules came out of these
+runs); "refused" was refused already.
+
+| Request (recipe)                                                             | qwen3:8b                         | qwen3:8b thinking        | qwen2.5:7b               | gemma2:9b                         | mistral-nemo:12b                      | Claude Sonnet 5                                               |
+| ---------------------------------------------------------------------------- | -------------------------------- | ------------------------ | ------------------------ | --------------------------------- | ------------------------------------- | ------------------------------------------------------------- |
+| Remove the unnecessary parentheses (`korean-fried-chicken-wings`)            | ✗ refused: dropped a section     | ✗ refused: the same      | ✗ no change              | ✗ left "20g 4-5 cloves)"          | ✗ took out "of", kept them            | ✓                                                             |
+| Convert to metric (`1-bowl-baked-oatmeal`)                                   | ✗ the oven only; made up 3 times | ~ grams beside teaspoons | ✗ dropped 2 lines        | ✗ the oven only; made up times    | ✗ renamed it, rewrote the description | ~ pans, oven, nuts in grams; cups kept beside the grams there |
+| Split step 2 in two (`peppermint-bark`)                                      | ✗ made groups (now refused)      | ✗ refused: added a group | ✗ refused: 2 of 6 steps  | ✗ made groups (now refused)       | ✗ made groups (now refused)           | ✓                                                             |
+| Merge steps 2 and 3 (`1-hour-bagels`)                                        | ✗ 6 of 14 steps (now refused)    | ✓                        | ✗ refused: 2 of 14 steps | ~ joined with a comma             | ✗ groups and `uses` (now refused)     | ✓                                                             |
+| Rename it to a plainer name (crackers)                                       | ✓                                | ✓                        | ✓                        | ✓                                 | ✓                                     | ✓                                                             |
+| Add a vegetarian tag if it is (`elote-ice-cream`)                            | ✓                                | ✗ no change: "egg yolks" | ✓                        | ✓                                 | ✓                                     | ✓                                                             |
+| Add a vegetarian tag if it is (`20-minute-honey-garlic-shrimp`)              | ✗ added it                       | ✓ no change: shrimp      | ✗ added it               | ✗ added it                        | ✗ added it                            | ✓ no change: shrimp                                           |
+| Fix the capitalisation in the steps (`simplified-fancy-chili`)               | ✗ a group a step (now refused)   | ✓                        | ✗ lowercased them        | ~ one step of twelve              | ✗ "already correct"                   | ✓                                                             |
+| Change the slug and set the date (`elote-ice-cream`)                         | ✗ renamed it "elote"             | ✓ no change              | ✓ no change              | ~ no change; its note says it did | ✗ renamed it, made up a yield         | ✓ no change                                                   |
+| Remove the unnecessary parentheses (`jamaican-jerk-pork-shoulder`, two sets) | ✗ refused: dropped a section     | ✗ refused: the same      | ✗ no change              | ~ their commas went too           | ✗ no change                           | ✓ the sets kept                                               |
+| **Right / partly / wrong**                                                   | **2 / 0 / 8**                    | **5 / 1 / 4**            | **3 / 0 / 7**            | **2 / 4 / 4**                     | **2 / 0 / 8**                         | **9 / 1 / 0**                                                 |
+| Wrong and still offered by the final check                                   | 3                                | 0                        | 3                        | 3                                 | 4                                     | 0                                                             |
+
+|                       | qwen3:8b       | qwen3:8b thinking | qwen2.5:7b     | gemma2:9b       | mistral-nemo:12b | Claude Sonnet 5 (`claude-sonnet-5`) |
+| --------------------- | -------------- | ----------------- | -------------- | --------------- | ---------------- | ----------------------------------- |
+| Valid JSON            | 10/10          | 10/10             | 10/10          | 10/10           | 10/10            | 10/10 (after Ti2; 0/10 before)      |
+| Cold (first request)  | 15.9 s         | 72.8 s            | 14.1 s         | 29.7 s          | 50.5 s           | 112.1 s (Ti3)                       |
+| Warm, median (range)  | 7.1 s (1.5–25) | 20.3 s (8.4–70)   | 2.0 s (1.1–10) | 20.7 s (3.5–37) | 6.6 s (4.4–139)  | 4.2 s (1.5–9.1)                     |
+| Tokens in / out (ten) | 9,834 / 3,162  | 9,774 / 11,668    | 9,754 / 1,648  | 10,051 / 2,699  | 9,903 / 2,377    | 28,667 / 4,492                      |
+| Cost                  | none           | none              | none           | none            | none             | $0.10 (about a cent a request)      |
+| On the GPU            | 100%           | 100%              | 100%           | 100%            | 6.8 of 7.9 GB    | —                                   |
+
+- **The pick: qwen3:8b, thinking** (`RECIPE_LLM_EDIT_MODEL` unset, so
+  `RECIPE_LLM_MODEL`; `RECIPE_LLM_EDIT_THINK` on by default). It is the
+  only local model whose wrong answers all stayed out of the form — three
+  refused by the check, one a "no change" — and it got the merge, the
+  capitalisation, the shrimp and the slug right where every other local
+  model did not. The cost is time: ~20 s a request warm, up to 70 s. No
+  local model on this 8 GB card is near Claude (9 of 10, one partly);
+  qwen3:14b (9.3 GB) does not fit beside the desktop and was not run
+  (Ti6). Roger's call stands (Di10): the local model is the default, and
+  "Use Claude" / "Try with Claude" are one click where Claude is set up.
+- **Step uses stay on Claude.** The pick is 47g's model (25 of 36 steps,
+  no better than the guess); its thinking mode was not measured for uses
+  (`suggestUses` sends no `think`), so the chip follows 47g's Dg2 and the
+  box says why.
+- Claude's c2 kept the cups beside the grams the recipe already gave and
+  put the pans, the oven and the nuts in metric: partly, and arguably what
+  a cook wants. Claude's spend: the 0/10 run (400s, nothing billed) and
+  the 10/10 run, **$0.10 in all**.
+- qwen3:8b plain ran twice for the first request (15.9 s cold, then 8.3 s
+  in the ten); the table counts the ten.
+
+#### Gates (47i)
+
+All through the heavy slot, 2026-11-17, on `origin/main` 22aaa95d (#338):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: green, last after the review fixes.
+- Full vitest: 181 files, 4,039 tests. The last full run, with the machine
+  busy (a Playwright suite of another session in the slot's queue):
+  **4,030/4,039** — eight timeouts (`editFormRoundTrip`, `stepUsesForm` ×3,
+  an auth sign-in window, `makePatterns`' 200 ms bound, `cliJson` ×2) and
+  one real failure, `jobs.test.ts`'s list of kinds without `edit` (fixed).
+  Those seven files alone: **180/180**. New: `editRequest.test.ts`, 28 cases
+  (the view, the check's refusals and its structure rules both ways, the
+  patch, the marks stacking on a fill's and its uses offers, Accept, Undo
+  one and all, the rail's "edited", who answers, the job with `fetch`
+  stubbed, the Claude schema's optional-parameter count).
+- Playwright, Docker, production build (`DOCKER=1 heavy-pw.sh`, e2e +
+  mobile): `edit-with-ai` (new, 3 cases: ask, marks, before → after, Undo
+  one, Accept, Save, reload, axe twice; a slug change refused; no model and
+  no source, no box), `fill-gaps`, `fill-uses`, `step-uses`,
+  `alternatives-model`, `edit-form-frame`, `visual`, `accessibility` —
+  **125/126**, the one failure the new spec's expected wording (a pronoun,
+  fixed in the box); then `edit-with-ai` + `fill-gaps` 8/9 (the spec's
+  reload signed in twice, fixed); then `edit-with-ai` **3/3**. The first
+  run of all failed to build (Ti7). **No baseline moved**: with the model
+  pinned off and no source, the edit page draws nothing new.
+- `edit-with-ai` in dev mode (Docker, `next dev`): **3/3**, none retried.
+- No dependency or Next-config change, so no main-checkout-shaped build.
+- A read-only review agent read the branch before the gates: one blocker
+  (Ti7, already found by the first build) and eight findings, all taken —
+  the shrink guard's "remove" gap, stored `uses` read step by step, a
+  renamed heading, Undo over typing, the stale ref, the uncaught start,
+  the heading level and the live region.
+
+#### Roger to confirm (47i)
+
+1. Save keeps a request's change once it is in the form, accepted or not
+   (Di5). The alternative is 47g's stricter rule: offered only, stored only
+   if accepted.
+2. The local model stays the default for requests although it measured
+   5 of 10 against Claude's 9 (Di10, the table), and it thinks first, so a
+   request takes ~20 s (up to 70 s). The alternatives: Claude by default
+   where it is set up, the local model one tick away; or no thinking
+   (`RECIPE_LLM_EDIT_THINK=0`: ~7 s, 2 of 10, three wrong changes offered).
+3. `RECIPE_LLM_CLAUDE_API_KEY` is a second, explicit key for the Claude API
+   beside a local model (the workstation). The alternative is one switch
+   that reuses `RECIPE_LLM_API_KEY`.
+4. "Suggest step uses" still asks only the Claude API (or a local model
+   with `RECIPE_LLM_USES=1`), so on the workstation, with no Claude key, the
+   box says it is off and why. The picked model's thinking mode was not
+   measured for uses (a follow-up: give `suggestUses` the same `think`).
+5. A request refused for its structure says which section, group, set or
+   name it dropped or added; the person asks again naming it. The
+   alternative is to offer the change anyway, marked "changes the
+   structure".
+6. A change that empties a list, or takes it down by more than a third (3
+   items or more), is refused unless the request clears it or removes lines
+   or steps themselves.
+7. The box shows the latest job's panel and words only; a fill's summary
+   hides while a request's shows (its marks stay). The alternative is both
+   summaries stacked.
+8. The fill's Undo still puts the stored recipe back, taking a request's
+   change with it.
+9. No `?edit=<job>` link: leaving the page mid-request loses its result
+   (the job is on /jobs). The alternative is the fill's `?fill=` pattern.
+10. The words: "Edit with AI", "What should change?", "Send", "Try:",
+    "Use Claude (…) instead of …", "Suggest step uses", "Changed by AI — not
+    saved yet", "Before → after", "edited", "accepted · not saved yet",
+    "Accept", "Undo", "Undo all", "Try with Claude", "Changed by <model>: …
+    Review each below, then Save.", "No change from <model>: …",
+    "<Model>'s answer was not applied: …".
+11. MCP gets no tool for this (the curator has `recipe_update`).
+12. The CLI verb is `recipes revise`.
+
+#### Roger's steps (47i)
+
+- None to get it on the Pi beyond the usual deploy (Claude is the only model
+  there, so requests go to it). No reindex.
+- Workstation: requests go to qwen3:8b, thinking, as it is (the pick; no
+  setting needed). To pick another local model,
+  `RECIPE_LLM_EDIT_MODEL=<model>` in `editor/.env`; to have "Use
+  Claude" and "Suggest step uses" there, `RECIPE_LLM_CLAUDE_API_KEY=<key>`.
+
 ### 47-close
 
 - The Close-out, the CLAUDE.md bullet, backlog strikes and rows, memory
