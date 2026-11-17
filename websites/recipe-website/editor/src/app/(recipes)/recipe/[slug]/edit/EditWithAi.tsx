@@ -336,10 +336,10 @@ export default function EditWithAi({
     setSaid(
       [
         undone.length
-          ? `Undone: the ${editFieldList(undone)} ${are(undone)} back to what ${undone.length === 1 ? "it" : "they"} held before the request.`
+          ? `Undone: the ${editFieldList(undone)} ${are(undone)} back to what ${are(undone) === "is" ? "it" : "they"} held before the request.`
           : "",
         kept.length
-          ? `The ${editFieldList(kept)} ${are(kept)} kept as you typed ${kept.length === 1 ? "it" : "them"} since; only the mark is gone.`
+          ? `The ${editFieldList(kept)} ${are(kept)} kept as you typed ${are(kept) === "is" ? "it" : "them"} since; only the mark is gone.`
           : "",
       ]
         .filter(Boolean)
