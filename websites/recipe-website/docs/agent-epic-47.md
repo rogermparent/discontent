@@ -1566,6 +1566,260 @@ exec tsc --noEmit`: green, last after the review fixes.
   `RECIPE_LLM_EDIT_MODEL=<model>` in `editor/.env`; to have "Use
   Claude" and "Suggest step uses" there, `RECIPE_LLM_CLAUDE_API_KEY=<key>`.
 
+### 47j: A recipe's own Notes (M/L; branch `agent/47j-notes`; Roger's ask, 2026-11-17)
+
+Roger, after pasting RecipeTin Eats' "Recipe Notes" into `eggs-benedict` as
+a step group "Notes": "We may also want to make a bespoke 'notes' section
+for info like this, pulling from metadata if it's there or maybe using the
+model on the page to identify a selector for the site that will be reused
+for future note fetching or something like that."
+
+#### Results
+
+- **The field.** `Recipe.notes?: string[]` (`common/controller/types.ts`):
+  each entry one note, markdown, its paragraphs kept, in the recipe's
+  order. Both write paths hold it to 50 notes of at most 10,000 characters
+  (`NOTES_MAX`, `NOTE_MAX_CHARS`, `common/util/recipeNotes.ts`), trim each
+  and drop blank ones; none is no `notes` key on disk, never `[]`
+  (`buildRecipeWrite`), and a patch's `[]` or `null` clears them. The JSON
+  seat (`RecipeInputSchema` / `RecipePatchSchema` → CLI `create` /
+  `update`, `POST /api/recipes`, `PUT /api/recipe/<slug>`, MCP
+  `recipe_create` / `recipe_update`), the form (`notes[0]`, `notes[1]`…,
+  `parseFormData`), `normalizeRecipeText` (`\n` only) and `recipe_get` /
+  `recipes show` (the stored record) all carry it.
+- **The recipe page** (`View/Notes.tsx`): a **Notes** section after the
+  steps, in the steps' column at every width, each note numbered in a card
+  like a step's (no checkbox, no timers, no "Uses"), `#recipe-note-<n>` its
+  anchor. A recipe without notes renders exactly as before (no wrapper, no
+  baseline moved). A step's "(Note 2)", "see note 2", "note #2" or "notes 1
+  and 3" links to that note at render time (`linkNoteRefs`, pure and
+  tested): the stored text is never rewritten, a number past the notes or a
+  reference inside a link or code is left alone, and "footnote 2" or "Note:"
+  is not one. The export site shows the same section (it renders
+  `RecipeView`).
+- **The cook view**: a closed **Notes (N)** disclosure after "All
+  ingredients" (one step at a time) or after the steps (all of them). The
+  step matcher, timers, step checks, the shopping list and Make never read
+  notes.
+- **The edit form** (`Form/Notes.tsx`): a **Notes** section after Steps
+  (and in the rail: its count, or "none"), a markdown field a row labelled
+  "Note N", each with + ↑ ↓ × named "Insert note N", "Move note N up"…, and
+  **Add a note**. With none it says what goes there.
+- **Import, deterministic first** (`common/util/pageNotes.ts`,
+  `editor/controller/notes/importNotes.ts`), one `notes` step in the job's
+  log naming the path (`plugin`, `selector`, `learned` or `none`), the count,
+  the plugin or selector, the model, the attempts and why not:
+  1. **A known card plugin's notes block** (`pluginNotes`): WP Recipe
+     Maker `.wprm-recipe-notes`, Tasty Recipes `.tasty-recipes-notes`,
+     Mediavine Create `.mv-create-notes(-content)`, and WPZOOM, Zip Recipes,
+     Cooked and EasyRecipe by their classes — split on the block's own list
+     items, else its paragraphs (WPRM's `<span style="display: block">`
+     ones too), the block's "Notes" heading left out, a short bold lead
+     ("**Storage:**") joined to the paragraph after it, links as their text,
+     pictures dropped, a space inside bold moved out of it.
+  2. **A learned site selector** (`noteSelectors.ts`, `llm/notesSelector.ts`):
+     a stored one for the page's registrable domain (`paceKey`) is tried and
+     counted as a hit or a miss; when there is none, or it missed, and the
+     page shows a "Notes" heading (`notesHeadings`: a heading tag, or a
+     label standing alone, outside nav, header, footer, asides, menus and
+     comment regions) and the page's recipe is **not** in a known card
+     (whose notes block was the place), the model reads a trimmed DOM
+     outline (`notesOutline`: the path to the heading, then only the
+     branches by it, one element a line as `tag#id.class` with the start of
+     its text, ≤ 120 lines) and answers `{selector, note}` — never the
+     text. The check (`checkNotesSelector`): the small grammar (tags,
+     `#id`, `.class`, `[attr]`, `[attr="v"]`, joined by a space, `>` or
+     `+`; no pseudo-classes or positions), no generated name
+     (`jsx-1098722538`, CSS-in-JS hashes, five digits in a row), exactly one
+     element a reader sees, by a notes heading (holds it, starts with it, or
+     follows it within four levels), 20 to 20,000 characters, not the
+     recipe (no block holding both an "Ingredients" and an "Instructions"
+     heading), and at least one note in it. A refused answer is asked again
+     once, told why. The local model first (47i's `editModels`), the Claude
+     API after it when it is set up; the first that passes is kept in
+     `settings.json` (`noteSelectors`: selector, learned when and by whom,
+     the page, hits and misses) — per instance, never in the content
+     repository and never sent to a mirror.
+  3. Otherwise no notes. The words are always the page's own.
+     Every page import runs it: the form's (`formImport.ts`), `recipes
+import` / `recipe_import` / the API (`importPage`), roundup items
+     (`importList.ts`, so one learning serves the rest of the site), `inspect`
+     (and its draft) and the fill. `--llm off` reads plugins and stored
+     selectors only. A several-recipe page (38c) gets no notes.
+- **Settings → Tools → Recipe notes** lists the learned selectors (site,
+  selector, who and when, hits and misses) with **Forget**.
+- **Fill gaps** fills empty notes from the source's reading by the same
+  path, marked "from the source" like any filled section; the "missing"
+  hint never asks for notes (most pages have none).
+- **Edit with AI** may change notes: a twelfth field (`EDIT_FIELDS`), in
+  what the model reads (always, `[]` for none), in the answer's schema (one
+  optional property more: 22 of the Claude API's 24) and the prompt ("notes
+  are not steps"; "see note 2" is the second), its before → after one line a
+  note, and the shrink guard (a change that leaves fewer than two thirds of
+  ≥ 3 notes, or none, is refused unless the request removes or clears
+  notes or tips).
+- **The migration**: `pnpm recipes notes migrate [--dry-run] [--json]`
+  (`cli/commands/notes.ts`, pick `notesMigration`): a recipe whose **last**
+  instruction entry is a step group named like notes ("Notes", "Recipe
+  Notes", "Notes:", "Tips", "Cook's notes", "Notes & tips"…; not an option
+  of a set of alternatives) has it moved into its notes — each step one
+  note, a step's title kept in bold, after any notes it has — one `recipes
+update` (one commit, "Update recipe: <slug>") per recipe. `--dry-run`
+  lists them and writes nothing; one recipe failing is said and the run
+  goes on (exit 1).
+- **Search** does not index notes, as it does not index step text
+  (`buildIndexValue` reads neither); no `indexVersion` change, no reindex.
+- **Seats' words.** MCP `recipe_create` / `recipe_update` describe `notes`
+  (59 tools / 45 pre-approved, unchanged); the curator skill has a "A
+  recipe's notes" paragraph with an example, and `generate-skill-text` was
+  run.
+
+#### Decisions
+
+- **Dj1 — Notes are one field, a list of markdown strings** (given), not a
+  step group with a flag: the step matcher, timers, checks and cook view
+  then never see them, with no reader taught to skip them.
+- **Dj2 — The recipe page's notes sit in the steps' column**, wrapped with
+  the steps only when there are notes, so no grid area changes and no
+  recipe without notes moves.
+- **Dj3 — "(Note 2)" is linked at render time only**, inside the step text
+  as a markdown link; the cook view links nothing (its notes are folded, and
+  a page anchor behind a dialog goes nowhere).
+- **Dj4 — A known card means no learning.** On a page whose recipe is in a
+  card plugin's card, a "Notes" heading elsewhere is the post's (Love and
+  Lemons' "Tip:", Sally's menu "Tips"), and asking a model on every import
+  from such a site would cost a call each time for nothing.
+- **Dj5 — The model answers a selector, the page answers the text.** The
+  grounding guard's rule (36-D4) with nothing to ground: no model word
+  reaches the form.
+- **Dj6 — Generated names are refused and hidden from the outline.**
+  qwen3:8b's first selector for The Kitchn named `jsx-1098722538`, a
+  styled-jsx build hash: it worked on the second page (same build) and would
+  miss after the site's next deploy.
+- **Dj7 — Learned selectors live in `settings.json`**, keyed by registrable
+  domain: they are this editor's knowledge of other sites, not content. The
+  Pi learns its own (with Claude). **Roger to confirm.**
+- **Dj8 — The card on Settings → Tools.** It is the import tools' page;
+  the Pi's nav leaves Tools out (workstation only), so its list is at
+  `/settings/tools` by address. **Roger to confirm.**
+- **Dj9 — The migration goes through `updateRecipe`**, so its commits read
+  "Update recipe: <slug>" and it works against a remote editor too.
+
+#### Traps
+
+- **Tj1 — Cloudflare answers curl's Chrome UA with 403** (5 of 10 hosts),
+  and the importer's plain Node agent gets in (26a's lesson). The
+  measurement's second request to each was its one retry; Food Network
+  refused both and was dropped (30-D5). Gimme Some Oven answered 404 to both
+  pages (its bot page) and was replaced by King Arthur.
+- **Tj2 — mdast escapes a space at the edge of bold**: `<strong>Spiciness –
+</strong>Mapo` became `**Spiciness –&#x20;**&#x4D;apo`. The space is moved
+  out of the bold first, through nested inline elements.
+- **Tj3 — A heading's words show up in chrome**: "Notes" in a nav, a menu
+  item's "Tips", a comment's "Notes", a button's "Notes" (King Arthur's
+  notes tool). `notesHeadings` skips nav, header, footer, aside (unless
+  recipe-classed), menus (`menu-*`, `nav-*` tokens), pageText's comment and
+  sidebar regions, buttons and hidden parts; whole tokens only (a body's
+  `has-sidebar` is not a sidebar).
+- **Tj4 — The outline must open only the heading's branch**: King Arthur's
+  four-levels-up ancestor holds the whole method first, so a plain subtree
+  cut at 120 lines never reached the tips.
+
+#### Measurement (2026-11-17)
+
+Ten recent import hosts from the main checkout's job store, two recipes
+each, fetched once into scratch (`tmp/47/47j/pages`, one request at a time,
+≥ 16 s apart; never in a test), then read by `scripts/measure-notes.ts` —
+the import's own notes step, learning allowed, a fresh settings directory
+per run so each second page reuses what the first learned. The local model
+qwen3:8b (not thinking) on the workstation's GPU, VRAM free (0.6 of 8.6 GB,
+no parakeet), unloaded after; Claude `claude-sonnet-5` with the Pi's key.
+
+| Host                      | Card plugin     | Page 1 (notes)        | Learned selector, qwen3:8b                                               | Learned selector, Claude                                  | Page 2 (reuse)       |
+| ------------------------- | --------------- | --------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------- | -------------------- |
+| downshiftology.com        | WP Recipe Maker | plugin (1)            | —                                                                        | —                                                         | plugin (2)           |
+| loveandlemons.com         | WP Recipe Maker | none (card, no notes) | — (Dj4: not asked)                                                       | —                                                         | plugin (1)           |
+| recipetineats.com         | WP Recipe Maker | plugin (13)           | —                                                                        | —                                                         | plugin (7)           |
+| onceuponachef.com         | WP Recipe Maker | none (card, no notes) | —                                                                        | —                                                         | plugin (3)           |
+| skinnytaste.com           | WP Recipe Maker | plugin (2)            | —                                                                        | —                                                         | plugin (1)           |
+| sallysbakingaddiction.com | Tasty Recipes   | plugin (6)            | —                                                                        | —                                                         | plugin (8)           |
+| acouplecooks.com          | Tasty Recipes   | plugin (1)            | —                                                                        | —                                                         | plugin (1)           |
+| thekitchn.com             | none            | learned (1) ✓         | ✓ `section.recipe__notessection > div.recipe__notes`, 1st try, 1.2–8.5 s | ✓ `section.recipe__notessection div.recipe__notes`, 1.6 s | selector (2) ✓, both |
+| kingarthurbaking.com      | none            | learned (4) ✓         | ✓ `div.recipe__tips`, 2nd try (1st: an empty `#…notes` div), 3.4–3.8 s   | ✓ `div.recipe__tips ul.list--star`, 1.6 s                 | selector (2) ✓, both |
+| foodnetwork.com           | —               | 403 twice: dropped    | —                                                                        | —                                                         | —                    |
+
+- **Plugin hits: 7 of the 9 read hosts** (5 WP Recipe Maker, 2 Tasty
+  Recipes), 12 of their 14 pages with notes — every one right, judged by
+  hand against the page. **The model was needed on 2 hosts** (The Kitchn,
+  King Arthur, neither with a card plugin). Both models' selectors were
+  right on both, and each reused on the site's second recipe without a
+  model call (hits 1). qwen3:8b ran three times more after Dj6: the same
+  selectors each time (King Arthur's always on the retry). Claude's first
+  run named `div.recipe__notes` and `ul.list--star` alone — right, but
+  `list--star` is any starred list on the site; with the outline as built
+  now it answered the scoped forms in the table.
+- **Cost**: Claude, four calls of about 1–2 k tokens in, 30 out — under
+  a cent in all. The local model: about 1.3 s a call warm, 8.5 s cold.
+- **The pick: the local model stays the default** (Roger's rule): it was
+  right on both sites, once on a retry the check asked for; Claude stays the
+  fallback where it is set up.
+- The notes themselves: what each page calls its notes, including Sally's
+  "Special Tools (affiliate links)" line and Love and Lemons' "We recently
+  updated this post…" — the page's words, which a person can delete before
+  Save.
+
+#### The migration's dry run (2026-11-17)
+
+On a scratch clone of the content repo (`tmp/47/47j/clone`, reindexed
+there; never the real repo), `recipes notes migrate --dry-run`: **5 of 951
+recipes** —
+
+| Slug                                       | Group it would move | Notes |
+| ------------------------------------------ | ------------------- | ----- |
+| `eggs-benedict`                            | Notes               | 6     |
+| `dairy-free-eggnog`                        | Recipe Notes        | 1     |
+| `eggnog-pancakes`                          | Recipe Notes        | 1     |
+| `make-ahead-eggnog-french-toast-casserole` | Recipe Notes        | 1     |
+| `dense-bean-salad`                         | Recipe Notes        | 1     |
+
+No other recipe has a step group named like notes anywhere in its steps.
+The four one-note recipes' notes are one step each that an old import glued
+("…before serving.Storage: …"); they move as they are. The real run is the
+orchestrator's, through the CLI from the updated main checkout, after Roger
+confirms this list.
+
+#### Gates (47j)
+
+GATES-PLACEHOLDER
+
+#### Roger to confirm (47j)
+
+1. The migration list above (eggs-benedict and four "Recipe Notes"
+   groups); the real run is the orchestrator's after you say so.
+2. Learned selectors live in this editor's `settings.json`, per instance
+   (the Pi learns its own, with Claude) (Dj7).
+3. The list is a card on Settings → Tools; on the Pi, Tools is not in the
+   nav, so it is at `/settings/tools` by address (Dj8).
+4. A page whose recipe is in a known card never asks a model, even when it
+   shows a "Notes" heading elsewhere (Dj4).
+5. Notes are not searched (as step text is not).
+6. The migration's commits read "Update recipe: <slug>"; a moved step's
+   title leads its note in bold.
+7. The words: "Notes", "Note N", "Add a note", "No notes. Tips,
+   substitutions, storage and make-ahead go here, not in the steps.",
+   "Notes (N)", "Recipe notes", "Forget".
+8. A several-recipe page brings no notes in; a site where learning fails is
+   asked again on its next import (no "tried and failed" memory).
+
+#### Roger's steps (47j)
+
+- After merge: confirm the dry-run list; the orchestrator runs `pnpm
+recipes notes migrate` from the updated main checkout, then `POST
+/api/revalidate`. No reindex.
+- Workstation and Pi: the usual update and deploy; nothing to set. The Pi
+  learns with Claude; the workstation with qwen3:8b (`RECIPE_LLM_MODEL`, or
+  `RECIPE_LLM_EDIT_MODEL`).
+
 ### 47-close
 
 - The Close-out, the CLAUDE.md bullet, backlog strikes and rows, memory

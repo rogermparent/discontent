@@ -16,6 +16,7 @@
  * recipe comes in without notes, and the step says why.
  */
 import {
+  hasKnownCard,
   notesHeadings,
   notesPage,
   pluginNotes,
@@ -25,6 +26,7 @@ import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData
 import { jobContext, type JobRun } from "../jobs/context";
 import type { LlmMode } from "../llm/mode";
 import type { EditModels } from "../llm/askEdit";
+import type { SelectorAttempt } from "../llm/notesSelector";
 import {
   noteSelectorFor,
   recordNoteSelectorUse,
@@ -44,6 +46,8 @@ export interface NotesFound {
   model?: string;
   /** Why there are none, or why a stored selector missed. */
   why?: string;
+  /** A learning's answers, each model's selector and why it was refused. */
+  attempts?: SelectorAttempt[];
 }
 
 /** The notes mode an import's `llm` mode allows: `off` asks no model. */
@@ -75,6 +79,14 @@ export async function readPageNotes(
       ...(found.site ? { site: found.site } : {}),
       ...(found.model ? { model: found.model } : {}),
       ...(found.why ? { why: found.why } : {}),
+      ...(found.attempts?.length
+        ? {
+            attempts: found.attempts.map(
+              (one) =>
+                `${one.model}: ${one.selector || "(none)"}${one.problem ? ` — ${one.problem}` : " ✓"}`,
+            ),
+          }
+        : {}),
     });
     return found;
   });
@@ -110,6 +122,14 @@ async function findNotes(
     }
     missed = `the learned selector ${JSON.stringify(stored.selector)} missed: ${check.problem}`;
   }
+  if (hasKnownCard(page)) {
+    /* The card's notes block was the place; it has none. */
+    return {
+      path: "none",
+      notes: [],
+      why: missed ?? "the page's recipe card has no notes block",
+    };
+  }
   if (notesHeadings(page).length === 0) {
     return {
       path: "none",
@@ -136,6 +156,7 @@ async function findNotes(
       path: "none",
       notes: [],
       why: [missed, learned.problem].filter(Boolean).join("; "),
+      attempts: learned.attempts,
     };
   }
   const kept = await storeNoteSelector(url, {
@@ -147,6 +168,7 @@ async function findNotes(
     notes: learned.notes,
     selector: learned.selector,
     model: learned.model,
+    attempts: learned.attempts,
     ...(kept ? { site: kept.site } : {}),
   };
 }

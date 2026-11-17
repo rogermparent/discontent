@@ -293,6 +293,40 @@ export function transcribeAnswer(
 }
 
 /** Ollama's `/api/chat` answer to `body` (a parsed request). */
+/**
+ * The notes selector's answer (47j), by rule: the outline line after the
+ * heading's (marked "<<") at the heading's depth — its next sibling. Told
+ * that one was refused, its parent's line and then it, with ">". Nothing
+ * after the heading: no selector.
+ */
+export function notesSelectorAnswer(user: string): {
+  selector: string;
+  note: string;
+} {
+  const lines = user.split("\n");
+  const at = lines.findIndex((line) => line.trimEnd().endsWith("<<"));
+  const depth = (line: string) => line.length - line.trimStart().length;
+  const label = (line: string) => line.trim().split(/\s/)[0];
+  if (at < 0) return { selector: "", note: "no heading" };
+  const own = depth(lines[at]);
+  const next = lines
+    .slice(at + 1)
+    .find((line) => line.trim() && depth(line) <= own);
+  if (!next || depth(next) < own)
+    return { selector: "", note: "nothing after" };
+  if (!/was refused/.test(user)) {
+    return { selector: label(next), note: "the heading's next sibling" };
+  }
+  const parent = lines
+    .slice(0, at)
+    .reverse()
+    .find((line) => line.trim() && depth(line) < own);
+  return {
+    selector: parent ? `${label(parent)} > ${label(next)}` : label(next),
+    note: "the sibling under its parent",
+  };
+}
+
 export function standInChat(
   body: {
     model?: string;
@@ -350,6 +384,18 @@ export function standInChat(
       done: true,
       prompt_eval_count: 700,
       eval_count: 90,
+    };
+  }
+  if (system.startsWith("You find where a recipe web page keeps")) {
+    return {
+      model: body.model ?? "qwen3:8b",
+      message: {
+        role: "assistant",
+        content: JSON.stringify(notesSelectorAnswer(user)),
+      },
+      done: true,
+      prompt_eval_count: 500,
+      eval_count: 20,
     };
   }
   if (system.startsWith("You find alternatives among")) {

@@ -79,6 +79,17 @@ const HIDDEN_TAGS = new Set([
 /** Regions a page's own notes are never in: site chrome, unless it is the card's. */
 const CHROME_TAGS = new Set(["nav", "footer", "header", "aside"]);
 
+/** A site menu's own class tokens (Sally's "Tips" is a menu item's title). */
+const MENU_TOKEN =
+  /^(?:menu|sub-menu|mega-menu|navigation|navbar)$|^(?:menu|nav|navbar|mega-menu)[-_]/;
+
+function isMenu(element: Element): boolean {
+  return `${attr(element, "className") ?? ""} ${attr(element, "id") ?? ""}`
+    .toLowerCase()
+    .split(/\s+/)
+    .some((token) => MENU_TOKEN.test(token));
+}
+
 /**
  * Whether `element` sits where notes never are: hidden, in the site's
  * nav, header, footer or an aside (unless its class names the recipe —
@@ -98,7 +109,7 @@ function inChrome(page: NotesPage, element: Element): boolean {
     ) {
       return true;
     }
-    if (isDropRegion(node)) return true;
+    if (isDropRegion(node) || isMenu(node)) return true;
     if (attr(node, "hidden") !== undefined) return true;
     if (/display\s*:\s*none/i.test(attr(node, "style") ?? "")) return true;
   }
@@ -111,10 +122,11 @@ function inChrome(page: NotesPage, element: Element): boolean {
 
 /**
  * A notes heading's words: "Notes", "Recipe Notes", "Notes:", "Tips",
- * "Recipe Tips", "Cook's Notes", "Notes & Tips", "Tips and Notes".
+ * "Recipe Tips", "Cook's Notes", "Notes & Tips", "Tips and Notes", "Tips
+ * from our Bakers" (King Arthur).
  */
 export const NOTES_LABEL =
-  /^(?:(?:recipe|cook'?s|chef'?s|my|kitchen|baking|cooking|helpful|expert|pro|extra)\s+)?(?:notes?|tips?)(?:\s*(?:&|and|\+)\s*(?:notes?|tips?|tricks?|substitutions?|faqs?))?\s*[:.]?$/i;
+  /^(?:(?:recipe|cook'?s|chef'?s|my|kitchen|baking|cooking|helpful|expert|pro|extra)\s+)?(?:notes?|tips?)(?:\s*(?:&|and|\+)\s*(?:notes?|tips?|tricks?|substitutions?|faqs?))?(?:\s+from\s+(?:the|our|my)\s+[a-z' ]{1,24})?\s*[:.]?$/i;
 
 /** Whether `words` are a notes heading's. */
 export function isNotesLabel(words: string): boolean {
@@ -196,23 +208,33 @@ function cleaned(node: Element): Element {
 
 const EMPHASIS_TAGS = new Set(["strong", "b", "em", "i", "u", "mark"]);
 
-/** An inline element with the spaces at its ends taken off, and whether there were. */
+/**
+ * An inline element with the spaces at its ends taken off — through its
+ * first and last descendants (`<strong><span>Note: </span></strong>`) — and
+ * whether there were.
+ */
 function edgeSpace(element: Element): [boolean, Element, boolean] {
+  const [lead, start] = trimEdge(element, "start");
+  const [trail, both] = trimEdge(start, "end");
+  return [lead, both, trail];
+}
+
+function trimEdge(element: Element, edge: "start" | "end"): [boolean, Element] {
   const children = [...element.children];
-  let lead = false;
-  let trail = false;
-  const first = children[0];
-  if (first?.type === "text" && /^\s/.test(first.value)) {
-    lead = true;
-    children[0] = { ...first, value: first.value.replace(/^\s+/, "") };
+  const at = edge === "start" ? 0 : children.length - 1;
+  const child = children[at];
+  if (!child) return [false, element];
+  if (child.type === "text") {
+    const pattern = edge === "start" ? /^\s+/ : /\s+$/;
+    if (!pattern.test(child.value)) return [false, element];
+    children[at] = { ...child, value: child.value.replace(pattern, "") };
+    return [true, { ...element, children }];
   }
-  const lastAt = children.length - 1;
-  const last = children[lastAt];
-  if (last?.type === "text" && /\s$/.test(last.value)) {
-    trail = true;
-    children[lastAt] = { ...last, value: last.value.replace(/\s+$/, "") };
-  }
-  return [lead, { ...element, children }, trail];
+  if (child.type !== "element") return [false, element];
+  const [trimmed, inner] = trimEdge(child, edge);
+  if (!trimmed) return [false, element];
+  children[at] = inner;
+  return [true, { ...element, children }];
 }
 
 /** The child as a block of its own (a paragraph, a list, a div…), if it is one. */
@@ -228,6 +250,8 @@ function noteMarkdown(node: Element): string {
     type: "root",
     children: node.tagName === "li" ? node.children : [node],
   })
+    /* Two breaks in a row are a paragraph's end, not two hard breaks. */
+    .replace(/\\\n(?:[ \t]*\\\n)+/g, "\n\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   if (markdown.length <= NOTE_MAX_CHARS) return markdown;
@@ -564,14 +588,57 @@ function isNotesHeading(page: NotesPage, element: Element): boolean {
   ) {
     return false;
   }
-  /* The innermost such element: a div wrapping an h3 "Notes" is not one. */
+  /* The innermost such element — a div wrapping an h3 "Notes", or a p
+   * wrapping a lone strong "Tips:", is not one — but a heading tag wins
+   * over the span inside it. */
+  const heading = HEADING_TAGS.has(element.tagName);
   const inner = element.children.some(
     (child) =>
       child.type === "element" &&
       text(child) === words &&
-      BLOCK_TAGS.has(child.tagName),
+      (!heading || HEADING_TAGS.has(child.tagName)),
   );
-  return !inner && !inChrome(page, element);
+  if (inner || inChrome(page, element)) return false;
+  if (HEADING_TAGS.has(element.tagName)) return true;
+  /* Not a heading tag: a heading by its class, or a label standing alone
+   * — "<p><strong>Tip:</strong> chill the dough</p>" is a sentence's lead,
+   * not a heading. */
+  if (/head|title|label/i.test(classList(element).join(" "))) return true;
+  const parent = page.parents.get(element);
+  const block =
+    BLOCK_TAGS.has(element.tagName) || !parent || parent.type !== "element"
+      ? element
+      : parent;
+  return text(block) === words;
+}
+
+/** The recipe-card plugins' own outer classes (pageText's `CARD_ROOTS`). */
+const CARD_CLASSES = new Set([
+  "wprm-recipe-container",
+  "wprm-recipe",
+  "tasty-recipes",
+  "mv-create-card",
+  "wpzoom-recipe-card",
+  "zrdn-recipe-container",
+  "easyrecipe",
+  "cooked-recipe",
+]);
+
+/**
+ * Whether the page's recipe is in a known card plugin's card: its notes,
+ * if any, are in the card's notes block, so a "Notes" heading elsewhere on
+ * the page is the post's, and no selector is learned for it.
+ */
+export function hasKnownCard(page: NotesPage): boolean {
+  let found = false;
+  walk(page.tree, (element) => {
+    if (found) return "skip";
+    if (classList(element).some((name) => CARD_CLASSES.has(name))) {
+      found = true;
+      return "skip";
+    }
+  });
+  return found;
 }
 
 /** The page's "Notes" headings a reader sees, in document order. */
@@ -579,7 +646,10 @@ export function notesHeadings(page: NotesPage): Element[] {
   const found: Element[] = [];
   walk(page.tree, (element) => {
     if (HIDDEN_TAGS.has(element.tagName)) return "skip";
-    if (isNotesHeading(page, element)) found.push(element);
+    if (isNotesHeading(page, element)) {
+      found.push(element);
+      return "skip";
+    }
   });
   return found;
 }
@@ -643,6 +713,28 @@ function lastIsHeading(page: NotesPage, element: Element): boolean {
   return !!last && isNotesHeading(page, last);
 }
 
+/**
+ * A class or id that a build tool made rather than a person: styled-jsx's
+ * `jsx-1098722538`, CSS-in-JS hashes (`css-1x2y3z`, `sc-…`, `emotion-…`),
+ * or any name with a run of five digits or more (a post's id). A selector
+ * naming one would miss once the site is rebuilt.
+ */
+const GENERATED_NAME =
+  /^(?:jsx|css|sc|emotion|styled|svelte|astro)-[\w-]+$|\d{5,}|^[a-z]{0,3}[0-9a-f]{8,}$/i;
+
+/** The first generated name `selector` uses, if any. */
+export function generatedName(selector: ParsedSelector): string | undefined {
+  for (const compound of selector.compounds) {
+    for (const name of [
+      ...(compound.id ? [compound.id] : []),
+      ...compound.classes,
+    ]) {
+      if (GENERATED_NAME.test(name)) return name;
+    }
+  }
+  return undefined;
+}
+
 /** A checked selector: its element and the notes in it, or why it fails. */
 export type SelectorCheck =
   | { ok: true; element: Element; notes: string[] }
@@ -666,6 +758,13 @@ export function checkNotesSelector(
     return {
       ok: false,
       problem: `“${selector.slice(0, 80)}” is not a selector of tags, ids, classes and attributes`,
+    };
+  }
+  const generated = generatedName(parsed);
+  if (generated) {
+    return {
+      ok: false,
+      problem: `it names “${generated}”, which looks generated for one build of the site and changes when the site is rebuilt`,
     };
   }
   const found = selectAll(page, parsed).filter(
@@ -727,9 +826,16 @@ export function selectorNotes(
 export function elementLabel(element: Element): string {
   const id = attr(element, "id");
   const names = classList(element)
-    .filter((name) => /^-?[_a-z][_a-z0-9-]*$/.test(name) && name.length <= 60)
+    .filter(
+      (name) =>
+        /^-?[_a-z][_a-z0-9-]*$/.test(name) &&
+        name.length <= 60 &&
+        !GENERATED_NAME.test(name),
+    )
     .slice(0, 6);
-  return `${element.tagName}${id && /^[_a-zA-Z][\w-]*$/.test(id) ? `#${id}` : ""}${names.map((name) => `.${name}`).join("")}`;
+  const stableId =
+    id && /^[_a-zA-Z][\w-]*$/.test(id) && !GENERATED_NAME.test(id) ? id : "";
+  return `${element.tagName}${stableId ? `#${stableId}` : ""}${names.map((name) => `.${name}`).join("")}`;
 }
 
 /** The outline's bounds: lines, and characters of text a line shows. */
@@ -739,10 +845,12 @@ export const OUTLINE_TEXT_CHARS = 80;
 /**
  * A trimmed DOM outline around the page's first "Notes" heading (47j), for
  * the model to pick a selector from: the heading's ancestors as a path
- * from `<body>`, then the subtree of the ancestor three levels up, one
+ * from `<html>`, then the subtree of its ancestor three levels up, one
  * element a line — indented, written as a selector part
- * (`div.wprm-recipe-notes`), with the start of its own text — bounded to
- * `OUTLINE_MAX_LINES`. `undefined` when the page has no notes heading.
+ * (`div.wprm-recipe-notes`), with the start of its own text. Only what is
+ * by the heading is opened: the heading's parent's children, and what
+ * follows that parent; every other branch is one line ending "…". Bounded
+ * to `OUTLINE_MAX_LINES`. `undefined` when the page has no notes heading.
  */
 export function notesOutline(page: NotesPage): string | undefined {
   const [heading] = notesHeadings(page);
@@ -755,45 +863,54 @@ export function notesOutline(page: NotesPage): string | undefined {
   ) {
     path.unshift(node);
   }
-  const rootAt = Math.max(0, path.length - 4);
-  const root = path[rootAt];
+  const onPath = new Set(path);
+  const parent = path[path.length - 2];
+  const grandparent = path[path.length - 3];
+  /* Opened in full: the heading's parent's children, and what follows the
+   * parent in the grandparent. */
+  const opened = new Set<Element>();
+  const kids = (node: Element | undefined) =>
+    (node?.children ?? []).filter(
+      (child): child is Element => child.type === "element",
+    );
+  for (const child of kids(parent)) opened.add(child);
+  const after = kids(grandparent);
+  for (const child of after.slice(after.indexOf(parent) + 1)) opened.add(child);
+  const root = path[Math.max(0, path.length - 4)];
   const lines: string[] = [
     `Path to the heading: ${path.map(elementLabel).join(" > ")}`,
     `Heading: ${elementLabel(heading)} "${text(heading)}"`,
     "",
-    "Outline (one element a line, indented by depth; the heading is marked <<):",
+    'Outline (one element a line, indented by depth; the heading is marked <<; a branch ending "…" is closed):',
   ];
-  const visit = (element: Element, depth: number) => {
-    if (lines.length >= OUTLINE_MAX_LINES) return;
-    if (HIDDEN_TAGS.has(element.tagName)) return;
-    if (
-      ["img", "picture", "br", "hr", "source", "path"].includes(element.tagName)
-    ) {
-      return;
-    }
+  const skip = new Set(["img", "picture", "br", "hr", "source", "path"]);
+  const line = (element: Element, depth: number, closed: boolean) => {
     const own = element.children
       .filter((child) => child.type === "text")
       .map((child) => (child as { value: string }).value)
       .join(" ")
       .replace(/\s+/g, " ")
       .trim();
-    const words =
-      own ||
-      (element.children.every((c) => c.type !== "element")
-        ? text(element)
-        : "");
+    const leaf = element.children.every((child) => child.type !== "element");
+    const words = own || (leaf ? text(element) : "");
     const shown =
       words.length > OUTLINE_TEXT_CHARS
         ? `${words.slice(0, OUTLINE_TEXT_CHARS)}…`
         : words;
     lines.push(
-      `${"  ".repeat(depth)}${elementLabel(element)}${shown ? ` "${shown}"` : ""}${element === heading ? " <<" : ""}`,
+      `${"  ".repeat(depth)}${elementLabel(element)}${shown ? ` "${shown}"` : ""}${element === heading ? " <<" : ""}${closed && !leaf ? " …" : ""}`,
     );
-    for (const child of element.children) {
-      if (child.type === "element") visit(child, depth + 1);
-    }
   };
-  visit(root, 0);
+  const visit = (element: Element, depth: number, open: boolean) => {
+    if (lines.length >= OUTLINE_MAX_LINES) return;
+    if (HIDDEN_TAGS.has(element.tagName) || skip.has(element.tagName)) return;
+    const expand = open || onPath.has(element) || opened.has(element);
+    line(element, depth, !expand);
+    if (!expand) return;
+    const inside = open || opened.has(element);
+    for (const child of kids(element)) visit(child, depth + 1, inside);
+  };
+  visit(root, 0, false);
   if (lines.length >= OUTLINE_MAX_LINES) lines.push("…");
   return lines.join("\n");
 }

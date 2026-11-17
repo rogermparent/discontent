@@ -512,6 +512,7 @@ describe("the sections on a drink", () => {
       "picture",
       "ingredients",
       "steps",
+      "notes",
       "times",
       "source",
     ]);

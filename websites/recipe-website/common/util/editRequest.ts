@@ -96,7 +96,7 @@ export function editValuesOf(values: RecipeFormValues): EditValues {
     totalTime: values.totalTime,
     drink: values.drink,
     source: values.source,
-    notes: values.notes,
+    notes: values.notes ?? [],
   };
 }
 

@@ -240,7 +240,7 @@ export function sectionStatuses(
     (values.source.url.trim() && hostnameLabel(values.source.url.trim()));
 
   const checks = ingredientChecks(values);
-  const notes = values.notes.filter((note) => note.trim()).length;
+  const notes = (values.notes ?? []).filter((note) => note.trim()).length;
   const method = values.drink.method as DrinkMethod | "";
   const statuses: Record<RecipeSectionId, SectionStatus> = {
     drink: method
