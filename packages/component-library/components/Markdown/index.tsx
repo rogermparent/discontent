@@ -14,6 +14,10 @@ function MarkdownLink({
   if (!href) {
     throw new Error("Link given no URL");
   }
+  /* A link within the page ("#recipe-note-2", 47j) stays in this tab. */
+  if (typeof href === "string" && href.startsWith("#")) {
+    return <a href={href}>{children}</a>;
+  }
   return (
     <Link href={href} target="_blank">
       {children}

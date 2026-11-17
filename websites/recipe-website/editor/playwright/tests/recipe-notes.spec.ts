@@ -182,21 +182,25 @@ test.describe("A recipe's own notes (47j)", () => {
       page.locator('input[type="hidden"][name="notes[1]"]'),
     ).toHaveValue("Use a metal pan.");
     /* What each row shows follows its note (review: rows keyed by index
-     * kept a moved note's old text in its editor). */
+     * kept a moved note's old text in its editor). The new row is in
+     * Source mode, a textarea; the others show their text. */
     const rows = section.getByTestId("notes-rows").locator(":scope > li");
-    await expect(
-      rows.nth(1).locator("[data-lexical-editor='true']"),
-    ).toHaveText("Use a metal pan.");
+    const shown = (n: number) =>
+      rows.nth(n).locator("[data-lexical-editor='true']");
+    await expect(rows.nth(1).locator("textarea")).toHaveValue(
+      "Use a metal pan.",
+    );
+    await expect(shown(0)).toContainText("chill the pan first");
+    await expect(shown(2)).toContainText("They freeze for a month.");
     await section
       .getByRole("button", { name: "Remove note 1", exact: true })
       .click();
     await expect(rows).toHaveCount(2);
-    await expect(
-      rows.nth(0).locator("[data-lexical-editor='true']"),
-    ).toHaveText("Use a metal pan.");
-    await expect(
-      rows.nth(1).locator("[data-lexical-editor='true']"),
-    ).toContainText("They freeze for a month.");
+    await expect(rows.nth(0).locator("textarea")).toHaveValue(
+      "Use a metal pan.",
+    );
+    await expect(shown(1)).toContainText("They freeze for a month.");
+    await expect(section).not.toContainText("chill the pan first");
     await expectNoViolations(page);
     await save(page, SLUG);
     expect((await stored(request, SLUG)).notes).toEqual([

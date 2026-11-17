@@ -1639,7 +1639,10 @@ for future note fetching or something like that."
      API after it when it is set up; the first that passes is kept in
      `settings.json` (`noteSelectors`: selector, learned when and by whom,
      the page, hits and misses) — per instance, never in the content
-     repository and never sent to a mirror.
+     repository and never sent to a mirror. A site where every answer
+     was refused is remembered (`noteSelectorFailures`, when and why) and
+     not asked again for 30 days, so its later imports and a roundup's
+     other items cost no model call.
   3. Otherwise no notes. The words are always the page's own.
      Every page import runs it: the form's (`formImport.ts`), `recipes
 import` / `recipe_import` / the API (`importPage`), roundup items
@@ -1647,7 +1650,8 @@ import` / `recipe_import` / the API (`importPage`), roundup items
      (and its draft) and the fill. `--llm off` reads plugins and stored
      selectors only. A several-recipe page (38c) gets no notes.
 - **Settings → Tools → Recipe notes** lists the learned selectors (site,
-  selector, who and when, hits and misses) with **Forget**.
+  selector, who and when, hits and misses) and the sites that taught
+  nothing lately, each with **Forget**.
 - **Fill gaps** fills empty notes from the source's reading by the same
   path, marked "from the source" like any filled section; the "missing"
   hint never asks for notes (most pages have none).
@@ -1724,6 +1728,20 @@ update` (one commit, "Update recipe: <slug>") per recipe. `--dry-run`
 - **Tj4 — The outline must open only the heading's branch**: King Arthur's
   four-levels-up ancestor holds the whole method first, so a plain subtree
   cut at 120 lines never reached the tips.
+
+- **Tj5 — The markdown field reads its value once, when it mounts.** Rows
+  keyed by index kept a moved or removed note's old text on screen, and an
+  edit there wrote it over its neighbour (the review). The Notes rows keep
+  a stable key through insert, move and remove; the spec checks what each
+  row shows, not only the hidden inputs.
+- **Tj6 — Descendant combinators backtrack.** Without a memo the matcher
+  cost O(n·depth^k): 5.8 s on a 40-deep page for a five-part selector that
+  matched nothing, on the event loop (the review's measurement). It is
+  memoised per `(element, compound)`; the unit test holds a 20 × 40-deep
+  page under a second.
+- **Tj7 — The settings form saved with a read-then-write**: saving Site
+  details or Tools during an import could drop a selector just learned. It
+  now goes through `updateSettings`' lock.
 
 #### Measurement (2026-11-17)
 
@@ -1808,8 +1826,10 @@ GATES-PLACEHOLDER
 7. The words: "Notes", "Note N", "Add a note", "No notes. Tips,
    substitutions, storage and make-ahead go here, not in the steps.",
    "Notes (N)", "Recipe notes", "Forget".
-8. A several-recipe page brings no notes in; a site where learning fails is
-   asked again on its next import (no "tried and failed" memory).
+8. A several-recipe page brings no notes in. A site where learning found
+   no selector is not asked again for 30 days (listed on Settings → Tools,
+   Forget to retry sooner); a missing model or a failed call is not
+   remembered.
 
 #### Roger's steps (47j)
 

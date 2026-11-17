@@ -210,7 +210,7 @@ test.describe("Fill gaps from the source (45b)", () => {
       "4Ingredients: 4 · filled",
     );
     await expect(rail.getByRole("link", { name: /^Times/ })).toHaveText(
-      "6Times: 1h 15m · est.",
+      "7Times: 1h 15m · est.",
     );
     await expect(page.getByTestId("recipe-form-changes")).toHaveText(
       "7 changes · not saved",

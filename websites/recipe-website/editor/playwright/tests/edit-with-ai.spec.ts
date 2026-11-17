@@ -242,7 +242,7 @@ test.describe("Edit with AI (47i)", () => {
     await ask(page, "Change the slug");
     const box = page.getByTestId("edit-with-ai");
     await expect(box.getByTestId("edit-summary")).toHaveText(
-      "Local model qwen3:8b's answer was not applied: it changes “slug”, which a request may not change (only name, description, yield, tags, ingredients, steps, prep time, cook time, total time, drink spec and source).",
+      "Local model qwen3:8b's answer was not applied: it changes “slug”, which a request may not change (only name, description, yield, tags, ingredients, steps, prep time, cook time, total time, drink spec, source and notes).",
     );
     await expect(box.getByTestId("edit-changes")).toHaveCount(0);
     await expect(page.getByTestId("recipe-form-changes")).toHaveText(
