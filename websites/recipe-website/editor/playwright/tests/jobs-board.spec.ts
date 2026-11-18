@@ -451,16 +451,65 @@ test.describe("Jobs, variant B (48c)", () => {
   test("on a phone: one column, nothing wider than the screen", async ({
     page,
   }) => {
+    /* Rows to lay out: a failure with a long address, and a round. */
+    const host = `a-rather-long-site-name-${RUN}.test`;
+    const at = Date.now() - 30 * 60 * 1000;
+    const url = `https://${host}/recipes/2026/11/a-very-long-recipe-slug-that-runs-on`;
+    await plant(
+      {
+        kind: "import-url",
+        label: url,
+        spec: { kind: "import-url", url },
+        status: "failed",
+        startedAt: at,
+        endedAt: at + 900,
+        error: {
+          code: "import_failed",
+          message: `Could not fetch ${url}: HTTP 403`,
+        },
+      },
+      { at },
+    );
+    for (const n of [1, 2]) {
+      const address = `https://${host}/inspect-${n}`;
+      await plant(
+        {
+          kind: "inspect",
+          label: address,
+          spec: { kind: "inspect", url: address },
+          status: "done",
+          startedAt: at + n * 60_000,
+          endedAt: at + n * 60_000 + 900,
+          result: {
+            url: address,
+            finalUrl: address,
+            status: 200,
+            partial: false,
+          },
+        },
+        { at: at + n * 60_000 },
+      );
+    }
+
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/jobs");
     await boardReady(page);
     await expect(
       page.getByRole("heading", { level: 2, name: /^Now/ }),
     ).toBeVisible();
+    await expect(page.getByTestId("job-list")).toBeVisible();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - window.innerWidth,
     );
     expect(overflow).toBeLessThanOrEqual(0);
-    await expectNoViolations(page);
+    /* As accessibility.spec's phone sweep (41f): axe judges target size at
+     * the scroll position, and the pinned tab bar covers whichever row
+     * straddles the fold, so target size is measured with the chrome
+     * released (the reader's own "off" setting). */
+    await expectNoViolations(page, { disable: ["target-size"] });
+    await page.evaluate(() => {
+      document.documentElement.dataset.stickyChrome = "off";
+    });
+    await expectNoViolations(page, { only: ["target-size"] });
   });
 });

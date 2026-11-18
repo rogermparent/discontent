@@ -709,6 +709,17 @@ exec tsc --noEmit`: clean (heavy slot), after the gate fixes.
   `edit-form-frame`) **77 passed**; `settings-nav` **9 passed**.
 - **No baseline moved**: the chip draws nothing while idle and is hidden in
   screenshots.
+- CI's first run (3a2a8b8c) failed two tests the targeted runs could not
+  see. `mirror-role.spec` still expected the Settings sidebar on `/jobs`
+  (Dc2 took it away; it now expects none, as `settings-nav` does). The
+  phone test in `jobs-board.spec` had no History rows locally, but in CI
+  the shard's own jobs filled it, and axe's `target-size` called the row
+  under the pinned tab bar obscured. That test now plants a failure with a
+  long address and a round, then measures target size with the chrome
+  released, as accessibility.spec's phone sweep does (41f).
+  `expectNoViolations` takes `disable` and `only` for that. After the fix:
+  `jobs-board` **5 passed** and `mirror-role` **8 passed** (production),
+  and both **13 passed** in dev mode.
 - Dev mode once (Docker, `next dev`): `jobs-board` and `settings-nav`
   **13 passed, 1 flaky** — the job page's timeline waited past 5 s for its
   log while `next dev` compiled the route; that wait is now 30 s, and
