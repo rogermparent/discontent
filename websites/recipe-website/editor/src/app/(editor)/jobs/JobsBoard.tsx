@@ -145,7 +145,9 @@ function StateWord({ word, tone }: { word: string; tone: string }) {
         "font-mono text-xs font-medium whitespace-nowrap",
         tone === "ok" && "text-success",
         tone === "none" && "text-warning",
-        tone === "fail" && "text-destructive",
+        /* A filled word: --destructive as text on the page is 4.49:1. */
+        tone === "fail" &&
+          "rounded-sm bg-destructive px-1 text-destructive-foreground",
         tone === "stopped" && "text-muted-foreground",
       )}
     >
@@ -573,6 +575,7 @@ function History({
           <Segmented
             label="Show"
             testId="jobs-filter"
+            className="max-w-full overflow-x-auto max-sm:[&>button]:px-2"
             value={filter}
             onChange={setFilter}
             options={FILTERS}

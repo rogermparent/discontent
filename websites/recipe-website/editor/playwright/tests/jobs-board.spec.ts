@@ -136,7 +136,9 @@ test.describe("Jobs, variant B (48c)", () => {
       },
     });
 
-    /* The chip, on any page: counts, and opens /jobs. */
+    /* The chip, on any page: counts, and opens /jobs. A fresh page reads at
+     * once (an idle chip's next read is 20 s away). */
+    await page.goto("/");
     const chip = page.getByTestId("jobs-live-chip").first();
     await expect(chip).toContainText(/\d+ running · \d+ queued/, {
       timeout: 15_000,
