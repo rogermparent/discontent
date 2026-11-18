@@ -535,7 +535,32 @@ it. 48a's "Check what it left out" list moves into B's review.
 
 #### Gates (48b)
 
-(filled in below as they run)
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean (heavy slot), after the review fixes.
+- `pnpm exec vitest run`: **189 files, 4,158 tests**, all passed. New:
+  `test/curatorHeld.test.ts` (the held list against the registry, the
+  bridge's held answers, a held run end to end, Save in order with a
+  narrowed tag and a skip, re-decisions and widened adds refused, a bad
+  narrowing running nothing, an untag, expiry after pruning, the
+  follow-up's decisions note, unheld CLI runs, the model choice) and
+  `test/curatorRunSummary.test.ts` (heads-up lifting, found recipes, the
+  live cost, held rows, "What it did"). Updated for the `turn` record and
+  `hold: true`: `agentJobs`, `agentRoute`, `curatorNewerWebTools`,
+  `curatorPage`.
+- Playwright in Docker, production build: `curator`, `command-palette`,
+  `accessibility`, `visual` — **153 passed**. `curator.spec` gains "holds a
+  run's writes for review: save one, skip one" (Working then Review, the
+  heads-up callout, a found recipe's Import link, ⌘K's count, untick one,
+  Save, only the saved recipe written, the runs list's pill, axe); its
+  other tests' checks moved onto the held flow (a Save before What changed,
+  the answer's links in `curator-answer`, the raw calls behind "Show the N
+  tool calls", 48a's list in the review then in What changed).
+- **Baselines moved** (regenerated in Docker, `--update-snapshots`, each
+  opened): `curator.spec.ts/curator-idle-e2e.png` (the ask with "How a run
+  goes"), `curator-finished-e2e.png` (the run as B draws it, with its
+  review waiting) and `curator-phone-e2e.png` (the same at 390 px). The run's
+  times and the stage strip are masked. No other baseline moved.
+- Dev mode once (Docker, `next dev`): `curator.spec` **8 passed**.
 
 ### 48c: `/jobs` and a job's page, variant B (L)
 
