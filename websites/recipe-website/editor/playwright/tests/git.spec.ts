@@ -428,13 +428,15 @@ test.describe("Git content", () => {
     const secondRecipeSlug = "recipe-b";
     /*
      * 47h: the history titles a commit with the record's name where the
-     * record still exists — recipe-b is "Recipe B…" — and keeps the slug of
+     * record still exists — recipe-b is named "edited" in the bundle's last
+     * commit — and keeps the slug of
      * one deleted since (recipe-a). The message itself is in the commit's
      * details.
      */
     const secondRecipeTitle = (page: Page, verb: string) =>
       page.getByRole("button", {
-        name: new RegExp(`^${verb}: “Recipe B`),
+        name: `${verb}: “edited”`,
+        exact: true,
       });
 
     test.beforeEach(async ({ page, loadGitFixture }) => {
