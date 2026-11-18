@@ -15,6 +15,7 @@ import { SearchShortcutHint } from "./SearchShortcutHint";
  * shortcut opens the palette from anywhere, this field included.
  */
 export function HomeSearch({ recipeCount }: { recipeCount: number }) {
+  const count = recipeCount > 0 ? `${recipeCount} ` : "";
   return (
     <Form action="/search" role="search" className="relative">
       <label htmlFor="home-search" className="sr-only">
@@ -30,13 +31,22 @@ export function HomeSearch({ recipeCount }: { recipeCount: number }) {
         type="search"
         autoComplete="off"
         enterKeyHint="search"
-        placeholder={
-          recipeCount > 0
-            ? `Search ${recipeCount} recipes — a name, an ingredient, a tag`
-            : "Search recipes — a name, an ingredient, a tag"
-        }
-        className="h-13 w-full min-w-0 rounded-xl border border-input bg-card pr-16 pl-12 text-base text-card-foreground shadow-xs transition-colors outline-none placeholder:text-muted-foreground hover:border-ring focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:h-15 sm:text-[1.0625rem] [&::-webkit-search-cancel-button]:hidden"
+        placeholder={`Search ${count}recipes — a name, an ingredient, a tag`}
+        className="peer h-13 w-full min-w-0 rounded-xl border border-input bg-card pr-4 pl-12 text-base text-card-foreground shadow-xs transition-colors outline-none placeholder:text-transparent hover:border-ring focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:h-15 sm:pr-16 sm:text-[1.0625rem] sm:placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
       />
+      {/*
+       * 47h: on a phone the whole hint was cut off at "a name, an": the
+       * field shows a short one instead, drawn over it while it is empty
+       * (`peer-placeholder-shown`) — the real placeholder, transparent
+       * there, still names it for assistive technology. From `sm` the
+       * placeholder itself shows, as before.
+       */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute top-1/2 left-12 hidden -translate-y-1/2 truncate pr-4 text-base text-muted-foreground peer-placeholder-shown:block sm:hidden! max-w-[calc(100%-3rem)]"
+      >
+        Search {count}recipes
+      </span>
       <SearchShortcutHint />
     </Form>
   );

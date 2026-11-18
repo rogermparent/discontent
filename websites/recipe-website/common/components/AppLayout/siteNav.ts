@@ -65,11 +65,30 @@ export function siteNavFor(isOwner: boolean): SiteNavItem[] {
 }
 
 /**
- * The almanac (42e). Not in the masthead — six destinations already fill it
- * at `md`, and every masthead change moves every full-page baseline — but in
- * the footer's default Browse column, on a site that has holidays.
+ * The almanac (42e), on a site that has holidays: the footer's default
+ * Browse column, the menu sheet and — from `xl`, since six destinations
+ * already fill the row at `md` — the masthead (47h). A site without a
+ * `holidays` root (every fixture but a few) keeps the masthead it had, so
+ * its full-page baselines do not move.
  */
 export const HOLIDAYS_HREF = "/holidays";
+
+/** The Holidays destination (47h). */
+export const HOLIDAYS_ITEM: SiteNavItem = {
+  name: "Holidays",
+  href: HOLIDAYS_HREF,
+  icon: CalendarHeartIcon,
+};
+
+/** `items` with Holidays after Drinks when the site has holidays (47h). */
+export function withHolidaysItem(
+  items: SiteNavItem[],
+  hasHolidays: boolean,
+): SiteNavItem[] {
+  if (!hasHolidays) return items;
+  const at = items.findIndex((item) => item.href === "/drinks") + 1;
+  return [...items.slice(0, at), HOLIDAYS_ITEM, ...items.slice(at)];
+}
 
 /** Leading glyphs by href, for links built from menu data (the footer). */
 export const NAV_ICONS: Record<

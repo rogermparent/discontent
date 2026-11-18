@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { seasonRows } from "../../controller/homepageComingUp";
+import { SEASON_PICKS, seasonRows } from "../../controller/homepageComingUp";
+import { useHomeShown } from "./HomeShown";
 import {
   countdownLabel,
   dayKey,
@@ -21,8 +22,35 @@ export interface SeasonRow {
   label: string;
   /** "32 recipes · 1 plan · featured", already spelled out on the server. */
   counts: string;
-  /** The recipe strip, rendered on the server; `null` with nothing to show. */
-  strip: ReactNode;
+  /**
+   * The strip's candidates, each picture rendered on the server; which show
+   * is the day's (`homepageShown`, 47h: a recipe once on the page).
+   */
+  picks: Array<{ slug: string; name?: string; thumb: ReactNode }>;
+}
+
+/** A row's strip: its picks for the day, as square links. */
+function Strip({ label, picks }: { label: string; picks: SeasonRow["picks"] }) {
+  if (picks.length === 0) return null;
+  return (
+    <ul
+      aria-label={`From ${label}`}
+      className="grid grid-cols-4 gap-1.5 sm:grid-cols-[repeat(4,4.5rem)]"
+    >
+      {picks.map((pick) => (
+        <li key={pick.slug}>
+          <Link
+            href={`/recipe/${pick.slug}`}
+            aria-label={pick.name ?? pick.slug}
+            title={pick.name}
+            className="block aspect-square overflow-hidden rounded-md bg-muted transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          >
+            {pick.thumb}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -101,7 +129,20 @@ export function SeasonSection({
 }) {
   const browserToday = useToday(null);
   const today = parseDayKey(browserToday ?? serverDay);
-  const shown = seasonRows(rows, today);
+  /* 47h: the page's answer when there is one (a recipe once on the page). */
+  const page = useHomeShown();
+  const picksOf = new Map(
+    page?.season.map((row) => [row.slug, new Set(row.picks)]) ?? [],
+  );
+  const shown = seasonRows(rows, today).map((row) => {
+    const chosen = picksOf.get(row.slug);
+    return {
+      ...row,
+      picks: chosen
+        ? row.picks.filter((pick) => chosen.has(pick.slug))
+        : row.picks.slice(0, SEASON_PICKS),
+    };
+  });
   if (shown.length === 0) return null;
   return (
     <HomeSection
@@ -141,8 +182,10 @@ export function SeasonSection({
                   {row.counts}
                 </p>
               </div>
-              {row.strip && (
-                <div className="col-span-2 sm:col-span-1">{row.strip}</div>
+              {row.picks.length > 0 && (
+                <div className="col-span-2 sm:col-span-1">
+                  <Strip label={row.label} picks={row.picks} />
+                </div>
               )}
             </li>
           );

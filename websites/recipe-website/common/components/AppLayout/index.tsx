@@ -73,9 +73,10 @@ interface SiteHeaderProps {
  * full-page visual baseline, because the masthead is on every page.
  */
 async function SiteHeader({ extraNavItems, isOwner = false }: SiteHeaderProps) {
-  const [headerMenu, recipeCount] = await Promise.all([
+  const [headerMenu, recipeCount, hasHolidays] = await Promise.all([
     getMenuBySlug<MenuItem>("header"),
     readRecipeCount(),
+    readHasHolidays(),
   ]);
   const { title } = getSiteConfig();
 
@@ -105,6 +106,7 @@ async function SiteHeader({ extraNavItems, isOwner = false }: SiteHeaderProps) {
           extraNavItems={extraNavItems}
           isOwner={isOwner}
           recipeCount={recipeCount}
+          hasHolidays={hasHolidays}
         />
       </div>
     </header>

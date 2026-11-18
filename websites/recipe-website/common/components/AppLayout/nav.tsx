@@ -22,11 +22,13 @@ import { PaletteTrigger } from "../CommandPalette/PaletteTrigger";
 import { StickyChromeToggle } from "./useStickyChrome";
 import { WideRecipeToggle } from "./useWideRecipe";
 import {
+  HOLIDAYS_HREF,
   isCurrentPath,
   navCurrent,
   NAV_ICONS,
   SITE_NAV,
   siteNavFor,
+  withHolidaysItem,
   type SiteNavItem,
 } from "./siteNav";
 
@@ -74,7 +76,13 @@ function NavLink({
  * row fits a small tablet — and the hidden span leaves the accessible name
  * to whichever label shows.
  */
-function MastheadLink({ item }: { item: SiteNavItem }) {
+function MastheadLink({
+  item,
+  className,
+}: {
+  item: SiteNavItem;
+  className?: string;
+}) {
   const pathname = usePathname();
   return (
     <Link
@@ -83,6 +91,7 @@ function MastheadLink({ item }: { item: SiteNavItem }) {
       className={cn(
         "inline-flex items-center whitespace-nowrap rounded-md px-2 py-1.5 font-medium transition-colors hover:text-primary aria-[current=page]:bg-accent aria-[current=page]:text-accent-foreground aria-[current=true]:bg-accent aria-[current=true]:text-accent-foreground",
         item.promoted && "font-semibold text-primary",
+        className,
       )}
     >
       {item.shortName ? (
@@ -116,22 +125,28 @@ export function HeaderNav({
   extraNavItems,
   isOwner = false,
   recipeCount,
+  hasHolidays = false,
 }: {
   menuItems?: MenuItem[];
   extraNavItems?: ReactNode;
   isOwner?: boolean;
   recipeCount?: number;
+  /**
+   * The site has holidays (42e): Holidays after Drinks (47h) — in the sheet,
+   * and in the masthead from `xl`, where the row has room for a seventh.
+   */
+  hasHolidays?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
-  const items = siteNavFor(isOwner);
+  const items = withHolidaysItem(siteNavFor(isOwner), hasHolidays);
   /*
    * 43s: `/search` is the search — its own field leads the page, so the
    * masthead drops its trigger there (⌘K still opens the palette), as
    * canvas B draws it.
    */
   const onSearch = usePathname() === "/search";
-  const known = new Set(SITE_NAV.map((item) => item.href));
+  const known = new Set([...SITE_NAV, ...items].map((item) => item.href));
   const extras = menuItems.filter(
     (item) => item.href !== "/search" && !known.has(item.href),
   );
@@ -163,7 +178,13 @@ export function HeaderNav({
         className="hidden min-w-0 flex-1 items-center gap-0.5 text-sm md:flex"
       >
         {items.map((item) => (
-          <MastheadLink key={item.href} item={item} />
+          <MastheadLink
+            key={item.href}
+            item={item}
+            className={
+              item.href === HOLIDAYS_HREF ? "hidden xl:inline-flex" : undefined
+            }
+          />
         ))}
         {extras.map((item) => (
           <NavLink
