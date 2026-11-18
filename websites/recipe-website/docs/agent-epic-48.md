@@ -294,7 +294,31 @@ all purpose flour` on hand now meets 23 more lines. `bell pepper`,
 
 #### Gates (48a)
 
-(Filled in after the runs.)
+- **Review fixes** (after the read-only review): the post-check keys on
+  the term written (`tagSlug`), skips remove-only assigns, counts paged
+  searches together; "it did not tag: <names>" then "It had N more
+  matches…"; counted peppers stay `pepper`; King Arthur Organic; drinks at
+  1024 px.
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean, before and after merging `origin/main`
+  (#343, Next.js 16.4.6).
+- Lint (`lint-staged --diff` against the merge base, as CI): clean.
+- `pnpm exec vitest run`: 187 files, **4,139 tests** — 4,128 passed in the
+  full run on a loaded machine (load ~14) and the 11 that timed out there
+  (`cliJson`, `editFormRoundTrip`, `stepUsesForm`, `makePatterns`' 200 ms
+  budget) passed alone (4 files, 89 tests).
+- Playwright in Docker, production build: drinks, holidays,
+  command-palette, curator, tag-pages, visual, shopping (+ shopping-modes),
+  make, accessibility — **274 passed, 2 failed**: the two baselines below,
+  as expected. Regenerated in Docker (`--update-snapshots`, 40 passed):
+  - `drinks.spec.ts/drinks-page-e2e.png` — Strength & method is its own
+    fourth column.
+  - `visual.spec.ts/git-page-e2e.png` — the index version moved; and the
+    old baseline still showed "in sync" beside "no upstream", which 47h
+    took away (it had hidden under the tolerance).
+    `drinks-page-mobile` did not move.
+- After merging `origin/main` (Next.js 16.4.6): drinks, visual and curator
+  in Docker again — **47 passed**, the new baselines included.
 
 #### Roger to confirm (48a)
 
