@@ -234,13 +234,21 @@ survives a cleared context.
   asks on Sonnet 5, $0.59). Reindex automatic; deployed to the workstation
   and the Pi 2026-11-09; 24 "Roger to confirm" items in the Close-out, and
   the Playwright image pinned by digest (#331, Node 26 dropped corepack).
-- `websites/recipe-website/docs/agent-epic-47.md` — epic 47 (in progress):
-  DNS rebinding closed in the fetch guard (47a, a per-hop undici `Agent`
-  pinned to the vetted addresses), the CMS `fileImportUrl` fetch guarded
-  (47b), a content round (47c), design canvases for `/curator`, `/jobs`,
-  Settings + `/git` and the homepage (47d), and auth on Better Auth (47e,
-  Roger's ask: an app-owned `/login` that stays on the host you used,
-  password only, remember this device, sign out everywhere).
+- `websites/recipe-website/docs/agent-epic-47.md` — epic 47, closed
+  2026-11-17: DNS rebinding closed in the fetch guard (47a, a per-hop undici
+  `Agent` pinned to the vetted addresses), the CMS `fileImportUrl` fetch
+  guarded (47b), a content round of 58 recipes and three more rounds (47c),
+  four design-canvas sets for `/curator`, `/jobs`, Settings + `/git` and the
+  homepage awaiting Roger's picks (47d, built in epic 48), auth on Better Auth
+  (47e: an app-owned `/login` that stays on the host you used, password only,
+  remember this device, sign out everywhere), a step's stored "uses" (47f),
+  the model suggesting it on demand (47g), "Edit with AI" on the edit page
+  (47i, `recipes revise`), a recipe's own Notes with learned per-site
+  selectors and a migration (47j), and 19 fixes found along the way (47h).
+  No `indexVersion` change, so no reindex. Not deployed: the workstation and
+  Pi run epic 46's `b54d0efe`; 59 "Roger to confirm" items and Roger's steps
+  (workstation update, `deploy:pi`, sign in once per device, the optional
+  `RECIPE_LLM_CLAUDE_API_KEY`) are in the Close-out.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
