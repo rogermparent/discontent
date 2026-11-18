@@ -660,6 +660,13 @@ password, createdAt?, tokens?}`); nothing in sign-in writes them, so no API
   (`featured-recipes.spec` "should sort featured recipes by feature date":
   no Feature link, 3/3 tries); it signs in again after the reset.
 
+- **Th5 — `nullish()` in a tool's zod schema is in its JSON Schema.** The
+  first row-15 fix made 15 `recipe_create` fields `anyOf [T, null]`:
+  `mcp.test` saw the advertised shape change and the local model's
+  condensed tool view went to 3,526 tokens, over 44e's 3,500
+  (`agentLocal.test`). The nulls are dropped before the create parses
+  instead, and the advertised schema is main's.
+
 #### Gates
 
 After the review fixes and the merge of `origin/main` 45c96471 (#333, 47a),
@@ -2022,12 +2029,13 @@ Homepage
 
 Import / CLI
 
-15. **Fixed.** `create --file` (and `POST /api/recipes`, MCP
-    `recipe_create`, an import's create) reads `null` as "none" in every
-    field the patch takes `null` for — description, tags, the times,
-    yield, ingredients, instructions, timelines, source, drink, notes,
-    `imageImportUrl`, `videoUrl`, `videoImportUrl` (`none()` in
-    `schema.ts`). `name` and `date` stay strict.
+15. **Fixed.** `create --file` (and `POST /api/recipes`, an import's
+    create) reads `null` as "none" in every field the patch takes `null`
+    for — description, tags, the times, yield, ingredients, instructions,
+    timelines, source, drink, notes, `imageImportUrl`, `videoUrl`,
+    `videoImportUrl` (`noneForNull` in `schema.ts`, where a create parses
+    its input). `name` and `date` stay strict. The schema MCP advertises
+    for `recipe_create` is unchanged (Th5), so MCP still says no `null`.
 16. **Fixed (paced; the dry run still fetches).** `create` / `update
 --dry-run` probed the picture with a bare `HEAD`; it is now on the
     site's queue like the real write's download (`probeImageFilePaced`, the
