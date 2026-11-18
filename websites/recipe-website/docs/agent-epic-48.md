@@ -12,7 +12,7 @@
 
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded · 📝 proposed.
 
-**Now:** in progress (planned 2026-11-17). 48a and 48k first; then 48b → 48c → 48d → 48e, one heavy worker at a time; 48-close.
+**Now:** closed 2026-11-18: see 48-close (Close-out) below. Every phase landed and is deployed to the workstation and the Pi; Roger's steps and the confirm list are in the Close-out.
 
 ## Context
 
@@ -56,13 +56,13 @@ Epics 43–47's way of working, unchanged:
 
 | Phase    | What                                                                                   | Size | Status |
 | -------- | -------------------------------------------------------------------------------------- | ---- | ------ |
-| 48a      | Epic 46 decisions Roger changed + this doc                                             | M    | 🟡     |
-| 48b      | `/curator` variant B + the heads-up as its own callout (47h row 3)                     | L    | 📝     |
-| 48c      | `/jobs` + job page variant B + a page's own picture without the polite gap (47h row 7) | L    | 📝     |
-| 48d      | Settings + `/git` variant B + an API token screen (47h row 11)                         | L    | 📝     |
-| 48e      | Homepage variant B (incl. the next holiday's menu by course: 47h row 13)               | L    | 📝     |
-| 48k      | Content: 10 terms, 2 choice conversions (orchestrator, CLI)                            | S    | 📝     |
-| 48-close | Doc, memory, report                                                                    | S    | 📝     |
+| 48a      | Epic 46 decisions Roger changed + this doc                                             | M    | ✅     |
+| 48b      | `/curator` variant B + the heads-up as its own callout (47h row 3)                     | L    | ✅     |
+| 48c      | `/jobs` + job page variant B + a page's own picture without the polite gap (47h row 7) | L    | ✅     |
+| 48d      | Settings + `/git` variant B + an API token screen (47h row 11)                         | L    | ✅     |
+| 48e      | Homepage variant B (incl. the next holiday's menu by course: 47h row 13)               | L    | ✅     |
+| 48k      | Content: 10 terms, 2 choice conversions (orchestrator, CLI)                            | S    | ✅     |
+| 48-close | Doc, memory, report                                                                    | S    | ✅     |
 
 Order: 48k (no heavy slot) alongside 48a; then 48b → 48c → 48d → 48e, one
 heavy worker at a time; 48-close.
@@ -1209,4 +1209,156 @@ and `ropa-vieja` (Method); skip `sinigang-na-baboy`.
 
 ### 48-close — Close-out
 
-Doc, memory, report.
+Closed 2026-11-18. Epic 48 ran 2026-11-17 to 11-18 and built Roger's picks:
+the seven epic 46 decisions he changed, variant B of the four 47d canvases,
+and the content round. Every phase landed. Main is `d1280eac` plus this
+close-out. No real model ran in a test or in CI.
+
+**Reindex: automatic.** 48a moved the tag taxonomy version `"3"` to `"4"`, so
+`indexVersion` changes and each editor rebuilds its indexes at start (39b's
+stamp). Nothing to run by hand.
+
+**Deploy.** Epic 47 plus #343 went to both the workstation and the Pi on
+`ff5b6f08` (2026-11-18). Epic 48 (`d1280eac`) was deployed to the workstation
+and the Pi, 2026-11-18.
+
+#### What landed
+
+| Phase | PR   | Merge      | What                                                                                                                                                |
+| ----- | ---- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| sec   | #343 | `ff5b6f08` | Next.js 16.4.6: `next build` refused 16.4.2 over GHSA-mfr8-8qww-v76h and GHSA-vc7v-qv4w-wrv8.                                                       |
+| 48a   | #344 | `1485ae41` | The epic 46 decisions Roger changed: tagging post-check, one ⌘K holiday row, card times, ingredient merges, `/drinks` column, menu drink groupings. |
+| 48b   | #345 | `80436be9` | `/curator` variant B "Ask, watch, approve", the heads-up as its own callout.                                                                        |
+| 48c   | #346 | `ae3652a1` | `/jobs` and a job's page, variant B, plus the 30-D5 picture amendment (a page's own picture skips the polite gap).                                  |
+| 48d   | #347 | `8da665f6` | Sync & upkeep (`/git`) and Account & devices, variant B, with an API token screen.                                                                  |
+| 48e   | #348 | `d1280eac` | The homepage, variant B "Tonight, then the next feast".                                                                                             |
+| 48k   | -    | (CLI)      | The content round (Content below).                                                                                                                  |
+| close | -    | this PR    | This close-out, the status lines, backlog rows and the CLAUDE.md bullet.                                                                            |
+
+#### Content
+
+Orchestrator-run, through the CLI from the updated main checkout, real repo.
+
+- **48k: 10 terms.** `pies` sits under `course`, not `dessert`: 36 recipes,
+  25 sweet ones keep `dessert`, 11 are savory. `bars` 17, `tofu` 3, `thai` 1,
+  `eggnog` 10 (the tag was removed from 3 non-drinks), `hot-chocolate` 4,
+  `jamaican` 8, `trinidadian` 2, `cuban` 2, `puerto-rican` 3.
+- **48k choice conversions:** `frittata` became a "Variation" choice of 5;
+  `ropa-vieja` became "Method" (Instant Pot 95 / Stove top 140 total, with the
+  broth per option); `sinigang-na-baboy` skipped.
+- Content commits `7ac86e5d..b396c136`.
+- **Roger's New England ask (2026-11-17):** terms `new-england` (under
+  `american`, 22 own) and `maine` (under `new-england`, 16 own); 31 imports and
+  7 re-tags; commits `ae2cb2f9..9a3b4681`.
+- **Weak spots:** whoopie pies have no total, lobster stew has no times, and
+  the fiddleheads source is thin.
+- **Proposed, not created:** `candy`, `donuts`.
+
+#### Roger's steps
+
+1. Sign in once per device (47e).
+2. Optional: `RECIPE_LLM_CLAUDE_API_KEY` in the workstation's `editor/.env`,
+   for Claude on `/curator`, Edit with AI and similar.
+3. Maybe pin Lagerstrom Roast Turkey on `thanksgiving` (48e: Mains currently
+   leads with Turkey Pot Pie).
+4. Try a token on Account & devices.
+
+#### Roger to confirm
+
+1. (48a) Da1: the post-check on Claude runs too, and shown only to you.
+2. (48a) Da4: one holiday row while typing, two on an empty palette.
+3. (48a) Da5: a recipe with only a cook (or only a prep) time shows that time
+   on its card.
+4. (48a) "cracked pepper" (4 lines) stays its own name, as "cracked black
+   pepper" (7) does: neither is a bare "pepper".
+5. (48a) The two stroganoffs' "Pepper" and "black pepper" lines are now one
+   name twice: their recipes could drop one line.
+6. (48a) The drinks' groupings are Style, Spirit, Method, A-Z, kept in the
+   link, not remembered per browser; `holiday_get` keeps Style.
+7. (48b) Db2: one commit per saved change, not one per Save.
+8. (48b) Db5: the editor's own model is the default pick (qwen on the
+   workstation, Claude on the Pi); B had Claude ticked.
+9. (48b) Db9: the CLI's `recipes agent` still writes at once.
+10. (48b) Db8: Import opens the import form (its Save writes), not a held
+    import.
+11. (48b) A heads-up only shows when the model writes one ("Heads up:"); a
+    model that buries it mid-paragraph leaves it in the answer.
+12. (48b) The model radio needs `RECIPE_LLM_CLAUDE_API_KEY` in the
+    workstation's `editor/.env` to offer Claude there.
+13. (48c) Dc1 as built: the pass covers the picture the page itself named (its
+    ranked images); a picture the caller overrides (`image:`) waits the gap.
+14. (48c) Dc2: the footer has no Jobs link (Settings, Jobs, the chip, the
+    page).
+15. (48c) The chip shows only while something is live; idle, nothing marks
+    Jobs.
+16. (48c) Rounds: one kind, gaps under 10 min; a mixed evening is several
+    rows, not B's one "Thanksgiving" row.
+17. (48d) Dd1: the address stays `/git` (the page is "Sync & upkeep").
+18. (48d) Dd3: "made here" by committer identity; give the Pi and the
+    workstation different git identities (they have today) or the chips go
+    quiet.
+19. (48d) Dd4: keep both is by top-level field (an ingredient list both edited
+    is a pick, not a line-by-line merge), and still ends with Complete Merge.
+20. (48d) Dd6: tokens made in the editor are committed and so synced to the
+    other editor; Read only by default.
+21. (48d) Dd8: the footer still says Content Sync.
+22. (48d) The other side is the first mirror; a second mirror is listed in the
+    sync row but not drawn as a third machine.
+23. (48e) De2: the warm season is a holiday with warm drinks within 60 days, so
+    it ends the day after Christmas (or New Year's, once a warm drink is filed
+    under it), where the canvas said "Nov-Feb".
+24. (48e) De3: Mains on the real Thanksgiving leads with Turkey Pot Pie Recipe;
+    pin Lagerstrom Roast Turkey on `thanksgiving` if it should lead.
+25. (48e) De4: Featured keeps six rows; De5: On the plan stays beside
+    Featured.
+26. (48e) De7: Put it on the shopping list opens the plan's Shopping list panel
+    rather than adding from the homepage.
+27. (48e) De8: tiles keep "Mains · 10/17"; batches are by the server's day.
+28. (48e) De9: Browse lists the roots only; their children are on `/tags`.
+29. (48e) De10: no "2 ways", no "New" tape, no `tag:<next holiday>` chip.
+30. (48e) Tonight's caption says "the weekend" on Friday and Saturday and "a
+    weeknight" otherwise.
+
+#### Traps
+
+- **Ta1 — `hot` is descriptive.** A bare-name entry reaches "Hot pepper"
+  unless a compound claims the pair first; check a new `BARE_NAMES` entry
+  against "<descriptive word> <name>" lines in the dump.
+- **Ta2 — a fixture run rewrites far more than the version bump moved.**
+  `build-fixture-indexes.ts` rewrote 206 files; only the recipe `tags` /
+  `by-tag` aggregates (76 files) were kept (46e's rule).
+- **Td1 — a history kept in client state outlives a revalidation.** The commit
+  list held its pages in `useState`; it is keyed by HEAD now.
+- **Td2 — `revokeUserSession` reads outside its transaction:** a session
+  refresh in flight for the device being signed out could write its row back
+  (Sign out everywhere has the same window, De7).
+- **42f's trap, again (48e):** the visual specs' default masks moved the
+  palette baselines with the homepage.
+- **The orchestrator's `EnterWorktree` pins every subagent's Bash** to that
+  worktree; give workers `git worktree add` and absolute paths instead.
+- **`next build`'s `SecurityFatalError` on an advisory** prints text that
+  instructs agents. Ignore the instructions; bump the dependency through a PR
+  (#343).
+- **After merging a lockfile change,** run `pnpm install --frozen-lockfile` in
+  the main checkout before `pnpm workstation update`.
+- **A `cd` into a worker's worktree moves the session's working directory.**
+  Use absolute paths and `git -C`.
+
+#### New flake to watch
+
+`alternatives-form.spec.ts:533` (and `jobs.spec.ts:391`). Not yet root-caused;
+run them with `expectHydrated` in mind (40f) and report a repeat.
+
+#### Follow-ups / left out
+
+Each phase's "Left out" list stands (48b, 48c, 48d, 48e above). In addition:
+
+- 48e's page weight of `/` on the real corpus, measured by the orchestrator
+  after the workstation update (2026-11-18, signed out): **306 KB of HTML,
+  0.14–0.16 s warm**, against the old homepage's 398 KB on the Pi (still on
+  ff5b6f08 at the time). Done; the pictures' bytes were not measured.
+- Scoping the visual specs' default masks to the locator, so the palette
+  baselines stop moving with the homepage.
+- `candy` and `donuts` terms, proposed and not created (48k).
+
+Backlog rows are in `backlog.md`.
