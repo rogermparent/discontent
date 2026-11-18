@@ -249,15 +249,21 @@ survives a cleared context.
   Pi run epic 46's `b54d0efe`; 59 "Roger to confirm" items and Roger's steps
   (workstation update, `deploy:pi`, sign in once per device, the optional
   `RECIPE_LLM_CLAUDE_API_KEY`) are in the Close-out.
-- `websites/recipe-website/docs/agent-epic-48.md` — epic 48, **in progress**
-  (planned 2026-11-17): Roger's picks built — the seven epic 46 decisions he
-  changed (48a: a tagging run's post-check of what its search found and it
-  left out, one ⌘K holiday row while typing, prep + cook on a card with no
-  total, King Arthur AP flour and a bare pepper merged, `/drinks`' Strength &
-  method its own column, a holiday menu's drinks grouped as the reader
-  picks), then variant B of the four 47d canvases (48b `/curator`, 48c
-  `/jobs`, 48d Settings + `/git` with an API token screen, 48e the homepage)
-  and a content round of 10 terms and 2 choice conversions (48k).
+- `websites/recipe-website/docs/agent-epic-48.md` — epic 48, closed
+  2026-11-18: Roger's picks built — the seven epic 46 decisions he changed
+  (48a: a tagging run's post-check of what its search found and it left out,
+  one ⌘K holiday row while typing, prep + cook on a card with no total, King
+  Arthur AP flour and a bare pepper merged, `/drinks`' Strength & method its
+  own column, a holiday menu's drinks grouped as the reader picks), then
+  variant B of the four 47d canvases (48b `/curator`, 48c `/jobs` with a
+  page's own picture skipping the polite gap, 48d Sync & upkeep and Account &
+  devices with an API token screen, 48e the homepage), a Next.js 16.4.6
+  security bump (#343), and a content round (48k: 10 terms, two choice
+  conversions, New England and Maine, 31 imports). Tag taxonomy version "4",
+  so the editors reindex at start. Deployed to the workstation and the Pi
+  2026-11-18; 30 "Roger to confirm" items and Roger's steps (sign in once per
+  device, the optional `RECIPE_LLM_CLAUDE_API_KEY`, maybe pin Roast Turkey,
+  try a token) are in the Close-out.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
