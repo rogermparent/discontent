@@ -572,6 +572,162 @@ without the per-site polite gap** — one picture per page fetch, same
 registrable domain, still one request at a time and still counted for the
 next page. Record it as an amendment to 30-D5.
 
+#### Results (48c)
+
+**The picture follows its page** (Dc1; `curation/sitePacing.ts`,
+`jobs/queue.ts`, `jobs/steps.ts`, `curation/importList.ts`).
+
+- A page's parse names its pictures to the pacer (`namePictures`; every
+  seat through `parsePage`, a roundup's items through their pacer). The
+  site's last request is remembered (`SiteState.pages`): its URL, when it
+  ended, and the shared slot's stamp it left (`release()` now answers it).
+- A picture whose URL that page named, on the page's site (`paceKey`), may
+  skip the gap once: it still takes the line and the shared `site:` slot
+  (one request at a time), and the slot's gap is waived only while its
+  clock still reads the page's own release (`waiveGapAfter`), so any
+  request in between, in any process, owes the gap again. The pass is
+  judged again once the slot is held (a redirect may have ended on the
+  site meanwhile), a 403 retry of the picture waits the gap, and the
+  picture stamps the clock: the next page waits 15 s after it. A
+  `pace.follow` note says so in the job's log. Noted under 30-D5 too.
+
+**`/jobs`, variant B** (`src/app/(editor)/jobs/`; out of Settings).
+
+- **The masthead's chip** (`src/jobs/JobsLiveChip.tsx`, AppLayout's new
+  `liveStatus`): "2 running · 1 queued" (the phone: "2 · 1") while a job
+  runs or waits, linking to `/jobs`, `aria-current` there; nothing at all
+  while idle, so no baseline moved. One poll of `GET /api/jobs/live` per
+  page (5 s live, 20 s idle, none while hidden), signed in only; the
+  export never gets it. Hidden in screenshots (`screenshot.css`).
+- **Now:** a card per live job — its kind (and a run's model), its name,
+  its time so far, Stop / Cancel, its steps so far as a strip
+  (`liveStrip`: "Searched your recipes ×3 → Fetched a page"), and why it
+  waits (`whyWaiting`): its place in a line and who holds it (the GPU, a
+  site, yt-dlp, the repository's line), the polite pause for a site and
+  when it ends ("Waiting 9.0 s for example.com … Next request at
+  20:00:12", from a `pace.wait` or the shared slot's last release), or
+  what it holds and who waits behind it ("Model reads the recipe: holding
+  the GPU. Nothing is waiting behind it.").
+- **Needs a look** (`attentionGroups`): every failed, interrupted, or
+  done-but-read-nothing job, grouped by cause — a site's wall by site and
+  status (401/402/403/451: "Paste the text"), every 404/410 in one group
+  ("Show the N"), 429, 5xx, no recipe card, a process that ended, any
+  other failure by kind and code. A later job that read the same page (a
+  paste of its text, another try) puts it right ("pasted … Later it went
+  in as X"); a group with nothing left open is dropped. Cancelled jobs are
+  never listed. Dismiss is per browser (localStorage) and holds until a
+  newer job joins the group; "Show the N dismissed" brings them back.
+- **History** (`foldRounds`): by day (UTC until hydrated, then the
+  reader's), each round — consecutive jobs of one kind, each started under
+  10 min after the last ended — one row ("4 inspects · drinks.test",
+  names, "1 not found" / "all read", a curator round's cost), opening to
+  its jobs; a single job is named by what it read. B's filter (All,
+  Imports, Inspects, Curator, Repository); "One row per job" (`?rows=each`)
+  unfolds them.
+- **The machine:** Lines (holder, then the line, "Free"), the fortnight's
+  counts (or "The newest N jobs" past the 300 read), the model imports read
+  with (38g's section).
+- `GET /api/jobs/board` (read scope) feeds it: the rows plus the page read,
+  a non-2xx status, the recipe read or written, a run's cost and model
+  (`boardJob`), the live jobs' logs (≤ 8, their last 400 lines), the queue
+  with each line's `lastRelease`. `GET /api/jobs`, `recipes jobs`, MCP
+  `job_list` / `job_get` are unchanged (`ResourceView` gains only an
+  optional `lastRelease`).
+
+**A job's page:** an eyebrow (kind, model, when), the ask or label as the
+title, its status and error, Cancel / Retry / Open in the form; **Where
+the minute went** (`timeSplit`: each step's own time by kind — the model,
+waiting, fetching, tools, saving, everything else — a hatched wait, and a
+sentence when waits were a quarter of it); **What it did** (`jobStory`):
+the step log as sentences on a time rail — "Read www.example.com · 200 ·
+84 kB", "Waited 14.6 s for example.com · its polite gap", "Model reads the
+recipe · qwen3:8b · 12/12 lines found" with "9.0 s of that was loading
+qwen3:8b onto the GPU", a curator run's tools in the curator's words with
+the turns folded and "Wrote the answer"; beside it the result, warnings and
+**For the curious** (tokens, cost, process, ids, every step to scale — 37c's
+bars — and the raw log).
+
+#### Decisions (48c)
+
+- **Dc1 — amends 30-D5** (Roger, 2026-11-17, 47h row 7): a page's own
+  picture may follow its page without the per-site gap — one picture per
+  page fetch, the URL the page named, on its registrable domain; still one
+  request at a time and counted for the next page. Void if anything else
+  asked the site since, in any process.
+- **Dc2 — `/jobs` is a page of its own**, as B draws it: out of the
+  Settings route group (no sidebar there), still Settings' Jobs item and
+  Tools' link, and the chip. The footer is unchanged (B drew Jobs there):
+  the owner footer is on every signed-in baseline.
+- **Dc3 — a round is time and kind** (B's own rule): the store keeps no
+  batch id. A roundup import is already one job.
+- **Dc4 — the sentences are computed in the browser** from the board's
+  data with the reader's clock (nothing timed on the server's render), so
+  the countdown moves between reads and nothing mismatches on hydration.
+- **Dc5 — B's filter replaces the Kind and Status selects** on the page;
+  "Needs a look" is what the failed filter was for. The API keeps both.
+- **Dc6 — dismissals are per browser**, not shared state: a viewer's
+  convenience, and a group comes back when a newer job joins it.
+
+#### Left out, or for later (48c)
+
+- B's planned steps ("Check the lines", "Open in the form" still to come,
+  "step 3 of 5"): the log knows only steps that began.
+- "Min in polite gaps" over 14 days: it would read every log on each poll.
+- A deep link that opens the form in Text mode with the source filled
+  ("Paste sauced-bacon-jam"): the button opens `/new-recipe`.
+- The job page's why-sentence has no queue to read, so a shared slot's
+  gap there says "Waiting for X's polite pause" without its end.
+- B's topic words on a round ("· drinks"): there is no topic in the record.
+
+#### Roger to confirm (48c)
+
+- Dc1 as built: the pass covers the picture the page itself named (its
+  ranked images); a picture the caller overrides (`image:`) waits the gap.
+- Dc2: the footer has no Jobs link (Settings → Jobs, the chip, the page).
+- The chip shows only while something is live; idle, nothing marks Jobs.
+- Rounds: one kind, gaps under 10 min — a mixed evening (roundups, imports
+  and rebuilds) is several rows, not B's one "Thanksgiving" row.
+
+#### Gates (48c)
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean (heavy slot), after the gate fixes.
+- `pnpm exec vitest run`: **192 files, 4,191 tests**, all passed. New:
+  `test/jobStory.test.ts` (the step log as sentences, the time split,
+  the live strip and why it waits, attention groups by cause, rounds),
+  `test/jobsBoard.test.ts` (`boardJob`, `GET /api/jobs/board` and
+  `/api/jobs/live`) and `test/picturePass.test.ts` (Dc1 on a fake clock and
+  across processes through the shared slot); `importList` updated.
+- Playwright in Docker, production build: `jobs-board.spec` **5 passed**
+  (after three gate fixes: a failed row's state word is filled, since
+  `--destructive` as text on the page is 4.49:1; the History filter fits a
+  390 px screen; the spec loads a fresh page after planting live jobs, as an
+  idle chip's next read is 20 s away); `accessibility`, `visual`,
+  `curator`, `git`, `jobs` **148 passed**; the import specs that show the
+  panel (`new-recipe`, `ytdlp-import`, `multi-recipe`, `photo-import`,
+  `import-roundup`, `fill-gaps`, `fill-uses`, `edit-with-ai`,
+  `edit-form-frame`) **77 passed**; `settings-nav` **9 passed**.
+- **No baseline moved**: the chip draws nothing while idle and is hidden in
+  screenshots.
+- CI's first run (3a2a8b8c) failed two tests the targeted runs could not
+  see. `mirror-role.spec` still expected the Settings sidebar on `/jobs`
+  (Dc2 took it away; it now expects none, as `settings-nav` does). The
+  phone test in `jobs-board.spec` had no History rows locally, but in CI
+  the shard's own jobs filled it, and axe's `target-size` called the row
+  under the pinned tab bar obscured. That test now plants a failure with a
+  long address and a round, then measures target size with the chrome
+  released, as accessibility.spec's phone sweep does (41f).
+  `expectNoViolations` takes `disable` and `only` for that. After the fix:
+  `jobs-board` **5 passed** and `mirror-role` **8 passed** (production),
+  and both **13 passed** in dev mode. CI's second run (f1889809) passed
+  all four Recipe shards; its Unit tests caught `jobsBoard.test.ts`
+  planting two jobs in one millisecond, whose ULIDs sort at random. The
+  done job is now planted a minute earlier.
+- Dev mode once (Docker, `next dev`): `jobs-board` and `settings-nav`
+  **13 passed, 1 flaky** — the job page's timeline waited past 5 s for its
+  log while `next dev` compiled the route; that wait is now 30 s, and
+  `jobs-board` again in dev mode: **5 passed**.
+
 ### 48d: Settings and `/git`, variant B (L)
 
 One "Sync & upkeep" page opening on a status sentence, the two machines

@@ -34,6 +34,18 @@
  * caller can say where it ended up (`finalUrl`), the final site's clock is
  * advanced too. A redirect to a third site is not paced before it happens.
  *
+ * **A page's own picture follows its page** (48c, Dc1 — Roger's amendment
+ * to 30-D5, 2026-11-17, 47h row 7): once a page is read, the picture that
+ * page named (`namePictures`, from its parse) may be downloaded right after
+ * it without the polite gap — one picture per page fetch, the very URL the
+ * page named, on the page's own site (`paceKey`). It is still one request
+ * at a time (the line and the shared slot are taken as ever), it still
+ * counts — the next request to the site waits the gap after the picture —
+ * and the pass is void once anything else asked the site, in this process
+ * or (on the real clock) in any other: the shared slot's clock must still
+ * read the page's own release (`waiveGapAfter`). A 403's retry of the
+ * picture waits the gap. Logged as a `pace.follow` note.
+ *
  * In a job (epic 37) a wait is a `pace.wait` step, and the job's signal
  * ends a wait — in the queue or for the gap — with the abort's reason; a
  * request given up while queued leaves the line, and the rest keep their
@@ -100,6 +112,17 @@ export const DROP_MS = 60 * 60 * 1000;
 
 const TIER_RANK: Record<JobTier, number> = { interactive: 0, batch: 1 };
 
+/**
+ * The last page read from a site, while it is the last request there (48c):
+ * when it ended, the shared slot's stamp it left, and the pictures it named.
+ */
+interface PageMark {
+  url: string;
+  end: number;
+  release?: number;
+  pictures: Set<string>;
+}
+
 /** One site's line in this process, while a request to it runs: who waits. */
 interface SiteLine {
   waiters: { tier: JobTier; grant: () => void }[];
@@ -109,6 +132,8 @@ interface SiteLine {
 export class SiteState {
   readonly lastEnd = new Map<string, number>();
   readonly droppedUntil = new Map<string, SiteDrop>();
+  /** Per site, the page its last request read (48c's picture pass). */
+  readonly pages = new Map<string, PageMark>();
   /** A site is here while a request to it runs; its waiters, in grant order. */
   private readonly lines = new Map<string, SiteLine>();
 
@@ -310,6 +335,34 @@ export class SitePacer {
     }
   }
 
+  /**
+   * The pictures `pageUrl` named (48c): one of them may follow the page
+   * without the polite gap, while the page is still the site's last
+   * request. Only pictures on the page's own site count; a page that is
+   * not its site's last request names nothing.
+   */
+  namePictures(pageUrl: string, pictures: Iterable<string>): void {
+    if (!URL.canParse(pageUrl)) return;
+    const site = this.site(pageUrl);
+    const mark = this.state.pages.get(site);
+    if (!mark || mark.url !== pageUrl) return;
+    for (const picture of pictures) {
+      if (URL.canParse(picture) && this.site(picture) === site) {
+        mark.pictures.add(picture);
+      }
+    }
+  }
+
+  /** The page this picture may follow without the gap, if it may (48c). */
+  private picturePass(url: string): PageMark | undefined {
+    const site = this.site(url);
+    const mark = this.state.pages.get(site);
+    if (!mark || !mark.pictures.has(url)) return undefined;
+    /* Anything else asked the site since: the gap is owed. */
+    if (this.state.lastEnd.get(site) !== mark.end) return undefined;
+    return mark;
+  }
+
   private gap(url: string): number {
     if (!this.pacing.paceLoopback && isLoopback(url)) return 0;
     return this.pacing.gapMs ?? POLITE_GAP_MS;
@@ -368,6 +421,8 @@ export class SitePacer {
     let retryStatus: number | undefined;
     let started = false;
     let slot: ResourceGrant | undefined;
+    /* 48c: a page's own picture, right after the page; the line still held. */
+    const pass = image ? this.picturePass(url) : undefined;
     try {
       const reason = await this.droppedReason(url);
       if (reason) {
@@ -378,6 +433,9 @@ export class SitePacer {
         slot = await acquire(siteResource(site), {
           ...this.job,
           gapMs: this.gap(url),
+          ...(pass?.release !== undefined
+            ? { waiveGapAfter: pass.release }
+            : {}),
         });
         /* Another process may have been refused while this one waited. */
         const late = await this.droppedReason(url);
@@ -385,7 +443,23 @@ export class SitePacer {
           throw new SiteDroppedError(`${site} is dropped for now: ${late}`);
         }
       }
-      await this.waitGap(url);
+      /*
+       * Judged again now the slot is held: a redirect elsewhere may have
+       * ended on this site meanwhile (the mark is gone then), and another
+       * process's request makes the shared grant wait the gap — then the
+       * picture did not follow at once, and the log does not say it did.
+       */
+      const followed =
+        pass !== undefined &&
+        this.picturePass(url) === pass &&
+        (slot === undefined || slot.waitedMs < 50);
+      if (followed) {
+        this.job.log.info("pace.follow", "the page's own picture, no gap", {
+          site,
+        });
+      } else {
+        await this.waitGap(url);
+      }
       started = true;
       this.requests += 1;
       let value: T;
@@ -422,6 +496,8 @@ export class SitePacer {
       const finalUrl = finalUrlOf?.(value);
       if (finalUrl && URL.canParse(finalUrl) && this.site(finalUrl) !== site) {
         this.end(finalUrl);
+        /* That site was asked too: its last page's pass is spent. */
+        this.state.pages.delete(this.site(finalUrl));
         if (this.shared(finalUrl)) {
           await touchResource(siteResource(this.site(finalUrl))).catch(
             () => undefined,
@@ -433,7 +509,20 @@ export class SitePacer {
       if (started) this.end(url);
       try {
         /* A request never made (cancelled in the gap) does not move the clock. */
-        await slot?.release({ used: started });
+        const stamp = await slot?.release({ used: started });
+        if (started) {
+          /* 48c: a page may pass one picture on; a picture passes nothing. */
+          if (image) {
+            this.state.pages.delete(site);
+          } else {
+            this.state.pages.set(site, {
+              url,
+              end: this.state.lastEnd.get(site)!,
+              ...(stamp !== undefined ? { release: stamp } : {}),
+              pictures: new Set(),
+            });
+          }
+        }
       } finally {
         release();
       }
@@ -447,6 +536,17 @@ export class SitePacer {
       (this.pacing.paceLoopback === true || !isLoopback(url))
     );
   }
+}
+
+/**
+ * `SitePacer#namePictures` on this process's state (48c): the pictures a
+ * page read by `pacedRequest` named, one of which may follow it.
+ */
+export function namePagePictures(
+  pageUrl: string,
+  pictures: Iterable<string>,
+): void {
+  new SitePacer(realPacing()).namePictures(pageUrl, pictures);
 }
 
 /**

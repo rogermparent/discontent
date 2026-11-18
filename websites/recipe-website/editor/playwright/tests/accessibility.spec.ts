@@ -332,9 +332,13 @@ test.describe("Accessibility (axe)", () => {
       expect(inspected.ok()).toBe(true);
       const { job } = (await inspected.json()) as { job: string };
 
-      await page.goto("/jobs");
+      /* 48c: one row per job, then the folded rounds (a round's disclosure). */
+      await page.goto("/jobs?rows=each");
       await expectMode(page, mode);
       await expect(page.locator(`[data-job="${job}"]`)).toBeVisible();
+      await expectNoViolations(page);
+      await page.goto("/jobs");
+      await expect(page.getByTestId("job-list")).toBeVisible();
       await expectNoViolations(page);
 
       await page.goto(`/jobs/${job}`);

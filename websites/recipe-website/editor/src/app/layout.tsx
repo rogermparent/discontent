@@ -7,6 +7,7 @@ import { readSettings } from "@/settings";
 import { auth } from "@/auth";
 import { AskBanner } from "@/ask/AskBanner";
 import { PaletteAsk } from "@/ask/PaletteAsk";
+import { JobsLiveChip } from "@/jobs/JobsLiveChip";
 import { askAvailable } from "recipe-editor/controller/ask/available";
 import { OwnerFooterLinks } from "./OwnerFooterLinks";
 import { PaletteAuthItem } from "./PaletteAuthItem";
@@ -36,6 +37,15 @@ export default async function RootLayout({
       isOwner={isOwner}
       commandPaletteAuth={<PaletteAuthItem isOwner={isOwner} />}
       commandPaletteAsk={ask ? <PaletteAsk /> : undefined}
+      /* 48c: "2 running · 1 queued" in the masthead while a job is live. */
+      liveStatus={
+        isOwner
+          ? {
+              desktop: <JobsLiveChip />,
+              phone: <JobsLiveChip compact />,
+            }
+          : undefined
+      }
     >
       {/* "Filled in from" over a page Ask opened (`?ask=`). */}
       <Suspense fallback={null}>

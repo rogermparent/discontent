@@ -76,6 +76,12 @@ Roger's rule for 30d, and for any session that fetches from recipe sites:
 - **no parallel fetching** against a single host;
 - **image downloads count** as requests.
 
+**Amended 2026-11-17 (Roger, 47h row 7; built in 48c as Dc1,
+`agent-epic-48.md`):** a page's own picture may follow its page without
+the 15 s gap — one picture per page fetch, the URL that page named, on its
+registrable domain. Still one request at a time, and the picture still
+counts: the next request to the site waits 15 s after it.
+
 ### D6 — 30d writes with `--content-dir` from the worktree
 
 A worktree's MCP server points at the worktree, which has no content

@@ -232,7 +232,8 @@ test.describe("Import jobs", () => {
       }),
     ).toBeVisible();
 
-    await page.goto("/jobs");
+    /* 48c: one row per job, so no round folds this one away. */
+    await page.goto("/jobs?rows=each");
     /* Newest first: this test's batch is the first such row. */
     await expect(
       page
@@ -266,33 +267,38 @@ test.describe("Import jobs", () => {
     );
     const job = await jobInUrl(page);
 
-    await page.goto("/jobs");
+    await page.goto("/jobs?rows=each");
     await expect(
       page.getByRole("heading", { name: "Jobs", exact: true }),
     ).toBeVisible();
-    /* The queue: the GPU and yt-dlp, both free now. */
+    /* The lines (48c: "Lines"): the GPU and yt-dlp, both free now. */
     const queue = page.getByTestId("job-queue");
     await expect(queue.locator('[data-resource="gpu"]')).toContainText("Free");
     await expect(queue.locator('[data-resource="ytdlp"]')).toContainText(
       "Free",
     );
     const row = page.locator(`[data-job="${job}"]`);
-    await expect(row).toContainText("form-text");
+    /* 48c: the kind in words on the row, its code name on the element. */
+    await expect(row).toHaveAttribute("data-kind", "form-text");
+    await expect(row).toContainText("Paste import");
     await expect(row.getByTestId("job-status")).toHaveText("done");
     /*
-     * Filters: by kind, by status. The filters are controlled `<select>`s: a
-     * choice made before the dashboard hydrates is reset when React adopts
-     * them, and the row stays (40f: 20 retries in 60 CI runs) — hence
+     * Filters (48c: B's kinds, a segmented control, in place of the Kind and
+     * Status selects; "Needs a look" is what the failed filter was for). A
+     * click before the dashboard hydrates is lost (40f) — hence
      * `dashboardReady` first.
      */
     await dashboardReady(page);
-    await page.getByLabel("Kind", { exact: true }).selectOption("inspect");
+    const filter = page.getByTestId("jobs-filter");
+    await filter.getByRole("button", { name: "Inspects", exact: true }).click();
     await expect(row).toHaveCount(0);
-    await page.getByLabel("Kind", { exact: true }).selectOption("form-text");
+    await filter.getByRole("button", { name: "Imports", exact: true }).click();
     await expect(row).toBeVisible();
-    await page.getByLabel("Status", { exact: true }).selectOption("failed");
+    await filter
+      .getByRole("button", { name: "Repository", exact: true })
+      .click();
     await expect(row).toHaveCount(0);
-    await page.getByLabel("Status", { exact: true }).selectOption("");
+    await filter.getByRole("button", { name: "All", exact: true }).click();
 
     await row.getByRole("link").click();
     await expect(page).toHaveURL(new RegExp(`/jobs/${job}$`));
@@ -341,14 +347,15 @@ test.describe("Import jobs", () => {
   test("an idle /jobs shows another process's job by itself, and rests while the tab is hidden (38b)", async ({
     page,
   }) => {
-    await page.goto("/jobs");
+    await page.goto("/jobs?rows=each");
     await expect(
       page.getByRole("heading", { name: "Jobs", exact: true }),
     ).toBeVisible();
     await dashboardReady(page);
     let reads = 0;
     page.on("request", (request) => {
-      if (new URL(request.url()).pathname === "/api/jobs") reads += 1;
+      /* 48c: the page reads the board. */
+      if (new URL(request.url()).pathname === "/api/jobs/board") reads += 1;
     });
     const setHidden = (hidden: boolean) =>
       page.evaluate((value) => {
@@ -424,7 +431,7 @@ test.describe("Import jobs", () => {
       { timeout: 10_000 },
     );
 
-    await page.goto("/jobs");
+    await page.goto("/jobs?rows=each");
     for (const id of [first, second]) {
       await expect(
         page.locator(`[data-job="${id}"]`).getByTestId("job-status"),
@@ -462,7 +469,7 @@ test.describe("Import jobs", () => {
       }),
     ).toBeVisible();
 
-    await page.goto("/jobs");
+    await page.goto("/jobs?rows=each");
     await page
       .getByTestId("job-list")
       .getByRole("link", {

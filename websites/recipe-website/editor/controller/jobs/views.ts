@@ -21,6 +21,7 @@ import {
   withJob,
 } from "../curation/errors";
 import type { CurationContext } from "../curation/context";
+import { ulidTime } from "@discontent/cms/util/ulid";
 import { redactUrlText, type JobLine } from "./log";
 import { jobOutcome, type JobOutcome } from "./outcome";
 import {
@@ -35,6 +36,7 @@ import { cancelJob, requestJobCancel, type CancelOutcome } from "./run";
 import {
   LIVE_STATUSES,
   findJob,
+  listJobIds,
   listJobs,
   readJobLog,
   readJobMeta,
@@ -324,6 +326,8 @@ export interface ResourceView {
   holder?: QueueEntryView;
   /** First in line first. */
   waiters: QueueEntryView[];
+  /** Epoch ms the last holder let go: a site's polite gap runs from it (48c). */
+  lastRelease?: number;
 }
 
 /**
@@ -382,6 +386,9 @@ export async function queueOverview(
       resource: snapshot.resource,
       ...(snapshot.holder ? { holder: await entry(snapshot.holder) } : {}),
       waiters: await Promise.all(snapshot.waiters.map(entry)),
+      ...(snapshot.lastRelease !== undefined
+        ? { lastRelease: snapshot.lastRelease }
+        : {}),
     });
   }
   return out;
@@ -626,4 +633,171 @@ export async function retryJobById(
       },
     };
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* The board: `/jobs` variant B (48c)                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A list row with what B's page says of it (48c): the page it read, an
+ * HTTP status outside 2xx it answered, the recipe it read or wrote, a
+ * curator run's cost. All from the record; `JobSummary` (the API's, the
+ * CLI's and MCP's row) is unchanged.
+ */
+export interface BoardJob extends JobSummary {
+  url?: string;
+  httpStatus?: number;
+  name?: string;
+  slug?: string;
+  costUsd?: number;
+  /** A curator run's model. */
+  model?: string;
+}
+
+/** A live job's log, for its card's steps and why it waits. */
+export interface LiveJobLog {
+  id: string;
+  lines: JobLine[];
+}
+
+export interface JobsBoard {
+  jobs: BoardJob[];
+  total: number;
+  more: boolean;
+  /** The live jobs' logs (at most `BOARD_LIVE_MAX`). */
+  live: LiveJobLog[];
+  queue: ResourceView[];
+  /** Epoch ms of the read. */
+  readAt: number;
+}
+
+/** How many live jobs' logs a board read carries. */
+export const BOARD_LIVE_MAX = 8;
+
+/** A live card reads the end of a long log only. */
+const BOARD_LIVE_LINES = 400;
+
+function objectOf(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function textOf(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+/** A summary row with the board's extras (`BoardJob`). */
+export function boardJob(meta: JobMeta, now = Date.now()): BoardJob {
+  const summary = summarizeJob(meta, now);
+  const spec = objectOf(meta.spec);
+  const result = objectOf(meta.result);
+  const url = textOf(spec?.url) ?? textOf(spec?.source);
+  const status = typeof result?.status === "number" ? result.status : undefined;
+  const name =
+    textOf(result?.name) ??
+    textOf(objectOf(result?.recipe)?.name) ??
+    textOf(objectOf(result?.draft)?.name);
+  const slug = result?.dryRun === true ? undefined : textOf(result?.slug);
+  const usage = objectOf(result?.usage);
+  const cost =
+    meta.kind === "agent" && typeof usage?.costEstimateUsd === "number"
+      ? usage.costEstimateUsd
+      : undefined;
+  const model = meta.kind === "agent" ? textOf(result?.model) : undefined;
+  return {
+    ...summary,
+    ...(url && URL.canParse(url) ? { url: redactUrlText(url) } : {}),
+    ...(status !== undefined && (status < 200 || status >= 300)
+      ? { httpStatus: status }
+      : {}),
+    ...(name ? { name: name.slice(0, 200) } : {}),
+    ...(slug ? { slug } : {}),
+    ...(cost !== undefined ? { costUsd: cost } : {}),
+    ...(model ? { model } : {}),
+  };
+}
+
+/**
+ * `/jobs` in one read (48c, `GET /api/jobs/board`): the newest jobs as
+ * board rows, the live ones' logs, and the queue per resource. The page
+ * groups, folds and words it itself (`attention.ts`, `story.ts`).
+ */
+export async function jobsBoard(
+  { limit = JOB_LIST_MAX_LIMIT }: { limit?: number } = {},
+  dir: string = jobsDirectory(),
+  queueDir: string = queueDirectory(),
+): Promise<JobsBoard> {
+  const now = Date.now();
+  const metas = await Promise.all(
+    (await listJobs(dir)).map((meta) => settledMeta(dir, meta, now)),
+  );
+  const capped = Math.min(Math.max(1, limit), JOB_LIST_MAX_LIMIT);
+  const shown = metas.slice(0, capped);
+  const liveMetas = metas
+    .filter((meta) => LIVE_STATUSES.includes(meta.status))
+    .slice(0, BOARD_LIVE_MAX);
+  const [live, queue] = await Promise.all([
+    Promise.all(
+      liveMetas.map(async (meta) => {
+        const { lines } = await readJobLog(dir, meta.id).catch(() => ({
+          lines: [] as JobLine[],
+        }));
+        return { id: meta.id, lines: lines.slice(-BOARD_LIVE_LINES) };
+      }),
+    ),
+    queueOverview(dir, queueDir),
+  ]);
+  /* A live job past the list's end still has its card. */
+  const listed = new Set(shown.map((meta) => meta.id));
+  const rows = [
+    ...shown,
+    ...liveMetas.filter((meta) => !listed.has(meta.id)),
+  ].map((meta) => boardJob(meta, now));
+  return {
+    jobs: rows,
+    total: metas.length,
+    more: metas.length > capped,
+    live,
+    queue,
+    readAt: now,
+  };
+}
+
+/** How far back the masthead's count looks: no job runs for a day. */
+export const LIVE_COUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export interface LiveJobCounts {
+  running: number;
+  queued: number;
+}
+
+/**
+ * The masthead's live chip (48c): how many jobs run and wait now. Reads
+ * only the last day's records (ULIDs sort by time), so every page can ask
+ * it cheaply; an orphan is closed first, as every reader does.
+ */
+export async function liveJobCounts(
+  dir: string = jobsDirectory(),
+  now = Date.now(),
+): Promise<LiveJobCounts> {
+  const ids = (await listJobIds(dir)).filter((id) => {
+    try {
+      return ulidTime(id) >= now - LIVE_COUNT_WINDOW_MS;
+    } catch {
+      return false;
+    }
+  });
+  const counts: LiveJobCounts = { running: 0, queued: 0 };
+  await Promise.all(
+    ids.map(async (id) => {
+      const meta = await readJobMeta(dir, id).catch(() => undefined);
+      if (!meta || !LIVE_STATUSES.includes(meta.status)) return;
+      const settled = await settledMeta(dir, meta, now);
+      if (settled.status === "running") counts.running += 1;
+      else if (settled.status === "queued") counts.queued += 1;
+    }),
+  );
+  return counts;
 }

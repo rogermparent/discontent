@@ -60,9 +60,8 @@ test.describe("Mirror role", () => {
     await expect(
       page.getByRole("heading", { name: "Jobs", exact: true }),
     ).toBeVisible();
-    await expect(
-      sidebar.getByRole("link", { name: "Jobs", exact: true }),
-    ).toHaveAttribute("aria-current", "page");
+    /* 48c (Dc2): /jobs is a page of its own, without the Settings sidebar. */
+    await expect(sidebar).toHaveCount(0);
   });
 
   test("the Export page explains, without buttons", async ({

@@ -123,12 +123,18 @@ function MastheadLink({
 export function HeaderNav({
   menuItems = [],
   extraNavItems,
+  liveStatus,
   isOwner = false,
   recipeCount,
   hasHolidays = false,
 }: {
   menuItems?: MenuItem[];
   extraNavItems?: ReactNode;
+  /**
+   * 48c: the editor's live jobs chip, before the search — `desktop` in the
+   * row, `phone` beside the search icon. Each renders nothing while idle.
+   */
+  liveStatus?: { desktop: ReactNode; phone: ReactNode };
   isOwner?: boolean;
   recipeCount?: number;
   /**
@@ -196,12 +202,14 @@ export function HeaderNav({
         ))}
       </nav>
       <div className="hidden shrink-0 items-center gap-1 text-sm md:flex">
+        {liveStatus?.desktop}
         {!onSearch && <PaletteTrigger count={recipeCount} />}
         {extraNavItems}
         <AppearanceMenu className="ml-1" extraControls={stickyChromeField} />
       </div>
 
       <div className="flex items-center md:hidden">
+        {liveStatus?.phone}
         {!onSearch && <PaletteTrigger variant="icon" count={recipeCount} />}
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>

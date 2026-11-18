@@ -621,6 +621,14 @@ export interface AcquireOptions extends JobRun {
    * site's polite gap); 0 for none.
    */
   gapMs?: number;
+  /**
+   * 48c (Dc1, amending 30-D5): no gap when the resource's clock still reads
+   * exactly this stamp — the caller's own previous release (`release()`'s
+   * answer), so nobody has used the resource since. A page's own picture
+   * follows its page this way; anyone else in between, in any process, and
+   * the gap is owed as before.
+   */
+  waiveGapAfter?: number;
   /** Default `queueDirectory()`. */
   dir?: string;
   /**
@@ -685,21 +693,24 @@ export interface ResourceGrant {
   /**
    * Let go: the clock is stamped (unless `used: false` — nothing was done
    * with it, so the gap does not start again), the lock removed, the GPU's
-   * idle timer set.
+   * idle timer set. Answers the clock's new stamp (`lastRelease`), when it
+   * moved — what `waiveGapAfter` matches (48c).
    */
-  release(options?: { used?: boolean }): Promise<void>;
+  release(options?: { used?: boolean }): Promise<number | undefined>;
   [Symbol.asyncDispose](): Promise<void>;
 }
 
 function passThroughGrant(resource: QueueResource): ResourceGrant {
-  const release = async () => {};
+  const release = async (): Promise<number | undefined> => undefined;
   return {
     resource,
     waitedMs: 0,
     hookRan: false,
     passThrough: true,
     release,
-    [Symbol.asyncDispose]: release,
+    [Symbol.asyncDispose]: async () => {
+      await release();
+    },
   };
 }
 
@@ -713,7 +724,12 @@ export async function acquire(
   resource: QueueResource,
   options: AcquireOptions = {},
 ): Promise<ResourceGrant> {
-  const { dir = queueDirectory(), gapMs = 0, maxWaitMs } = options;
+  const {
+    dir = queueDirectory(),
+    gapMs = 0,
+    maxWaitMs,
+    waiveGapAfter,
+  } = options;
   const job = jobContext(options);
   if (holdsHere(resource, dir)) return passThroughGrant(resource);
   const { signal, log, tier } = job;
@@ -784,22 +800,33 @@ export async function acquire(
     );
   };
 
-  /** Let go of the slot; `stamp`: the holder used it (the gap's clock moves). */
-  const letGo = async (stamp: boolean): Promise<void> => {
-    if (!held) return;
+  /**
+   * Let go of the slot; `stamp`: the holder used it (the gap's clock moves).
+   * Answers the stamp written, if one was.
+   */
+  const letGo = async (stamp: boolean): Promise<number | undefined> => {
+    if (!held) return undefined;
     held = false;
     stopBeat?.();
+    let stamped: number | undefined;
     try {
       if (stamp) {
+        const at = Date.now();
         await writeResourceState(resourceDir, {
           ...(await readResourceState(resourceDir)),
-          lastRelease: Date.now(),
-        }).catch(() => undefined);
+          lastRelease: at,
+        }).then(
+          () => {
+            stamped = at;
+          },
+          () => undefined,
+        );
       }
       await releaseLock(lockPath, SLOT_ID_KEY, id);
     } finally {
       processHolds().delete(id);
     }
+    return stamped;
   };
 
   /** One look: granted, or how many are ahead. */
@@ -837,7 +864,10 @@ export async function acquire(
   const gapLeft = async (): Promise<number> => {
     if (gapMs <= 0) return 0;
     const { lastRelease } = await readResourceState(resourceDir);
-    return lastRelease === undefined ? 0 : lastRelease + gapMs - Date.now();
+    if (lastRelease === undefined) return 0;
+    /* 48c: nobody has used it since the caller's own release. */
+    if (waiveGapAfter !== undefined && lastRelease === waiveGapAfter) return 0;
+    return lastRelease + gapMs - Date.now();
   };
 
   let hookRan = false;
@@ -916,11 +946,12 @@ export async function acquire(
   }
 
   let released = false;
-  const release = async ({ used = true } = {}): Promise<void> => {
-    if (released) return;
+  const release = async ({ used = true } = {}): Promise<number | undefined> => {
+    if (released) return undefined;
     released = true;
-    await letGo(used);
+    const stamped = await letGo(used);
     if (resource === "gpu") gpuReleased(dir);
+    return stamped;
   };
   return {
     resource,
@@ -928,7 +959,9 @@ export async function acquire(
     hookRan,
     passThrough: false,
     release,
-    [Symbol.asyncDispose]: () => release(),
+    [Symbol.asyncDispose]: async () => {
+      await release();
+    },
   };
 }
 

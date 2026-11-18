@@ -632,6 +632,13 @@ async function importItem(
     base: page.finalUrl || item.url,
     job,
   });
+  /* 48c: its own picture may follow it without the gap (this pacer's state). */
+  if (page.ok) {
+    pacer.namePictures(
+      item.url,
+      parsed.images.map((candidate) => candidate.url),
+    );
+  }
   const {
     recipe: imported,
     llm,

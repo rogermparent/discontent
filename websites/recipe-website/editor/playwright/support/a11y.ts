@@ -86,13 +86,21 @@ const THIRD_PARTY = ["youtube-video"];
 
 /**
  * No WCAG violations on the page. `exclude` leaves out further selectors the
- * page does not own, on top of `THIRD_PARTY`.
+ * page does not own, on top of `THIRD_PARTY`. `disable` skips rules; `only`
+ * runs just those rules (target size with the chrome released, 41f).
  */
 export async function expectNoViolations(
   page: Page,
-  { exclude = [] }: { exclude?: string[] } = {},
+  {
+    exclude = [],
+    disable = [],
+    only,
+  }: { exclude?: string[]; disable?: string[]; only?: string[] } = {},
 ): Promise<void> {
-  let builder = new AxeBuilder({ page }).withTags(WCAG_TAGS);
+  let builder = only
+    ? new AxeBuilder({ page }).withRules(only)
+    : new AxeBuilder({ page }).withTags(WCAG_TAGS);
+  if (disable.length > 0) builder = builder.disableRules(disable);
   for (const selector of [...THIRD_PARTY, ...exclude]) {
     builder = builder.exclude(selector);
   }
