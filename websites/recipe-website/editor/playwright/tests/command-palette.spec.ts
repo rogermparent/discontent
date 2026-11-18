@@ -1027,6 +1027,19 @@ test.describe("Command palette — holidays", () => {
     const options = holidayGroup(page).getByRole("option");
     await expect(options).toHaveText(["Christmas · in 68 days"]);
     await expect(holidayGroup(page)).toContainText("Holidays");
+    /* 48a (Roger's pick 46-e-rows): the recipe matches lead; the holiday
+     * is a secondary row below them. */
+    const recipes = page.getByTestId("palette-recipes-group");
+    await expect(recipes).toBeVisible();
+    const order = await page
+      .getByTestId("palette-list")
+      .locator(
+        '[data-testid="palette-recipes-group"], [data-testid="palette-holidays-group"]',
+      )
+      .evaluateAll((groups) =>
+        groups.map((group) => group.getAttribute("data-testid")),
+      );
+    expect(order).toEqual(["palette-recipes-group", "palette-holidays-group"]);
 
     /* Words that say something else are a search, not a holiday. */
     await paletteSearch(page, "halloween punch");

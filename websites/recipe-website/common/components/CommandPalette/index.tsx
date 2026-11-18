@@ -1145,10 +1145,12 @@ export function CommandPalette({
           )}
 
           {/*
-            After the recipes, groups and recents, for the Groups rows'
-            reason: Enter opens the top recipe, and an empty palette's Enter
-            re-runs the first recent. With neither, the first holiday is
-            cmdk's first row, so Enter opens its menu.
+            After the recipes, groups, tag rows and recents, for the Groups
+            rows' reason: Enter opens the top recipe, and an empty palette's
+            Enter re-runs the first recent. With neither, the first holiday
+            is cmdk's first row, so Enter opens its menu. While typing, one
+            row at most (48a, Roger's pick: the recipe matches and tags come
+            first, a holiday is the secondary option).
           */}
           {holidays && holidays.rows.length > 0 && (
             <CommandGroup
