@@ -122,8 +122,8 @@ function Thumbs({
       aria-label={label}
       className="grid grid-cols-6 gap-1.5 sm:flex sm:flex-row sm:gap-2"
     >
-      {items.map((item) => (
-        <li key={item.href}>
+      {items.map((item, index) => (
+        <li key={`${index}-${item.href}`}>
           <Link
             href={item.href}
             aria-label={item.name}

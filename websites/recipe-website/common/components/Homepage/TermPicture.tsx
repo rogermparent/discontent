@@ -23,7 +23,7 @@ export function TermPicture({
   summary: Pick<TermSummary, "image" | "recipeImage">;
   width: number;
   height: number;
-  sizes: string;
+  sizes?: string;
   /** A thumbnail-sized monogram (the featured list's rows, 42f). */
   small?: boolean;
 }) {

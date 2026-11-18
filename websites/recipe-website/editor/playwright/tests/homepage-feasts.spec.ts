@@ -240,8 +240,9 @@ test.describe("Homepage — tonight and the next feast", () => {
     await expect(
       main.getByRole("link", { name: /^Weeknight Stir Fry/ }),
     ).toHaveCount(1);
-    /* The turkey leads Mains and is in no other section. */
-    await expect(main.getByRole("link", { name: /^Roast Turkey/ })).toHaveCount(
+    /* The turkey leads Mains ("Mains · 1 Roast Turkey") and is in no other
+     * section. */
+    await expect(main.getByRole("link", { name: /Roast Turkey/ })).toHaveCount(
       1,
     );
   });

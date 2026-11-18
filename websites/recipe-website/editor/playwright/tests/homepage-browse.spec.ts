@@ -282,6 +282,21 @@ test.describe("Homepage — browse by term", () => {
       browse(page).getByRole("link", { name: /^Course/ }),
     ).toHaveAttribute("href", "/tags/course");
 
+    /* A relabel: the record's label, not the slug, is what the line says. */
+    const relabelled = await request.patch("/api/taxonomies/tag/course", {
+      headers,
+      data: { label: "Meal courses" },
+    });
+    expect(relabelled.status()).toBe(200);
+    await page.goto("/");
+    await expect(browse(page).getByTestId("home-facet")).toHaveText(
+      "Meal courses 8",
+    );
+    await expect(browse(page).getByTestId("home-facet")).toHaveAttribute(
+      "href",
+      "/tags/course",
+    );
+
     /*
      * The by-tag maps' tag: a child nothing carries adds nothing to its
      * root's total until its first recipe arrives.
@@ -292,7 +307,9 @@ test.describe("Homepage — browse by term", () => {
     });
     expect(bars.status()).toBe(201);
     await page.goto("/");
-    await expect(browse(page).getByTestId("home-facet")).toHaveText("Course 8");
+    await expect(browse(page).getByTestId("home-facet")).toHaveText(
+      "Meal courses 8",
+    );
 
     const recipe = await request.post("/api/recipes", {
       headers,
@@ -300,7 +317,9 @@ test.describe("Homepage — browse by term", () => {
     });
     expect(recipe.status()).toBe(201);
     await page.goto("/");
-    await expect(browse(page).getByTestId("home-facet")).toHaveText("Course 9");
+    await expect(browse(page).getByTestId("home-facet")).toHaveText(
+      "Meal courses 9",
+    );
   });
 
   test("Next up counts down to the next holiday on the browser's calendar", async ({

@@ -59,7 +59,9 @@ export function HomeAsk({ children }: { children: ReactNode }) {
     postAsk(words, controller.signal).then(
       (answer) => {
         if (controller.signal.aborted) return;
-        open(answer, words);
+        /* Done in place (an answer off this site, or this very page): the
+         * field is free again rather than stuck read-only. */
+        if (open(answer, words)) setAsking(undefined);
       },
       () => {
         if (!controller.signal.aborted) setAsking(undefined);

@@ -5,22 +5,24 @@ import { Monogram } from "./Monogram";
  * The one image size the homepage's small squares use (42f): the season
  * strip (72 px), New this week (56 px), the plan and featured rows (40–44
  * px). One size, so the export transforms each photo once for all of them.
+ *
+ * No `sizes` (48e review): with one, Next lists every configured width in
+ * the `srcset` (15 of them, ~2 KB an image, a transform each); without, it
+ * is `1x` / `2x` — two — which is all a fixed square needs, and the
+ * homepage now hands down a picture for every candidate the day may pick.
  */
 export const THUMB_IMAGE = {
   width: 160,
   height: 160,
-  sizes: "72px",
 } as const;
 
 /**
  * The larger square of 48e's course cards and the warm drink (about 190 px
- * on a laptop, 56–88 px on a phone, where the browser takes the smaller
- * candidate it is offered).
+ * on a laptop, 56–88 px on a phone), `1x` / `2x` as `THUMB_IMAGE` is.
  */
 export const CARD_IMAGE = {
   width: 384,
   height: 384,
-  sizes: "(min-width: 1024px) 12rem, 5.5rem",
 } as const;
 
 /**
