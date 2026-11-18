@@ -39,6 +39,8 @@ export interface RecipeFormValues {
    * all-blank block back to no `drink`. `method` is `""` for "not set".
    */
   drink: { method: string; glass: string; ice: string; garnish: string };
+  /** The recipe's own notes (47j), one markdown string a row. */
+  notes: string[];
 }
 
 export function recipeToFormValues(
@@ -69,6 +71,7 @@ export function recipeToFormValues(
       ice: recipe?.drink?.ice ?? "",
       garnish: recipe?.drink?.garnish ?? "",
     },
+    notes: recipe?.notes ?? [],
   };
 }
 

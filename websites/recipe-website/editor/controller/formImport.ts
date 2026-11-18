@@ -29,6 +29,7 @@ import { pacedRequest } from "./curation/sitePacing";
 import { jobContext, type JobRun } from "./jobs/context";
 import type { StoredPhoto } from "./jobs/photos";
 import { fetchPageStep, parsePage, videoLinkStep } from "./jobs/steps";
+import { notesModeFor, withPageNotes } from "./notes/importNotes";
 import { PHOTO_TEXT_LABEL } from "./photoLimits";
 import { withoutBlankRows } from "recipe-website-common/util/blankRows";
 import { suggestChoices } from "recipe-website-common/util/suggestChoices";
@@ -227,13 +228,19 @@ export async function reduceRecipeImport(
       }
       return withLlm(
         url,
-        await applyLlm({
-          url: pageUrl,
-          source: { html: page.html, ok: page.ok, meta: parsed.meta },
-          mapped,
-          mode,
-          job,
-        }),
+        /* 47j: and the page's own notes, by the import's path. */
+        await withPageNotes(
+          await applyLlm({
+            url: pageUrl,
+            source: { html: page.html, ok: page.ok, meta: parsed.meta },
+            mapped,
+            mode,
+            job,
+          }),
+          pageUrl,
+          page.html,
+          { mode: notesModeFor(mode), job },
+        ),
       );
     } else {
       return { message: "Invalid URL provided" };

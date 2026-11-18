@@ -9,6 +9,7 @@ import {
 import { SettingsCard } from "../../SettingsCard";
 import { SettingsForm } from "../SettingsForm";
 import { LocalModelStatus } from "./LocalModelStatus";
+import { NoteSelectors } from "./NoteSelectors";
 
 export default async function ToolsPage() {
   const user = await auth();
@@ -32,6 +33,12 @@ export default async function ToolsPage() {
             description="A local model — or the Claude API — reads recipe pages that carry no recipe data, pasted text and photos (epics 36, 38). Configured in the editor's environment, not here."
           >
             <LocalModelStatus />
+          </SettingsCard>
+          <SettingsCard
+            title="Recipe notes"
+            description="Where a site with no known recipe-card plugin keeps a recipe's notes, as a selector the model picked once (47j). Forget one and the next import from that site learns it again."
+          >
+            <NoteSelectors />
           </SettingsCard>
           <SettingsCard
             title="Import jobs"

@@ -130,6 +130,7 @@ describe("edit form B saves an unchanged recipe unchanged (D4)", () => {
       "Picture and video",
       "Ingredients",
       "Steps",
+      "Notes",
       "Times",
       "Source and address",
     ]);

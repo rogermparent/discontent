@@ -137,6 +137,15 @@ export interface Recipe {
   tags?: string[];
   source?: RecipeSource;
   drink?: DrinkSpec;
+  /**
+   * The recipe's own notes (47j): substitutions, storage, make-ahead, "why
+   * this works" — each entry one note, markdown, its paragraphs kept, in
+   * the order the recipe numbers them ("see note 2"). Not steps: the step
+   * matcher, timers, step checks and the cook view's steps never read them.
+   * Absent when there are none (never `[]` on disk). Not in the search
+   * index, as the steps' text is not.
+   */
+  notes?: string[];
   [key: string]: unknown;
 }
 

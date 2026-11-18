@@ -111,7 +111,12 @@ function tokens(element: Element): string[] {
     .filter(Boolean);
 }
 
-function isDropRegion(element: Element): boolean {
+/**
+ * A comment, sidebar, related-post or share region (whole class or id
+ * tokens, so a wrapper's `has-sidebar` does not take the page with it).
+ * 47j's notes reader skips these too.
+ */
+export function isDropRegion(element: Element): boolean {
   return tokens(element).some(
     (token) =>
       DROP_TOKENS.has(token) ||

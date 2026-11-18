@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import type {
   Ingredient,
   Instruction,
@@ -33,6 +33,10 @@ import type { StepLines } from "../../../util/stepIngredients";
 import { stepId } from "./stepId";
 import { StepText } from "../Timers";
 import { stepPlainText } from "../../../util/stepPlainText";
+import { linkNoteRefs } from "../../../util/recipeNotes";
+
+/** How many notes the recipe has (47j): a step's "(Note 2)" links to one. */
+const NoteCount = createContext(0);
 
 const stepComponents = {
   Multiplyable: { component: Multiplyable },
@@ -108,6 +112,8 @@ function StepItem({
 }) {
   const { name, text } = step;
   const StepHeading = inGroup ? "h4" : "h3";
+  /* 47j: "(Note 2)" a link to note 2, at render time only. */
+  const noteCount = useContext(NoteCount);
   return (
     <li
       id={id}
@@ -131,7 +137,7 @@ function StepItem({
               its own item of this no-wrap row (sideways scroll on a phone). */}
           <span>
             <StepText
-              text={text}
+              text={linkNoteRefs(text, noteCount)}
               step={number}
               timerKey={timerKey}
               components={stepComponents}
@@ -230,6 +236,7 @@ export function Instructions({
   instructions,
   ingredients = [],
   uses,
+  noteCount = 0,
   className,
 }: {
   instructions: InstructionEntry[] | undefined;
@@ -237,6 +244,8 @@ export function Instructions({
   ingredients?: Ingredient[];
   /** `stepUses`' answer, computed on the server. */
   uses?: StepLines;
+  /** How many notes the recipe has (47j): a step's "(Note 2)" links there. */
+  noteCount?: number;
   /** Placement in the recipe page's grid (42c1). */
   className?: string;
 }) {
@@ -345,9 +354,11 @@ export function Instructions({
           Reset
         </Button>
       </h2>
-      <ol key={resetKey} className={stepListStyle}>
-        {items}
-      </ol>
+      <NoteCount.Provider value={noteCount}>
+        <ol key={resetKey} className={stepListStyle}>
+          {items}
+        </ol>
+      </NoteCount.Provider>
     </section>
   );
 }

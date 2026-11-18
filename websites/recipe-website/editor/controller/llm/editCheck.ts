@@ -43,6 +43,11 @@ import {
 import { resolveStepUses } from "recipe-website-common/util/stepIngredients";
 import { DRINK_METHODS } from "recipe-website-common/controller/types";
 import {
+  NOTES_MAX,
+  NOTE_MAX_CHARS,
+  cleanNotes,
+} from "recipe-website-common/util/recipeNotes";
+import {
   RecipePatchSchema,
   toInstructions,
   type RecipePatch,
@@ -107,6 +112,8 @@ export const EditValuesSchema = z.strictObject({
     name: text(500),
     author: text(500),
   }),
+  /* 47j: the recipe's own notes. */
+  notes: z.array(text(NOTE_MAX_CHARS)).max(NOTES_MAX),
 });
 
 /* ------------------------------------------------------------------ */
@@ -142,6 +149,8 @@ export interface EditView {
   totalTime?: number;
   drink?: Record<string, string>;
   source?: Record<string, string>;
+  /** The recipe's own notes (47j), always there (`[]` for none). */
+  notes: string[];
 }
 
 function viewStep(step: Instruction): ViewStep {
@@ -202,6 +211,7 @@ export function editView(values: EditValues): EditView {
     ...(values.totalTime ? { totalTime: values.totalTime } : {}),
     ...(Object.keys(drink).length ? { drink } : {}),
     ...(Object.keys(source).length ? { source } : {}),
+    notes: cleanNotes(values.notes),
   };
 }
 
@@ -229,6 +239,7 @@ const ChangeSchema = RecipePatchSchema.pick({
   totalTime: true,
   drink: true,
   source: true,
+  notes: true,
 }).superRefine((change, ctx) => {
   for (const key of ["prepTime", "cookTime", "totalTime"] as const) {
     const value = change[key];
@@ -346,6 +357,8 @@ export const EDIT_JSON_SCHEMA = (() => {
             properties: { url: string, name: string, author: string },
             required: ["url", "name", "author"],
           },
+          /* 47j: one markdown string a note. */
+          notes: { type: "array", items: string },
         },
       },
       note: string,
@@ -405,7 +418,7 @@ const ABOUT_USES = /\b(uses|used|using)\b/i;
  * ingredients", review).
  */
 const ABOUT_REMOVING_ITEMS =
-  /\b(?:remove|delete|drop|cut)\s+(?:(?:the|all|any|every)\s+)?(?:[\w-]+\s+){0,2}?(?:lines?|steps?|ingredients?|items?|headings?|sections?|groups?)\b|\b(?:shorten|condense|simplify|fewer|trim)\b/i;
+  /\b(?:remove|delete|drop|cut)\s+(?:(?:the|all|any|every)\s+)?(?:[\w-]+\s+){0,2}?(?:lines?|steps?|ingredients?|items?|headings?|sections?|groups?|notes?|tips?)\b|\b(?:shorten|condense|simplify|fewer|trim)\b/i;
 
 /** A request to empty a list ("clear the steps", "remove all ingredients"). */
 const ABOUT_CLEARING =
@@ -513,8 +526,10 @@ function usesProblem(
  * about.
  */
 export function structureProblem(
-  before: Pick<EditValues, "ingredients" | "instructions">,
-  after: Pick<EditValues, "ingredients" | "instructions">,
+  before: Pick<EditValues, "ingredients" | "instructions"> &
+    Partial<Pick<EditValues, "notes">>,
+  after: Pick<EditValues, "ingredients" | "instructions"> &
+    Partial<Pick<EditValues, "notes">>,
   request: string,
 ): string | undefined {
   const lines = (values: Pick<EditValues, "ingredients">) =>
@@ -526,6 +541,14 @@ export function structureProblem(
     steps(values.instructions).length;
   if (shrinks(count(before), count(after), request)) {
     return `it leaves ${count(after)} of the ${count(before)} steps, which the request did not ask for`;
+  }
+  /* 47j: notes dropped unasked, as lines and steps are. */
+  if (before.notes && after.notes) {
+    const was = cleanNotes(before.notes).length;
+    const now = cleanNotes(after.notes).length;
+    if (shrinks(was, now, request)) {
+      return `it leaves ${now} of the ${was} notes, which the request did not ask for`;
+    }
   }
   const was = structure(before);
   const now = structure(after);
@@ -695,6 +718,9 @@ function formChange(parsed: Parsed, current: EditValues): Partial<EditValues> {
         };
         break;
       }
+      case "notes":
+        out.notes = cleanNotes(parsed.notes ?? []);
+        break;
     }
   }
   return out;
@@ -775,6 +801,11 @@ export function editPatch(
         patch.source = parts.url
           ? (parts as NonNullable<RecipePatch["source"]>)
           : null;
+        break;
+      }
+      case "notes": {
+        const notes = cleanNotes(change.notes);
+        patch.notes = notes.length ? notes : null;
         break;
       }
     }
@@ -922,8 +953,9 @@ export function checkEditAnswer(
   const after = {
     ingredients: change.ingredients ?? current.ingredients,
     instructions: change.instructions ?? current.instructions,
+    notes: change.notes ?? current.notes,
   };
-  if (change.ingredients || change.instructions) {
+  if (change.ingredients || change.instructions || change.notes) {
     const problem = structureProblem(current, after, request);
     if (problem) return refused(problem, note);
   }

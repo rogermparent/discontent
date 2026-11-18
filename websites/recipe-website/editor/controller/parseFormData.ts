@@ -9,6 +9,11 @@ import {
   USES_MAX_NAME_LENGTH,
 } from "recipe-website-common/util/stepIngredients";
 import {
+  NOTES_MAX,
+  NOTE_MAX_CHARS,
+  cleanNotes,
+} from "recipe-website-common/util/recipeNotes";
+import {
   DRINK_METHODS,
   type DrinkSpec,
   type Ingredient,
@@ -453,6 +458,40 @@ const instructionsSchema = z
     return kept.length ? kept : undefined;
   });
 
+/**
+ * The notes (47j): one markdown field a row, posted `notes[0]`, `notes[1]`…
+ * (lodash `set` leaves a removed row's hole `undefined`). Trimmed, blank
+ * rows dropped, and none at all is no `notes`. A note past the length
+ * limit, or more notes than the limit, is refused where it is.
+ */
+const notesSchema = z
+  .array(z.unknown())
+  .optional()
+  .transform((rows, ctx): string[] | undefined => {
+    if (!rows) return undefined;
+    const notes: string[] = [];
+    rows.forEach((row, index) => {
+      const note = cleanNotes([typeof row === "string" ? row : ""])[0];
+      if (!note) return;
+      if (note.length > NOTE_MAX_CHARS) {
+        ctx.addIssue({
+          code: "custom",
+          path: [index],
+          message: `Note ${notes.length + 1} is longer than ${NOTE_MAX_CHARS.toLocaleString("en-US")} characters`,
+        });
+      }
+      notes.push(note);
+    });
+    if (notes.length > NOTES_MAX) {
+      ctx.addIssue({
+        code: "custom",
+        path: [],
+        message: `A recipe has at most ${NOTES_MAX} notes`,
+      });
+    }
+    return notes.length ? notes : undefined;
+  });
+
 const RecipeFormSchema = z.object({
   name: z.string().min(1, { error: "Name is required" }),
   description: z.string().optional(),
@@ -481,6 +520,7 @@ const RecipeFormSchema = z.object({
     .transform((tags) => (tags ? normalizeTags(tags) : undefined)),
   ingredients: ingredientsSchema,
   instructions: instructionsSchema,
+  notes: notesSchema,
   timelines: z
     .array(
       z.object({

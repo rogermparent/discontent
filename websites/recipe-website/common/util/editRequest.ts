@@ -32,6 +32,7 @@ export const EDIT_FIELDS = [
   "totalTime",
   "drink",
   "source",
+  "notes",
 ] as const;
 
 export type EditField = (typeof EDIT_FIELDS)[number];
@@ -52,6 +53,7 @@ export const EDIT_FIELD_LABELS: Record<EditField, string> = {
   totalTime: "total time",
   drink: "drink spec",
   source: "source",
+  notes: "notes",
 };
 
 /** Where each field sits in the form (43e1's sections). */
@@ -67,6 +69,7 @@ export const EDIT_FIELD_SECTION: Record<EditField, RecipeSectionId> = {
   totalTime: "times",
   drink: "drink",
   source: "source",
+  notes: "notes",
 };
 
 /** The longest request a person may send (a sentence or two). */
@@ -93,6 +96,7 @@ export function editValuesOf(values: RecipeFormValues): EditValues {
     totalTime: values.totalTime,
     drink: values.drink,
     source: values.source,
+    notes: values.notes ?? [],
   };
 }
 
@@ -123,6 +127,7 @@ export function editValuesOfRecipe(recipe: Partial<Recipe>): EditValues {
       name: recipe.source?.name ?? "",
       author: recipe.source?.author ?? "",
     },
+    notes: recipe.notes ?? [],
   };
 }
 
@@ -199,6 +204,11 @@ export function fieldLines(field: EditField, value: unknown): string[] {
       return stepLines((value as InstructionEntry[] | undefined) ?? []);
     case "tags":
       return [...((value as string[] | undefined) ?? [])];
+    case "notes":
+      /* One line a note, its paragraphs joined. */
+      return ((value as string[] | undefined) ?? [])
+        .map((note) => note.trim().replace(/\s+/g, " "))
+        .filter(Boolean);
     case "prepTime":
     case "cookTime":
     case "totalTime":

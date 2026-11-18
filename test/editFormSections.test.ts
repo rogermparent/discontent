@@ -121,6 +121,7 @@ describe("sectionStatuses (43e1)", () => {
       picture: { text: "from the page" },
       ingredients: { text: "3" },
       steps: { text: "2 · all lines used", tone: "ok" },
+      notes: { text: "none" },
       times: { text: "1h 50m" },
       source: { text: "Sally's Baking Addiction" },
     });

@@ -336,6 +336,18 @@ number and not the whole line with its amount.
 recipe_update {"slug": "eggnog", "patch": {"instructions": [{"text": "Whisk the yolks and sugar.", "uses": ["egg yolks", "sugar"]}, {"text": "Fold the whites into the base.", "uses": []}]}}
 ```
 
+**A recipe's notes.** Tips, substitutions, storage and make-ahead are the
+recipe's own `notes` — one markdown string each, in order, shown numbered
+after the steps — never a step group named "Notes". An import brings a
+page's notes in by itself (a recipe card plugin's notes block, or the
+site's learned selector); `recipe_get` shows them. A step's "(Note 2)" or
+"see note 2" links to the second note, so keep the order when you edit
+them. A patch's `notes` replaces them all; `[]` clears them.
+
+```json
+recipe_update {"slug": "eggs-benedict", "patch": {"notes": ["**Make ahead:** poach the eggs a day early and keep them in cold water.", "Hollandaise keeps warm in a thermos for an hour."]}}
+```
+
 **Fixing an image later:**
 
 ```json

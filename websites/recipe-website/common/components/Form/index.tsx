@@ -37,6 +37,7 @@ import { yieldToolbarItems } from "./RecipeMarkdown/lexicalToolbar";
 import { FormSection } from "./RecipeFormFrame";
 import { fillKept, stepCount, type RecipeSectionId } from "./sections";
 import { DrinkSpecSection } from "./Drink";
+import { NotesSection } from "./Notes";
 import { useDrinkShown, useRevealDrink } from "./drinkShown";
 import { timesHint } from "./Instructions/stepChecks";
 import type { PictureInputs } from "./pictureCarry";
@@ -474,6 +475,10 @@ export default function RecipeFields({
         />
         <Timelines />
       </FormSection>
+      <NotesSection
+        from={filled("notes") ?? imported(recipe?.notes?.length)}
+        errors={state?.errors?.notes}
+      />
       <FormSection
         id="times"
         title="Times"

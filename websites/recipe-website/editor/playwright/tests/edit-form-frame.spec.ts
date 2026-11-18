@@ -30,8 +30,9 @@ test.describe("Edit form B: the frame (43e1)", () => {
       /^3Picture: set/,
       /^4Ingredients: 2/,
       /^5Steps: ✓ 1 · all lines used/,
-      /^6Times/,
-      /^7Source/,
+      /^6Notes: none/,
+      /^7Times/,
+      /^8Source/,
     ]);
     /* No Start from when editing. */
     await expect(rail.getByRole("link", { name: /Start from/ })).toHaveCount(0);
@@ -77,7 +78,7 @@ test.describe("Edit form B: the frame (43e1)", () => {
     await expect(page.getByText(/already exists/i)).toBeVisible();
     const rail = page.getByRole("navigation", { name: "Parts of this recipe" });
     await expect(rail.getByRole("link", { name: /^Source/ })).toHaveText(
-      "7Source: ! check",
+      "8Source: ! check",
     );
     /* Still not saved: counted against the stored recipe. */
     await expect(page.getByTestId("recipe-form-changes")).toHaveText(

@@ -728,6 +728,9 @@ describe("the registry", () => {
       "parse:start",
       "parse:end",
       "llm:note",
+      /* 47j: the page's own notes (none here, and no model asked). */
+      "notes:start",
+      "notes:end",
       "job:end",
     ]);
     const parseEnd = (await logLines(first.job)).find(

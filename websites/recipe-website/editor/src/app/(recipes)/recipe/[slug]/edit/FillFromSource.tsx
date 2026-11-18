@@ -41,8 +41,10 @@ export type FillOutcome = ({ marks: FillMarks } | { nothing: true }) & {
 const NOT_A_FILL = "That link isn't a fill for this recipe.";
 
 /** The fields the hint names as empty: not the optional video or drink spec. */
+/* 47j: no notes is no gap — most recipes and most pages have none — so a
+ * fill takes a source's notes without the hint asking for them. */
 const HINT_FIELDS = FILL_FIELDS.filter(
-  (field) => field !== "video" && field !== "drink",
+  (field) => field !== "video" && field !== "drink" && field !== "notes",
 );
 
 /**

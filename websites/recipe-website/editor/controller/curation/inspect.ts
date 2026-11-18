@@ -32,6 +32,7 @@ import {
   suggestChoices,
   type SuggestedChoice,
 } from "recipe-website-common/util/suggestChoices";
+import { notesModeFor, withPageNotes } from "../notes/importNotes";
 import { jobContext, type JobRun } from "../jobs/context";
 import { fetchPageStep, parsePage } from "../jobs/steps";
 import type { PageMeta } from "recipe-website-common/util/pageMetadata";
@@ -206,6 +207,8 @@ export function toDraft(imported: Partial<ImportedRecipe>): RecipeDraft {
       ...(author ? { author } : {}),
     };
   }
+  /* 47j: the page's own notes. */
+  if (imported.notes?.length) draft.notes = [...imported.notes];
   if (imported.imageImportUrl) draft.imageImportUrl = imported.imageImportUrl;
   if (imported.videoImportUrl) draft.videoImportUrl = imported.videoImportUrl;
   return draft;
@@ -378,13 +381,19 @@ async function readUrl(
   const several = mapRecipeNodes(url, parsed, { ok: page.ok });
   const applied = several
     ? schemaReadings(several, { mode, job })
-    : await applyLlm({
+    : /* 47j: the page's own notes too. */
+      await withPageNotes(
+        await applyLlm({
+          url,
+          source: { html: page.html, ok: page.ok, meta: parsed.meta },
+          mapped: mappedPage,
+          mode,
+          job,
+        }),
         url,
-        source: { html: page.html, ok: page.ok, meta: parsed.meta },
-        mapped: mappedPage,
-        mode,
-        job,
-      });
+        page.html,
+        { mode: notesModeFor(mode), job },
+      );
   const recipe = applied.recipe;
   /* `images` and `suggestedTags` ride on the mapped recipe for the form; here
    * they are top-level. */

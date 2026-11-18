@@ -56,6 +56,37 @@ export interface Settings extends ThemedSettings {
    * Per instance, like `mirrors`, and never read by the export.
    */
   makeStaples?: string[];
+  /**
+   * 47j: the CSS selector a model picked, once, for where a site keeps a
+   * recipe's notes (a site with no known card plugin), by registrable
+   * domain (`paceKey`'s key) — so later imports from that site read them
+   * without a model. Per instance, like `mirrors`; never sent to a mirror
+   * and never in the content repository. Settings → Tools lists them, with
+   * Forget.
+   */
+  noteSelectors?: Record<string, LearnedNoteSelector>;
+  /**
+   * 47j review: a site where learning found no selector, by the same key —
+   * when, and why — so its imports do not ask a model again for
+   * `NOTE_SELECTOR_RETRY_DAYS`. Forget clears it.
+   */
+  noteSelectorFailures?: Record<string, { at: string; problem: string }>;
+}
+
+/** One site's learned notes selector (47j). */
+export interface LearnedNoteSelector {
+  selector: string;
+  /** When it was learned (ISO 8601), and by which model. */
+  learned: string;
+  model: string;
+  /** The page it was learned on. */
+  url: string;
+  /** Imports that found notes with it since, and that did not. */
+  hits: number;
+  misses: number;
+  /** When it was last used, and when it last missed (ISO 8601). */
+  lastHit?: string;
+  lastMiss?: string;
 }
 
 export type { NamedPreset };

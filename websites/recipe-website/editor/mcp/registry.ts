@@ -367,6 +367,13 @@ const USES_DESCRIPTION =
   "`[]` for a step that brings nothing in. A name no ingredient line goes by is " +
   "kept and shown nowhere but the edit form. recipe_get answers each step's " +
   "`uses` as stored.";
+/** A recipe's own notes on recipe_create / recipe_update (47j). */
+const NOTES_DESCRIPTION =
+  "`notes` is the recipe's own notes — tips, substitutions, storage, make-ahead — " +
+  "one markdown string each, in order, shown numbered after the steps (a step's " +
+  '"(Note 2)" links to the second). Notes are not steps: never put them in an ' +
+  'instruction group named "Notes". In a patch `notes` replaces them all; `[]` or ' +
+  "`null` clears them.";
 const IDEMPOTENT_WRITE = { readOnlyHint: false, idempotentHint: true } as const;
 const DESTRUCTIVE_WRITE = {
   readOnlyHint: false,
@@ -739,6 +746,8 @@ export function recipeToolDefinitions(
         CHOICE_DESCRIPTION +
         " " +
         USES_DESCRIPTION +
+        " " +
+        NOTES_DESCRIPTION +
         " `overwrite` replaces an existing recipe at the same slug. " +
         "`dryRun` validates and returns the resolved slug, whether it is taken, the " +
         "record that would be stored and the image's filename — writing nothing.",
@@ -771,6 +780,8 @@ export function recipeToolDefinitions(
         CHOICE_DESCRIPTION +
         " " +
         USES_DESCRIPTION +
+        " " +
+        NOTES_DESCRIPTION +
         " A patch's `instructions` (or `ingredients`) replaces the whole list.",
       inputSchema: z.strictObject({
         slug: Slug,

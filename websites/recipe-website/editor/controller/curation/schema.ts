@@ -39,6 +39,11 @@ import {
   USES_MAX_NAMES,
   USES_MAX_NAME_LENGTH,
 } from "recipe-website-common/util/stepIngredients";
+import {
+  NOTES_MAX,
+  NOTE_MAX_CHARS,
+  cleanNotes,
+} from "recipe-website-common/util/recipeNotes";
 import { z } from "zod";
 import { ValidationError, issuesOf } from "./errors";
 
@@ -220,6 +225,20 @@ export const DrinkSpecSchema = z
     return Object.keys(kept).length > 0 ? kept : null;
   });
 
+/**
+ * A recipe's notes (47j): each one note, markdown, at most `NOTE_MAX_CHARS`
+ * long, at most `NOTES_MAX` of them; trimmed, and blank ones dropped — so
+ * `[]` (or only blanks) is no notes, and a patch's `[]` clears them.
+ */
+export const NotesSchema = z
+  .array(
+    z.string().max(NOTE_MAX_CHARS, {
+      error: `A note is at most ${NOTE_MAX_CHARS.toLocaleString("en-US")} characters`,
+    }),
+  )
+  .max(NOTES_MAX, { error: `At most ${NOTES_MAX} notes` })
+  .transform((notes) => cleanNotes(notes));
+
 export const RecipeInputSchema = z.strictObject({
   name: z.string().min(1, "A recipe needs a name"),
   slug: z.string().optional(),
@@ -238,6 +257,8 @@ export const RecipeInputSchema = z.strictObject({
   timelines: z.array(TimelineSchema).optional(),
   source: SourceSchema.optional(),
   drink: DrinkSpecSchema.optional(),
+  /** The recipe's own notes (47j), after the steps. */
+  notes: NotesSchema.optional(),
   /** Downloaded into the recipe's uploads directory, never stored verbatim. */
   imageImportUrl: z.string().optional(),
   /** A video the site links rather than hosts. */
@@ -273,6 +294,8 @@ export const RecipePatchSchema = z.strictObject({
   source: SourceSchema.nullable().optional(),
   /** Replaces the whole spec; `null` — or an all-blank object — clears it. */
   drink: DrinkSpecSchema.nullable().optional(),
+  /** Replaces every note (47j); `null` or `[]` clears them. */
+  notes: NotesSchema.nullable().optional(),
   /** A URL replaces the image; `null` clears it, as `clearImage` does (26a). */
   imageImportUrl: z.string().nullable().optional(),
   /** Remove the image. Loses to an `imageImportUrl` in the same patch. */
