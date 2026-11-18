@@ -239,31 +239,41 @@ export const NotesSchema = z
   .max(NOTES_MAX, { error: `At most ${NOTES_MAX} notes` })
   .transform((notes) => cleanNotes(notes));
 
+/**
+ * A create's optional field that also takes `null` as "none" (47h): the
+ * patch's nullable fields, where `null` clears, read on a create as not
+ * set — a draft or a hand-written file with `"videoImportUrl": null` is a
+ * recipe without one, not a validation error. `name` and `date` stay
+ * strict, as on a patch.
+ */
+function none<T extends z.ZodType>(schema: T) {
+  return schema
+    .nullish()
+    .transform((value): z.output<T> | undefined => value ?? undefined);
+}
+
 export const RecipeInputSchema = z.strictObject({
   name: z.string().min(1, "A recipe needs a name"),
   slug: z.string().optional(),
   date: EpochSchema.optional(),
-  description: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-  prepTime: z.number().optional(),
-  cookTime: z.number().optional(),
-  totalTime: z.number().optional(),
-  recipeYield: z.string().optional(),
-  ingredients: z.array(IngredientInputSchema).optional(),
-  instructions: z
-    .array(InstructionInputSchema)
-    .superRefine(checkChoices)
-    .optional(),
-  timelines: z.array(TimelineSchema).optional(),
-  source: SourceSchema.optional(),
-  drink: DrinkSpecSchema.optional(),
+  description: none(z.string()),
+  tags: none(z.array(z.string())),
+  prepTime: none(z.number()),
+  cookTime: none(z.number()),
+  totalTime: none(z.number()),
+  recipeYield: none(z.string()),
+  ingredients: none(z.array(IngredientInputSchema)),
+  instructions: none(z.array(InstructionInputSchema).superRefine(checkChoices)),
+  timelines: none(z.array(TimelineSchema)),
+  source: none(SourceSchema),
+  drink: none(DrinkSpecSchema),
   /** The recipe's own notes (47j), after the steps. */
-  notes: NotesSchema.optional(),
+  notes: none(NotesSchema),
   /** Downloaded into the recipe's uploads directory, never stored verbatim. */
-  imageImportUrl: z.string().optional(),
+  imageImportUrl: none(z.string()),
   /** A video the site links rather than hosts. */
-  videoUrl: z.string().optional(),
-  videoImportUrl: z.string().optional(),
+  videoUrl: none(z.string()),
+  videoImportUrl: none(z.string()),
 });
 
 export type RecipeInput = z.infer<typeof RecipeInputSchema>;
