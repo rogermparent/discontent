@@ -4,10 +4,11 @@ import { signIn } from "../support/helpers";
 import { expectHydrated } from "../support/hydration";
 
 /**
- * The homepage — canvas B, "Now and next" (42f), on the structure the
- * 2026-10-15 redesign settled: the band (date, question, search field,
- * `tag:` chips, the Make tile), "This season", "New this week", "Browse",
- * and a right rail with the newest plan and the featured list.
+ * The homepage — canvas B, "Tonight, then the next feast" (48e; 42f's "Now
+ * and next" before it): the band (date, question, search field, `tag:`
+ * chips), Tonight (with the Make tile), Next up and Then (the holidays as
+ * menus — `homepage-feasts.spec.ts` has the rest), "New in the collection"
+ * beside the newest plan and the featured list, and Browse as one line.
  *
  * `christmas-cookies` is the fixture with a hierarchy: `dessert` is a root
  * whose one child, `cookies`, eight recipes carry; four of them are also
@@ -22,11 +23,14 @@ const chips = (page: Page) =>
 
 const makeTile = (page: Page) => page.getByTestId("make-tile");
 
+/* 48e: one index line, a `nav` labelled by its heading. */
 const browse = (page: Page) =>
-  page.getByRole("region", { name: "Browse", exact: true });
+  page.getByRole("navigation", { name: "Browse", exact: true });
 
-const season = (page: Page) =>
-  page.getByRole("region", { name: "This season", exact: true });
+/* 48e: "This season" became Next up (the next holiday's menu) and Then. */
+const nextUp = (page: Page) => page.getByTestId("next-feast");
+const then = (page: Page) =>
+  page.getByRole("region", { name: "Then", exact: true });
 
 const plan = (page: Page) =>
   page.getByRole("region", { name: "On the plan", exact: true });
@@ -166,13 +170,14 @@ test.describe("Homepage — intro", () => {
     await expect(quick).toHaveAttribute("href", "/search?q=tag%3Aquick");
     await expect(quick).toHaveText("tag:quick 1");
 
-    /* The browse link counts the alias carrier too. */
+    /* The browse link counts the alias carrier too (48e: the root's total,
+     * one index line — the Daiquiri family's own count is on `/tags`). */
     await expect(
-      browse(page).getByRole("link", { name: /^Daiquiri/ }),
-    ).toHaveText("Daiquiri 2");
+      browse(page).getByRole("link", { name: /^Drinks/ }),
+    ).toHaveText("Drinks 7");
   });
 
-  test("has no hero: the featured recipe is one row among equals, in the rail", async ({
+  test("has no hero: the featured recipe is one row among equals, beside New in the collection", async ({
     page,
     resetData,
   }) => {
@@ -187,10 +192,21 @@ test.describe("Homepage — intro", () => {
       0,
     );
 
-    /* The rail starts on the first screen of a laptop. */
-    await expect(
-      page.getByRole("heading", { level: 2, name: "Featured" }),
-    ).toBeInViewport();
+    /* 48e: the list sits beside New in the collection on a laptop, its
+     * heading on the same line (it was the first screen's right rail). */
+    const featuredHeading = page.getByRole("heading", {
+      level: 2,
+      name: "Featured",
+    });
+    await expect(featuredHeading).toBeVisible();
+    const [featuredBox, newBox] = await Promise.all([
+      featuredHeading.boundingBox(),
+      page
+        .getByRole("heading", { level: 2, name: "New in the collection" })
+        .boundingBox(),
+    ]);
+    expect(Math.abs(featuredBox!.y - newBox!.y)).toBeLessThan(48);
+    expect(featuredBox!.x).toBeGreaterThan(newBox!.x);
     await expect(
       featured(page).getByRole("link", { name: "Everything featured" }),
     ).toHaveAttribute("href", "/featured-recipes");
@@ -205,30 +221,24 @@ test.describe("Homepage — browse by term", () => {
     await resetData("christmas-cookies");
   });
 
-  test("shows each facet root as a row of its children, by label, linking to term pages", async ({
+  test("shows each facet root on one index line, by label, linking to term pages", async ({
     page,
   }) => {
     await page.goto("/");
 
-    const root = browse(page).getByRole("heading", { level: 3 });
+    /* 48e: a link per root, its subtree's total beside it — Cookies' eight
+     * are Dessert's. The children are the root's page's. */
+    const root = browse(page).getByTestId("home-facet");
     await expect(root).toHaveCount(1);
-    await expect(root).toHaveText("Dessert");
-    await expect(root.getByRole("link")).toHaveAttribute(
-      "href",
-      "/tags/dessert",
-    );
-
-    /* The record's label ("Cookies"), not the slug, with its subtree total. */
-    const chip = browse(page).getByRole("link", { name: /^Cookies/ });
-    await expect(chip).toHaveText("Cookies 8");
-    await expect(chip).toHaveAttribute("href", "/tags/cookies");
-    await chip.click();
-    await expect(page).toHaveURL(/\/tags\/cookies$/);
+    await expect(root).toHaveText("Dessert 8");
+    await expect(root).toHaveAttribute("href", "/tags/dessert");
+    await root.click();
+    await expect(page).toHaveURL(/\/tags\/dessert$/);
 
     /* A record with no children is not a root, and the flat chips are gone. */
     await page.goto("/");
     await expect(
-      browse(page).getByRole("heading", { name: /Holiday/ }),
+      browse(page).getByRole("link", { name: /Holiday/ }),
     ).toHaveCount(0);
     await expect(
       page.getByRole("region", { name: "Browse by tag" }),
@@ -236,8 +246,8 @@ test.describe("Homepage — browse by term", () => {
     await expect(
       browse(page).getByRole("link", { name: "Every tag" }),
     ).toHaveAttribute("href", "/tags");
-    /* No holidays root in this fixture, so no "This season". */
-    await expect(season(page)).toHaveCount(0);
+    /* No holidays root in this fixture, so no Next up. */
+    await expect(nextUp(page)).toHaveCount(0);
   });
 
   test("follows term writes: a new root, a relabel, and a first carrier", async ({
@@ -250,8 +260,8 @@ test.describe("Homepage — browse by term", () => {
 
     /* Prime the cache, so a stale entry would have something to serve. */
     await page.goto("/");
-    await expect(browse(page).getByRole("heading", { level: 3 })).toHaveText(
-      "Dessert",
+    await expect(browse(page).getByTestId("home-facet")).toHaveText(
+      "Dessert 8",
     );
 
     /* The tree aggregate's tag: a new root, and dessert moved under it. */
@@ -267,16 +277,14 @@ test.describe("Homepage — browse by term", () => {
     expect(moved.status()).toBe(200);
 
     await page.goto("/");
-    await expect(browse(page).getByRole("heading", { level: 3 })).toHaveText(
-      "Course",
-    );
+    await expect(browse(page).getByTestId("home-facet")).toHaveText("Course 8");
     await expect(
-      browse(page).getByRole("link", { name: /^Desserts/ }),
-    ).toHaveAttribute("href", "/tags/dessert");
+      browse(page).getByRole("link", { name: /^Course/ }),
+    ).toHaveAttribute("href", "/tags/course");
 
     /*
-     * The by-tag maps' tag: a child nothing carries is left out until its
-     * first recipe arrives.
+     * The by-tag maps' tag: a child nothing carries adds nothing to its
+     * root's total until its first recipe arrives.
      */
     const bars = await request.post("/api/taxonomies/tag", {
       headers,
@@ -284,9 +292,7 @@ test.describe("Homepage — browse by term", () => {
     });
     expect(bars.status()).toBe(201);
     await page.goto("/");
-    await expect(browse(page).getByRole("link", { name: /^Bars/ })).toHaveCount(
-      0,
-    );
+    await expect(browse(page).getByTestId("home-facet")).toHaveText("Course 8");
 
     const recipe = await request.post("/api/recipes", {
       headers,
@@ -294,12 +300,10 @@ test.describe("Homepage — browse by term", () => {
     });
     expect(recipe.status()).toBe(201);
     await page.goto("/");
-    await expect(browse(page).getByRole("link", { name: /^Bars/ })).toHaveText(
-      "Bars 1",
-    );
+    await expect(browse(page).getByTestId("home-facet")).toHaveText("Course 9");
   });
 
-  test("This season counts down to the next holidays on the browser's calendar", async ({
+  test("Next up counts down to the next holiday on the browser's calendar", async ({
     page,
     request,
     createApiToken,
@@ -322,41 +326,40 @@ test.describe("Homepage — browse by term", () => {
     await page.clock.setFixedTime(new Date(2026, 11, 20, 12));
     await page.goto("/");
 
-    /* Easter has nothing tagged, so only Christmas shows. */
-    const rows = season(page).getByTestId("season-row");
-    await expect(rows).toHaveCount(1);
-    await expect(rows.first()).toContainText("Christmas");
-    await expect(rows.first().getByTestId("season-countdown")).toHaveText(
-      "in 5 days",
-    );
-    await expect(rows.first()).toContainText("4 recipes");
+    /* Easter has nothing tagged, so Christmas is next, with nothing after. */
+    const next = nextUp(page);
+    await expect(next).toContainText("Christmas");
+    await expect(next.getByTestId("next-countdown")).toHaveText("in 5 days");
+    await expect(next).toContainText("4 dishes");
+    await expect(then(page)).toHaveCount(0);
     /* The date, as a calendar leaf: the browser's next 25 December. */
+    await expect(next.locator('time[datetime="2026-12-25"]')).toHaveText(
+      "Fri 25 Dec",
+    );
+    /* The name goes to the holiday's menu, and so does Open the menu. */
     await expect(
-      rows.first().locator('time[datetime="2026-12-25"]'),
-    ).toHaveText("Fri 25 Dec");
-    /* The name goes to the holiday's menu, the section's link to the almanac. */
-    await expect(
-      rows.first().getByRole("link", { name: "Christmas", exact: true }),
+      next.getByRole("link", { name: "Christmas", exact: true }),
     ).toHaveAttribute("href", "/holidays/christmas");
     await expect(
-      season(page).getByRole("link", { name: "All holidays" }),
-    ).toHaveAttribute("href", "/holidays");
-    /* The strip: Christmas's four recipes, each a link to its page. */
+      next.getByRole("link", { name: "Open the menu" }),
+    ).toHaveAttribute("href", "/holidays/christmas");
+    /* No course root in this fixture: the four are one card, "Other dishes". */
+    await expect(next.getByTestId("feast-course")).toHaveCount(1);
+    await expect(next.getByTestId("feast-course")).toContainText(
+      "Other dishes · 4",
+    );
+    /* Browse leaves the holidays root to the menus. */
     await expect(
-      rows
-        .first()
-        .getByRole("list", { name: "From Christmas" })
-        .getByRole("link"),
-    ).toHaveCount(4);
-    /* Browse leaves the holidays root to the season. */
-    await expect(
-      browse(page).getByRole("heading", { level: 3, name: "Holidays" }),
+      browse(page).getByRole("link", { name: /^Holidays/ }),
     ).toHaveCount(0);
     await expect(
-      browse(page).getByRole("heading", { level: 3, name: "Dessert" }),
+      browse(page).getByRole("link", { name: /^Dessert/ }),
     ).toBeVisible();
     await expect(page.locator('time[datetime="2026-12-20"]')).toHaveText(
       "Sunday 20 December",
+    );
+    await expect(page.getByTestId("today-countdown")).toHaveText(
+      "· 5 days to Christmas",
     );
 
     /*
@@ -369,9 +372,10 @@ test.describe("Homepage — browse by term", () => {
     await expect(page.locator('time[datetime="2026-12-26"]')).toHaveText(
       "Saturday 26 December",
     );
-    await expect(season(page)).toHaveCount(0);
+    await expect(nextUp(page)).toHaveCount(0);
+    await expect(page.getByTestId("today-countdown")).toHaveCount(0);
     await expect(
-      browse(page).getByRole("heading", { level: 3, name: "Holidays" }),
+      browse(page).getByRole("link", { name: /^Holidays/ }),
     ).toHaveCount(0);
   });
 
@@ -398,7 +402,7 @@ test.describe("Homepage — browse by term", () => {
   });
 });
 
-test.describe("Homepage — plans and new this week", () => {
+test.describe("Homepage — plans and new in the collection", () => {
   test("the plan panel shows the newest plan's lines and opens it", async ({
     page,
     resetData,
@@ -434,7 +438,7 @@ test.describe("Homepage — plans and new this week", () => {
     ).toHaveAttribute("href", "/shopping");
   });
 
-  test("no plans, no panel; New this week links to all recipes past six", async ({
+  test("no plans, no panel; New in the collection links to all recipes past six", async ({
     page,
     resetData,
   }) => {
@@ -442,7 +446,7 @@ test.describe("Homepage — plans and new this week", () => {
     await page.goto("/");
     await expect(plan(page)).toHaveCount(0);
     const fresh = page.getByRole("region", {
-      name: "New this week",
+      name: "New in the collection",
       exact: true,
     });
     await expect(
@@ -451,11 +455,11 @@ test.describe("Homepage — plans and new this week", () => {
   });
 });
 
-test.describe("Homepage — this season and the featured list", () => {
+test.describe("Homepage — the holidays and the featured list", () => {
   /* 18 October 2026: Halloween in 13 days, Christmas in 68. */
   const OCT_18 = new Date(2026, 9, 18, 12);
 
-  test("dated rows for the coming holidays, each shown once", async ({
+  test("the next holidays, each shown once", async ({
     page,
     request,
     resetData,
@@ -476,26 +480,24 @@ test.describe("Homepage — this season and the featured list", () => {
     await page.clock.setFixedTime(OCT_18);
     await page.goto("/");
 
-    const rows = season(page).getByTestId("season-row");
-    await expect(rows).toHaveCount(2);
-    await expect(rows.nth(0)).toContainText("Halloween");
-    await expect(rows.nth(0).getByTestId("season-countdown")).toHaveText(
-      "in 13 days",
-    );
-    await expect(rows.nth(0).locator("time")).toHaveAttribute(
+    /* Halloween next (its two recipes: a dish and a drink), Christmas then. */
+    const next = nextUp(page);
+    await expect(next).toContainText("Halloween");
+    await expect(next.getByTestId("next-countdown")).toHaveText("in 13 days");
+    await expect(next.locator("time").first()).toHaveAttribute(
       "datetime",
       "2026-10-31",
     );
-    await expect(rows.nth(0)).toContainText("2 recipes · featured");
+    await expect(next).toContainText("1 dish · 1 drink · featured");
     await expect(
-      rows.nth(0).getByRole("link", { name: "Halloween", exact: true }),
+      next.getByRole("link", { name: "Halloween", exact: true }),
     ).toHaveAttribute("href", "/holidays/halloween");
-    await expect(rows.nth(1)).toContainText("Christmas");
-    await expect(rows.nth(1).getByTestId("season-countdown")).toHaveText(
-      "in 68 days",
-    );
-    await expect(rows.nth(1)).toContainText("1 recipe");
-    await expect(rows.nth(1)).not.toContainText("featured");
+    const later = then(page).getByTestId("then-feast");
+    await expect(later).toHaveCount(1);
+    await expect(later).toContainText("Christmas");
+    await expect(later.getByTestId("then-countdown")).toHaveText("in 68 days");
+    await expect(later).toContainText("1 drink");
+    await expect(later).not.toContainText("featured");
 
     /* The featured list keeps the recipe and leaves the holiday to its row. */
     await expect(
@@ -524,19 +526,20 @@ test.describe("Homepage — this season and the featured list", () => {
     });
   }
 
-  test("drinks-bar's season has no WCAG 2.2 AA violations, and fits a phone", async ({
+  test("drinks-bar's holidays have no WCAG 2.2 AA violations, and fit a phone", async ({
     page,
     resetData,
   }) => {
     await resetData("drinks-bar");
     await page.clock.setFixedTime(OCT_18);
     await page.goto("/");
-    await expect(season(page).getByTestId("season-row")).toHaveCount(2);
+    await expect(nextUp(page).getByTestId("feast-course")).toHaveCount(2);
+    await expect(then(page).getByTestId("then-feast")).toHaveCount(1);
     await expectNoViolations(page);
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
-    await expect(season(page).getByTestId("season-row")).toHaveCount(2);
+    await expect(nextUp(page).getByTestId("feast-course")).toHaveCount(2);
     const overflow = await page.evaluate(
       () =>
         document.documentElement.scrollWidth -
@@ -544,13 +547,13 @@ test.describe("Homepage — this season and the featured list", () => {
     );
     expect(overflow).toBeLessThanOrEqual(0);
     /*
-     * Every link in the season's rows is a ≥ 24 px target. Measured rather than
-     * axe'd: at phone width axe's target-size counts whatever the fixed tab
-     * bar happens to cover at the current scroll as "partially obscured" —
-     * a property of the scroll position, not of the targets.
+     * Every link in the holidays' sections is a ≥ 24 px target. Measured
+     * rather than axe'd: at phone width axe's target-size counts whatever the
+     * fixed tab bar happens to cover at the current scroll as "partially
+     * obscured" — a property of the scroll position, not of the targets.
      */
-    const boxes = await season(page)
-      .getByTestId("season-row")
+    const boxes = await page
+      .locator('[data-testid="next-feast"], [data-testid="then-feast"]')
       .getByRole("link")
       .evaluateAll((links) =>
         links.map((link) => {

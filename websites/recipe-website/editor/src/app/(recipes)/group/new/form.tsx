@@ -4,14 +4,15 @@ import CreateGroupFields from "recipe-website-common/components/Form/Group/Creat
 import { useActionState } from "react";
 import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
 import type { GroupFormState } from "recipe-website-common/controller/groupFormState";
+import type { GroupPrefill } from "recipe-website-common/controller/groupPrefill";
 import { createGroup } from "recipe-editor/controller/actions/groups";
 import type { TagPickerData } from "recipe-website-common/components/Form/Tags/tagPicker";
 
 export default function NewGroupForm({
-  preselectedRecipe,
+  prefill,
   tagPicker,
 }: {
-  preselectedRecipe?: string;
+  prefill?: GroupPrefill;
   tagPicker?: TagPickerData;
 }) {
   const initialState = { message: "", errors: {} } as GroupFormState;
@@ -25,15 +26,12 @@ export default function NewGroupForm({
           state={state}
           tagPicker={tagPicker}
           /*
-           * `?recipe=` becomes the first row's default. The row is there
-           * either way — a group form with no rows has no obvious affordance —
-           * so this only fills it in.
+           * The link's values become the form's defaults (`groupPrefill`):
+           * `?recipe=` the first row, the homepage's menu link a name, tags
+           * and a row per course. The row is there either way — a group form
+           * with no rows has no obvious affordance — so this only fills it in.
            */
-          group={
-            preselectedRecipe
-              ? { items: [{ recipe: preselectedRecipe }] }
-              : undefined
-          }
+          group={prefill ? { ...prefill } : undefined}
         />
         <div id="missing-fields-error" aria-live="polite" aria-atomic="true">
           {state.message && (

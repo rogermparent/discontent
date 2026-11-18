@@ -44,7 +44,7 @@ import {
   parseInput,
 } from "../websites/recipe-website/editor/controller/curation/schema";
 import { wrapUntrusted } from "../websites/recipe-website/editor/controller/agent/loop";
-import { homepageShown } from "../websites/recipe-website/common/controller/homepageComingUp";
+import { homepageDay } from "../websites/recipe-website/common/controller/homepageDay";
 
 /** An inspect's result as `inspectUrl` answers a page that answered 404. */
 const NOT_FOUND = {
@@ -346,25 +346,39 @@ describe("the git page's words (rows 9, 10)", () => {
 });
 
 describe("the homepage shows a recipe once (rows 12, 13)", () => {
-  /* 17 November 2026: Thanksgiving (26 Nov) and Christmas in the window,
-   * Halloween past. */
+  /*
+   * 17 November 2026: Thanksgiving (26 Nov) and Christmas in the window,
+   * Halloween past. Since 48e the season's strips are the next holiday's
+   * course cards and the "Then" cards (`homepageDay`); the rules are 47h's.
+   */
   const today = { year: 2026, month: 11, day: 17 };
-  const season = [
-    { slug: "halloween", picks: ["dirt-pudding"] },
+  const feasts = [
+    { slug: "halloween", rule: "halloween", cards: [], top: ["dirt-pudding"] },
     {
       slug: "thanksgiving",
-      picks: ["pie", "rolls", "stuffing", "gravy", "turkey"],
+      rule: "thanksgiving",
+      cards: [
+        { slug: "dessert", picks: ["pie"] },
+        { slug: "bread", picks: ["rolls"] },
+        { slug: "side", picks: ["stuffing"] },
+        { slug: "sauce", picks: ["gravy"] },
+      ],
+      top: ["pie", "rolls", "stuffing", "gravy", "turkey"],
     },
     {
       slug: "christmas",
-      picks: ["pie", "cookies", "rolls", "fudge", "nog", "stollen"],
+      rule: "christmas",
+      cards: [],
+      top: ["pie", "cookies", "rolls", "fudge", "nog", "stollen"],
     },
   ];
+  const none = { quick: [], warm: [], warmHolidays: [] };
 
   it("lets the earliest section keep a recipe, and the next one fill in", () => {
-    const shown = homepageShown({
+    const shown = homepageDay({
       today,
-      season,
+      ...none,
+      feasts,
       featured: [
         { key: "0-recipe-fudge", recipe: "fudge" },
         { key: "1-recipe-soup", recipe: "soup" },
@@ -374,26 +388,29 @@ describe("the homepage shows a recipe once (rows 12, 13)", () => {
       fresh: ["turkey", "soup", "salad", "pie", "bread"],
       freshLimit: 2,
     });
-    expect(shown.season).toEqual([
-      expect.objectContaining({
-        slug: "thanksgiving",
-        picks: ["pie", "rolls", "stuffing", "gravy"],
-      }),
+    expect(shown.next?.cards.map((card) => card.pick)).toEqual([
+      "pie",
+      "rolls",
+      "stuffing",
+      "gravy",
+    ]);
+    expect(shown.then).toEqual([
       expect.objectContaining({
         slug: "christmas",
         picks: ["cookies", "fudge", "nog", "stollen"],
       }),
     ]);
-    /* Fudge is in Christmas's strip; soup once. */
+    /* Fudge is on Christmas's card; soup once. */
     expect(shown.featured).toEqual(["1-recipe-soup"]);
-    /* Turkey was not in a strip (the fifth Thanksgiving candidate). */
+    /* Turkey was on no card (Thanksgiving's fifth). */
     expect(shown.fresh).toEqual(["turkey", "salad"]);
   });
 
   it("drops a past holiday's feature and the plan above, keeping dangling slots", () => {
-    const shown = homepageShown({
+    const shown = homepageDay({
       today,
-      season,
+      ...none,
+      feasts,
       featured: [
         { key: "0-term-halloween", holiday: "halloween" },
         { key: "1-term-thanksgiving", holiday: "thanksgiving" },
@@ -413,9 +430,10 @@ describe("the homepage shows a recipe once (rows 12, 13)", () => {
   });
 
   it("shows the newest anyway when every candidate is above", () => {
-    const shown = homepageShown({
+    const shown = homepageDay({
       today,
-      season,
+      ...none,
+      feasts,
       featured: [],
       featuredLimit: 6,
       fresh: ["pie", "rolls"],

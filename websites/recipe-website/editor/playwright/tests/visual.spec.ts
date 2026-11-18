@@ -64,7 +64,9 @@ test.describe("Visual baselines @visual", () => {
     }
     await page.clock.setFixedTime(new Date(2026, 9, 18, 12));
     await page.goto("/");
-    await expect(page.getByTestId("season-countdown")).toHaveCount(2);
+    /* 48e: Halloween next up, Christmas then — both counted down. */
+    await expect(page.getByTestId("next-countdown")).toHaveText("in 13 days");
+    await expect(page.getByTestId("then-countdown")).toHaveText("in 68 days");
     await expect(
       page.getByRole("region", { name: "Featured", exact: true }),
     ).toContainText("Daiquiri");

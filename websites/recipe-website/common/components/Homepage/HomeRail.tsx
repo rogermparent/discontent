@@ -2,13 +2,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import {
-  seasonRows,
-  withoutSeasonFeatures,
-} from "../../controller/homepageComingUp";
-import { parseDayKey } from "../../util/holidays";
-import { useHomeShown } from "./HomeShown";
-import { useToday } from "./useToday";
+import { useHomeDay } from "./HomeDay";
 
 export interface FeaturedListRow {
   key: string;
@@ -24,52 +18,40 @@ export interface FeaturedListRow {
 }
 
 /**
- * The homepage's right rail (42f, canvas B): the plan panel, then the
- * featured list less the holidays that have a "This season" row on the
- * reader's day (`seasonRows`, the call `SeasonSection` makes), cut to
- * `limit`.
+ * The column beside New in the collection (48e, canvas B; 42f's right
+ * rail): "On the plan" — the newest plan, unless it is a holiday's plan
+ * already shown under its holiday above — then "Featured", a short list less
+ * what the page already shows (`homepageDay`: a holiday with a row above, a
+ * past holiday, a plan shown above, a recipe shown above), cut to `limit`.
  *
- * A client island because what it shows depends on that day: a featured
- * list of only in-season holidays is already on the page, as their rows, so
- * it renders nothing — and with no plan either, the rail renders nothing at
- * all, rather than an empty box. `serverDay` is the first render's day, as
- * everywhere on the page.
+ * A client island because what it shows depends on the reader's day. With
+ * neither a plan nor a feature to show, it renders nothing at all, rather
+ * than an empty box.
  */
 export function HomeRail({
   plan,
   rows,
-  season,
-  serverDay,
   limit,
   className,
 }: {
   /** The plan panel, rendered on the server; `null` with no plans. */
   plan: ReactNode;
   rows: FeaturedListRow[];
-  season: Array<{ slug: string; rule?: string }>;
-  serverDay: string;
   limit: number;
   className?: string;
 }) {
-  const today = useToday(null) ?? serverDay;
-  /* 47h: the page's answer — past holidays, the plan above and recipes
-   * already shown are left out (`homepageShown`). */
-  const page = useHomeShown();
+  const page = useHomeDay();
   let visible: FeaturedListRow[];
   if (page) {
     const byKey = new Map(rows.map((row) => [row.key, row]));
-    visible = page.featured.flatMap((key) => {
+    visible = page.day.featured.flatMap((key) => {
       const row = byKey.get(key);
       return row ? [row] : [];
     });
   } else {
-    const shown = new Set(
-      seasonRows(season, parseDayKey(today)).map((row) => row.slug),
-    );
-    visible = withoutSeasonFeatures(rows, shown)
-      .slice(0, limit)
-      .filter((row) => !row.dangling);
+    visible = rows.slice(0, limit).filter((row) => !row.dangling);
   }
+  if (page?.day.planShown) plan = null;
   if (!plan && visible.length === 0) return null;
   return (
     <div className={className}>

@@ -13,7 +13,7 @@ test.describe("Mobile @mobile", () => {
     await snapshotPage(page, "homepage-mobile.png");
   });
 
-  /* 42f: the season's rows and their strips on a phone (dates masked). */
+  /* 42f: the season on a phone (dates masked); since 48e Next up and Then. */
   test("homepage season on a small viewport @visual", async ({
     page,
     resetData,
@@ -21,7 +21,9 @@ test.describe("Mobile @mobile", () => {
     await resetData("drinks-bar");
     await page.clock.setFixedTime(new Date(2026, 9, 18, 12));
     await page.goto("/");
-    await expect(page.getByTestId("season-countdown")).toHaveCount(2);
+    /* 48e: Halloween next up, Christmas then — both counted down. */
+    await expect(page.getByTestId("next-countdown")).toHaveText("in 13 days");
+    await expect(page.getByTestId("then-countdown")).toHaveText("in 68 days");
     await snapshotPage(page, "homepage-season-mobile.png");
   });
 

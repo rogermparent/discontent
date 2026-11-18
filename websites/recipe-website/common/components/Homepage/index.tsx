@@ -1,8 +1,9 @@
+import type { ReactNode } from "react";
 import type { GroupListEntry } from "../../controller/groupPaginationConfig";
-import type { ComingUpEntry } from "../../controller/homepageComingUp";
 import type { HomepageFacet } from "../../controller/homepageFacets";
 import type { HomepageIntent } from "../../controller/homepageIntents";
-import { cn } from "@discontent/component-library/lib/utils";
+import type { TonightCandidates } from "../../controller/homepageTonight";
+import type { FreshBatch, FreshCuisine } from "../../controller/homepageFresh";
 import {
   PageMain,
   PageSection,
@@ -10,145 +11,155 @@ import {
 import { BrowseChips } from "./BrowseChips";
 import { BrowseTerms } from "./BrowseTerms";
 import { featuredRows, type FeaturedStripEntry } from "./FeaturedPanel";
-import { HomeRail } from "./HomeRail";
+import { Feasts, type FeastView } from "./Feasts";
+import { HomeDayProvider } from "./HomeDay";
 import { HomeIntro } from "./HomeIntro";
-import { NewThisWeek, type NewRecipe } from "./NewThisWeek";
+import { HomeRail } from "./HomeRail";
+import { MakeTile } from "./MakeTile";
+import { NewInCollection, type NewRecipe } from "./NewInCollection";
 import { PlanPanel, type PlanLine } from "./PlanPanel";
-import { ThisSeason, hasSeason } from "./ThisSeason";
-import { HomeShownProvider } from "./HomeShown";
-import { datedHolidays } from "../../controller/homepageComingUp";
+import { Tonight } from "./Tonight";
 
 /**
- * The homepage — canvas B, "Now and next" (42f; `agent-epic-42.md`), on the
- * structure the 2026-10-15 redesign settled (`ui-overhaul.md`).
+ * The homepage — canvas B, "Tonight, then the next feast" (48e;
+ * `agent-epic-48.md`). The page answers two questions in order, what's for
+ * dinner tonight and what am I getting ready for, then shows what's new:
  *
- * One screen holds what you are cooking now and what is next:
+ * - **The band:** the date and the days to the next holiday, "What are you
+ *   making?", the search field (with Ask for a signed-in editor with a
+ *   model) and the intents as `tag:` chips.
+ * - **Tonight:** a quick dinner, What can I make from the reader's list,
+ *   and something warm to drink in the warm season.
+ * - **Next up:** the next holiday as its menu by course; **Then:** the two
+ *   after it, a plan where one is filed under the holiday.
+ * - **New in the collection** by batch and cuisine, beside **On the plan**
+ *   and **Featured**; then **Browse** as one index line.
  *
- * - **The band:** the date, "What are you making?", a search field and the
- *   intents as `tag:` chips; the Make tile beside them.
- * - **The main column:** "This season" (the next holidays, dated), "New
- *   this week" (a compact list), "Browse" (one line per facet root).
- * - **The right rail:** "On the plan" (the newest plan) and "Featured".
- *
- * On a phone it is one column: the band, the season, the rail, then New
- * this week and Browse — the plan right after the season, as the canvas's
- * phone board has it. On a laptop the rail spans the main column's rows;
- * the second row is `1fr`, so a rail taller than the season stretches the
- * bottom of the main column rather than opening a gap under the season.
- * Whether the season and the featured list render is the browser's day's
- * call (`SeasonSection`, `HomeRail`); the grid leaves no hole either way.
- *
- * Every value arrives as a prop — the route does all the reading — and the
- * things that depend on the reader's browser (the date, the season's rows
- * and the features they stand in for, the Make tile's count) are client
- * islands, so both apps
- * render the same page and the static export never shows a build day's date.
+ * On a phone it is one column in the same order. Every value arrives as a
+ * prop — the route does all the reading — and what depends on the reader's
+ * day (the date, tonight's turn, the next holiday, which recipe shows where)
+ * is worked out in the browser (`HomeDayProvider`), so both apps render the
+ * same page and the static export never shows a build day's answer.
  */
 export default function Homepage({
-  recipes,
+  intents,
+  recipeCount,
+  serverDay,
+  ask,
+  tonight,
+  feasts,
+  names,
+  thumbs,
+  cards,
   featured,
-  season: seasonHolidays,
   featuredLimit,
-  freshLimit,
   plan,
   planLines,
   showShopping = false,
+  recipes,
+  batches,
+  cuisines,
+  freshLimit,
+  moreRecipes,
   facets,
   tags,
-  intents,
-  comingUp,
-  serverDay,
-  moreRecipes,
-  recipeCount,
 }: {
-  recipes: NewRecipe[];
-  /**
-   * Features, newest first (22g): enough that `featuredLimit` remain once
-   * the browser hides the holidays "This season" shows (42f).
-   */
+  intents: HomepageIntent[];
+  recipeCount: number;
+  /** The server's day, `YYYY-MM-DD`, for the first render. */
+  serverDay: string;
+  /** Editor only: the search field with Ask (`HomeAsk`). */
+  ask?: (field: ReactNode) => ReactNode;
+  tonight: TonightCandidates;
+  feasts: FeastView[];
+  /** Recipe names by slug, for the holidays' recipes. */
+  names: Record<string, string>;
+  /** Small pictures by recipe slug, rendered on the server. */
+  thumbs: Record<string, ReactNode>;
+  /** Larger pictures (course cards, the warm drink), by recipe slug. */
+  cards: Record<string, ReactNode>;
+  /** Features, newest first (22g): enough that `featuredLimit` remain. */
   featured: FeaturedStripEntry[];
-  /** The dated holidays with something under them (`datedHolidays`). */
-  season: Array<{ slug: string; rule?: string }>;
   featuredLimit: number;
-  /** How many New this week shows of `recipes`, its candidates (47h). */
-  freshLimit: number;
   /** The newest group, if there is one. */
   plan?: GroupListEntry;
   /** Its lines, resolved; `undefined` when the record could not be read. */
   planLines?: PlanLine[];
-  /** A signed-in editor: the plan panel links the shopping list. */
+  /** A signed-in editor: the plan panels link the shopping list. */
   showShopping?: boolean;
-  /** The tag vocabulary's facet roots, ordered and capped (`homepageFacets`). */
-  facets: HomepageFacet[];
-  /**
-   * Flat tag labels for the fallback chips — read only when `facets` is
-   * empty, so a corpus with no term records still has a browse row.
-   */
-  tags: string[];
-  intents: HomepageIntent[];
-  /** The holidays, or `null` when there is no `holidays` root. */
-  comingUp: ComingUpEntry[] | null;
-  /** The server's day, `YYYY-MM-DD`, for the season's first render. */
-  serverDay: string;
+  /** New in the collection's candidates, newest first. */
+  recipes: NewRecipe[];
+  batches: FreshBatch[];
+  cuisines: FreshCuisine[];
+  freshLimit: number;
   moreRecipes: boolean;
-  recipeCount: number;
+  /** The tag vocabulary's facet roots, ordered (`homepageFacets`). */
+  facets: HomepageFacet[];
+  /** Flat tag labels for the fallback chips, when `facets` is empty. */
+  tags: string[];
 }) {
-  const season = hasSeason(comingUp);
-  /* The rail may still render nothing: `HomeRail` decides on the reader's day. */
-  const mayHaveRail = plan !== undefined || featured.length > 0;
   const rows = featuredRows(featured);
-  /* 47h: what the day's answer reads (`homepageShown`), plain values only. */
-  const seasonPicks = datedHolidays(comingUp ?? []).map((entry) => ({
-    slug: entry.slug,
-    ...(entry.rule ? { rule: entry.rule } : {}),
-    picks: entry.picks.map((pick) => pick.slug),
-  }));
-  const shownFeatures = rows.map(
-    ({ key, holiday, recipe, group, dangling }) => ({
-      key,
-      ...(holiday ? { holiday } : {}),
-      ...(recipe ? { recipe } : {}),
-      ...(group ? { group } : {}),
-      ...(dangling ? { dangling } : {}),
-    }),
+  const holidayLabels = Object.fromEntries(
+    feasts.map((feast) => [feast.slug, feast.label]),
   );
   return (
     <PageMain>
       <PageSection
         maxWidth="none"
-        className="mx-auto flex max-w-6xl flex-col gap-10 pt-8 pb-14 sm:pt-9"
+        className="mx-auto flex max-w-6xl flex-col pt-6 pb-14 sm:pt-9"
       >
-        <HomeIntro intents={intents} recipeCount={recipeCount} />
-        {/*
-         * No gaps on the laptop grid: each part brings its own margin, so a
-         * part the browser decides not to render (the season on a day with
-         * no rows, a rail of only in-season holidays) leaves no empty track
-         * and no stray gap — the rail's `auto` column is then 0 wide.
-         */}
-        <HomeShownProvider
+        <HomeDayProvider
           serverDay={serverDay}
-          season={seasonPicks}
-          featured={shownFeatures}
+          quick={tonight.quick.map((recipe) => recipe.slug)}
+          warm={tonight.warm.map((recipe) => recipe.slug)}
+          warmHolidays={tonight.warmHolidays}
+          feasts={feasts.map((feast) => ({
+            slug: feast.slug,
+            rule: feast.rule,
+            cards: feast.cards.map((card) => ({
+              slug: card.slug,
+              picks: card.picks,
+            })),
+            top: feast.top,
+            ...(feast.plan ? { plan: feast.plan.slug } : {}),
+          }))}
+          featured={rows.map(({ key, holiday, recipe, group, dangling }) => ({
+            key,
+            ...(holiday ? { holiday } : {}),
+            ...(recipe ? { recipe } : {}),
+            ...(group ? { group } : {}),
+            ...(dangling ? { dangling } : {}),
+          }))}
           featuredLimit={featuredLimit}
           {...(plan ? { planGroup: plan.slug } : {})}
           fresh={recipes.map((recipe) => recipe.slug)}
           freshLimit={freshLimit}
+          thumbs={thumbs}
+          cards={cards}
+          names={names}
         >
-          <div
-            className={cn(
-              "flex flex-col gap-10",
-              (season || mayHaveRail) &&
-                "lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:grid-rows-[auto_1fr] lg:gap-0",
-            )}
-          >
-            {season && (
-              <ThisSeason
-                entries={comingUp}
-                serverDay={serverDay}
-                className="min-w-0 lg:col-start-1 lg:row-start-1 lg:mb-10"
+          <div className="flex flex-col gap-10 lg:gap-12">
+            <HomeIntro
+              intents={intents}
+              recipeCount={recipeCount}
+              ask={ask}
+              holidayLabels={holidayLabels}
+            />
+            <Tonight
+              quick={tonight.quick}
+              warm={tonight.warm}
+              make={<MakeTile />}
+            />
+            <Feasts feasts={feasts} showShopping={showShopping} />
+            <div className="flex flex-col gap-10 lg:grid lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-start lg:gap-10">
+              <NewInCollection
+                recipes={recipes}
+                batches={batches}
+                cuisines={cuisines}
+                limit={freshLimit}
+                recipeCount={recipeCount}
+                moreRecipes={moreRecipes}
               />
-            )}
-            {mayHaveRail && (
               <HomeRail
                 plan={
                   plan ? (
@@ -160,27 +171,17 @@ export default function Homepage({
                   ) : null
                 }
                 rows={rows}
-                season={seasonHolidays}
-                serverDay={serverDay}
                 limit={featuredLimit}
-                className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:ml-10 lg:w-[22rem] lg:self-start"
+                className="flex min-w-0 flex-col gap-4"
               />
-            )}
-            <div className="flex min-w-0 flex-col gap-10 lg:col-start-1 lg:row-start-2">
-              <NewThisWeek
-                recipes={recipes}
-                limit={freshLimit}
-                recipeCount={recipeCount}
-                moreRecipes={moreRecipes}
-              />
-              {facets.length > 0 ? (
-                <BrowseTerms facets={facets} />
-              ) : (
-                <BrowseChips tags={tags} />
-              )}
             </div>
+            {facets.length > 0 ? (
+              <BrowseTerms facets={facets} />
+            ) : (
+              <BrowseChips tags={tags} />
+            )}
           </div>
-        </HomeShownProvider>
+        </HomeDayProvider>
       </PageSection>
     </PageMain>
   );

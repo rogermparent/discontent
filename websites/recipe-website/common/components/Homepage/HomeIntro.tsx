@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import {
   countLabel,
@@ -5,7 +6,6 @@ import {
   type HomepageIntent,
 } from "../../controller/homepageIntents";
 import { HomeSearch } from "./HomeSearch";
-import { MakeTile } from "./MakeTile";
 import { TodayLine } from "./TodayLine";
 
 /**
@@ -29,53 +29,57 @@ function IntentChip({ intent }: { intent: HomepageIntent }) {
 }
 
 /**
- * The top of the homepage — canvas B, "Now and next" (42f): today's date,
- * "What are you making?", a real search field, and the intents as `tag:`
- * chips under it; the Make tile beside them on a laptop, under them on a
- * phone.
+ * The top of the homepage — canvas B, "Tonight, then the next feast" (48e;
+ * 42f's band before it): today's date and the days to the next holiday,
+ * "What are you making?", one field for search and — for a signed-in editor
+ * with a model, `ask` — Ask (43q), and the intents as `tag:` chips. The Make
+ * tile moved down into Tonight.
  *
  * An `h2`: the masthead's site title stays the page's only `h1`.
  *
- * The search field is the band's centrepiece — until 42f search lived only
- * in the masthead. The chips are links in a `nav`, not a list:
- * `featured-recipes`' "feature again" counts every `listitem` on `/`.
+ * The chips are links in a `nav`, not a list: `featured-recipes`' "feature
+ * again" counts every `listitem` on `/`.
  */
 export function HomeIntro({
   intents,
   recipeCount,
+  ask,
+  holidayLabels,
 }: {
   intents: HomepageIntent[];
   /** The corpus size, for the field's placeholder. */
   recipeCount: number;
+  /** Editor only: wraps the search field with Ask (`HomeAsk`). */
+  ask?: (field: ReactNode) => ReactNode;
+  /** Holiday slug → label, for the eyebrow's countdown. */
+  holidayLabels: Record<string, string>;
 }) {
+  const field = <HomeSearch recipeCount={recipeCount} />;
   return (
     <section
       aria-labelledby="home-start"
-      className="grid grid-cols-1 items-end gap-5 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-10"
+      className="flex max-w-[52rem] min-w-0 flex-col gap-3.5"
     >
-      <div className="flex min-w-0 flex-col gap-3.5">
-        <div className="flex flex-col gap-1">
-          <TodayLine />
-          <h2
-            id="home-start"
-            className="font-display text-[clamp(1.875rem,4vw,2.75rem)] font-semibold leading-[1.02] tracking-tight"
-          >
-            What are you making?
-          </h2>
-        </div>
-        <HomeSearch recipeCount={recipeCount} />
-        {intents.length > 0 && (
-          <nav
-            aria-label="Start a search from"
-            className="flex flex-row flex-wrap gap-2"
-          >
-            {intents.map((intent) => (
-              <IntentChip key={intent.slug} intent={intent} />
-            ))}
-          </nav>
-        )}
+      <div className="flex flex-col gap-1">
+        <TodayLine labels={holidayLabels} />
+        <h2
+          id="home-start"
+          className="font-display text-[clamp(1.875rem,4vw,2.75rem)] font-semibold leading-[1.02] tracking-tight"
+        >
+          What are you making?
+        </h2>
       </div>
-      <MakeTile />
+      {ask ? ask(field) : field}
+      {intents.length > 0 && (
+        <nav
+          aria-label="Start a search from"
+          className="flex flex-row flex-wrap gap-2"
+        >
+          {intents.map((intent) => (
+            <IntentChip key={intent.slug} intent={intent} />
+          ))}
+        </nav>
+      )}
     </section>
   );
 }
