@@ -204,6 +204,9 @@ describe("runAgent — the loop", () => {
       toolCallId: first.id,
       name: "recipe_search",
       content: '{"recipes":[{"slug":"texas-chili"}]}',
+      /* 48a: the search's rows for the tagging post-check (the wire
+       * mappers never send it). */
+      found: { total: 1, recipes: [{ slug: "texas-chili" }] },
     });
     /* The tool's own `run` is not what the model is told about. */
     expect(requests[0].tools).toEqual([

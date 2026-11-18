@@ -6,7 +6,9 @@ import { ClientListItem } from "recipe-website-common/components/ClientList";
 import { RecipeGrid } from "recipe-website-common/components/List/shared";
 import {
   assignedNote,
+  missedNote,
   type ChangedPlace,
+  type ChangedTerm,
 } from "recipe-editor/controller/agent/changes";
 import type {
   CuratorChangedRecipe,
@@ -75,6 +77,56 @@ function RecipeCards({ recipes }: { recipes: CuratorChangedRecipe[] }) {
         </p>
       )}
     </>
+  );
+}
+
+/**
+ * The tagging post-check (48a, Roger's pick 46-d-tag): for a term the run
+ * tagged recipes with, what its own searches found and it left out — a
+ * list to look over, with each recipe a link. Nothing here is written.
+ */
+function MissedTerms({ terms }: { terms: ChangedTerm[] }) {
+  const checked = terms.filter((term) => missedNote(term));
+  if (checked.length === 0) return null;
+  return (
+    <div data-testid="curator-missed">
+      <h3 className="mb-2 text-sm font-semibold">Check what it left out</h3>
+      <ul className="flex flex-col gap-2 text-sm">
+        {checked.map((term) => {
+          const missed = term.missed ?? [];
+          const rest = (term.missedCount ?? 0) - missed.length;
+          return (
+            <li key={term.slug} data-testid="curator-missed-term">
+              <span className="font-medium">
+                Tag{" "}
+                <Link
+                  href={`/tags/${term.slug}`}
+                  className="underline underline-offset-2"
+                >
+                  {term.slug}
+                </Link>
+                :
+              </span>{" "}
+              {missedNote(term)}
+              {missed.length > 0 ? ": " : "."}
+              {missed.map((recipe, index) => (
+                <span key={recipe.slug}>
+                  {index > 0 ? ", " : ""}
+                  <Link
+                    href={`/recipe/${recipe.slug}`}
+                    className="underline underline-offset-2"
+                  >
+                    {recipe.name ?? recipe.slug}
+                  </Link>
+                </span>
+              ))}
+              {missed.length > 0 && rest > 0 ? `, and ${rest} more.` : ""}
+              {missed.length > 0 && rest <= 0 ? "." : ""}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
@@ -170,6 +222,7 @@ export function ChangesCard({ changes }: { changes: CuratorRunChanges }) {
             </ul>
           </div>
         )}
+        <MissedTerms terms={changes.terms} />
         {changes.commits > 0 && (
           <p className="text-sm">
             <Link

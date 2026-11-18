@@ -143,6 +143,21 @@ export interface AgentToolResultMessage {
    * wrote; never sent to the model (the wire mappers pick their fields).
    */
   summary?: AgentWriteSummary;
+  /**
+   * What a `recipe_search` found (48a), from the **uncut** result as the
+   * summary is: its rows' slug, name and tags (capped, `FOUND_MAX`) and its
+   * total — for the tagging post-check (`changes.ts`), which lists what a
+   * run's search found and its `term_assign` left out. Never sent to the
+   * model.
+   */
+  found?: AgentFound;
+}
+
+/** One `recipe_search` answer, as the tagging post-check reads it (48a). */
+export interface AgentFound {
+  /** Every match, beyond the rows returned. */
+  total: number;
+  recipes: { slug: string; name?: string; tags?: string[] }[];
 }
 
 /** A recipe a write touched, and how (44d, `changes.ts`). */
