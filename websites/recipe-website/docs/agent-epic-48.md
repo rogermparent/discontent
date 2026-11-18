@@ -906,6 +906,39 @@ devices" in place of Content Sync and Maintenance.
 - The other side is the first mirror; a second mirror is listed in the sync
   row but not drawn as a third machine.
 
+#### Gates (48d)
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean (heavy slot), after the review fixes.
+- `pnpm exec vitest run`: **193 files, 4,214 tests**, all passed (on
+  04ae7323); after the review fixes `syncUpkeep`, `apiTokens`, `piSync`,
+  `instance` and `curationGit` again, **180 passed**. New:
+  `test/syncUpkeep.test.ts` (26: the sentence, the other side, what moved
+  and which way, keep both and its picks, devices, the session store's list
+  and revoke, tokens made, listed, revoked, never logged, committed as a
+  hash, rolled back on a failed commit).
+- Playwright in Docker, production build: the first run (`sync-upkeep`,
+  `git`, `settings-nav`, `mirror-role`, `mirrors-card`) **50 passed, 6
+  failed** — a remote's name repeated in the Remotes caption, the spec's
+  "Fetch" also matching the RemoteSelector's, the history not refreshed
+  after a sync (Td1), and an API recipe's commit subject; all fixed. The
+  gate run (`sync-upkeep`, `git`, `mirror-role`, `mirrors-card`,
+  `settings-nav`, `sign-in-hosts`, `signin`, `accessibility`, `visual`,
+  `command-palette`, `footer`, `theme-editor`, `export-page`, e2e +
+  mobile): **227 passed, 1 failed** — the token spec's axe after a reload
+  read the translucent masthead over the Sign out everywhere button (the
+  reload kept the scroll); it checks from the top now, and `sync-upkeep`
+  again: **6 passed**.
+- Dev mode once (Docker, `next dev`): `sync-upkeep` and `settings-nav`
+  **15 passed**.
+- **One baseline moved**, regenerated in Docker:
+  `visual.spec.ts/git-page-e2e.png` (the page is Sync & upkeep now:
+  sentence, chips, the two editors, What moved, Upkeep, Advanced with
+  Branches and Remotes open; the settings sidebar regrouped). Checked by
+  eye. No other baseline shows the settings sidebar or the page.
+
+### 48e: The homepage, variant B (L)
+
 Search + Ask field, Tonight (quick dinner / ready now / warm drink), the
 next holiday as its menu by course (fixes the Thanksgiving strip having no
 turkey, stuffing or pie) + Start a plan / Ask the curator (editor only),
