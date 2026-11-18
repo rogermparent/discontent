@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import {
   useEffect,
@@ -363,6 +364,7 @@ export function RunView({
   /** The "New ask" link, beside the title. */
   newAsk?: ReactNode;
 }) {
+  const router = useRouter();
   const { meta, live, loaded, records } = poll;
   const conversation = useMemo(
     () => buildConversation(records, { live }),
@@ -638,6 +640,8 @@ export function RunView({
           onSaved={(next) => {
             reviewState.set(next);
             setSavedTimes((count) => count + 1);
+            /* The runs list (server-rendered) now says Saved, not Review. */
+            router.refresh();
           }}
         />
       ) : null}

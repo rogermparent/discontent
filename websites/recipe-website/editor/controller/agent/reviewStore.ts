@@ -12,7 +12,7 @@
  */
 import { mkdir, readFile } from "node:fs/promises";
 import { writeJsonAtomic } from "@discontent/cms/fs/atomicWrite";
-import { reviewPath } from "../jobs/store";
+import { readJobMeta, reviewPath } from "../jobs/store";
 import type { HeldCall, HeldDecision, HeldReviewFile } from "./held";
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -52,10 +52,24 @@ export async function readDecisions(
       jobs.map(async (job) => [job, await readReviewFile(dir, job)] as const),
     ),
   );
+  /* 48b review: a run pruned since took its review file with it; its
+   * undecided calls are expired, not pending (never applied again). */
+  const gone = new Set(
+    (
+      await Promise.all(
+        jobs.map(async (job) =>
+          (await readJobMeta(dir, job).catch(() => undefined)) ? [] : [job],
+        ),
+      )
+    ).flat(),
+  );
   const decisions = new Map<string, HeldDecision>();
   for (const call of calls) {
     const decision = files.get(call.job)?.calls[call.id];
     if (decision) decisions.set(call.id, decision);
+    else if (gone.has(call.job)) {
+      decisions.set(call.id, { state: "expired", at: 0 });
+    }
   }
   return decisions;
 }

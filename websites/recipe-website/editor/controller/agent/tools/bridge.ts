@@ -358,9 +358,16 @@ export function recipeAgentTools(
       description: tool.description,
       inputSchema: toolInputSchema(tool.inputSchema),
       ...(UNTRUSTED_RECIPE_TOOLS.has(name) ? { untrusted: true } : {}),
-      /* 48b: a held import's dry run carries the page's recipe (E7). */
-      ...(held && PAGE_TEXT_DRY_RUNS.has(name)
-        ? { untrustedResult: (result: unknown) => isHeldAnswer(result) }
+      /* 48b: an import's dry run — held, or the model's own — carries the
+       * page's recipe (E7). */
+      ...(PAGE_TEXT_DRY_RUNS.has(name)
+        ? {
+            untrustedResult: (result: unknown) =>
+              isHeldAnswer(result) ||
+              (!!result &&
+                typeof result === "object" &&
+                (result as Args).dryRun === true),
+          }
         : {}),
       async run(input, ctx) {
         if (ctx.signal.aborted) {

@@ -546,11 +546,12 @@ test.describe("Curator", () => {
     /* ⌘K's Go to → Curator carries the count. */
     await openPalette(page);
     await paletteInput(page).fill("curator");
+    /* (Earlier tests' runs, on a retry, may wait too: "N runs waiting".) */
     await expect(page.getByTestId("palette-curator-review")).toHaveText(
-      /^1 run waiting for your review: Find two braises/,
+      /^(1 run waiting for your review: Find two braises|\d+ runs waiting for your review)/,
     );
     await expect(
-      page.getByRole("option", { name: /Curator.*Review 2/ }),
+      page.getByRole("option", { name: /Curator.*Review \d+$/ }),
     ).toBeVisible();
     await page.keyboard.press("Escape");
 
@@ -663,8 +664,12 @@ test.describe("Curator", () => {
     /* "Curator" is a Go to destination too. */
     await openPalette(page);
     await paletteInput(page).fill("curator");
+    /* 48b: earlier tests' runs may be waiting for review: then the row
+     * also says so ("Curator 1 run waiting for your review: … Review 2"). */
     await expect(
-      page.getByRole("option", { name: "Curator", exact: true }),
+      page.getByRole("option", {
+        name: /^Curator(?: \d+ runs? waiting for your review.*)?$/,
+      }),
     ).toBeVisible();
   });
 

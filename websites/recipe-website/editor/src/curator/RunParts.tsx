@@ -329,7 +329,7 @@ export function FoundRecipes({
                   href={recipe.url}
                   target="_blank"
                   rel="noopener noreferrer nofollow"
-                  aria-label={`Open ${recipe.name} on ${recipe.site} (opens in a new tab)`}
+                  aria-label={`Open page: ${recipe.name} on ${recipe.site} (opens in a new tab)`}
                 >
                   Open page
                   <ExternalLink aria-hidden />

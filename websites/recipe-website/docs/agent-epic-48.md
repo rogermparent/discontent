@@ -348,6 +348,195 @@ Roger "fix"). Where B needs something the code lacks (held writes
 answering like a dry run), build the smallest honest version and record
 it. 48a's "Check what it left out" list moves into B's review.
 
+#### Results (48b)
+
+**Held writes — the smallest honest version** (`controller/agent/held.ts`,
+`tools/bridge.ts`, `loop.ts`).
+
+- **What is held.** Every write of the grant (E1) the registry marks
+  `readOnlyHint: false`, but `git_fetch` (it moves only the remote's refs):
+  21 tools, `HELD_WRITE_TOOLS`. `test/curatorHeld.test.ts` holds the list to
+  the registry's annotations, so a new write tool is held unless someone
+  adds it deliberately as a read.
+- **What the model reads.** A held call is checked as the real one is (its
+  zod schema, its URLs through the SSRF guard, a local file refused) and
+  then answers `{held: true, note, …}` and writes nothing. The four tools
+  that take `dryRun` (`recipe_import`, `recipe_import_list`,
+  `recipe_create`, `recipe_update`) run as a dry run and the model gets
+  that answer inside the held one (the slug an import would land at, a
+  create's record), so a chain (import → tag its slug) still works; an
+  error there is the answer, not a proposal. `term_assign` answers its
+  split as the content stands (`wouldAdd`, `alreadyTagged`, `missing` — a
+  slug a held import or create may make). A dry run the model asks for
+  itself is a read and runs unheld. A held import's answer is page text
+  (E7: `untrustedResult`).
+- **What the transcript keeps.** The tool-result message gains `held`, a
+  preview read from the **uncut** answer (slug, name, a batch's recipes, the
+  tag split) for the review; the wire mappers pick their fields, so it never
+  reaches a model (tested on the Claude and Ollama wires). A held answer
+  has no `summary`: `changes.ts` counts nothing for it.
+- **The prompts.** A held run's system prompt says writes wait for the
+  person (`HOLD_RULE`, `LOCAL_HOLD_RULE`): carry on as if applied, use the
+  dry run's slug, never repeat or read back a held call, say what you
+  propose. The local prompt and tools stay under 44e's 3,500-token budget.
+
+**The review** (`controller/agent/review.ts`, `reviewStore.ts`;
+`GET`/`POST /api/agent/<id>/review`).
+
+- `GET` lists the conversation's held calls in the model's order — phrase
+  ("Create “Pork Braise”", "Tag 2 recipes middle-eastern"), input, preview,
+  state (`pending`, `applied`, `discarded`, `failed`), and for a tag each
+  recipe it adds as the content stands now (name, picture, tags, already
+  tagged, not a recipe yet) with 48a's post-check.
+- `POST {decisions: [{call, apply, add?}]}` (write scope) applies the ticked
+  calls **in the model's order** whatever order the Save lists them in (a
+  create before the tag that names it), through the same bridge the run
+  had, unheld, as the person; skips the rest; records each decision in
+  `<job>.review.json` beside the run the call was made in.
+- `add` narrows a tag to the recipes left ticked (`narrowedAdd`: only slugs
+  the model asked for); a tag with every recipe unticked is skipped. A call
+  already decided, or not this conversation's, is `validation`; a run still
+  working is `job_live` (409). A call that fails is recorded with the
+  tool's error ("unknown_recipe: …") and the rest still run.
+- What changed (`curatorRunChanges`), the recent runs' counts and ⌘K read
+  the decisions: an applied call's summary is the real write's.
+- A follow-up's model is told what was decided since (`decisionsNote`, in
+  its system prompt): "Create “Apple Pie” (call toolu_01): approved and
+  written." The model is never re-asked on Save.
+- `pruneJobs` removes a run's review file with it (and an orphaned one).
+
+**The page** (`src/curator/*`), variant B as drawn:
+
+- **Layout.** Desktop: the side column (h1, the ask with who answers, the
+  runs) left, the run right; idle, the ask sits in the main column with
+  three examples and a "How a run goes" strip. Phone: one column — the
+  head with "Runs · N" (a jump to the list), the run, then the ask and the
+  runs; the run's footer (status, Stop, follow-up) still rides above the
+  tab bar (Ed10).
+- **The run.** An eyebrow (Run · model · when), the first ask as the
+  title, **Ask → Working → Review** (`StageStrip`, `aria-current="step"`),
+  the **budget meter** (a Claude run's estimate so far of its cap, moving
+  as each turn ends; a local run's turns of 40, "Free"), then per ask:
+  **What it did** in plain words (`didLines`: looked in your recipes, read
+  the web — searches and pages with their sites —, pages that read
+  nothing, wants to make N changes, failed or never ran, working on…)
+  with "Show the N tool calls" opening 44d's rows; the **heads-up callout**;
+  the answer; and on the newest ask the **found recipes**.
+- **Review before it saves** (`ReviewPanel`): marked "suggested by
+  <model>", every held change ticked to start, a tag's recipes one per
+  row (checkbox "Tag <recipe> <term>", picture, its tags and "+ term",
+  "skipped by you — stays as it is" when unticked), "Already tagged, no
+  change: …", 48a's "Check what it left out" while it waits; "Save N
+  changes" / "Skip all"; after Save each says Saved / Skipped / Failed and
+  a status line ("Saved 1, skipped 1.") takes focus. What changed follows.
+- **Runs** (`RecentRuns`): All / To review / Changed (the term pages'
+  `Segmented`), each row with its pill (Review N, Saved N, Changed N,
+  Read only), "heads up", when, its cost; the total under the list.
+  `?show=review` opens the list on To review (⌘K's link for several runs).
+- **Who answers** (`ModelChoice`): with one model the setup line stays
+  (44d's words) plus a Claude run's cost line; with two, a radio per model
+  with its note ("Searches the web · runs here cost $0.04–$0.31 · stops at
+  $1.00"; "Free · best for reads and single imports · no web search").
+- **⌘K.** Go to → Curator carries "1 run waiting for your review: <ask>"
+  and a "Review N" pill, and opens that run (or `?show=review`); the
+  hand-off row says who answers and what runs like it cost ("qwen3:8b ·
+  free, on this machine · opens the ask filled in; you start it").
+  `GET /api/agent/summary` (read scope) answers both; the palette reads it
+  each time it opens.
+
+#### Decisions (48b)
+
+- **Db1 — Held, not dry-run-and-replay.** A held write answers the model
+  at once and writes nothing; Save runs the call the model made, not a
+  replay of the conversation. Canvas B's risk note ("a held write answers
+  the model like a dry run") is the four `dryRun` tools; the others answer
+  "held" and, for a tag, its split. A model told "held" carries on; a
+  chain is applied in order.
+- **Db2 — One commit per applied call**, the tools' own, not one commit
+  per Save as B drew it: each stays revertable on its own from Git, and no
+  new commit path was needed. Decisions live beside the run that made the
+  call (`<job>.review.json`), not in the transcript only that run appends,
+  so a follow-up's view and the first run's agree. One Save at a time in
+  the editor's process (only its route decides).
+- **Db3 — Only a tag narrows.** `term_assign`'s `add` is the one list a
+  person trims (B's drawing); every other call is applied whole or
+  skipped. Never widened.
+- **Db4 — The model learns the decisions on its next turn**, from a note
+  in a follow-up's system prompt; nothing re-runs it on Save.
+- **Db5 — Who answers.** The editor's own model (`RECIPE_LLM_*`) first and
+  picked by default — no spend by default on the workstation, whose own
+  model is qwen; B drew Claude ticked. Claude sits beside a local model
+  only with 47i's `RECIPE_LLM_CLAUDE_API_KEY`. A follow-up keeps its
+  conversation's model (Claude's raw blocks replay only to Claude). The
+  cost range is the listed runs' cheapest and dearest.
+- **Db6 — The budget moves per turn** (amends Ed2): each turn's usage is a
+  `turn` record in the transcript as it ends, summed on the page. The
+  footer's tokens still come with the end record.
+- **Db7 — The heads-up is the model's word, given a place.** Both prompts
+  ask for a paragraph opening **Heads up:**; the page lifts each such
+  paragraph (bold or not, "Heads-up", quoted) into the callout and leaves
+  the rest of the answer. The site's own facts (a 404, a failed call) are
+  "What it did" lines, not the callout.
+- **Db8 — Found recipes** are the newest answer's Markdown links on a host
+  the conversation saw, with a path, off this site, not already imported
+  (held or done), at most six. Import opens `/new-recipe?import=<url>` (the
+  import form, whose own Save writes); "Import all N" sends a follow-up
+  that comes back held. The Claude prompt asks for found recipes as links.
+- **Db9 — Who holds.** The page's runs, and `POST /api/agent` unless told
+  otherwise; `recipes agent --remote` sends `hold: false` and a local
+  `recipes agent` and the 44e harness never hold (a person at the
+  terminal, as Claude Code writes). The MCP server is untouched.
+
+#### Left out, or for later (48b)
+
+- B's "Waited 26 s … the polite pause" line: the page does not read the
+  step log, where the waits are; 48c's why-waiting sentences own them.
+- B's "Run again" button (a follow-up or the examples cover it) and its
+  per-recipe "why: ⅓ cup tahini" line (no matched-line data on a tag).
+- "Today · 4 runs": the total is over the listed runs, not today (the
+  server's day is not the reader's).
+- The model radio is unit- and component-tested only: the suite has no
+  Claude stand-in, so Playwright sees the one-model page.
+
+#### Roger to confirm (48b)
+
+- Db2: one commit per saved change, not one per Save.
+- Db5: the editor's own model is the default pick (qwen on the
+  workstation, Claude on the Pi); B had Claude ticked.
+- Db9: the CLI's `recipes agent` still writes at once.
+- Db8: Import opens the import form (its Save writes), not a held import.
+- A heads-up only shows when the model writes one ("Heads up:"); a model
+  that buries it mid-paragraph leaves it in the answer.
+- The model radio needs `RECIPE_LLM_CLAUDE_API_KEY` in the workstation's
+  `editor/.env` to offer Claude there.
+
+#### Review fixes (48b, after the read-only review of d5f75be3)
+
+- **No write applied twice.** Save checks every decision — its narrowing
+  too — before it runs any, and records each decision as soon as its call
+  returns, not after the loop: a refusal part-way, or a restart during a
+  long import, no longer leaves a landed write looking pending.
+- **An untag is reviewable.** A held `term_assign` with `remove`s shows
+  them as a row of their own ("Untag recipe old-tag: apple-pie") with a
+  checkbox; Save sends `{apply: true, add: []}` for an untag-only call, and
+  `remove: []` when only the untag is unticked (`narrowedList` narrows
+  `remove` as it does `add`).
+- **A pruned run's calls expire.** A held call whose run has been pruned
+  (its review file with it) reads `expired`, not pending: not counted on
+  ⌘K or the runs list, never applied; a follow-up's model hears so.
+- **Save waits for the newest run.** A Save from an older run's view is
+  `job_live` while any follow-up of it is still working
+  (`conversationLive`), so the working model never misses a decision.
+- **Every import dry run is page text** (E7): the model's own
+  `recipe_import` / `recipe_import_list` dry run is wrapped too, not only a
+  held one (it was not before 48b either).
+- "Open page" on a found recipe is named "Open page: <name> on <site> …"
+  (axe's label-content-name-mismatch).
+
+#### Gates (48b)
+
+(filled in below as they run)
+
 ### 48c: `/jobs` and a job's page, variant B (L)
 
 A live chip in the masthead, live steps with why-waiting sentences,

@@ -26,14 +26,14 @@ import {
   withJob,
 } from "../curation/errors";
 import { jobsDirectory } from "../jobs/location";
-import { LIVE_STATUSES, settleOrphanedJob } from "../jobs/store";
+import { LIVE_STATUSES, listJobs, settleOrphanedJob } from "../jobs/store";
 import { requireJob } from "../jobs/views";
 import { tagMisses, writeSummary } from "./changes";
 import { recipeNames } from "./conversation";
 import {
   heldCalls,
   heldPhrase,
-  narrowedAdd,
+  narrowedList,
   type HeldCall,
   type HeldDecision,
   type HeldState,
@@ -118,6 +118,36 @@ async function isLive(dir: string, id: string): Promise<boolean> {
     () => meta,
   );
   return LIVE_STATUSES.includes(settled.status);
+}
+
+/**
+ * Whether run `id`, or a follow-up continuing it (at any depth), is live
+ * (48b review): Save from an older run's view waits for the conversation's
+ * newest run, whose model would otherwise never hear the decision.
+ */
+async function conversationLive(
+  dir: string,
+  id: string,
+): Promise<string | undefined> {
+  if (await isLive(dir, id)) return id;
+  const agents = (await listJobs(dir)).filter((meta) => meta.kind === "agent");
+  const children = new Map<string, string[]>();
+  for (const meta of agents) {
+    const parent = (meta.spec as { continues?: unknown } | undefined)
+      ?.continues;
+    if (typeof parent !== "string") continue;
+    children.set(parent, [...(children.get(parent) ?? []), meta.id]);
+  }
+  const queue = [...(children.get(id) ?? [])];
+  const seen = new Set<string>();
+  while (queue.length > 0) {
+    const next = queue.shift() as string;
+    if (seen.has(next)) continue;
+    seen.add(next);
+    if (await isLive(dir, next)) return next;
+    queue.push(...(children.get(next) ?? []));
+  }
+  return undefined;
 }
 
 async function agentRecords(
@@ -234,7 +264,7 @@ export async function curatorReview(
   return {
     calls: out,
     pending: out.filter((call) => call.state === "pending").length,
-    live: await isLive(dir, runId),
+    live: (await conversationLive(dir, runId)) !== undefined,
   };
 }
 
@@ -246,6 +276,8 @@ export interface ReviewDecisionInput {
   apply: boolean;
   /** A `term_assign` applied with fewer `add`s: those left ticked. */
   add?: string[];
+  /** …and fewer `remove`s (48b review: an untag is reviewable too). */
+  remove?: string[];
 }
 
 /** The longest one applied call may take (an import with its page and images). */
@@ -273,18 +305,24 @@ export async function applyReview(
   /* One Save at a time in this process: a double click cannot apply twice. */
   return withReviewLock("curator-review", async () => {
     const { id: runId, records } = await agentRecords(id, dir);
-    if (await isLive(dir, runId)) {
+    const working = await conversationLive(dir, runId);
+    if (working) {
       throw withJob(
         new JobLiveError(
-          `Run ${runId} is still working: review its changes once it has ended.`,
+          `Run ${working} is still working: review its changes once it has ended.`,
         ),
-        runId,
+        working,
       );
     }
     const calls = heldCalls(records);
     const byId = new Map(calls.map((call) => [call.id, call]));
     const decided = await readDecisions(dir, calls);
-    const asked = new Map<string, ReviewDecisionInput>();
+    /* Every decision is checked — its narrowing too — before anything
+     * runs (48b review): a refusal never leaves earlier writes unrecorded. */
+    const asked = new Map<
+      string,
+      { decision: ReviewDecisionInput; input: unknown }
+    >();
     for (const decision of decisions) {
       const call = byId.get(decision.call);
       if (!call) {
@@ -297,12 +335,29 @@ export async function applyReview(
           `${heldPhrase({ name: call.tool, input: call.input }, call.held)} was already reviewed.`,
         );
       }
-      if (decision.add !== undefined && call.tool !== "term_assign") {
+      if (
+        (decision.add !== undefined || decision.remove !== undefined) &&
+        call.tool !== "term_assign"
+      ) {
         throw new ValidationError(
-          "Only a tagging change can be narrowed (add).",
+          "Only a tagging change can be narrowed (add, remove).",
         );
       }
-      asked.set(call.id, decision);
+      let input = call.input;
+      if (decision.apply && (decision.add || decision.remove)) {
+        const base = isObject(call.input) ? call.input : {};
+        const next: Record<string, unknown> = { ...base };
+        for (const key of ["add", "remove"] as const) {
+          const list = decision[key];
+          if (list === undefined) continue;
+          const narrowed = narrowedList(call.input, key, list);
+          if ("problem" in narrowed)
+            throw new ValidationError(narrowed.problem);
+          next[key] = narrowed.list;
+        }
+        input = next;
+      }
+      asked.set(call.id, { decision, input });
     }
 
     const backend = createLocalBackend({ ...ctx, inProcess: true });
@@ -310,38 +365,35 @@ export async function applyReview(
       recipeAgentTools(backend).map((tool) => [tool.name, tool] as const),
     );
     const by = ctx.author?.email;
-    const results = new Map<string, Record<string, HeldDecision>>();
-    const record = (call: HeldCall, decision: HeldDecision) => {
-      const file = results.get(call.job) ?? {};
-      file[call.id] = decision;
-      results.set(call.job, file);
-    };
+    /* Each decision is recorded as soon as its call returns (48b review):
+     * a Save cut short — an error, a restart — never leaves a write that
+     * landed looking pending, to be applied again. */
+    const record = (call: HeldCall, decision: HeldDecision) =>
+      recordDecisions(dir, call.job, { [call.id]: decision });
 
     /* In the model's order (Db2), whatever order the Save listed them in. */
     for (const call of calls) {
-      const decision = asked.get(call.id);
-      if (!decision) continue;
-      const at = Date.now();
-      const stamp = { at, ...(by ? { by } : {}) };
+      const entry = asked.get(call.id);
+      if (!entry) continue;
+      const { decision, input } = entry;
+      const stamp = { at: Date.now(), ...(by ? { by } : {}) };
       if (!decision.apply) {
-        record(call, { state: "discarded", ...stamp });
+        await record(call, { state: "discarded", ...stamp });
         continue;
       }
-      let input = call.input;
-      if (decision.add !== undefined) {
-        const narrowed = narrowedAdd(call.input, decision.add);
-        if ("problem" in narrowed) throw new ValidationError(narrowed.problem);
-        const base = isObject(call.input) ? call.input : {};
-        if (narrowed.add.length === 0 && strings(base.remove).length === 0) {
-          /* Every recipe unticked: nothing left to write. */
-          record(call, { state: "discarded", ...stamp });
-          continue;
-        }
-        input = { ...base, add: narrowed.add };
+      if (
+        call.tool === "term_assign" &&
+        isObject(input) &&
+        strings(input.add).length === 0 &&
+        strings(input.remove).length === 0
+      ) {
+        /* Every recipe unticked: nothing left to write. */
+        await record(call, { state: "discarded", ...stamp });
+        continue;
       }
       const tool = tools.get(call.tool);
       if (!tool) {
-        record(call, {
+        await record(call, {
           state: "failed",
           ...stamp,
           error: `${call.tool} is not a tool the curator has`,
@@ -363,19 +415,21 @@ export async function applyReview(
       const failure = errorMessage(result);
       const changed = input !== call.input ? { input } : {};
       if (failure) {
-        record(call, { state: "failed", ...stamp, ...changed, error: failure });
+        await record(call, {
+          state: "failed",
+          ...stamp,
+          ...changed,
+          error: failure,
+        });
         continue;
       }
       const summary = writeSummary(call.tool, input, result);
-      record(call, {
+      await record(call, {
         state: "applied",
         ...stamp,
         ...changed,
         ...(summary ? { summary } : {}),
       });
-    }
-    for (const [job, file] of results) {
-      await recordDecisions(dir, job, file);
     }
     return curatorReview(runId, {
       dir,

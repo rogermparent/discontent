@@ -310,7 +310,16 @@ export function heldPhrase(
 /* ------------------------------------------------------------------ */
 
 /** How a held call stands: waiting, or what the person decided. */
-export type HeldState = "pending" | "applied" | "discarded" | "failed";
+export type HeldState =
+  | "pending"
+  | "applied"
+  | "discarded"
+  | "failed"
+  /**
+   * 48b review: the run the call was made in has been pruned, and its
+   * decision with it — so it is neither pending nor appliable any more.
+   */
+  | "expired";
 
 /**
  * A person's decision on one held call (Db2), as `<job>.review.json`
@@ -389,26 +398,36 @@ export function isHeldResult(
 }
 
 /**
- * The `add` a person narrowed a held `term_assign` to (Db3): only slugs
- * the model asked for, in its order, each once — or why not. A narrowed
- * assign never names a recipe the model did not.
+ * A list of a held `term_assign` (`add` or `remove`) as a person narrowed it
+ * (Db3): only slugs the model asked for, in its order, each once — or why
+ * not. A narrowed tag never names a recipe the model did not.
  */
+export function narrowedList(
+  input: unknown,
+  key: "add" | "remove",
+  list: unknown,
+): { list: string[] } | { problem: string } {
+  const asked = strings(isObject(input) ? input[key] : undefined);
+  if (!Array.isArray(list) || list.some((slug) => typeof slug !== "string")) {
+    return { problem: `${key} is a list of recipe slugs` };
+  }
+  const wanted = new Set(list as string[]);
+  const unknown = [...wanted].filter((slug) => !asked.includes(slug));
+  if (unknown.length > 0) {
+    return {
+      problem: `${key} may only narrow what the curator asked for; ${unknown.join(", ")} ${unknown.length === 1 ? "was" : "were"} not in it`,
+    };
+  }
+  return { list: asked.filter((slug) => wanted.has(slug)) };
+}
+
+/** `narrowedList` for `add`. */
 export function narrowedAdd(
   input: unknown,
   add: unknown,
 ): { add: string[] } | { problem: string } {
-  const asked = strings(isObject(input) ? input.add : undefined);
-  if (!Array.isArray(add) || add.some((slug) => typeof slug !== "string")) {
-    return { problem: "add is a list of recipe slugs" };
-  }
-  const wanted = new Set(add as string[]);
-  const unknown = [...wanted].filter((slug) => !asked.includes(slug));
-  if (unknown.length > 0) {
-    return {
-      problem: `add may only narrow what the curator asked for; ${unknown.join(", ")} ${unknown.length === 1 ? "was" : "were"} not in it`,
-    };
-  }
-  return { add: asked.filter((slug) => wanted.has(slug)) };
+  const narrowed = narrowedList(input, "add", add);
+  return "problem" in narrowed ? narrowed : { add: narrowed.list };
 }
 
 /**
@@ -432,7 +451,9 @@ export function decisionsNote(
         ? "approved and written"
         : decision.state === "discarded"
           ? "skipped by the person: not written"
-          : `approved, but it failed: ${decision.error ?? "an error"}`;
+          : decision.state === "expired"
+            ? "never reviewed, and its run has been pruned: not written"
+            : `approved, but it failed: ${decision.error ?? "an error"}`;
     return [`- ${phrase} (call ${call.id}): ${words}.`];
   });
   const pending = calls.filter((call) => !decisions.has(call.id));

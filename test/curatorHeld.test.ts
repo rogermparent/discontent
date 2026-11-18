@@ -60,6 +60,7 @@ import {
 } from "../websites/recipe-website/editor/controller/llm/tools";
 import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
 import {
+  metaPath,
   reviewPath,
   pruneJobs,
 } from "../websites/recipe-website/editor/controller/jobs/store";
@@ -458,6 +459,97 @@ describe("a held run", () => {
     );
     expect(failed.calls[2]).toMatchObject({ state: "failed" });
     expect(failed.calls[2].error).toMatch(/unknown_recipe/);
+  });
+
+  it("checks every decision before it runs any, and reviews an untag", async () => {
+    createTwoAndTag();
+    const started = await startAgentRun(ctx, {
+      prompt: "make two fruit desserts",
+      hold: true,
+    });
+    await started.done;
+    const { calls } = await curatorReview(started.job, {
+      dir,
+      contentDirectory,
+    });
+    /* A bad narrowing after a good create: nothing runs (48b review). */
+    await expect(
+      applyReview(
+        started.job,
+        [
+          { call: calls[0].id, apply: true },
+          { call: calls[2].id, apply: true, add: ["brownies"] },
+        ],
+        { ctx, dir },
+      ),
+    ).rejects.toThrow(/may only narrow/);
+    expect(await exists("apple-pie")).toBe(false);
+    expect(
+      (await curatorReview(started.job, { dir, contentDirectory })).pending,
+    ).toBe(3);
+
+    /* An untag-only assign is applied with no adds. */
+    const backend = createLocalBackend({ contentDirectory, inProcess: true });
+    await backend.createRecipe({ ...PIE, tags: ["Old Tag"] });
+    stubFetch([
+      {
+        content: [
+          toolUse("toolu_09", "term_assign", {
+            slug: "old-tag",
+            remove: ["apple-pie"],
+          }),
+        ],
+        stop: "tool_use",
+      },
+      { content: [text("Untagged.")] },
+    ]);
+    const untag = await startAgentRun(ctx, {
+      prompt: "untag the pie",
+      hold: true,
+    });
+    await untag.done;
+    const held = await curatorReview(untag.job, { dir, contentDirectory });
+    expect(held.calls[0].phrase).toBe("Untag 1 recipe old-tag");
+    const after = await applyReview(
+      untag.job,
+      [{ call: held.calls[0].id, apply: true, add: [] }],
+      { ctx, dir },
+    );
+    expect(after.calls[0].state).toBe("applied");
+    expect((await backend.getRecipe("apple-pie")).recipe.tags ?? []).toEqual(
+      [],
+    );
+  });
+
+  it("reads a call whose run was pruned as expired, never pending", async () => {
+    createTwoAndTag();
+    const started = await startAgentRun(ctx, {
+      prompt: "make two fruit desserts",
+      hold: true,
+    });
+    await started.done;
+    stubFetch([{ content: [text("Noted.")] }]);
+    const follow = await startAgentRun(ctx, {
+      prompt: "later",
+      runId: started.job,
+      hold: true,
+    });
+    await follow.done;
+    await rm(metaPath(dir, started.job));
+    const review = await curatorReview(follow.job, { dir, contentDirectory });
+    expect(review.calls.map((call) => call.state)).toEqual([
+      "expired",
+      "expired",
+      "expired",
+    ]);
+    expect(review.pending).toBe(0);
+    await expect(
+      applyReview(follow.job, [{ call: review.calls[0].id, apply: true }], {
+        ctx,
+        dir,
+      }),
+    ).rejects.toThrow(/already reviewed/);
+    expect((await listCuratorRuns({ dir }))[0].review).toBe(0);
   });
 
   it("tells a follow-up's model what the person decided", async () => {

@@ -52,6 +52,14 @@ function tagRows(call: CuratorReviewCall): CuratorReviewRecipe[] {
   return (call.recipes ?? []).filter((recipe) => !recipe.alreadyTagged);
 }
 
+/** The recipes a held `term_assign` takes the term off (48b review). */
+function removesOf(call: CuratorReviewCall): string[] {
+  const input = call.input as { remove?: unknown } | undefined;
+  return Array.isArray(input?.remove)
+    ? input.remove.filter((slug): slug is string => typeof slug === "string")
+    : [];
+}
+
 function termOf(call: CuratorReviewCall): string {
   const input = call.input as { slug?: unknown } | undefined;
   return typeof input?.slug === "string" ? input.slug : "";
@@ -96,6 +104,8 @@ const STATE_WORDS: Record<
   applied: "Saved",
   discarded: "Skipped by you — nothing written",
   failed: "Failed",
+  expired:
+    "Expired — its run was pruned before it was reviewed; nothing written",
 };
 
 function Decided({ call }: { call: CuratorReviewCall }) {
@@ -211,14 +221,19 @@ export function ReviewPanel({
   /** What Save would write: changes ticked (a tagging call's recipes each). */
   const tickedOf = (call: CuratorReviewCall): number => {
     if (call.tool === "term_assign" && call.recipes) {
-      return tagRows(call).filter(
-        (recipe) => !off.has(`${call.id}\0${recipe.slug}`),
-      ).length;
+      const removes =
+        removesOf(call).length > 0 && !off.has(`${call.id}\0remove`);
+      return (
+        tagRows(call).filter((recipe) => !off.has(`${call.id}\0${recipe.slug}`))
+          .length + (removes ? 1 : 0)
+      );
     }
     return off.has(call.id) ? 0 : 1;
   };
   const totalOf = (call: CuratorReviewCall): number =>
-    call.tool === "term_assign" && call.recipes ? tagRows(call).length : 1;
+    call.tool === "term_assign" && call.recipes
+      ? tagRows(call).length + (removesOf(call).length > 0 ? 1 : 0)
+      : 1;
   const ticked = pending.reduce((sum, call) => sum + tickedOf(call), 0);
   const total = pending.reduce((sum, call) => sum + totalOf(call), 0);
 
@@ -232,10 +247,17 @@ export function ReviewPanel({
           .filter((recipe) => !off.has(`${call.id}\0${recipe.slug}`))
           .map((recipe) => recipe.slug);
         const all = tagRows(call).length;
-        if (add.length === 0) return { call: call.id, apply: false };
-        return add.length === all
-          ? { call: call.id, apply: true }
-          : { call: call.id, apply: true, add };
+        const removes = removesOf(call).length > 0;
+        const removeOn = removes && !off.has(`${call.id}\0remove`);
+        if (add.length === 0 && !removeOn) {
+          return { call: call.id, apply: false };
+        }
+        return {
+          call: call.id,
+          apply: true,
+          ...(add.length !== all ? { add } : {}),
+          ...(removes && !removeOn ? { remove: [] } : {}),
+        };
       }
       return { call: call.id, apply: !off.has(call.id) };
     });
@@ -418,6 +440,26 @@ export function ReviewPanel({
                     Already tagged, no change:{" "}
                     {already.map((recipe) => recipe.name).join(" · ")}
                   </p>
+                )}
+                {removesOf(call).length > 0 && (
+                  <div className="flex items-center gap-3 text-sm">
+                    {isPending && (
+                      <label className="flex size-11 shrink-0 cursor-pointer items-center justify-center">
+                        <Checkbox
+                          checked={!off.has(`${call.id}\0remove`)}
+                          onCheckedChange={(value) =>
+                            toggle(`${call.id}\0remove`, value === true)
+                          }
+                          aria-label={`Untag ${removesOf(call).join(", ")} ${term}`}
+                        />
+                      </label>
+                    )}
+                    <p data-testid="curator-review-remove">
+                      Untag{" "}
+                      {removesOf(call).length === 1 ? "recipe" : "recipes"}{" "}
+                      {term}: {removesOf(call).join(", ")}
+                    </p>
+                  </div>
                 )}
                 {isPending && <Missed call={call} />}
                 <CallInput call={call} />
