@@ -119,11 +119,29 @@ interface Group {
 }
 
 /**
+ * The wide grid's tracks for each count of columns: one share each, two for
+ * the Classics (always last, and the only wide one) — so a bar with no
+ * methods or no classics still fills the row. Static strings, for Tailwind.
+ */
+const GRID_COLUMNS: Record<string, string> = {
+  "1": "lg:grid-cols-1",
+  "1+wide": "lg:grid-cols-1",
+  "2": "lg:grid-cols-2",
+  "2+wide": "lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]",
+  "3": "lg:grid-cols-3",
+  "3+wide": "lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)]",
+  "4": "lg:grid-cols-4",
+  "4+wide":
+    "lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)]",
+};
+
+/**
  * "Browse the bar" (42d, canvas B): spirit & base, style and the classics
  * as one dot-leader index instead of three walls of tiles and pills — real
- * terms with their drink counts, each to its term page. Since 46h (43-Df2)
- * strength & method (shaken, stirred, built, low-ABV, zero-proof) sits
- * under Style in the same column, as the facet model files them apart.
+ * terms with their drink counts, each to its term page. Strength & method
+ * (shaken, stirred, built, low-ABV, zero-proof), filed apart from Style
+ * since 46h (43-Df2), is its own fourth column since 48a (Roger's pick,
+ * 46-h-drinks); on a phone each is its own disclosure, as before.
  */
 export function BarIndex({
   data,
@@ -142,56 +160,50 @@ export function BarIndex({
   ) {
     return null;
   }
-  /* Columns of groups, wide; on a phone every group is one disclosure. */
-  const columns: Group[][] = [];
+  /* One group a column, wide; on a phone every group is one disclosure. */
+  const columns: Group[] = [];
   if (data.spirits.length > 0) {
-    columns.push([
-      {
-        title: "Spirit & base",
-        terms: data.spirits,
-        count: data.spirits.length,
-      },
-    ]);
+    columns.push({
+      title: "Spirit & base",
+      terms: data.spirits,
+      count: data.spirits.length,
+    });
   }
-  const middle: Group[] = [];
   if (data.styles.length > 0) {
-    middle.push({
+    columns.push({
       title: "Style",
       terms: data.styles,
       count: data.styles.length,
     });
   }
   if (data.methods.length > 0) {
-    middle.push({
+    columns.push({
       title: "Strength & method",
       terms: data.methods,
       count: data.methods.length,
     });
   }
-  if (middle.length > 0) columns.push(middle);
   if (data.classics.length > 0) {
     const families = data.classicsCount;
-    columns.push([
-      {
-        title: "Classics",
-        detail: `${families} ${families === 1 ? "family" : "families"}`,
-        terms: data.classics,
-        count: families,
-        wide: true,
-        action:
-          families > data.classics.length ? (
-            <Link
-              href={termHref(DRINK_ROOT)}
-              className="inline-block shrink-0 py-0.5 text-sm leading-5 text-primary underline-offset-4 hover:underline"
-            >
-              All <span className="font-mono">{families}</span>
-              <span className="sr-only"> classics</span>
-            </Link>
-          ) : undefined,
-      },
-    ]);
+    columns.push({
+      title: "Classics",
+      detail: `${families} ${families === 1 ? "family" : "families"}`,
+      terms: data.classics,
+      count: families,
+      wide: true,
+      action:
+        families > data.classics.length ? (
+          <Link
+            href={termHref(DRINK_ROOT)}
+            className="inline-block shrink-0 py-0.5 text-sm leading-5 text-primary underline-offset-4 hover:underline"
+          >
+            All <span className="font-mono">{families}</span>
+            <span className="sr-only"> classics</span>
+          </Link>
+        ) : undefined,
+    });
   }
-  const first = columns[0]?.[0];
+  const first = columns[0];
   const indexGroup = (group: Group) => (
     <IndexGroup
       key={group.title}
@@ -228,19 +240,15 @@ export function BarIndex({
           {data.count === 1 ? "drink" : "drinks"}
         </Link>
       </div>
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)] lg:gap-10 lg:border-t lg:border-border lg:pt-4 [&>*:last-child]:border-b lg:[&>*:last-child]:border-b-0">
-        {columns.map((column) =>
-          column.length === 1 ? (
-            indexGroup(column[0])
-          ) : (
-            <div
-              key={column[0].title}
-              className="flex min-w-0 flex-col lg:gap-6"
-            >
-              {column.map(indexGroup)}
-            </div>
-          ),
+      <div
+        className={cn(
+          "grid lg:gap-10 lg:border-t lg:border-border lg:pt-4 [&>*:last-child]:border-b lg:[&>*:last-child]:border-b-0",
+          GRID_COLUMNS[
+            `${columns.length}${columns[columns.length - 1]?.wide ? "+wide" : ""}`
+          ],
         )}
+      >
+        {columns.map(indexGroup)}
       </div>
     </section>
   );
