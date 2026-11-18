@@ -185,13 +185,15 @@ describe("this season (42f)", () => {
     expect(seasonPicks(christmas, recipeRows, 1)).toEqual([
       { slug: "spritz", name: "Spritz", image: "spritz.jpg" },
     ]);
-    /* The entries carry them. */
+    /* The entries carry them — twice the strip's four since 47h, so a
+     * recipe an earlier row shows can give way (`homepageShown`). */
     const [entry] = comingUpEntries(tree, recipeRows, () => [])!;
     expect(entry.picks.map((pick) => pick.slug)).toEqual([
       "spritz",
       "stollen",
       "linzer",
       "snowballs",
+      "wassail",
     ]);
   });
 

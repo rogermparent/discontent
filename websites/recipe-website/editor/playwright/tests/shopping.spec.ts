@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "../support/test";
 import { fillSignInForm } from "../support/helpers";
+import { clickAndAwaitAction } from "../support/hydration";
 
 /*
  * `/shopping` (epic 35, 35d) against the `shopping` fixture: Buttermilk
@@ -177,7 +178,9 @@ test.describe("Shopping list", () => {
     ]) {
       await sheet.getByLabel(new RegExp(`^${name}`)).uncheck();
     }
-    await sheet.getByRole("button", { name: "Save settings" }).click();
+    await clickAndAwaitAction(
+      sheet.getByRole("button", { name: "Save settings" }),
+    );
     await expect(sheet).toHaveCount(0);
     await expect(rows(page)).toHaveCount(12);
     await expect(rows(page).locator("label")).toHaveText([
@@ -207,7 +210,9 @@ test.describe("Shopping list", () => {
     const sheet = page.getByTestId("shopping-settings");
     await sheet.getByLabel(/^Stores/).check();
     await sheet.getByLabel(/^On hand/).check();
-    await sheet.getByRole("button", { name: "Save settings" }).click();
+    await clickAndAwaitAction(
+      sheet.getByRole("button", { name: "Save settings" }),
+    );
 
     /* Olive oil (on the shared list) and salt (a staple). */
     await expect(page.getByTestId("shopping-probably-have")).toContainText(
@@ -329,7 +334,9 @@ test.describe("Shopping list", () => {
     await page.getByRole("button", { name: "Settings" }).click();
     const sheet = page.getByTestId("shopping-settings");
     await sheet.getByLabel(/^Hold ticks/).check();
-    await sheet.getByRole("button", { name: "Save settings" }).click();
+    await clickAndAwaitAction(
+      sheet.getByRole("button", { name: "Save settings" }),
+    );
     await expect(sheet).toHaveCount(0);
     const done = page.getByTestId("shopping-done");
     await expect(
@@ -384,7 +391,9 @@ test.describe("Shopping list", () => {
     await page.getByRole("button", { name: "Settings" }).click();
     const sheet = page.getByTestId("shopping-settings");
     await sheet.getByLabel(/^Hold ticks/).check();
-    await sheet.getByRole("button", { name: "Save settings" }).click();
+    await clickAndAwaitAction(
+      sheet.getByRole("button", { name: "Save settings" }),
+    );
     await expect(sheet).toHaveCount(0);
     await page.getByLabel("10 eggs", { exact: true }).check();
     await page.getByLabel("6 onions", { exact: true }).check();

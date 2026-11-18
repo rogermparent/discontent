@@ -190,7 +190,11 @@ test.describe("Featured Recipes", () => {
         .getByLabel("Feature it again, even if it is already featured")
         .check();
       await page.getByRole("button", { name: "Submit", exact: true }).click();
-      await expect(page.getByRole("listitem")).toHaveCount(3);
+      /* 47h: the homepage shows a recipe once — featured twice, it is one
+       * Featured row (and, all New this week's candidates being above, New
+       * this week still shows it); `/featured-recipes` lists both. */
+      await expect(page).toHaveURL(/\/$/);
+      await expect(page.getByRole("listitem")).toHaveCount(2);
 
       await page.goto("/featured-recipes");
       await expect(
@@ -1158,9 +1162,19 @@ test.describe("Featured groups", () => {
     await page.getByRole("button", { name: "Submit", exact: true }).click();
 
     await expect(page).toHaveURL(baseURL + "/");
+    /* 47h: it is the newest plan, so the plan panel already shows it, and
+     * Featured leaves it out rather than show it twice; the featured page
+     * lists it. */
     await expect(
-      featuredSection(page).getByText("Week of May 4"),
+      page
+        .getByRole("region", { name: "On the plan" })
+        .getByText("Week of May 4"),
     ).toBeVisible();
+    await expect(featuredSection(page).getByText("Week of May 4")).toHaveCount(
+      0,
+    );
+    await page.goto("/featured-recipes");
+    await expect(page.getByText("Week of May 4").first()).toBeVisible();
   });
 
   test("toggling back to Recipe features a recipe from the same form", async ({

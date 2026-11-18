@@ -16,7 +16,9 @@ import {
   KEPT_READING_KINDS,
   NOT_RETRIED_KINDS,
 } from "recipe-editor/controller/jobs/listing";
+import { jobOutcome } from "recipe-editor/controller/jobs/outcome";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
+import { CuratorMarkdown } from "@/curator/CuratorMarkdown";
 import { StepTimeline } from "@/jobs/StepTimeline";
 import { requestCancel, useJobPoll } from "@/jobs/useJobPoll";
 import { JobStatusBadge, formatWhen } from "../JobStatusBadge";
@@ -36,8 +38,66 @@ function fillSlug(result: unknown): string | undefined {
   return typeof slug === "string" && slug ? slug : undefined;
 }
 
+/** Why Retry is not offered, per kind (39b review, L6; 44c for a run). */
+function notRetriedWords(kind: string, id: string) {
+  switch (kind) {
+    case "reindex":
+      return "A rebuild is not retried: rebuild again from the Git page.";
+    case "git-sync":
+      return "A sync is not retried: use Sync now on the Git page.";
+    case "agent":
+      return (
+        <>
+          A curator run is not retried: its tools may already have written.{" "}
+          <Link
+            href={`/curator?run=${encodeURIComponent(id)}`}
+            className="underline underline-offset-2"
+          >
+            Open it on the Curator page
+          </Link>{" "}
+          to follow up, or ask again.
+        </>
+      );
+    default:
+      return "This job is not retried.";
+  }
+}
+
+/**
+ * A curator run's answer (47h): the model's last words, as the Curator page
+ * shows them — Markdown, no raw HTML — and how the run stopped.
+ */
+function AgentResult({ id, result }: { id: string; result: unknown }) {
+  const text =
+    result && typeof result === "object"
+      ? (result as { text?: unknown }).text
+      : undefined;
+  return (
+    <div className="space-y-2 text-sm" data-testid="job-result">
+      {typeof text === "string" && text.trim() ? (
+        <CuratorMarkdown>{text}</CuratorMarkdown>
+      ) : (
+        <p className="text-muted-foreground">
+          The run ended without an answer.
+        </p>
+      )}
+      <p>
+        <Link
+          href={`/curator?run=${encodeURIComponent(id)}`}
+          className="underline underline-offset-2"
+        >
+          The whole run on the Curator page
+        </Link>
+      </p>
+    </div>
+  );
+}
+
 /** What a result says, whatever its kind: names, slugs, counts. */
 function ResultSummary({ meta }: { meta: JobRecord }) {
+  if (meta.kind === "agent") {
+    return <AgentResult id={meta.id} result={meta.result} />;
+  }
   const result = meta.result as
     | (Record<string, unknown> & {
         recipes?: unknown;
@@ -45,6 +105,8 @@ function ResultSummary({ meta }: { meta: JobRecord }) {
       })
     | undefined;
   if (!result || typeof result !== "object") return null;
+  /* 47h: a page read that read nothing says so, and what it did see. */
+  const outcome = jobOutcome(meta);
   const rows = resultRows(result);
   const name =
     (result.recipe as { name?: string } | undefined)?.name ??
@@ -52,8 +114,20 @@ function ResultSummary({ meta }: { meta: JobRecord }) {
   const slug = typeof result.slug === "string" ? result.slug : undefined;
   const message =
     typeof result.message === "string" ? result.message : undefined;
+  const pageTitle =
+    outcome && result.meta && typeof result.meta === "object"
+      ? (result.meta as { title?: unknown }).title
+      : undefined;
   return (
     <div className="space-y-1 text-sm" data-testid="job-result">
+      {outcome && (
+        <p data-testid="job-outcome-note">
+          {outcome.note}
+          {typeof pageTitle === "string" && pageTitle.trim()
+            ? ` The page's title: “${pageTitle.trim()}”.`
+            : ""}
+        </p>
+      )}
       {slug && (
         <p>
           Wrote{" "}
@@ -198,7 +272,10 @@ export function JobDetail({
         </p>
         <PageHeading>{label}</PageHeading>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-          <JobStatusBadge status={meta?.status ?? "running"} />
+          <JobStatusBadge
+            status={meta?.status ?? "running"}
+            nothing={meta ? jobOutcome(meta) !== undefined : false}
+          />
           <span className="font-mono text-xs">{kind}</span>
           <span className="font-mono text-xs text-muted-foreground">{id}</span>
           {duration !== undefined && (
@@ -258,9 +335,7 @@ export function JobDetail({
               className="text-sm text-muted-foreground"
               data-testid="job-not-retried"
             >
-              {kind === "reindex"
-                ? "A rebuild is not retried: rebuild again from the Git page."
-                : "A sync is not retried: use Sync now on the Git page."}
+              {notRetriedWords(kind, id)}
             </p>
           ) : meta ? (
             <>

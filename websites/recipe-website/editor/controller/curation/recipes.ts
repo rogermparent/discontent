@@ -43,7 +43,7 @@ import type {
 import {
   fetchImageFilePaced,
   largeImageWarning,
-  probeImageFile,
+  probeImageFilePaced,
   type ImageProbe,
 } from "../imageImport";
 import {
@@ -57,6 +57,7 @@ import { readTagResolver } from "./tagResolver";
 import { NotFoundError, SlugConflictError, ValidationError } from "./errors";
 import {
   RecipeInputSchema,
+  noneForNull,
   RecipePatchSchema,
   parseInput,
   toIngredients,
@@ -245,9 +246,10 @@ export async function listRecipes(
  * `warnings` names an image over `LARGE_IMAGE_BYTES`, probed or downloaded.
  *
  * `fetchImage` and `probeImage` replace `fetchImageFilePaced` and
- * `probeImageFile` (34f): the import seats run them on their own call's
+ * `probeImageFilePaced` (34f): the import seats run them on their own call's
  * pacer (`sitePacing.ts`), since an image is a request too. The default
- * download is on the site's queue as well (38b).
+ * download is on the site's queue as well (38b), and so — since 47h — is the
+ * default probe: `create` / `update --dry-run` waited for no site.
  */
 export async function buildRecipeWrite(
   input: RecipeInput | RecipePatch,
@@ -256,7 +258,7 @@ export async function buildRecipeWrite(
     current,
     probe = false,
     fetchImage = fetchImageFilePaced,
-    probeImage = probeImageFile,
+    probeImage = probeImageFilePaced,
   }: {
     date: number;
     current?: Recipe | null;
@@ -431,7 +433,7 @@ export async function createRecipe(
     commitNote?: string;
   } = {},
 ): Promise<RecipeWriteResult> {
-  const input = parseInput(RecipeInputSchema, raw);
+  const input = parseInput(RecipeInputSchema, noneForNull(raw));
   const slug = resolveCreateSlug(input);
   const date = input.date ?? Date.now();
   const { data, uploads, warnings } = await buildRecipeWrite(input, {
@@ -568,7 +570,7 @@ export async function updateRecipe(
  * `conflict` is reported rather than thrown — the dry run's job is to say what
  * the real call would do, and "this slug is taken" is part of that answer, not
  * a reason to withhold the rest. The image is `HEAD`-probed for the filename a
- * real write would store (`probeImageFile`).
+ * real write would store (`probeImageFilePaced`, on the site's queue).
  */
 export interface RecipeDryRunResult {
   dryRun: true;
@@ -598,7 +600,7 @@ export async function previewCreateRecipe(
   ctx: CurationContext,
   raw: unknown,
 ): Promise<RecipeDryRunResult> {
-  const input = parseInput(RecipeInputSchema, raw);
+  const input = parseInput(RecipeInputSchema, noneForNull(raw));
   const slug = resolveCreateSlug(input);
   const date = input.date ?? Date.now();
   const { data, image, warnings } = await buildRecipeWrite(input, {

@@ -92,6 +92,11 @@ export interface CommitSummary {
   message: string;
   author_name: string;
   date: string;
+  /**
+   * The subject in names (47h), set by the `/git` page's reads when it
+   * differs from `message`; the curation seats never set it.
+   */
+  title?: string;
 }
 
 export interface RemoteSummary {
@@ -481,6 +486,23 @@ export function labelForPath(target: string): string {
   if (recipeData) return `Recipe: ${recipeData[1]}`;
   const groupData = /^groups\/data\/([^/]+)\/group\.json$/.exec(target);
   if (groupData) return `Group: ${groupData[1]}`;
+  /* 47h: every other kind the content repository holds, not a raw path. */
+  const termData = /^taxonomies\/tag\/data\/([^/]+)\/term\.json$/.exec(target);
+  if (termData) return `Tag: ${termData[1]}`;
+  const featured =
+    /^featured-recipes\/data\/([^/]+)\/featured-recipe\.json$/.exec(target);
+  if (featured) return `Homepage feature: ${featured[1]}`;
+  const page = /^pages\/data\/([^/]+)\//.exec(target);
+  if (page) return `Page: ${page[1]}`;
+  if (/^shopping\/settings\.json$/.test(target)) {
+    return "Shopping list settings";
+  }
+  if (/^shopping\/items\/[^/]+\.json$/.test(target)) {
+    return "Shopping list item";
+  }
+  if (/^inventory\/[^/]+\.json$/.test(target)) return "What's on hand";
+  const termUpload = /^uploads\/tag-term\/([^/]+)\/.+$/.exec(target);
+  if (termUpload) return `Tag: ${termUpload[1]}`;
   const typedUpload = /^uploads\/(recipe|group)\/([^/]+)\/.+$/.exec(target);
   if (typedUpload) {
     return `${typedUpload[1] === "recipe" ? "Recipe" : "Group"}: ${typedUpload[2]}`;

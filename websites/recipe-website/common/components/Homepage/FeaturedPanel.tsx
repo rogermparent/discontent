@@ -17,6 +17,8 @@ import { TermPicture } from "./TermPicture";
  * group picks its picture at render time, a term has a picture of its own.
  */
 export type FeaturedStripEntry =
+  /** 47h: its recipe, plan or term is gone — it holds its slot (22g). */
+  | { kind: "dangling"; date: number }
   | {
       kind: "recipe";
       recipe: MassagedRecipeEntry;
@@ -109,6 +111,7 @@ function FeaturedRow({
 }
 
 function featuredRow(entry: FeaturedStripEntry): ReactNode {
+  if (entry.kind === "dangling") return null;
   if (entry.kind === "recipe") {
     return (
       <FeaturedRow
@@ -191,8 +194,13 @@ export function featuredRows(
     key:
       entry.kind === "recipe"
         ? `${index}-recipe-${entry.recipe.slug}`
-        : `${index}-${entry.kind}-${entry.slug}`,
+        : entry.kind === "dangling"
+          ? `${index}-dangling`
+          : `${index}-${entry.kind}-${entry.slug}`,
     ...(entry.kind === "term" && entry.holiday ? { holiday: entry.slug } : {}),
+    ...(entry.kind === "recipe" ? { recipe: entry.recipe.slug } : {}),
+    ...(entry.kind === "group" ? { group: entry.slug } : {}),
+    ...(entry.kind === "dangling" ? { dangling: true } : {}),
     row: featuredRow(entry),
   }));
 }

@@ -33,12 +33,17 @@ function CommitLogItem({ entry }: { entry: CommitSummary }) {
         aria-expanded={open}
         className="w-full text-left my-1 font-bold cursor-pointer"
       >
-        {entry.message}
+        {entry.title ?? entry.message}
       </button>
       {open && (
         <div className="text-sm">
           <div className="font-bold my-1">Commit Details</div>
           <ul>
+            {entry.title && (
+              <li>
+                <strong>Message</strong>: <span>{entry.message}</span>
+              </li>
+            )}
             <li>
               <strong>Author</strong>: <span>{entry.author_name}</span>
             </li>

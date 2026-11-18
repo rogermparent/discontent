@@ -266,6 +266,44 @@ export const RecipeInputSchema = z.strictObject({
   videoImportUrl: z.string().optional(),
 });
 
+/** The fields a patch takes `null` for: on a create, `null` is "none" (47h). */
+const NONE_ON_CREATE = [
+  "description",
+  "tags",
+  "prepTime",
+  "cookTime",
+  "totalTime",
+  "recipeYield",
+  "ingredients",
+  "instructions",
+  "timelines",
+  "source",
+  "drink",
+  "notes",
+  "imageImportUrl",
+  "videoUrl",
+  "videoImportUrl",
+] as const;
+
+/**
+ * A create's input with `null` read as "none" (47h): in each field the
+ * patch takes `null` for (where it clears), a create has nothing to clear,
+ * so a draft or a hand-written `create --file` with `"videoImportUrl":
+ * null` is a recipe without one, not a validation error. `name` and `date`
+ * stay strict, as on a patch. The write paths parse with this; the tool
+ * schema MCP advertises (`RecipeInputSchema`) is unchanged, so a client
+ * that reads it never sends `null` and the local model's tool view keeps
+ * its size.
+ */
+export function noneForNull(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const record = raw as Record<string, unknown>;
+  if (!NONE_ON_CREATE.some((key) => record[key] === null)) return raw;
+  const kept = { ...record };
+  for (const key of NONE_ON_CREATE) if (kept[key] === null) delete kept[key];
+  return kept;
+}
+
 export type RecipeInput = z.infer<typeof RecipeInputSchema>;
 
 /**

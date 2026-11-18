@@ -52,8 +52,14 @@ import {
   mergeInProgress,
 } from "../curation/git";
 import { rebuildAllIndexes } from "./index";
+import {
+  commitTitle,
+  contentNames,
+  namedLabelForPath,
+} from "../curation/historyNames";
 import type {
   CommitLogPage,
+  CommitSummary,
   SyncStatus,
 } from "../../src/app/(editor)/(settings)/git/types";
 
@@ -87,9 +93,38 @@ function normalizeError(e: unknown): string {
   return String(e);
 }
 
-/** Read the cheap sync status for the page. Auth is enforced by the route. */
+/**
+ * Read the cheap sync status for the page. Auth is enforced by the route.
+ * 47h: the history and the conflicted files say names, not slugs and ids
+ * (`historyNames.ts`) — the page's view only; `git_status` is unchanged.
+ */
 export async function getSyncStatus(): Promise<SyncStatus> {
-  return gitStatus(readCtx());
+  const ctx = readCtx();
+  const status = await gitStatus(ctx);
+  const names = contentNames(ctx.contentDirectory);
+  const [log, conflicted] = await Promise.all([
+    titledCommits(status.log, names),
+    Promise.all(
+      status.merge.conflicted.map(async (file) => ({
+        ...file,
+        label: await namedLabelForPath(file.path, names),
+      })),
+    ),
+  ]);
+  return { ...status, log, merge: { ...status.merge, conflicted } };
+}
+
+/** Each commit with its `title`: its subject in names (47h). */
+async function titledCommits(
+  commits: CommitSummary[],
+  names: ReturnType<typeof contentNames>,
+): Promise<CommitSummary[]> {
+  return Promise.all(
+    commits.map(async (commit) => {
+      const title = await commitTitle(commit.message, names);
+      return title === commit.message ? commit : { ...commit, title };
+    }),
+  );
 }
 
 /**
@@ -578,12 +613,15 @@ export async function getCommitLogPage(offset: number): Promise<CommitLogPage> {
      * not render them, and they would ride every "Load more" over the RSC wire.
      */
     return {
-      commits: commits.map(({ hash, message, author_name, date }) => ({
-        hash,
-        message,
-        author_name,
-        date,
-      })),
+      commits: await titledCommits(
+        commits.map(({ hash, message, author_name, date }) => ({
+          hash,
+          message,
+          author_name,
+          date,
+        })),
+        contentNames(contentDirectory),
+      ),
       hasMore,
     };
   } catch {

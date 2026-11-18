@@ -10,7 +10,21 @@ import {
 } from "../../../../../controller/actions/sync";
 import type { SyncStatus } from "./types";
 
-function AheadBehind({ ahead, behind }: { ahead: number; behind: number }) {
+/**
+ * The ahead/behind badge. With no upstream both counts are 0 by default,
+ * not by comparison, so it says nothing (47h): a green "in sync" beside
+ * "no upstream" read as synced.
+ */
+function AheadBehind({
+  ahead,
+  behind,
+  upstream,
+}: {
+  ahead: number;
+  behind: number;
+  upstream?: string | null;
+}) {
+  if (!upstream) return null;
   if (ahead === 0 && behind === 0) {
     return <span className="text-sm text-success">in sync</span>;
   }
@@ -116,7 +130,7 @@ export function SyncPanel({
             {upstream ?? "no upstream"}
           </span>
         </div>
-        <AheadBehind ahead={ahead} behind={behind} />
+        <AheadBehind ahead={ahead} behind={behind} upstream={upstream} />
       </div>
 
       <p

@@ -15,6 +15,8 @@ import { HomeIntro } from "./HomeIntro";
 import { NewThisWeek, type NewRecipe } from "./NewThisWeek";
 import { PlanPanel, type PlanLine } from "./PlanPanel";
 import { ThisSeason, hasSeason } from "./ThisSeason";
+import { HomeShownProvider } from "./HomeShown";
+import { datedHolidays } from "../../controller/homepageComingUp";
 
 /**
  * The homepage — canvas B, "Now and next" (42f; `agent-epic-42.md`), on the
@@ -47,6 +49,7 @@ export default function Homepage({
   featured,
   season: seasonHolidays,
   featuredLimit,
+  freshLimit,
   plan,
   planLines,
   showShopping = false,
@@ -67,6 +70,8 @@ export default function Homepage({
   /** The dated holidays with something under them (`datedHolidays`). */
   season: Array<{ slug: string; rule?: string }>;
   featuredLimit: number;
+  /** How many New this week shows of `recipes`, its candidates (47h). */
+  freshLimit: number;
   /** The newest group, if there is one. */
   plan?: GroupListEntry;
   /** Its lines, resolved; `undefined` when the record could not be read. */
@@ -91,6 +96,22 @@ export default function Homepage({
   const season = hasSeason(comingUp);
   /* The rail may still render nothing: `HomeRail` decides on the reader's day. */
   const mayHaveRail = plan !== undefined || featured.length > 0;
+  const rows = featuredRows(featured);
+  /* 47h: what the day's answer reads (`homepageShown`), plain values only. */
+  const seasonPicks = datedHolidays(comingUp ?? []).map((entry) => ({
+    slug: entry.slug,
+    ...(entry.rule ? { rule: entry.rule } : {}),
+    picks: entry.picks.map((pick) => pick.slug),
+  }));
+  const shownFeatures = rows.map(
+    ({ key, holiday, recipe, group, dangling }) => ({
+      key,
+      ...(holiday ? { holiday } : {}),
+      ...(recipe ? { recipe } : {}),
+      ...(group ? { group } : {}),
+      ...(dangling ? { dangling } : {}),
+    }),
+  );
   return (
     <PageMain>
       <PageSection
@@ -104,51 +125,62 @@ export default function Homepage({
          * no rows, a rail of only in-season holidays) leaves no empty track
          * and no stray gap — the rail's `auto` column is then 0 wide.
          */}
-        <div
-          className={cn(
-            "flex flex-col gap-10",
-            (season || mayHaveRail) &&
-              "lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:grid-rows-[auto_1fr] lg:gap-0",
-          )}
+        <HomeShownProvider
+          serverDay={serverDay}
+          season={seasonPicks}
+          featured={shownFeatures}
+          featuredLimit={featuredLimit}
+          {...(plan ? { planGroup: plan.slug } : {})}
+          fresh={recipes.map((recipe) => recipe.slug)}
+          freshLimit={freshLimit}
         >
-          {season && (
-            <ThisSeason
-              entries={comingUp}
-              serverDay={serverDay}
-              className="min-w-0 lg:col-start-1 lg:row-start-1 lg:mb-10"
-            />
-          )}
-          {mayHaveRail && (
-            <HomeRail
-              plan={
-                plan ? (
-                  <PlanPanel
-                    plan={plan}
-                    lines={planLines}
-                    showShopping={showShopping}
-                  />
-                ) : null
-              }
-              rows={featuredRows(featured)}
-              season={seasonHolidays}
-              serverDay={serverDay}
-              limit={featuredLimit}
-              className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:ml-10 lg:w-[22rem] lg:self-start"
-            />
-          )}
-          <div className="flex min-w-0 flex-col gap-10 lg:col-start-1 lg:row-start-2">
-            <NewThisWeek
-              recipes={recipes}
-              recipeCount={recipeCount}
-              moreRecipes={moreRecipes}
-            />
-            {facets.length > 0 ? (
-              <BrowseTerms facets={facets} />
-            ) : (
-              <BrowseChips tags={tags} />
+          <div
+            className={cn(
+              "flex flex-col gap-10",
+              (season || mayHaveRail) &&
+                "lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:grid-rows-[auto_1fr] lg:gap-0",
             )}
+          >
+            {season && (
+              <ThisSeason
+                entries={comingUp}
+                serverDay={serverDay}
+                className="min-w-0 lg:col-start-1 lg:row-start-1 lg:mb-10"
+              />
+            )}
+            {mayHaveRail && (
+              <HomeRail
+                plan={
+                  plan ? (
+                    <PlanPanel
+                      plan={plan}
+                      lines={planLines}
+                      showShopping={showShopping}
+                    />
+                  ) : null
+                }
+                rows={rows}
+                season={seasonHolidays}
+                serverDay={serverDay}
+                limit={featuredLimit}
+                className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:ml-10 lg:w-[22rem] lg:self-start"
+              />
+            )}
+            <div className="flex min-w-0 flex-col gap-10 lg:col-start-1 lg:row-start-2">
+              <NewThisWeek
+                recipes={recipes}
+                limit={freshLimit}
+                recipeCount={recipeCount}
+                moreRecipes={moreRecipes}
+              />
+              {facets.length > 0 ? (
+                <BrowseTerms facets={facets} />
+              ) : (
+                <BrowseChips tags={tags} />
+              )}
+            </div>
           </div>
-        </div>
+        </HomeShownProvider>
       </PageSection>
     </PageMain>
   );

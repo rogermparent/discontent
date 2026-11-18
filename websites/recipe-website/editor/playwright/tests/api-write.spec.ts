@@ -441,8 +441,15 @@ test.describe("JSON write API", () => {
       name: "Featured",
       exact: true,
     });
+    await page.goto("/featured-recipes");
+    await expect(page.getByText("API week").first()).toBeVisible();
+    /* 47h: on the homepage it is the newest plan, so the plan panel shows
+     * it and Featured does not show it a second time. */
     await page.goto("/");
-    await expect(featuredSection.getByText("API week")).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "On the plan" }).getByText("API week"),
+    ).toBeVisible();
+    await expect(featuredSection.getByText("API week")).toHaveCount(0);
 
     /* And the inverse takes it back off the front page. */
     const removed = await request.delete("/api/featured/api-feature", {
@@ -454,6 +461,8 @@ test.describe("JSON write API", () => {
       deleted: true,
     });
 
+    await page.goto("/featured-recipes");
+    await expect(page.getByText("API week")).toHaveCount(0);
     await page.goto("/");
     /*
      * The whole section goes, since it was the only feature. Scoped rather than
@@ -1224,10 +1233,14 @@ test.describe("JSON write API", () => {
         page.getByRole("heading", { name: "Remote fortnight" }),
       ).toBeVisible();
 
+      /* 47h: the newest plan is the plan panel's; Featured does not show it
+       * twice, and the featured page lists it. */
+      await page.goto("/featured-recipes");
+      await expect(page.getByText("Remote fortnight").first()).toBeVisible();
       await page.goto("/");
       await expect(
         page
-          .getByRole("region", { name: "Featured", exact: true })
+          .getByRole("region", { name: "On the plan" })
           .getByText("Remote fortnight"),
       ).toBeVisible();
     });

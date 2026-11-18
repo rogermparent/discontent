@@ -1,6 +1,13 @@
 "use client";
 
-import { Check, CircleSlash, Clock, LoaderCircle, X } from "lucide-react";
+import {
+  Check,
+  CircleMinus,
+  CircleSlash,
+  Clock,
+  LoaderCircle,
+  X,
+} from "lucide-react";
 import { cn } from "@discontent/component-library/lib/utils";
 import {
   serverToolPhrase,
@@ -15,6 +22,7 @@ const STATUS_WORDS: Record<ToolRowStatus, string> = {
   running: "running",
   waiting: "waiting",
   done: "done",
+  nothing: "read nothing",
   error: "error",
   not_run: "not run",
 };
@@ -36,6 +44,10 @@ function StatusIcon({ status }: { status: ToolRowStatus }) {
     case "done":
       return (
         <Check aria-hidden className={cn(className, "text-muted-foreground")} />
+      );
+    case "nothing":
+      return (
+        <CircleMinus aria-hidden className={cn(className, "text-warning")} />
       );
     case "error":
       return <X aria-hidden className={cn(className, "text-foreground")} />;
@@ -81,7 +93,7 @@ function RowLine({
       <StatusIcon status={status} />
       <span className="min-w-0 flex-1 truncate">{phrase}</span>
       <span className="sr-only">, {STATUS_WORDS[status]}</span>
-      {status === "error" || status === "not_run" ? (
+      {status === "error" || status === "not_run" || status === "nothing" ? (
         <span aria-hidden className="shrink-0 text-xs text-muted-foreground">
           {STATUS_WORDS[status]}
         </span>
@@ -169,6 +181,11 @@ export function ToolRows({
               <p className="font-mono text-xs text-muted-foreground">
                 {row.name}
               </p>
+              {row.note && (
+                <p className="text-sm" data-testid="tool-note">
+                  {row.note}
+                </p>
+              )}
               <Detail label="Input" value={row.input} />
               {row.result !== undefined ? (
                 <Detail label="Result" value={row.result} />

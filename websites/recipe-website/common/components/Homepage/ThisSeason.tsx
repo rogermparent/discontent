@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
   datedHolidays,
   type ComingUpEntry,
@@ -64,30 +63,15 @@ export function ThisSeason({
         ...(entry.rule ? { rule: entry.rule } : {}),
         label: entry.label,
         counts: counts(entry),
-        strip:
-          entry.picks.length > 0 ? (
-            <ul
-              aria-label={`From ${entry.label}`}
-              className="grid grid-cols-4 gap-1.5 sm:grid-cols-[repeat(4,4.5rem)]"
-            >
-              {entry.picks.map((pick) => (
-                <li key={pick.slug}>
-                  <Link
-                    href={`/recipe/${pick.slug}`}
-                    aria-label={pick.name ?? pick.slug}
-                    title={pick.name}
-                    className="block aspect-square overflow-hidden rounded-md bg-muted transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                  >
-                    <RecipeThumb
-                      slug={pick.slug}
-                      image={pick.image}
-                      name={pick.name}
-                    />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : null,
+        /* 47h: the candidates, each picture rendered here; the browser's
+         * day picks which show (`homepageShown`). */
+        picks: entry.picks.map((pick) => ({
+          slug: pick.slug,
+          ...(pick.name ? { name: pick.name } : {}),
+          thumb: (
+            <RecipeThumb slug={pick.slug} image={pick.image} name={pick.name} />
+          ),
+        })),
       }))}
     />
   );

@@ -208,6 +208,40 @@ export async function fetchImageFilePaced(
   );
 }
 
+/**
+ * `probeImageFile` on the site's queue (47h): a dry run's `HEAD` is a
+ * request to the site like the real run's `GET` (30-D5: "image downloads
+ * count"), so `create --dry-run` and `update --dry-run` wait their turn as
+ * a real write's download does — the probe still answers what the real run
+ * would store. Never throws for the site: a site that is dropped for now
+ * is the probe's `error`, as an unreachable image is. Loopback is not
+ * paced; a URL that does not parse goes to `probeImageFile` as it is.
+ */
+export async function probeImageFilePaced(
+  url: string,
+  { job }: { job?: JobRun } = {},
+): Promise<ImageProbe> {
+  if (!URL.canParse(url)) return probeImageFile(url, undefined, job);
+  const { pacedRequest, SiteDroppedError } =
+    await import("./curation/sitePacing");
+  try {
+    return await pacedRequest(
+      url,
+      (retry) => probeImageFile(url, retry, job),
+      undefined,
+      job,
+      { image: true },
+    );
+  } catch (error) {
+    if (!(error instanceof SiteDroppedError)) throw error;
+    return {
+      importUrl: url,
+      filename: imageFilename(url),
+      error: error.message,
+    };
+  }
+}
+
 async function downloadImageFile(
   url: string,
   retry: ForbiddenRetry | undefined,

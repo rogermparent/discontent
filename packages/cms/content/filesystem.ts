@@ -1,11 +1,16 @@
 import { ensureDir, exists, readJson, rename, rm } from "fs-extra";
 import { join, parse, relative, resolve, sep } from "path";
 import { Readable } from "node:stream";
-import { ReadableStream } from "node:stream/web";
+import { ReadableStream, TransformStream } from "node:stream/web";
 import { writeJsonAtomic, writeStreamAtomic } from "../fs/atomicWrite";
 import { getContentDirectory } from "../fs/getContentDirectory";
 import { UploadImportError } from "./errors";
-import type { ContentTypeConfig, FileUploadData, UploadFetch } from "./types";
+import type {
+  ContentTypeConfig,
+  FileUploadData,
+  UploadAccept,
+  UploadFetch,
+} from "./types";
 
 /**
  * Get the data directory for a content type
@@ -267,11 +272,15 @@ export async function getUploadInfo(
     clearFile,
     fileImportUrl,
     existingFile,
+    accept,
+    maxBytes,
   }: {
     file?: File;
     clearFile?: boolean;
     fileImportUrl?: string;
     existingFile?: string;
+    accept?: UploadAccept;
+    maxBytes?: number;
   },
   uploadFetch?: UploadFetch,
 ): Promise<FileUploadData | undefined> {
@@ -282,12 +291,21 @@ export async function getUploadInfo(
     return undefined;
   }
   if (fileImportUrl) {
+    /* 47h: not a URL is the form's plain refusal, not a TypeError. */
+    if (!URL.canParse(fileImportUrl)) {
+      throw new UploadImportError(
+        `${fileImportUrl} is not a web address; nothing was saved.`,
+        fileImportUrl,
+      );
+    }
     const url = new URL(fileImportUrl);
     const basenameWithoutParams = parse(url.pathname).base;
     return {
       fileName: basenameWithoutParams,
       fileImportUrl,
       ...(uploadFetch ? { uploadFetch } : {}),
+      ...(accept ? { accept } : {}),
+      ...(maxBytes !== undefined ? { maxBytes } : {}),
     };
   }
   if (existingFile) {
@@ -297,6 +315,78 @@ export async function getUploadInfo(
 
 /** How long an upload's `fileImportUrl` download may take, body included. */
 export const UPLOAD_FETCH_TIMEOUT_MS = 60_000;
+
+/**
+ * The most an upload's `fileImportUrl` may answer unless its spec says
+ * (47h): 15 MB, the recipe editor's image cap (`MAX_IMAGE_BYTES`).
+ */
+export const UPLOAD_IMPORT_MAX_BYTES = 15 * 1024 * 1024;
+
+/** A picture's file name, for a server that labels nothing (as the recipe importer). */
+const IMAGE_FILE =
+  /\.(?:jpe?g|png|gif|webp|avif|svg|bmp|tiff?|heic|heif|ico)$/i;
+
+/** `13.4 MB`, `3 KB`, `512 bytes`. */
+function megabytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} bytes`;
+}
+
+/**
+ * Whether `response` may be stored for `accept` (47h): an image is
+ * `image/*`, or an unlabelled (or `application/octet-stream`) body at a URL
+ * whose path names an image file — the recipe importer's rule. Fails
+ * closed: an HTML page saved as a project's picture is refused.
+ */
+function acceptable(
+  response: Response,
+  url: string,
+  accept: UploadAccept | undefined,
+): string | undefined {
+  if (!accept) return undefined;
+  const type = (response.headers.get("content-type") ?? "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  if (type.startsWith("image/")) return undefined;
+  if (type === "" || type === "application/octet-stream") {
+    try {
+      if (IMAGE_FILE.test(new URL(url).pathname)) return undefined;
+    } catch {
+      /* Refused below. */
+    }
+  }
+  return `${url} is not an image (content-type ${type || "missing"}); nothing was saved.`;
+}
+
+/** Thrown inside the body's stream when it passes the cap. */
+class OverCapError extends Error {}
+
+/**
+ * The body, counted as it streams (47h): it fails — so the atomic write
+ * leaves nothing — the moment it passes `maxBytes`, whatever the response's
+ * `content-length` said. A web transform, so the body's own failure (the
+ * deadline, a reset) still reaches the write.
+ */
+function capped(
+  body: ReadableStream<Uint8Array>,
+  maxBytes: number,
+): ReadableStream<Uint8Array> {
+  let total = 0;
+  return body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        total += chunk.byteLength;
+        if (total > maxBytes) {
+          controller.error(new OverCapError(`over ${megabytes(maxBytes)}`));
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+}
 
 /**
  * Write an uploaded file to the filesystem — atomically (epic 34, D8), so a
@@ -327,24 +417,36 @@ export async function writeUploadFile(
       Readable.fromWeb(file.stream() as ReadableStream),
     );
   } else if (fileImportUrl) {
+    const maxBytes = uploadData.maxBytes ?? UPLOAD_IMPORT_MAX_BYTES;
     const response = await fetchUploadImport(
       fileImportUrl,
       uploadData.uploadFetch,
+      { accept: uploadData.accept, maxBytes },
     );
     /*
      * No body writes an empty file, as the stream opened up front used to.
-     * A body that fails after the headers (the deadline, a reset) is the
-     * download's failure too, and says so on the form; the atomic write
-     * leaves nothing behind.
+     * A body that fails after the headers (the deadline, a reset, the cap)
+     * is the download's failure too, and says so on the form; the atomic
+     * write leaves nothing behind. Streamed through the count, never
+     * buffered whole.
      */
     try {
       await writeStreamAtomic(
         resultPath,
         response.body
-          ? Readable.fromWeb(response.body as ReadableStream)
+          ? Readable.fromWeb(
+              capped(response.body as ReadableStream<Uint8Array>, maxBytes),
+            )
           : undefined,
       );
     } catch (error) {
+      if (error instanceof OverCapError) {
+        throw new UploadImportError(
+          `${fileImportUrl} is ${error.message}, more than an import takes; nothing was saved.`,
+          fileImportUrl,
+          { cause: error },
+        );
+      }
       throw new UploadImportError(
         `Could not download ${fileImportUrl}: ${reasonOf(error)}.`,
         fileImportUrl,
@@ -369,6 +471,7 @@ function reasonOf(error: unknown): string {
 async function fetchUploadImport(
   url: string,
   uploadFetch: UploadFetch | undefined,
+  { accept, maxBytes }: { accept?: UploadAccept; maxBytes: number },
 ): Promise<Response> {
   if (!uploadFetch) {
     throw new UploadImportError(
@@ -400,6 +503,18 @@ async function fetchUploadImport(
       .join(" ");
     throw new UploadImportError(
       `${url} answered ${status}, not the file; nothing was saved.`,
+      url,
+    );
+  }
+  /* 47h: the type and the declared size, refused before the body is read. */
+  const refusal = acceptable(response, url, accept);
+  const declared = Number(response.headers.get("content-length") ?? NaN);
+  const tooBig = Number.isFinite(declared) && declared > maxBytes;
+  if (refusal || tooBig) {
+    await response.body?.cancel().catch(() => {});
+    throw new UploadImportError(
+      refusal ??
+        `${url} is ${megabytes(declared)}, more than an import takes (${megabytes(maxBytes)}); nothing was saved.`,
       url,
     );
   }

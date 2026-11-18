@@ -6,7 +6,7 @@ import {
   markdownEditorReady,
   signIn,
 } from "../support/helpers";
-import { expectHydrated } from "../support/hydration";
+import { clickAndAwaitAction, expectHydrated } from "../support/hydration";
 import { fixturePath } from "../support/tasks";
 import { PRESETS, type Theme } from "@discontent/component-library/theming";
 // Promoted to support/ so portfolio's sweep uses the same seeding rather than a
@@ -585,7 +585,11 @@ test.describe("Accessibility of the editor's other pages (axe, 40g)", () => {
       await expectNoViolations(page);
       await sheet.getByLabel(/^Stores/).check();
       await sheet.getByLabel(/^On hand/).check();
-      await sheet.getByRole("button", { name: "Save settings" }).click();
+      /* 47h: wait for the save to answer — a cold `next dev` compile of the
+       * action took more than the sheet's 5 s on three CI pushes. */
+      await clickAndAwaitAction(
+        sheet.getByRole("button", { name: "Save settings" }),
+      );
       await expect(sheet).toHaveCount(0);
 
       await expect(page.getByTestId("shopping-probably-have")).toBeVisible();
@@ -665,7 +669,8 @@ test.describe("Accessibility of the editor's other pages (axe, 40g)", () => {
        * repository and record an error under `origin` — CI, dark after
        * light: "The branch changed from main to HEAD during the sync". The
        * card is checked in whichever state it shows; Sync now must then
-       * succeed — `nothing` (the push left the mirror in step) or `synced`.
+       * succeed — `nothing` (the push left the mirror in step: "already in
+       * sync, nothing to move", 47h) or `synced`.
        * (Not `toContainText("synced")`: "Not synced yet." matches it.) (40g)
        */
       await expect(outcome).toBeVisible();
@@ -673,9 +678,12 @@ test.describe("Accessibility of the editor's other pages (axe, 40g)", () => {
       const syncNow = mirror.getByRole("button", { name: "Sync now" });
       await expectHydrated(syncNow);
       await syncNow.click();
-      await expect(outcome).toHaveText(/^Last sync .*: (nothing|synced)/, {
-        timeout: 30_000,
-      });
+      await expect(outcome).toHaveText(
+        /^Last sync .*: (already in sync|synced)/,
+        {
+          timeout: 30_000,
+        },
+      );
       await expectNoViolations(page);
     });
   }

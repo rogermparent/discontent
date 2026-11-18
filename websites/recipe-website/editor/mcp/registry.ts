@@ -1822,7 +1822,9 @@ export function recipeToolDefinitions(
       description:
         "Every import, inspect and roundup call runs as a job with a step log; this " +
         "lists them newest first as {jobs: [{id, kind, label, status, tier, queuedAt, " +
-        "startedAt?, endedAt?, durationMs?, error?, waiting?, retryOf?}], total, more}. " +
+        "startedAt?, endedAt?, durationMs?, error?, waiting?, retryOf?, outcome?}], total, " +
+        'more}; `outcome: {kind: "nothing", note}` marks a done inspect that read nothing ' +
+        "(its page answered 402 or 404, or held no recipe). " +
         "`status` filters by queued, running, done, failed, cancelled, interrupted, or " +
         "`live` (queued and running); `kind` by import-url, import-text, inspect, " +
         "inspect-list, import-list, import-photo, form-url, form-text, form-photo, " +
@@ -1848,7 +1850,7 @@ export function recipeToolDefinitions(
       description:
         "One job — the `job` id every import, inspect and roundup result (and a failed " +
         "one's error) carries, or its last eight characters — as {job, meta, lines, " +
-        "next, live}: `meta` is its record (status, times, the spec summarised, result " +
+        "next, live, outcome?}: `meta` is its record (status, times, the spec summarised, result " +
         "or error with its warnings); `lines` its step log — fetch, yt-dlp, each model " +
         "call with its tokens, rate and GPU share, queue waits, writes — as {t, step, " +
         "phase: start|end|note, n, parent, ms, ok, msg, error, data}. Pass `from` (the " +

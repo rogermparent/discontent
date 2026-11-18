@@ -272,6 +272,17 @@ export interface UploadSpec {
   file?: File;
   /** URL to import file from (optional) */
   fileImportUrl?: string;
+  /**
+   * What a `fileImportUrl` may answer (47h): `"image"` takes only an image
+   * (`image/*`, or an unlabelled body at a URL that names an image file).
+   * Absent, any type. Uploaded files are the caller's to check.
+   */
+  accept?: UploadAccept;
+  /**
+   * The most bytes a `fileImportUrl` may answer (47h), counted as it streams
+   * whatever its `content-length` says. Default `UPLOAD_IMPORT_MAX_BYTES`.
+   */
+  maxBytes?: number;
   /** Whether to clear/remove the existing file */
   clearFile?: boolean;
   /** The existing filename (if any) */
@@ -517,6 +528,9 @@ export type UploadFetch = (
 /**
  * File upload information
  */
+/** What an upload's `fileImportUrl` may answer (47h; `UploadSpec.accept`). */
+export type UploadAccept = "image";
+
 export interface FileUploadData {
   /** The filename to use */
   fileName: string;
@@ -524,6 +538,9 @@ export interface FileUploadData {
   file?: File;
   /** URL to import file from */
   fileImportUrl?: string;
+  /** The spec's `accept` and `maxBytes` (47h), for the download's checks. */
+  accept?: UploadAccept;
+  maxBytes?: number;
   /**
    * What downloads `fileImportUrl` — the write's `uploadFetch`, carried here
    * by `getUploadInfo` so every upload processor has it. None: the import is

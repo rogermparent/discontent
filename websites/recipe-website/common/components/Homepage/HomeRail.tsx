@@ -7,13 +7,19 @@ import {
   withoutSeasonFeatures,
 } from "../../controller/homepageComingUp";
 import { parseDayKey } from "../../util/holidays";
+import { useHomeShown } from "./HomeShown";
 import { useToday } from "./useToday";
 
 export interface FeaturedListRow {
   key: string;
   /** The holiday's slug, for a feature of a dated holiday term. */
   holiday?: string;
-  /** The row, rendered on the server. */
+  /** A recipe's or a plan's slug, for the page's once-only rule (47h). */
+  recipe?: string;
+  group?: string;
+  /** Its target is gone (22g): it takes its slot and renders nothing. */
+  dangling?: boolean;
+  /** The row, rendered on the server; `null` for a dangling one. */
   row: ReactNode;
 }
 
@@ -46,10 +52,24 @@ export function HomeRail({
   className?: string;
 }) {
   const today = useToday(null) ?? serverDay;
-  const shown = new Set(
-    seasonRows(season, parseDayKey(today)).map((row) => row.slug),
-  );
-  const visible = withoutSeasonFeatures(rows, shown).slice(0, limit);
+  /* 47h: the page's answer — past holidays, the plan above and recipes
+   * already shown are left out (`homepageShown`). */
+  const page = useHomeShown();
+  let visible: FeaturedListRow[];
+  if (page) {
+    const byKey = new Map(rows.map((row) => [row.key, row]));
+    visible = page.featured.flatMap((key) => {
+      const row = byKey.get(key);
+      return row ? [row] : [];
+    });
+  } else {
+    const shown = new Set(
+      seasonRows(season, parseDayKey(today)).map((row) => row.slug),
+    );
+    visible = withoutSeasonFeatures(rows, shown)
+      .slice(0, limit)
+      .filter((row) => !row.dangling);
+  }
   if (!plan && visible.length === 0) return null;
   return (
     <div className={className}>

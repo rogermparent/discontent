@@ -39,6 +39,13 @@ const emptyListSentinel = (value: unknown) => (value === "" ? [] : value);
  */
 const blankAsAbsent = (value: unknown) => (value === "" ? undefined : value);
 
+/** An `http(s)` URL that parses (47h). */
+function isWebAddress(value: string): boolean {
+  if (!URL.canParse(value)) return false;
+  const { protocol } = new URL(value);
+  return protocol === "http:" || protocol === "https:";
+}
+
 const ProjectFormSchema = z.object({
   name: z.string().min(1),
   content: z.string(),
@@ -54,7 +61,18 @@ const ProjectFormSchema = z.object({
    */
   image: z.instanceof(File).optional(),
   clearImage: z.coerce.boolean().optional(),
-  imageImportUrl: z.string().optional(),
+  /* 47h: a web address, or the form's plain refusal (it threw in the action). */
+  imageImportUrl: z.preprocess(
+    blankAsAbsent,
+    z
+      .string()
+      .trim()
+      .refine(isWebAddress, {
+        message:
+          "The image URL is not a web address: give one starting with http:// or https://, or upload the file.",
+      })
+      .optional(),
+  ),
   date: z.optional(dateEpochSchema),
   slug: z.string().optional(),
   role: z.string().optional(),

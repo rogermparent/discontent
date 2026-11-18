@@ -660,6 +660,13 @@ password, createdAt?, tokens?}`); nothing in sign-in writes them, so no API
   (`featured-recipes.spec` "should sort featured recipes by feature date":
   no Feature link, 3/3 tries); it signs in again after the reset.
 
+- **Th5 — `nullish()` in a tool's zod schema is in its JSON Schema.** The
+  first row-15 fix made 15 `recipe_create` fields `anyOf [T, null]`:
+  `mcp.test` saw the advertised shape change and the local model's
+  condensed tool view went to 3,526 tokens, over 44e's 3,500
+  (`agentLocal.test`). The nulls are dropped before the create parses
+  instead, and the advertised schema is main's.
+
 #### Gates
 
 After the review fixes and the merge of `origin/main` 45c96471 (#333, 47a),
@@ -1886,6 +1893,301 @@ recipes notes migrate` from the updated main checkout, then `POST
 - Workstation and Pi: the usual update and deploy; nothing to set. The Pi
   learns with Claude; the workstation with qwen3:8b (`RECIPE_LLM_MODEL`, or
   `RECIPE_LLM_EDIT_MODEL`).
+
+### 47h: Fixes found along the way (M; branch `agent/47h-fixes`; Roger's queue, 2026-11-15)
+
+The small problems 47d's design agents found on today's pages, and a few
+the 47 workers recorded (brief: `tmp/47/47h-brief.md`). Bug fixes on the
+pages as they are: nothing here pre-empts a canvas variant, and the rows
+that are design questions are left and said.
+
+#### Results
+
+Curator (`/curator`)
+
+1. **Fixed.** A `page_inspect` whose page answered 402/404, or held no
+   recipe, is a **read nothing** row (a warning-toned ⊖, the words "read
+   nothing", and why in its disclosure: "gimmesomeoven.com answered HTTP
+   404 (not found): nothing was read."), not a done ✓. The judgement is
+   `readNothingInToolResult` (`controller/jobs/outcome.ts`): the tool's
+   content as the model got it — compact JSON, wrapped as untrusted page
+   text, perhaps cut at the result cap. A cut one is judged by its
+   `status` alone (its first keys are `url`, `finalUrl`, `status`,
+   `partial`): a 2xx answer long enough to be cut read something, and the
+   local model's view of an inspect drops `recipe` for `draft` (review).
+   An error result was already an error row.
+2. **Fixed.** Rows say a recipe's name — "Read “Pork Braise”", "Imported
+   “Apple Pie” from example.com", "Updated “Naan”", "Set the picture of …"
+   — wherever the conversation's own results named it (`recipeNames`: a
+   search's or a list's rows, `recipe_get`, an import's result, a create's
+   input). `recipe_import`'s create result now carries `name` (additive;
+   MCP and the CLI too). A slug nothing named stays the slug.
+3. **Left: a design question.** A heads-up from the model (an instruction it
+   refused, a page it could not read) is only prose in its answer. Giving
+   it a place of its own is the `/curator` canvas's call (47d).
+
+Jobs (`/jobs`, a job's page)
+
+4. **Fixed.** A `done` inspect that read nothing — 16 of the main
+   checkout's last 120 jobs (402, 403, 404, 429) — carries an **outcome**,
+   `{kind: "nothing", note}`, derived from its stored result by
+   `jobOutcome`, so jobs written before 47h read the same way. The stored
+   `status` stays `done` everywhere (Dh1). `/jobs` shows a "read nothing"
+   chip beside the status and the note under the label; the job's page the
+   chip; `recipes jobs list` "done (read nothing)", `jobs show` a "read
+   nothing: …" line; `GET /api/jobs`, `GET /api/jobs/<id>`, MCP `job_list`
+   and `job_get` an `outcome` field (both descriptions say so; 59 tools /
+   45 pre-approved unchanged).
+5. **Fixed.** A curator run's Result is its answer (the model's last words,
+   as `/curator` draws them: `CuratorMarkdown`, no raw HTML), or "The run
+   ended without an answer.", and a link to the whole run on `/curator`. A
+   read-nothing job's Result says why, and the page's title when it had
+   one.
+6. **Fixed.** An agent job's page said "A sync is not retried: use Sync
+   now on the Git page" (two kinds' words for three kinds). Each kind has
+   its own: a curator run "is not retried: its tools may already have
+   written. Open it on the Curator page to follow up, or ask again." 47i's
+   `edit` and 47j's `notes` step need nothing: `edit` is retried as before,
+   and a `notes` step is a step.
+7. **Left, as the rule requires (Dh2).** The ~14.5 s wait is the polite
+   gap working as written. In the main checkout's job log the image is on
+   the page's own site — `www.recipetineats.com/tachyon/…` after
+   `www.recipetineats.com`, `cdn.loveandlemons.com` after
+   `www.loveandlemons.com` (one registrable domain since 39e De1) — and
+   30-D5 says "image downloads count as requests", 15 s apart per site.
+   It is a `queue.wait` on the shared `site:` slot, not a fixed sleep; a
+   CDN on another domain (`i2.wp.com` after `downshiftology.com`) waits
+   nothing. Not weakened. **Roger to confirm** whether a page's own picture
+   may follow its page without the gap.
+
+Git (`/git`) and Settings
+
+8. **Fixed.** No ahead/behind badge without an upstream: both counts are 0
+   by default then, and a green "in sync" beside "no upstream" read as
+   synced. With an upstream it is as before.
+9. **Fixed.** The history titles each commit with names
+   (`historyNames.ts`): "Add new featured recipe: 01m676tr…" is "Add new
+   featured recipe: “Creamy Soup Blueprint”", a tag feature "“Punch”
+   (tag)", "Create recipe: “Naan”", "Assign term: “Punch” (+8 recipes)";
+   the open commit shows the message as written. The conflict list labels
+   terms ("Tag: …"), homepage features, pages, the shopping list's items
+   and settings and "What's on hand" instead of raw paths
+   (`labelForPath`, which MCP's `git_status` uses too), and the page adds
+   the names ("Recipe: Naan"). Names come from each record's file as it is
+   now — never an index (F30) — so a record deleted since keeps its slug.
+   `git_log` and the commit messages are unchanged (Dh3).
+10. **Fixed.** A mirror's last sync says what happened: "already in sync,
+    nothing to move" for `nothing`, "the mirror has uncommitted changes, so
+    nothing was sent" for `mirror_dirty`, and so on (`syncWords.ts`); the
+    workstation card on a mirror the same. The stored outcome is
+    unchanged.
+11. **Left: a feature.** API tokens have no screen; a token screen is a
+    design pick (the Settings/Git canvas has one under Account), after 47e's
+    Account area.
+
+Homepage
+
+12. **Fixed.** A recipe shows **once on the page, the earliest section
+    winning**, in reading order: the season's rows (soonest first), then
+    Featured, then New this week (`homepageShown`, Dh4). Each season strip
+    takes its first four candidates no earlier strip shows (the server now
+    hands eight), Featured leaves out a recipe already shown (or featured
+    twice), and New this week shows the first six of twelve candidates no
+    section above shows. One answer on the browser's day for all three
+    islands (`HomeShownProvider`), so they cannot disagree; the plan
+    panel's lines are the plan's and are left as they are.
+13. **Logic fixed, curation listed.** Featured no longer shows a dated
+    holiday past its window (Halloween after 31 October; outside 180 days
+    either way) nor the plan the plan panel already shows (Connor's
+    Birthday 2026 was on the page twice). A dangling feature still takes
+    its slot, then shows nothing (22g), now on the browser's side. The
+    rest is curation — the orchestrator's list, nothing changed:
+    - **Thanksgiving's strip** is its four newest photographed recipes
+      (Spiked Apple Cider (Wholefully), Candied Sweet Potatoes, My Favorite
+      Cornbread, Flaky Buttermilk Biscuits). The corpus has the menu:
+      Lagerstrom Roast Turkey and Juicy Slow Cooker Turkey Breast, Cornbread
+      Stuffing and Sausage & Herb Stuffing, Extra-Smooth Pumpkin Pie and My
+      Favorite Pecan Pie, all photographed and tagged. The strip reads no
+      pins, so no content write moves it; a strip by course is the
+      homepage canvas's variant (Dh5).
+    - **Halloween** is still featured (a `halloween` term feature, 2026-10
+      round); it is hidden now by date, and `unfeature` (held back) would
+      tidy the list.
+    - **Christmas Baking** (`christmas-baking`, tagged `christmas`, 6 items)
+      is absent because "On the plan" is the newest plan (Connor's Birthday
+      2026). Featuring it (`feature`, pre-approved) puts it in Featured; a
+      panel that prefers the next holiday's plan is the canvas's.
+    - **One group twice** was Connor's Birthday 2026 (plan panel and
+      Featured): logic, fixed above.
+14. **Fixed.** Holidays is in the menu sheet (phone and small tablet) and,
+    from `xl`, in the masthead after Drinks — on a site with holidays only
+    (`withHolidaysItem`), so a fixture without a `holidays` root keeps its
+    masthead and baselines (Dh6). On a phone the homepage search shows
+    "Search 877 recipes" drawn over the field while it is empty
+    (`peer-placeholder-shown`), instead of the placeholder cut at "a name,
+    an"; from `sm` the placeholder is as before.
+
+Import / CLI
+
+15. **Fixed.** `create --file` (and `POST /api/recipes`, an import's
+    create) reads `null` as "none" in every field the patch takes `null`
+    for — description, tags, the times, yield, ingredients, instructions,
+    timelines, source, drink, notes, `imageImportUrl`, `videoUrl`,
+    `videoImportUrl` (`noneForNull` in `schema.ts`, where a create parses
+    its input). `name` and `date` stay strict. The schema MCP advertises
+    for `recipe_create` is unchanged (Th5), so MCP still says no `null`.
+16. **Fixed (paced; the dry run still fetches).** `create` / `update
+--dry-run` probed the picture with a bare `HEAD`; it is now on the
+    site's queue like the real write's download (`probeImageFilePaced`, the
+    default in `buildRecipeWrite`), so the dry run still says the name and
+    size a real write would store (Dh7). An import's dry run was already
+    paced (34f). A site dropped for now is the probe's `error`, and the dry
+    run answers.
+
+Tests
+
+17. **Fixed at the root.** The flake was never the count arriving late: in
+    the failing attempt's page snapshot (CI run 43752833549, shard 1) the
+    new settings were already applied and the sheet still open — the save's
+    server action, its first call on a cold `next dev` shard (compile, then
+    a commit), answered after the assertion's 5 s had mostly gone, and the
+    sheet was mid-close. `clickAndAwaitAction`
+    (`playwright/support/hydration.ts`) clicks and waits for the action's
+    POST response (it carries `Next-Action`, up to 30 s), so the sheet's
+    assertion is timed from the answer. Used at `accessibility.spec.ts`'s
+    save and the four in `shopping.spec.ts`.
+
+From 47b (engine)
+
+18. **Fixed.** `UploadSpec.accept: "image"` takes only `image/*` — or an
+    unlabelled / `application/octet-stream` body at a URL that names an
+    image file, the recipe importer's rule — and every `fileImportUrl` has
+    a cap, `maxBytes` (default `UPLOAD_IMPORT_MAX_BYTES`, 15 MB, the recipe
+    editor's): a declared `content-length` over it is refused before the
+    body is read, and the body is counted as it streams through a web
+    `TransformStream` (never buffered), failing the atomic write the moment
+    it passes. Each is 47b's `UploadImportError` with nothing written ("…
+    is not an image (content-type text/html); nothing was saved.").
+    Getting the type and the size wrong both fail closed. The portfolio's
+    project image passes `accept: "image"`; the recipe editor never passes
+    a `fileImportUrl` (Gb1).
+19. **Fixed.** A non-URL `imageImportUrl` is the portfolio form's plain
+    refusal ("The image URL is not a web address: give one starting with
+    http:// or https://, or upload the file."): the project schema refuses
+    it, and the action shows that error as the form's message (the form
+    draws no field for it). The engine refuses a non-URL `fileImportUrl`
+    the same way for any caller, and `buildProjectData` no longer calls
+    `new URL` on one.
+
+#### Decisions
+
+- **Dh1 — An outcome beside the status, not a new status.** A read-nothing
+  job ran to its end; `done` stays its status in the record, the filters
+  and every surface's `status` field, so the CLI's exit codes, `--status
+done`, the API and MCP readers keep working. `outcome` is additive and
+  derived at read time (old records included). Only `inspect` jobs are
+  judged: an import that reads nothing already fails.
+- **Dh2 — Row 7's gap stays.** 30-D5 counts image requests, and 39e keyed
+  sites by registrable domain on purpose. Recorded, not weakened; Roger to
+  confirm.
+- **Dh3 — Names on the page, messages in the repository.** Commit messages
+  are history and stay as written; `/git` titles them for reading, and the
+  open entry shows the message. A record's name is its current one.
+- **Dh4 — "Earliest section" is reading order** (the DOM, which is the
+  phone's order): season, Featured, New this week. On a laptop Featured
+  sits in the right rail beside New this week; reading order still puts it
+  first. Should every New this week candidate be shown above, it shows the
+  newest anyway: an empty "New this week" says nothing.
+- **Dh5 — The season strip's choice is not changed.** Newest photographed
+  first (42f) stays; by course, or by the term's pins, is a homepage
+  variant.
+- **Dh6 — Holidays in the masthead from `xl`, on sites with holidays.**
+  Six destinations fill the row at `md` (42e's reason for leaving it out),
+  and between `md` and `xl` it is in the footer and ⌘K (46e). Fixtures
+  without holidays are unchanged.
+- **Dh7 — Row 16: pace the probe, keep it.** Not fetching on a dry run
+  would drop the name and size it reports (26b's point of the probe);
+  pacing keeps the answer honest and the rule kept.
+- **Dh8 — One PR.** Rows 18–19 are ~250 lines with their tests, small
+  enough to review with the rest; not split into `agent/47h2-upload-limits`.
+
+#### Traps
+
+- **Th1 — A server action's answer, not its click, starts the UI's clock.**
+  Under `next dev` the first call of an action compiles it; an assertion
+  on what the answer does (a sheet closing) needs the answer awaited first
+  (`clickAndAwaitAction`), the 41b `waitForURL` lesson for actions.
+- **Th2 — `Readable.pipe` does not forward errors.** The cap was first a
+  Node `Transform` piped after `Readable.fromWeb(body)`: a body that fails
+  mid-stream would have left the write waiting. A web `TransformStream`
+  (`body.pipeThrough`) carries the source's error to the write.
+- **Th3 — `new Response("text")` is `text/plain`.** 47b's portfolio test
+  stubbed the image as a bare string body; with the allowlist it is
+  refused, so the stub now says `image/png`.
+- **Th4 — A tool result may be cut, and the local model's is reshaped.**
+  `page_inspect`'s content can stop mid-JSON at the result cap, so the
+  read-nothing check reads the start of the answer (its first four keys)
+  when the whole does not parse — and then judges only the status: qwen's
+  view (`localResult`) has no `recipe` key, so "no recipe next" marked a
+  good, long qwen inspect as read nothing (the review's finding).
+
+#### Gates
+
+2026-11-17, on `origin/main` d8e81c6d (47i and 47j merged), the machine
+at load average 19–41 throughout (other sessions).
+
+- Typecheck clean ×3: `recipe-editor`, `recipe-website tsc --noEmit`, the
+  portfolio editor.
+- Full vitest, run 1: 185 files, 4,096 tests, 4,093 passed. Two were real
+  (`mcp.test`'s advertised `recipe_create` shape, `agentLocal.test`'s
+  3,500-token budget at 3,526: Th5, fixed by moving row 15's nulls out of
+  the schema) and one a load timeout (`editFormRoundTrip`, untouched by
+  this branch). After the fix the affected files (`fixes47h`,
+  `agentLocal`, `mcp`, `curation`, `dryRunPacing`, `curatorPage`,
+  `specVersions`) passed 217/218, the one again `editFormRoundTrip` at
+  8.4 s. Run 2 at load ~25: 19 timeouts in 12 files none of this branch
+  touches (5 s, 30 s and 90 s timeouts, a 200 ms timing assertion, the
+  `ENOTEMPTY` cleanups that follow a timed-out git test). CI's Checks job
+  is the clean run.
+- New unit tests: `fixes47h` (12), `uploadLimits` (6), `dryRunPacing`
+  (2), `portfolioImageImport` +2, `homepageSections` one assertion moved.
+- Playwright in Docker, production build: homepage-browse, featured-
+  recipes, visual, mobile, holidays, header, git, mirrors-card, jobs,
+  curator, shopping and accessibility — 261 tests, 250 passed, 11 failed,
+  all expected moves: 7 baselines (below), 3 git-history lines now titled
+  with names, 2 featured specs (a recipe featured twice, a featured plan
+  that is the panel's). After the spec updates: featured-recipes + git
+  79/82, then git 30/30 (recipe-b's name in the bundle is "edited").
+  Dev mode is CI's four Recipe shards.
+- Baselines regenerated in Docker (`--update-snapshots`, 45 passed), each
+  opened: `holidays-almanac-e2e`, `holidays-menu-e2e`, `search-bands-e2e`,
+  `search-term-e2e` (Holidays in the masthead, a fixture with holidays);
+  `homepage-season-rail-e2e` (the same, and New this week leaves out the
+  four recipes the season strips and Featured show, so five rows);
+  `homepage-mobile-mobile`, `homepage-season-mobile-mobile` (the short
+  search hint).
+- CI on the first push (#341): every unit, typecheck, lint, portfolio,
+  resume-builder, demo and main-checkout-shape job green; the Recipe
+  shards 7 failed, no flake (`accessibility.spec.ts:555` passed first
+  time): 5 more baselines with Holidays in the masthead on holiday
+  fixtures — `drinks-page-e2e`, `plan-page-e2e`, `plan-sheet-e2e`,
+  `plans-list-e2e`, `tags-board-e2e` (and `tags-root-e2e`, `tags-term-e2e`
+  in the same test), regenerated in Docker and opened — and two
+  `api-write` specs that featured the newest plan and looked for it in
+  Featured (row 13: it is the plan panel's now; the specs read it there
+  and on `/featured-recipes`). Docker build: those four spec files 78/78.
+
+#### Roger to confirm (47h)
+
+- Dh2 / row 7: whether a page's own picture may follow its page without
+  the 15 s gap.
+- Dh4: reading order (Featured before New this week on a laptop too).
+- Dh6: Holidays in the masthead from `xl` only (768–1279 px reach it by
+  the footer and ⌘K; the sheet is below `md`).
+- Row 13: Featured also leaves out a dated holiday more than 180 days off
+  (featured far ahead, Christmas in May), not only a past one.
+- Row 4's chip text "read nothing" and the outcome's place beside `done`.
+- Rows 3 and 11 left as design picks; row 13's curation list.
 
 ### 47-close
 

@@ -6,6 +6,7 @@ import clsx from "clsx";
 import Link from "next/link";
 import { readSettings } from "@/settings";
 import { notifyUrlStatus } from "../../../../../controller/instance/notify";
+import { syncOutcomeWords } from "../../../../../controller/curation/syncWords";
 import type { RemoteSummary } from "./types";
 import {
   addMirrorAction,
@@ -87,7 +88,7 @@ export async function MirrorsCard({ remotes }: { remotes: RemoteSummary[] }) {
                 data-testid="mirror-outcome"
               >
                 {entry
-                  ? `Last sync ${when(entry.lastAttempt)}: ${entry.outcome}` +
+                  ? `Last sync ${when(entry.lastAttempt)}: ${syncOutcomeWords(entry.outcome)}` +
                     (entry.pulled || entry.pushed
                       ? ` (in ${entry.pulled ?? 0}, out ${entry.pushed ?? 0})`
                       : "")

@@ -218,13 +218,22 @@ export async function homepageRoute({
     ...(rule ? { rule } : {}),
   }));
   const seasonal = new Set(season.map(({ slug }) => slug));
+  const isSeasonal = (entry: (typeof featuredHead.items)[number]) =>
+    Boolean(entry.term && seasonal.has(entry.term));
+  /* What the "featured" mark reads: the six the list would show (42f). */
+  const marked = featureCandidates(featuredHead.items, isSeasonal, STRIP_SIZE);
+  /*
+   * What the list is handed (47h): twice as many, since the browser now
+   * also leaves out a past holiday, the plan above it and a recipe shown
+   * higher up the page (`homepageShown`), and six should still remain.
+   */
   const candidates = featureCandidates(
     featuredHead.items,
-    (entry) => Boolean(entry.term && seasonal.has(entry.term)),
-    STRIP_SIZE,
+    isSeasonal,
+    STRIP_SIZE * 2,
   );
   const featuredTerms = new Set(
-    candidates.flatMap((entry) =>
+    marked.flatMap((entry) =>
       entry.term && entry.termLabel ? [entry.term] : [],
     ),
   );
@@ -239,8 +248,9 @@ export async function homepageRoute({
       : allFacets;
 
   const courses = courseLabels(tagTree, recipeRows);
+  /* 47h: twice six candidates; the day shows six no section above shows. */
   const recipes: NewRecipe[] = recipeHead.items
-    .slice(0, STRIP_SIZE)
+    .slice(0, STRIP_SIZE * 2)
     .map((recipe: MassagedRecipeEntry) => {
       const course = courses.get(recipe.slug);
       return course ? { ...recipe, course } : recipe;
@@ -274,57 +284,62 @@ export async function homepageRoute({
    */
   async function featuredEntries(): Promise<FeaturedStripEntry[]> {
     return Promise.all(
-      candidates
-        .filter(
-          (entry) => entry.recipeName || entry.groupName || entry.termLabel,
-        )
-        .map(async (entry): Promise<FeaturedStripEntry> => {
-          /* Newest discriminator first, as the card list does — see that file. */
-          if (entry.term && entry.termLabel) {
-            const node = findTermNode(tagTree, entry.term) ?? {
-              slug: entry.term,
-              children: [],
-            };
-            return {
-              kind: "term",
-              slug: entry.term,
-              label: entry.termLabel,
-              ...(entry.termImage ? { image: entry.termImage } : {}),
-              date: entry.date,
-              ...(seasonal.has(entry.term) ? { holiday: true } : {}),
-              summary: termSummary(
-                { ...node, image: entry.termImage },
-                recipeRows,
-                groupRows,
-              ),
-            };
-          }
-          if (entry.group && entry.groupName) {
-            const group = await groupItems
-              .read(entry.group)
-              .catch(() => undefined);
-            return {
-              kind: "group",
-              slug: entry.group,
-              name: entry.groupName,
-              groupKind: entry.groupKind,
-              date: entry.date,
-              ...(group?.image ? { image: group.image } : {}),
-              ...(group ? { items: group.items } : {}),
-            };
-          }
-          const course = courses.get(entry.recipe!);
-          return {
-            kind: "recipe",
-            recipe: {
-              slug: entry.recipe!,
-              date: entry.date,
-              name: entry.recipeName!,
-              image: entry.recipeImage,
-            } satisfies MassagedRecipeEntry,
-            ...(course ? { meta: course } : {}),
+      candidates.map(async (entry): Promise<FeaturedStripEntry> => {
+        /*
+         * 47h: a dangling one is kept as a placeholder, not filtered:
+         * the browser cuts the list after leaving out what the page
+         * already shows, and a dangling entry must still take its slot
+         * there (22g's rule, below).
+         */
+        if (!entry.recipeName && !entry.groupName && !entry.termLabel) {
+          return { kind: "dangling", date: entry.date };
+        }
+        /* Newest discriminator first, as the card list does — see that file. */
+        if (entry.term && entry.termLabel) {
+          const node = findTermNode(tagTree, entry.term) ?? {
+            slug: entry.term,
+            children: [],
           };
-        }),
+          return {
+            kind: "term",
+            slug: entry.term,
+            label: entry.termLabel,
+            ...(entry.termImage ? { image: entry.termImage } : {}),
+            date: entry.date,
+            ...(seasonal.has(entry.term) ? { holiday: true } : {}),
+            summary: termSummary(
+              { ...node, image: entry.termImage },
+              recipeRows,
+              groupRows,
+            ),
+          };
+        }
+        if (entry.group && entry.groupName) {
+          const group = await groupItems
+            .read(entry.group)
+            .catch(() => undefined);
+          return {
+            kind: "group",
+            slug: entry.group,
+            name: entry.groupName,
+            groupKind: entry.groupKind,
+            date: entry.date,
+            ...(group?.image ? { image: group.image } : {}),
+            ...(group ? { items: group.items } : {}),
+          };
+        }
+        const course = courses.get(entry.recipe!);
+        return {
+          kind: "recipe",
+          recipe: {
+            slug: entry.recipe!,
+            date: entry.date,
+            name: entry.recipeName!,
+            image: entry.recipeImage,
+          } satisfies MassagedRecipeEntry,
+          ...(course ? { meta: course } : {}),
+        };
+      }),
     );
   }
 
@@ -339,6 +354,7 @@ export async function homepageRoute({
       featured={featured}
       season={season}
       featuredLimit={STRIP_SIZE}
+      freshLimit={STRIP_SIZE}
       plan={groupHead.items[0]}
       planLines={planLines}
       showShopping={showShopping}

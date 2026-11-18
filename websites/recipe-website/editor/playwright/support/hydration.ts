@@ -37,3 +37,31 @@ export async function expectHydrated(
     )
     .toBe(true);
 }
+
+/**
+ * Click `locator` and resolve once the server action the click starts has
+ * answered (47h, row 17) — so an assertion on what the answer does (a
+ * sheet that closes, a list that changes) times its default 5 s from the
+ * answer, not from the click.
+ *
+ * Under `next dev` the first call of an action on a cold shard compiles it
+ * first: the shopping settings' Save took over 5 s on three CI pushes, and
+ * `expect(sheet).toHaveCount(0)` failed with the save already landed (the
+ * page showed the new settings, the sheet was mid-close). Server actions
+ * are POSTs that carry a `Next-Action` header; the wait is for the first
+ * one after the click, as long as `timeout` allows.
+ */
+export async function clickAndAwaitAction(
+  locator: Locator,
+  { timeout = 30_000 }: { timeout?: number } = {},
+): Promise<void> {
+  const page = locator.page();
+  const answered = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.request().headers()["next-action"] !== undefined,
+    { timeout },
+  );
+  await locator.click();
+  await answered;
+}

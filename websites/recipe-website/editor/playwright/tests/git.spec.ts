@@ -426,6 +426,18 @@ test.describe("Git content", () => {
   test.describe("with some git history", () => {
     const firstRecipeSlug = "recipe-a";
     const secondRecipeSlug = "recipe-b";
+    /*
+     * 47h: the history titles a commit with the record's name where the
+     * record still exists — recipe-b is named "edited" in the bundle's last
+     * commit — and keeps the slug of
+     * one deleted since (recipe-a). The message itself is in the commit's
+     * details.
+     */
+    const secondRecipeTitle = (page: Page, verb: string) =>
+      page.getByRole("button", {
+        name: `${verb}: “edited”`,
+        exact: true,
+      });
 
     test.beforeEach(async ({ page, loadGitFixture }) => {
       await loadGitFixture("test-git.bundle");
@@ -442,12 +454,8 @@ test.describe("Git content", () => {
       await expect(
         page.getByText(`Add new recipe: ${firstRecipeSlug}`, { exact: true }),
       ).toBeVisible();
-      await expect(
-        page.getByText(`Add new recipe: ${secondRecipeSlug}`, { exact: true }),
-      ).toBeVisible();
-      await expect(
-        page.getByText(`Update recipe: ${secondRecipeSlug}`, { exact: true }),
-      ).toBeVisible();
+      await expect(secondRecipeTitle(page, "Add new recipe")).toBeVisible();
+      await expect(secondRecipeTitle(page, "Update recipe")).toBeVisible();
       await expect(
         page.getByText(`Delete recipe: ${firstRecipeSlug}`, { exact: true }),
       ).toBeVisible();
@@ -475,9 +483,7 @@ test.describe("Git content", () => {
       // The diff is not shipped until the commit is expanded.
       await expect(page.getByText("Commit Details")).toHaveCount(0);
 
-      await page
-        .getByText(`Update recipe: ${secondRecipeSlug}`, { exact: true })
-        .click();
+      await secondRecipeTitle(page, "Update recipe").click();
 
       await expect(page.getByText("Commit Details")).toBeVisible();
       await expect(page.getByText("Author", { exact: true })).toBeVisible();
@@ -490,9 +496,7 @@ test.describe("Git content", () => {
 
     test("should display the correct commit details", async ({ page }) => {
       await page.goto("/git");
-      await page
-        .getByText(`Update recipe: ${secondRecipeSlug}`, { exact: true })
-        .click();
+      await secondRecipeTitle(page, "Update recipe").click();
 
       await expect(page.getByText("Commit Details")).toBeVisible();
       await expect(page.getByText(/-.*Recipe B/)).toBeVisible();
