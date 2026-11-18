@@ -288,6 +288,9 @@ test.describe("Account & devices", () => {
     await expect(row).toBeVisible();
     expect(await page.content()).not.toContain(token);
     expect(await page.content()).not.toContain(token.slice(13));
+    /* The reload keeps the scroll, and axe reads the translucent masthead's
+     * text over whatever button sits under it: check from the top. */
+    await page.evaluate(() => window.scrollTo(0, 0));
     await expectNoViolations(page);
 
     /* Revoke asks first, then the token stops working at once. */
