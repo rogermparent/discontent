@@ -25,6 +25,17 @@ export interface AgentRunInput {
    * local model.
    */
   newerWebTools?: boolean;
+  /**
+   * Hold the run's writes for the person's review (48b, Db1): the curator
+   * page's runs (`POST /api/agent` holds unless told not to). Off for the
+   * CLI, which writes as Claude Code does.
+   */
+  hold?: boolean;
+  /**
+   * Who answers (48b, Db5): `claude` or `local`, where the editor has both.
+   * A follow-up keeps its conversation's model.
+   */
+  model?: "local" | "claude";
 }
 
 export interface AgentStartResult {

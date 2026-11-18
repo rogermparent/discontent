@@ -15,7 +15,12 @@
  *   away is marked `missing`).
  */
 import { getRecipeBySlug } from "recipe-website-common/controller/data/read";
-import { llmConfig, takesNewerWebTools } from "../llm/client";
+import { takesNewerWebTools, type LlmConfig } from "../llm/client";
+import { agentCostBudget, curatorModels, type CuratorModelId } from "./job";
+import { heldCalls } from "./held";
+import { readDecisions } from "./reviewStore";
+import { appliedSummaries } from "./review";
+import { hasHeadsUp } from "./runSummary";
 import { jobsDirectory } from "../jobs/location";
 import {
   LIVE_STATUSES,
@@ -28,7 +33,7 @@ import { requireJob } from "../jobs/views";
 import { NotFoundError } from "../curation/errors";
 import { changeCount, runChanges, type ChangedRecipe } from "./changes";
 import type { RunChanges } from "./changes";
-import { modelWords } from "./conversation";
+import { claudeModelName, modelWords } from "./conversation";
 import {
   historyOf,
   readTranscriptText,
@@ -49,23 +54,95 @@ export interface CuratorSetup {
    * model that has them (`takesNewerWebTools`). The ask box's checkbox.
    */
   newerWebTools: boolean;
+  /**
+   * 48b (Db5): who may answer an ask, the editor's own model first — two
+   * where the editor has both a local model and the Claude API. The fields
+   * above are the first's.
+   */
+  models?: CuratorModelOption[];
+}
+
+/** One model an ask may pick (48b, Db5). */
+export interface CuratorModelOption {
+  id: CuratorModelId;
+  /** "Claude Sonnet 5 through the API", "qwen3:8b on this machine". */
+  words: string;
+  /** "Claude Sonnet 5", "qwen3:8b": its name alone. */
+  name: string;
+  api: "anthropic" | "local";
+  search: boolean;
+  newerWebTools: boolean;
+  /** A run's cost budget (46d), for a priced model. */
+  maxCostUsd?: number;
+  /** What its recent runs here cost, cheapest to dearest (Claude only). */
+  costRange?: { min: number; max: number; runs: number };
+}
+
+function modelOption(
+  id: CuratorModelId,
+  config: LlmConfig,
+  env: NodeJS.ProcessEnv,
+): CuratorModelOption {
+  const searchUrl = env.RECIPE_SEARCH_URL?.trim();
+  const claude = config.api === "anthropic";
+  const budget = agentCostBudget(config, env).maxCostUsd;
+  return {
+    id,
+    words: modelWords(config),
+    name: claude ? claudeModelName(config.model) : config.model,
+    api: claude ? "anthropic" : "local",
+    search: claude || (!!searchUrl && URL.canParse(searchUrl)),
+    newerWebTools: claude && takesNewerWebTools(config.model),
+    ...(budget !== undefined ? { maxCostUsd: budget } : {}),
+  };
 }
 
 /** What runs the curator here, or `undefined` with no model (no page, Ec9). */
 export function curatorSetup(
   env: NodeJS.ProcessEnv = process.env,
 ): CuratorSetup | undefined {
-  const config = llmConfig(env);
-  if (!config) return undefined;
-  const searchUrl = env.RECIPE_SEARCH_URL?.trim();
+  const models = curatorModels(env);
+  if (!models.primary) return undefined;
+  const order: CuratorModelId[] =
+    models.primary === "claude" ? ["claude", "local"] : ["local", "claude"];
+  const options = order.flatMap((id) => {
+    const config = models[id];
+    return config ? [modelOption(id, config, env)] : [];
+  });
+  const first = options[0];
   return {
-    model: modelWords(config),
-    api: config.api === "anthropic" ? "anthropic" : "local",
-    search:
-      config.api === "anthropic" || (!!searchUrl && URL.canParse(searchUrl)),
-    newerWebTools:
-      config.api === "anthropic" && takesNewerWebTools(config.model),
+    model: first.words,
+    api: first.api,
+    search: first.search,
+    newerWebTools: first.newerWebTools,
+    models: options,
   };
+}
+
+/**
+ * The setup with each priced model's recent cost range (48b): the
+ * cheapest and dearest of the listed runs it answered.
+ */
+export function withCostRanges(
+  setup: CuratorSetup,
+  runs: readonly CuratorRunRow[],
+): CuratorSetup {
+  const models = (setup.models ?? []).map((option) => {
+    if (option.api !== "anthropic") return option;
+    const costs = runs.flatMap((run) =>
+      run.api === "anthropic" && run.costUsd !== undefined ? [run.costUsd] : [],
+    );
+    if (costs.length === 0) return option;
+    return {
+      ...option,
+      costRange: {
+        min: Math.min(...costs),
+        max: Math.max(...costs),
+        runs: costs.length,
+      },
+    };
+  });
+  return { ...setup, models };
 }
 
 export interface CuratorRunRow {
@@ -81,6 +158,17 @@ export interface CuratorRunRow {
   endedAt?: number;
   /** Recipes, terms, plans and places it changed (`changeCount`). */
   changes: number;
+  /** 48b: held writes still waiting for the person's review. */
+  review: number;
+  /** 48b: held writes the person saved. */
+  saved: number;
+  /** 48b: the model its newest run answered on, by name ("Claude Sonnet 5"). */
+  model?: string;
+  api?: "anthropic" | "local";
+  /** 48b: the conversation's estimated cost (Claude), every run's summed. */
+  costUsd?: number;
+  /** 48b: its last answer carries a heads-up (Db7). */
+  headsUp?: true;
 }
 
 /** The first line of an ask, for a list. */
@@ -99,6 +187,12 @@ interface Summary {
   firstAsk?: string;
   asks: number;
   changes: number;
+  /** 48b: the conversation's held calls, by id and the run each was made in. */
+  held: { id: string; job: string }[];
+  costUsd?: number;
+  headsUp: boolean;
+  model?: string;
+  api?: "anthropic" | "local";
 }
 
 interface SummaryGlobal {
@@ -119,13 +213,38 @@ async function summarize(dir: string, id: string): Promise<Summary> {
   const known = cache.get(`${dir}\0${id}`);
   if (known && known.size === size) return known;
   const text = size > 0 ? await readTranscriptText(dir, id) : undefined;
-  const messages = text ? historyOf(transcriptRecords(text)) : [];
+  const records = text ? transcriptRecords(text) : [];
+  const messages = historyOf(records);
   const asks = messages.filter((message) => message.role === "user");
+  let costUsd: number | undefined;
+  let model: string | undefined;
+  let api: "anthropic" | "local" | undefined;
+  for (const record of records) {
+    if (record.type === "end" && record.costEstimate !== undefined) {
+      costUsd = (costUsd ?? 0) + record.costEstimate;
+    }
+    if (record.type === "start") {
+      api = record.api === "anthropic" ? "anthropic" : "local";
+      model =
+        record.api === "anthropic"
+          ? claudeModelName(record.model)
+          : record.model;
+    }
+  }
+  const lastAnswer = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant" && message.text.trim());
   const summary: Summary = {
     size,
     ...(asks[0] ? { firstAsk: asks[0].text } : {}),
     asks: asks.length,
     changes: changeCount(runChanges(messages)),
+    held: heldCalls(records).map((call) => ({ id: call.id, job: call.job })),
+    ...(costUsd !== undefined ? { costUsd } : {}),
+    headsUp:
+      lastAnswer?.role === "assistant" ? hasHeadsUp(lastAnswer.text) : false,
+    ...(model ? { model } : {}),
+    ...(api ? { api } : {}),
   };
   if (cache.size >= SUMMARY_CACHE_MAX) cache.clear();
   cache.set(`${dir}\0${id}`, summary);
@@ -173,8 +292,26 @@ export async function listCuratorRuns({
         size: 0,
         asks: 0,
         changes: 0,
+        held: [],
+        headsUp: false,
       }));
       const result = (meta.result ?? {}) as { stopReason?: AgentStopReason };
+      /* 48b: the held calls' decisions are read fresh (they change). */
+      const decisions =
+        summary.held.length > 0
+          ? await readDecisions(dir, summary.held).catch(() => new Map())
+          : new Map();
+      const applied = [...decisions.values()].filter(
+        (decision) => decision.state === "applied",
+      );
+      const appliedChanges = changeCount(
+        runChanges(
+          [],
+          applied.flatMap((decision) =>
+            decision.summary ? [decision.summary] : [],
+          ),
+        ),
+      );
       return {
         id: meta.id,
         ask: askLine(summary.firstAsk ?? specOf(meta).prompt ?? meta.label),
@@ -183,10 +320,61 @@ export async function listCuratorRuns({
         ...(result.stopReason ? { stopReason: result.stopReason } : {}),
         queuedAt: meta.queuedAt,
         ...(meta.endedAt !== undefined ? { endedAt: meta.endedAt } : {}),
-        changes: summary.changes,
+        changes: summary.changes + appliedChanges,
+        review: summary.held.filter((call) => !decisions.has(call.id)).length,
+        saved: applied.length,
+        ...(summary.model ? { model: summary.model } : {}),
+        ...(summary.api ? { api: summary.api } : {}),
+        ...(summary.costUsd !== undefined ? { costUsd: summary.costUsd } : {}),
+        ...(summary.headsUp ? { headsUp: true as const } : {}),
       };
     }),
   );
+}
+
+/** What ⌘K says of the curator (48b): runs waiting for review, and who answers. */
+export interface CuratorPaletteSummary {
+  review: {
+    /** Conversations with held writes waiting. */
+    runs: number;
+    /** Held writes waiting, over them. */
+    calls: number;
+    /** The newest such conversation: its ask and its run. */
+    first?: { id: string; ask: string };
+  };
+  /** The ask's default model, by name. */
+  model: string;
+  api: "anthropic" | "local";
+  search: boolean;
+  /** What its recent runs cost (Claude). */
+  costRange?: { min: number; max: number; runs: number };
+}
+
+/** ⌘K's curator summary (48b): the review count and the hand-off's words. */
+export async function curatorPaletteSummary({
+  dir = jobsDirectory(),
+  env = process.env,
+}: { dir?: string; env?: NodeJS.ProcessEnv } = {}): Promise<
+  CuratorPaletteSummary | undefined
+> {
+  const setup = curatorSetup(env);
+  if (!setup) return undefined;
+  const runs = await listCuratorRuns({ dir, limit: 20 });
+  const waiting = runs.filter((run) => run.review > 0);
+  const first = withCostRanges(setup, runs).models?.[0];
+  return {
+    review: {
+      runs: waiting.length,
+      calls: waiting.reduce((sum, run) => sum + run.review, 0),
+      ...(waiting[0]
+        ? { first: { id: waiting[0].id, ask: waiting[0].ask } }
+        : {}),
+    },
+    model: first?.name ?? setup.model,
+    api: setup.api,
+    search: setup.search,
+    ...(first?.costRange ? { costRange: first.costRange } : {}),
+  };
 }
 
 /** A changed recipe with its card's fields, as the page draws it. */
@@ -223,7 +411,12 @@ export async function curatorRunChanges(
     throw new NotFoundError(`Job ${meta.id} is not an agent run.`);
   }
   const text = await readTranscriptText(dir, meta.id);
-  const changes = runChanges(text ? historyOf(transcriptRecords(text)) : []);
+  const records = text ? transcriptRecords(text) : [];
+  /* 48b: and what the person's approvals of its held writes wrote. */
+  const changes = runChanges(
+    historyOf(records),
+    await appliedSummaries(records, dir),
+  );
   const recipes = await Promise.all(
     changes.recipes.map(
       async (recipe, index): Promise<CuratorChangedRecipe> => {

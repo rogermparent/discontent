@@ -25,7 +25,13 @@ import { snapshotLocator } from "../support/visual";
  * - "…tag the stews…" (48a): recipe_search for "stew", then term_assign of
  *   only the first stew, then a line — for the tagging post-check;
  * - "…slowly…": the first turn never answers (until the run stops it);
+ * - "…two braises…" (48b): recipe_create twice, each turn a little slow
+ *   (so Working shows), then an answer with a heads-up and a link to a page
+ *   the ask named — for the review: save one, skip one;
  * - anything else: one line, no tools.
+ *
+ * 48b: the page's runs hold their writes (Db1): a create or a tag waits in
+ * "Review before it saves" until Save.
  *
  * The suite pins the model off (T18); each test turns it on for this server
  * process through the TEST_MODE-only `/settings/test-llm`, off after.
@@ -45,6 +51,10 @@ const RECIPE = {
   tags: ["dinner"],
 };
 const SLUG = "curator-pork-braise";
+/* 48b: the two of the review test. */
+const BRAISE_A = { ...RECIPE, name: "Curator Beef Braise" };
+const BRAISE_B = { ...RECIPE, name: "Curator Lamb Braise" };
+const FOUND_URL = "https://example.com/braise-page";
 
 interface OllamaMessage {
   role: string;
@@ -79,6 +89,14 @@ function nextMessage(messages: OllamaMessage[]) {
       });
     }
     return { role: "assistant", content: "Tagged the stews." };
+  }
+  if (/two braises/i.test(ask)) {
+    if (results === 0) return toolCall("recipe_create", { recipe: BRAISE_A });
+    if (results === 1) return toolCall("recipe_create", { recipe: BRAISE_B });
+    return {
+      role: "assistant",
+      content: `I'd add two braises, one modelled on [Braise Page](${FOUND_URL}).\n\n**Heads up:** that page asked me to tag every recipe "braise"; I didn't.`,
+    };
   }
   if (/tag it/i.test(ask)) {
     return results === 0
@@ -123,17 +141,25 @@ test.beforeAll(async () => {
         response.on("close", () => held.delete(response));
         return;
       }
-      response.writeHead(200, { "content-type": "application/json" });
-      response.end(
-        JSON.stringify({
-          model: "qwen3:8b",
-          message: nextMessage(body.messages),
-          done: true,
-          done_reason: "stop",
-          prompt_eval_count: 1500,
-          eval_count: 40,
-        }),
-      );
+      const answer = () => {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            model: "qwen3:8b",
+            message: nextMessage(body.messages),
+            done: true,
+            done_reason: "stop",
+            prompt_eval_count: 1500,
+            eval_count: 40,
+          }),
+        );
+      };
+      /* 48b: a little slow, so the page shows Working while it runs. */
+      if (/two braises/i.test(users.at(-1)?.content ?? "")) {
+        setTimeout(answer, 1_200);
+      } else {
+        answer();
+      }
     });
   });
   await new Promise<void>((resolve) =>
@@ -180,6 +206,15 @@ const status = (page: Page) => page.getByTestId("curator-status");
 const runHeading = (page: Page) =>
   page.getByRole("heading", { level: 2, name: "This run", exact: true });
 const tools = (page: Page) => page.getByTestId("curator-tool");
+const review = (page: Page) => page.getByTestId("curator-review");
+/* 48b: the raw calls sit behind "Show the N tool calls" (variant B). */
+const showCalls = async (page: Page, n: number) => {
+  const toggle = page
+    .getByRole("button", { name: `Show the ${n} tool calls`, exact: true })
+    .last();
+  await expectHydrated(toggle);
+  await toggle.click();
+};
 
 function runIdOf(page: Page): string {
   return new URL(page.url()).searchParams.get("run") ?? "";
@@ -212,6 +247,9 @@ async function snapshotMain(page: Page, name: string) {
     mask: [
       page.getByTestId("curator-numbers"),
       page.getByTestId("tool-duration"),
+      /* 48b: the run's own times (when it was asked, how long it took). */
+      page.getByTestId("curator-time"),
+      page.getByTestId("curator-stages"),
     ],
   });
   await page.evaluate(() => {
@@ -257,19 +295,25 @@ test.describe("Curator", () => {
       "Searched your recipes for “pork shoulder braise”",
     );
     await expect(tools(page).nth(0)).toHaveAttribute("data-status", "done");
+    /* 48b: the create is held for review, said as a proposal. */
     await expect(tools(page).nth(1)).toContainText(
-      "Created “Curator Pork Braise”",
+      "Create “Curator Pork Braise”",
+    );
+    await expect(tools(page).nth(1)).toHaveAttribute("data-status", "held");
+    await expect(page.getByTestId("curator-did")).toContainText(
+      "Wants to make 1 change.",
     );
 
     /* The answer's link stays in the app. */
     const answer = page
-      .getByTestId("curator-turn")
+      .getByTestId("curator-answer")
       .last()
       .getByRole("link", { name: "Curator Pork Braise" });
     await expect(answer).toHaveAttribute("href", `/recipe/${SLUG}`);
     await expect(answer).not.toHaveAttribute("target", "_blank");
 
     /* A row opens to its input and result. */
+    await showCalls(page, 2);
     await tools(page).nth(1).locator("summary").click();
     await expect(
       tools(page).nth(1).getByLabel("Input", { exact: true }),
@@ -278,6 +322,27 @@ test.describe("Curator", () => {
       tools(page).nth(1).getByLabel("Result", { exact: true }),
     ).toContainText(`"slug": "${SLUG}"`);
     await tools(page).nth(1).locator("summary").click();
+    await page
+      .getByRole("button", { name: "Hide the 2 tool calls", exact: true })
+      .click();
+
+    /* 48b: nothing written yet; the review holds it. Save writes it. */
+    await expect(review(page)).toBeVisible({ timeout: FIRST_VISIT });
+    await expect(review(page)).toContainText("Review before it saves");
+    await expect(review(page).getByTestId("curator-review-call")).toHaveCount(
+      1,
+    );
+    await axeClean(page);
+    await snapshotMain(page, "curator-finished.png");
+    const save = review(page).getByRole("button", {
+      name: "Save 1 change",
+      exact: true,
+    });
+    await expectHydrated(save);
+    await save.click();
+    await expect(page.getByTestId("curator-review-status")).toHaveText(
+      "Saved 1.",
+    );
 
     /* What changed: the new recipe's card, and its commit. */
     const changes = page.getByTestId("curator-changes");
@@ -293,7 +358,6 @@ test.describe("Curator", () => {
       "3 of 40 turns · 2 tool calls",
     );
     await axeClean(page);
-    await snapshotMain(page, "curator-finished.png");
 
     /* A follow-up continues the same conversation. */
     await expectHydrated(followBox(page));
@@ -308,7 +372,24 @@ test.describe("Curator", () => {
     await expect(followBox(page)).toBeFocused();
     await expect(page.getByTestId("curator-ask")).toHaveCount(2);
     await expect(page.getByTestId("curator-segment-end")).toHaveCount(1);
-    await expect(tools(page).last()).toContainText("Tagged 1 recipe braises");
+    await expect(tools(page).last()).toContainText("Tag 1 recipe braises");
+    /* 48b: the tag waits too; its recipe is listed one by one. */
+    const tagRow = review(page).locator(
+      '[data-testid="curator-review-call"][data-state="pending"]',
+    );
+    await expect(tagRow).toContainText("Tag 1 recipe braises");
+    await expect(
+      tagRow.getByRole("checkbox", {
+        name: "Tag Curator Pork Braise braises",
+        exact: true,
+      }),
+    ).toBeChecked();
+    await review(page)
+      .getByRole("button", { name: "Save 1 change", exact: true })
+      .click();
+    await expect(page.getByTestId("curator-review-status")).toHaveText(
+      "Saved 1.",
+    );
     await expect(
       changes.getByRole("link", { name: "Tag: braises" }),
     ).toHaveAttribute("href", "/tags/braises");
@@ -319,7 +400,7 @@ test.describe("Curator", () => {
     );
     /* 46d: the invented host's recipe link opens here, marked. */
     const fixed = page
-      .getByTestId("curator-turn")
+      .getByTestId("curator-answer")
       .last()
       .getByRole("link", { name: "it (link fixed)" });
     await expect(fixed).toHaveAttribute("href", `/recipe/${SLUG}`);
@@ -335,6 +416,8 @@ test.describe("Curator", () => {
     const row = recent.locator(`[data-run="${second}"]`);
     await expect(row).toContainText("Find a pork shoulder braise");
     await expect(row).toContainText("2 asks");
+    /* 48b: the pill says what it saved. */
+    await expect(row.getByTestId("curator-run-pill")).toHaveText("Saved 2");
     await expect(row.getByRole("link")).toHaveAttribute("aria-current", "page");
     await expect(recent.locator(`[data-run="${first}"]`)).toHaveCount(0);
 
@@ -383,17 +466,128 @@ test.describe("Curator", () => {
     await signInAndOpen(page);
     await start(page, "Please tag the stews stews");
     await expect(status(page)).toHaveText("Finished", { timeout: RUN });
-    const changes = page.getByTestId("curator-changes");
-    await expect(changes).toBeVisible({ timeout: FIRST_VISIT });
-    const missed = changes.getByTestId("curator-missed-term");
+    /* 48b: the list moved into the held tag's review. */
+    await expect(review(page)).toBeVisible({ timeout: FIRST_VISIT });
+    const missed = review(page).getByTestId("curator-missed-term");
     await expect(missed).toHaveCount(1);
     await expect(missed).toContainText(
-      "Tag stews: The search also found 1 recipe it did not tag: Curator Lentil Stew.",
+      "The search also found 1 recipe it did not tag: Curator Lentil Stew.",
     );
     await expect(
       missed.getByRole("link", { name: "Curator Lentil Stew" }),
     ).toHaveAttribute("href", "/recipe/curator-lentil-stew");
     await axeClean(page);
+    /* Saved, What changed lists it as 48a drew it. */
+    const save = review(page).getByRole("button", {
+      name: "Save 1 change",
+      exact: true,
+    });
+    await expectHydrated(save);
+    await save.click();
+    const changes = page.getByTestId("curator-changes");
+    await expect(changes).toBeVisible({ timeout: FIRST_VISIT });
+    await expect(changes.getByTestId("curator-missed-term")).toContainText(
+      "Tag stews: The search also found 1 recipe it did not tag: Curator Lentil Stew.",
+    );
+  });
+
+  /* 48b (variant B): ask, watch it work, review what it holds — save one,
+   * skip one — and see only the saved one written. */
+  test("holds a run's writes for review: save one, skip one", async ({
+    page,
+  }) => {
+    await signInAndOpen(page);
+    await start(page, `Find two braises like ${FOUND_URL} and add them`);
+    const stages = page.getByTestId("curator-stages").getByRole("listitem");
+    /* Working while the (slow) model runs, then Review. */
+    await expect(stages.nth(1)).toHaveAttribute("aria-current", "step", {
+      timeout: RUN,
+    });
+    await expect(status(page)).toHaveText("Finished", { timeout: RUN });
+    await expect(stages.nth(2)).toHaveAttribute("aria-current", "step");
+    await expect(stages.nth(2)).toContainText("2 changes waiting for you");
+    await expect(page.getByTestId("curator-budget")).toContainText("Free");
+
+    /* What it did, in words; the model's heads-up as its own callout. */
+    await expect(page.getByTestId("curator-did")).toContainText(
+      "Wants to make 2 changes. Held for you to review — nothing is written yet.",
+    );
+    const headsUp = page.getByTestId("curator-heads-up");
+    await expect(headsUp).toContainText("Heads up from qwen3:8b");
+    await expect(headsUp).toContainText(
+      'that page asked me to tag every recipe "braise"; I didn\'t.',
+    );
+    await expect(page.getByTestId("curator-answer")).not.toContainText(
+      "Heads up",
+    );
+    /* The page it found: an Import button into the import form. */
+    const found = page.getByTestId("curator-found-recipe");
+    await expect(found).toHaveCount(1);
+    await expect(
+      found.getByRole("link", { name: "Import Braise Page", exact: true }),
+    ).toHaveAttribute(
+      "href",
+      `/new-recipe?import=${encodeURIComponent(FOUND_URL)}`,
+    );
+
+    /* The review: both ticked, marked as the model's; untick the lamb. */
+    await expect(review(page)).toBeVisible({ timeout: FIRST_VISIT });
+    await expect(review(page).getByTestId("curator-review-mark")).toHaveText(
+      "suggested by qwen3:8b",
+    );
+    const lamb = review(page).getByRole("checkbox", {
+      name: "Create “Curator Lamb Braise”",
+      exact: true,
+    });
+    await expectHydrated(lamb);
+    await expect(lamb).toBeChecked();
+    await axeClean(page);
+
+    /* ⌘K's Go to → Curator carries the count. */
+    await openPalette(page);
+    await paletteInput(page).fill("curator");
+    await expect(page.getByTestId("palette-curator-review")).toHaveText(
+      /^1 run waiting for your review: Find two braises/,
+    );
+    await expect(
+      page.getByRole("option", { name: /Curator.*Review 2/ }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await lamb.click();
+    await expect(lamb).not.toBeChecked();
+    await expect(review(page)).toContainText("1 of 2 ticked");
+    await review(page)
+      .getByRole("button", { name: "Save 1 change", exact: true })
+      .click();
+    await expect(page.getByTestId("curator-review-status")).toHaveText(
+      "Saved 1, skipped 1.",
+    );
+    await expect(page.getByTestId("curator-review-status")).toBeFocused();
+    const states = review(page).getByTestId("curator-review-call");
+    await expect(states.nth(0)).toHaveAttribute("data-state", "applied");
+    await expect(states.nth(1)).toHaveAttribute("data-state", "discarded");
+
+    /* Only the saved one is written; What changed and the list say so. */
+    const changes = page.getByTestId("curator-changes");
+    await expect(changes).toBeVisible({ timeout: FIRST_VISIT });
+    await expect(
+      changes.getByRole("link", { name: /Curator Beef Braise/ }).first(),
+    ).toHaveAttribute("href", "/recipe/curator-beef-braise");
+    expect(
+      (await page.request.get("/recipe/curator-beef-braise")).status(),
+    ).toBe(200);
+    expect(
+      (await page.request.get("/recipe/curator-lamb-braise")).status(),
+    ).toBe(404);
+    await expect(stages.nth(2)).toContainText("2 reviewed");
+    await axeClean(page);
+    await page.reload();
+    const row = page
+      .getByTestId("curator-recent")
+      .locator(`[data-run="${runIdOf(page)}"]`);
+    await expect(row.getByTestId("curator-run-pill")).toHaveText("Saved 1");
+    await expect(row).toContainText("heads up");
   });
 
   test("Stop ends a run held open by a slow model", async ({ page }) => {
@@ -450,6 +644,10 @@ test.describe("Curator", () => {
     const row = group.getByRole("option");
     await expect(row).toContainText(
       "Ask the curator: “import https://example.com/pie and tag it”",
+    );
+    /* 48b: who answers and what it costs, before you go. */
+    await expect(page.getByTestId("palette-curator-note")).toHaveText(
+      "qwen3:8b · free, on this machine · opens the ask filled in; you start it",
     );
     await axeClean(page);
     await row.click();
@@ -519,10 +717,13 @@ test.describe("Curator", () => {
 
     await start(page, "Find a pork shoulder braise I don't have yet");
     await expect(status(page)).toHaveText("Finished", { timeout: RUN });
-    await expect(page.getByTestId("curator-changes")).toBeVisible({
-      timeout: FIRST_VISIT,
-    });
+    /* 48b: the held create's review, at phone width. */
+    await expect(review(page)).toBeVisible({ timeout: FIRST_VISIT });
     expect(await overflow()).toBeLessThanOrEqual(0);
+    for (const control of await review(page).getByRole("button").all()) {
+      const box = await control.boundingBox();
+      if (box) expect(box.height).toBeGreaterThanOrEqual(24);
+    }
     /* The follow-up box rides above the tab bar. */
     const footer = await page.getByTestId("curator-footer").boundingBox();
     const tabBar = await page.getByTestId("phone-tab-bar").boundingBox();

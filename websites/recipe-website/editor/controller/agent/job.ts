@@ -34,13 +34,17 @@ import type { CurationContext } from "../curation/context";
 import { UsageError } from "../curation/errors";
 import type { JobContext } from "../jobs/context";
 import {
+  ANTHROPIC_DEFAULT_URL,
+  DEFAULT_CLAUDE_MODEL,
   LLM_NUM_CTX,
   llmConfig,
   takesNewerWebTools,
   type LlmApi,
+  type LlmConfig,
 } from "../llm/client";
 import { DEFAULT_AGENT_MAX_COST_USD, modelPrice } from "../llm/cost";
 import { AGENT_PROMPT_MAX } from "./follow";
+import { decisionsNote, heldCalls } from "./held";
 import { runAgent } from "./loop";
 import {
   LOCAL_AGENT_TOOLS,
@@ -48,6 +52,7 @@ import {
   localSystemPrompt,
 } from "./prompt";
 import { agentTools } from "./tools";
+import { readDecisions } from "./reviewStore";
 import {
   historyOf,
   readTranscriptText,
@@ -79,6 +84,84 @@ export interface AgentJobSpec {
    * ignored — and said so in the log — for a local model.
    */
   newerWebTools?: boolean;
+  /**
+   * Hold every write for the person's review (48b, Db1): the curator page's
+   * runs. A held write answers the model and writes nothing; the page's
+   * Save applies it. Unset (the CLI, the harness): writes as before.
+   */
+  hold?: boolean;
+  /**
+   * Who answers (48b, Db5): the Claude API or the local model, where this
+   * editor has both (`curatorModels`). Unset: the editor's own model
+   * (`RECIPE_LLM_*`), as before.
+   */
+  model?: CuratorModelId;
+}
+
+/** Who may run the curator: the local model, or the Claude API (48b). */
+export type CuratorModelId = "local" | "claude";
+
+/** The models this editor can run the curator on (48b, Db5). */
+export interface CuratorModels {
+  local?: LlmConfig;
+  claude?: LlmConfig;
+  /** The editor's own model (`RECIPE_LLM_*`): what an ask runs on unless it picks. */
+  primary?: CuratorModelId;
+}
+
+/** The env key that sets up the Claude API beside a local model (47i's). */
+export const CURATOR_CLAUDE_KEY_ENV = "RECIPE_LLM_CLAUDE_API_KEY";
+/** Its model (47i's, default claude-sonnet-5). */
+export const CURATOR_CLAUDE_MODEL_ENV = "RECIPE_LLM_CLAUDE_MODEL";
+
+/**
+ * The curator's models (48b, Db5): the editor's own (`RECIPE_LLM_*`) — the
+ * Claude API on the Pi, a local model on the workstation — and, beside a
+ * local model, the Claude API when `RECIPE_LLM_CLAUDE_API_KEY` sets it up
+ * (47i's key, as "Edit with AI" reads it). The local model is the agent's
+ * own (`RECIPE_LLM_MODEL`), not the edit box's `RECIPE_LLM_EDIT_MODEL`.
+ */
+export function curatorModels(
+  env: NodeJS.ProcessEnv = process.env,
+): CuratorModels {
+  const base = llmConfig(env);
+  if (!base) return {};
+  if (base.api === "anthropic") return { claude: base, primary: "claude" };
+  const key = env[CURATOR_CLAUDE_KEY_ENV]?.trim();
+  const claudeModel = env[CURATOR_CLAUDE_MODEL_ENV]?.trim();
+  return {
+    local: base,
+    primary: "local",
+    ...(key
+      ? {
+          claude: {
+            url: ANTHROPIC_DEFAULT_URL,
+            model: claudeModel || DEFAULT_CLAUDE_MODEL,
+            api: "anthropic" as const,
+            apiKey: key,
+          },
+        }
+      : {}),
+  };
+}
+
+/** The model a run asks for, or why it can't have it. */
+export function curatorModelFor(
+  choice: CuratorModelId | undefined,
+  models: CuratorModels = curatorModels(),
+): { id: CuratorModelId; config: LlmConfig } {
+  const id = choice ?? models.primary;
+  const config = id ? models[id] : undefined;
+  if (!id || !config) {
+    throw new UsageError(
+      id === "claude"
+        ? `The Claude API is not set up in this editor (${CURATOR_CLAUDE_KEY_ENV}, or RECIPE_LLM_API=anthropic).`
+        : id === "local"
+          ? "No local model is set up in this editor (RECIPE_LLM_URL)."
+          : agentUnavailableMessage(),
+    );
+  }
+  return { id, config };
 }
 
 /** What an agent job answers: its meta's `result`. */
@@ -100,6 +183,8 @@ export interface AgentJobResult {
   maxCostUsd?: number;
   /** The run used Claude's newer web tools (46d). */
   newerWebTools?: true;
+  /** The run's writes were held for review (48b). */
+  hold?: true;
 }
 
 /** Why there is no agent: no model is configured (the route's 400, the CLI's usage). */
@@ -258,6 +343,7 @@ export function agentToolset(
   ctx: CurationContext,
   api: LlmApi,
   testing?: AgentToolsetTesting,
+  { hold = false }: { hold?: boolean } = {},
 ): { tools: ReturnType<typeof agentTools>; serverTools: ServerTool[] } {
   /* In-process, as MCP over HTTP (23e/D25): no stale hint, no close. */
   const backend = createLocalBackend({ ...ctx, inProcess: true });
@@ -266,6 +352,7 @@ export function agentToolset(
     return {
       tools: agentTools(backend, {
         webSearch: false,
+        hold,
         ...(testing ? { guard: allowed, webFetch: allowed } : {}),
       }),
       serverTools: [{ kind: "web_search", maxUses: AGENT_WEB_SEARCH_MAX_USES }],
@@ -275,6 +362,7 @@ export function agentToolset(
     tools: agentTools(backend, {
       only: LOCAL_AGENT_TOOLS,
       local: true,
+      hold,
       ...(testing ? { guard: allowed, webFetch: allowed } : {}),
     }),
     serverTools: [],
@@ -284,11 +372,11 @@ export function agentToolset(
 /** The system prompt a run's model gets (E4): Claude's whole skill, or the local one. */
 export function agentSystemPrompt(
   api: LlmApi,
-  { now, search }: { now: Date; search: boolean },
+  { now, search, hold = false }: { now: Date; search: boolean; hold?: boolean },
 ): string {
   return api === "anthropic"
-    ? claudeSystemPrompt({ now, search })
-    : localSystemPrompt({ now, search });
+    ? claudeSystemPrompt({ now, search, hold })
+    : localSystemPrompt({ now, search, hold });
 }
 
 /** Whether a toolset gives its model a web search (Claude's server one, or SearXNG's). */
@@ -324,13 +412,17 @@ export async function runAgentJob(
     testing?: AgentToolsetTesting;
   },
 ): Promise<AgentJobResult> {
-  const config = llmConfig();
-  if (!config) throw new UsageError(agentUnavailableMessage());
+  if (!llmConfig()) throw new UsageError(agentUnavailableMessage());
+  /* 48b (Db5): the model the ask picked, else the editor's own. */
+  const { config } = curatorModelFor(spec.model);
   const prompt = checkAgentPrompt(spec.prompt);
   const jobId = job.jobId;
   const writer = transcriptWriter(dir, jobId);
+  const hold = spec.hold === true;
 
   let history: AgentMessage[] = [];
+  /* 48b (Db4): what the person decided on held writes since, for the model. */
+  let reviewed: string | undefined;
   if (spec.continues) {
     const earlier = await readTranscriptText(dir, spec.continues);
     if (earlier === undefined) {
@@ -338,14 +430,27 @@ export async function runAgentJob(
         `Run ${spec.continues} has no transcript to continue: ask again instead.`,
       );
     }
-    history = historyOf(transcriptRecords(earlier));
+    const records = transcriptRecords(earlier);
+    history = historyOf(records);
+    const held = heldCalls(records);
+    if (held.length > 0) {
+      reviewed = decisionsNote(
+        held,
+        await readDecisions(dir, held).catch(() => new Map()),
+      );
+    }
     /* Ec3: the conversation so far, whole, before this run's own lines. */
     writer.copy(earlier);
   }
 
-  const { tools, serverTools } = agentToolset(ctx, config.api, testing);
+  const { tools, serverTools } = agentToolset(ctx, config.api, testing, {
+    hold,
+  });
   const search = toolsetSearches({ tools, serverTools });
-  const system = agentSystemPrompt(config.api, { now: new Date(), search });
+  const system = [
+    agentSystemPrompt(config.api, { now: new Date(), search, hold }),
+    ...(reviewed ? ["", reviewed] : []),
+  ].join("\n");
   const local = config.api === "anthropic" ? undefined : agentLocalOptions();
   const cost = agentCostBudget(config);
   /* 46d: Claude's newer server tools, per run, on a model that takes them;
@@ -366,6 +471,7 @@ export async function runAgentJob(
       : {}),
     ...(newerWebTools ? { newerWebTools: true as const } : {}),
     ...(cost.maxCostUsd !== undefined ? { maxCostUsd: cost.maxCostUsd } : {}),
+    ...(hold ? { hold: true as const } : {}),
   });
   job.log.info(
     "agent.start",
@@ -378,6 +484,7 @@ export async function runAgentJob(
       ...(spec.continues ? { continues: spec.continues } : {}),
       ...(newerWebTools ? { newerWebTools: true } : {}),
       ...(cost.maxCostUsd !== undefined ? { maxCostUsd: cost.maxCostUsd } : {}),
+      ...(hold ? { hold: true } : {}),
     },
   );
   for (const setting of [
@@ -416,6 +523,15 @@ export async function runAgentJob(
           type: "message",
           job: jobId ?? "",
           message: event.message,
+        });
+      } else if (event.type === "turn.end") {
+        /* 48b (Db6): each turn's usage as it ends, for the live budget. */
+        writer.write({
+          type: "turn",
+          job: jobId ?? "",
+          turn: event.turn,
+          usage: event.usage,
+          durationMs: event.durationMs,
         });
       }
     },
@@ -463,5 +579,6 @@ export async function runAgentJob(
     ...(spec.continues ? { continues: spec.continues } : {}),
     ...(cost.maxCostUsd !== undefined ? { maxCostUsd: cost.maxCostUsd } : {}),
     ...(newerWebTools ? { newerWebTools: true as const } : {}),
+    ...(hold ? { hold: true as const } : {}),
   };
 }

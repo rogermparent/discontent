@@ -35,6 +35,14 @@ import {
   refusedLocalArg,
 } from "./local";
 import { urlRefusal, type UrlGuardOptions } from "../../urlGuard";
+import { tagSlug } from "recipe-website-common/controller/tagSlug";
+import {
+  DRY_RUN_TOOLS,
+  HELD_NOTE,
+  PAGE_TEXT_DRY_RUNS,
+  isHeldAnswer,
+  isHeldTool,
+} from "../held";
 import { webFetchTool, type WebFetchOptions } from "./webFetch";
 import { webSearchTool, type WebSearchOptions } from "./webSearch";
 
@@ -77,6 +85,13 @@ export interface AgentToolsOptions {
    * same zod parse.
    */
   local?: boolean;
+  /**
+   * Hold every write for the person's review (48b, Db1): a held write is
+   * checked as the real one is (its schema, its URLs, a local file) and
+   * then answers `{held: true, note, dryRun?}` — a dry run's answer for a
+   * tool that takes one — and writes nothing (`heldAnswer`).
+   */
+  hold?: boolean;
 }
 
 type Args = Record<string, unknown>;
@@ -206,6 +221,95 @@ export interface RecipeAgentToolsOptions {
   only?: readonly AgentToolName[];
   guard?: UrlGuardOptions;
   local?: boolean;
+  /** Hold the writes (48b): see `AgentToolsOptions.hold`. */
+  hold?: boolean;
+}
+
+/** A handler's answer as the agent reads it: `structuredContent`, else its text. */
+function answerOf(result: {
+  structuredContent?: unknown;
+  content?: { type: string; text?: string }[];
+}): unknown {
+  if (result.structuredContent !== undefined) {
+    return asAgentError(result.structuredContent);
+  }
+  const text = result.content?.find((part) => part.type === "text");
+  return text && "text" in text && typeof text.text === "string"
+    ? asAgentError(JSON.parse(text.text))
+    : {};
+}
+
+/**
+ * A held `term_assign`'s split (48b): its `add`s as the content stands —
+ * would be tagged, already tagged, not a recipe (yet) — read from the
+ * recipes, so the model and the review can say "add 2, 1 already tagged"
+ * without writing. A remove is not split: the write says what it took off.
+ */
+async function assignSplit(
+  backend: CuratorBackend,
+  args: Args,
+): Promise<{ wouldAdd: string[]; alreadyTagged: string[]; missing: string[] }> {
+  const wouldAdd: string[] = [];
+  const alreadyTagged: string[] = [];
+  const missing: string[] = [];
+  const add = Array.isArray(args.add)
+    ? args.add.filter((slug): slug is string => typeof slug === "string")
+    : [];
+  if (args.type === "group") return { wouldAdd: add, alreadyTagged, missing };
+  const term = tagSlug(String(args.slug ?? ""));
+  for (const slug of add) {
+    try {
+      const detail = await backend.getRecipe(slug);
+      const tags = Array.isArray(detail.recipe.tags) ? detail.recipe.tags : [];
+      if (
+        tags.some((tag) => typeof tag === "string" && tagSlug(tag) === term)
+      ) {
+        alreadyTagged.push(slug);
+      } else {
+        wouldAdd.push(slug);
+      }
+    } catch {
+      missing.push(slug);
+    }
+  }
+  return { wouldAdd, alreadyTagged, missing };
+}
+
+/**
+ * What a held write answers (48b, Db1): nothing written. A tool that takes
+ * `dryRun` runs as one, and an error there is the answer (a held call that
+ * could not run is no proposal); `term_assign` says how its `add`s split.
+ */
+async function heldAnswer(
+  name: AgentToolName,
+  definition: { handler: (args: unknown, run?: SeatRun) => Promise<unknown> },
+  args: Args,
+  backend: CuratorBackend,
+  run: SeatRun,
+  local: boolean,
+): Promise<unknown> {
+  if (DRY_RUN_TOOLS.has(name)) {
+    const dry = answerOf(
+      (await definition.handler({ ...args, dryRun: true }, run)) as {
+        structuredContent?: unknown;
+      },
+    );
+    if (dry && typeof dry === "object" && "error" in dry) return dry;
+    return {
+      held: true,
+      note: HELD_NOTE,
+      dryRun: local ? localResult(name, dry) : dry,
+    };
+  }
+  if (name === "term_assign") {
+    const split = await assignSplit(backend, args);
+    return {
+      held: true,
+      note: `${HELD_NOTE}${split.missing.length ? " A slug under `missing` is not a recipe: fine if a held import or create makes it, else it fails when applied." : ""}`,
+      ...split,
+    };
+  }
+  return { held: true, note: HELD_NOTE };
 }
 
 /** A tool as a local model sees it (44e): its `LOCAL_TOOL_TEXT`, if any. */
@@ -236,6 +340,7 @@ export function recipeAgentTools(
     only = AGENT_TOOL_NAMES,
     guard = {},
     local = false,
+    hold = false,
   }: RecipeAgentToolsOptions = {},
 ): AgentTool[] {
   const byName = new Map(
@@ -247,11 +352,16 @@ export function recipeAgentTools(
     if (!tool) throw new Error(`No recipes tool named ${name}`);
     const fetched = FETCHED_URLS[name];
     const localFiles = LOCAL_FILE_ARGS[name];
+    const held = hold && isHeldTool(name);
     return {
       name,
       description: tool.description,
       inputSchema: toolInputSchema(tool.inputSchema),
       ...(UNTRUSTED_RECIPE_TOOLS.has(name) ? { untrusted: true } : {}),
+      /* 48b: a held import's dry run carries the page's recipe (E7). */
+      ...(held && PAGE_TEXT_DRY_RUNS.has(name)
+        ? { untrustedResult: (result: unknown) => isHeldAnswer(result) }
+        : {}),
       async run(input, ctx) {
         if (ctx.signal.aborted) {
           return toolError("cancelled", "The run was stopped");
@@ -271,14 +381,18 @@ export function recipeAgentTools(
           if (refused) return refused;
         }
         try {
-          const result = await tool.handler(parsed.data, seatRun(ctx));
-          if (result.structuredContent !== undefined) {
-            return asAgentError(result.structuredContent);
+          /* A dry run the model asked for itself is a read: it runs. */
+          if (held && (parsed.data as Args).dryRun !== true) {
+            return await heldAnswer(
+              name,
+              tool,
+              parsed.data as Args,
+              backend,
+              seatRun(ctx),
+              local,
+            );
           }
-          const text = result.content?.find((part) => part.type === "text");
-          return text && "text" in text
-            ? asAgentError(JSON.parse(text.text))
-            : {};
+          return answerOf(await tool.handler(parsed.data, seatRun(ctx)));
         } catch (error) {
           /* The SDK would have answered a throw as a tool error, too. */
           return asAgentError(toErrorObject(error));
@@ -301,6 +415,7 @@ export function agentTools(
     only: options.only,
     guard: options.guard,
     local: options.local,
+    hold: options.hold,
   });
   const web: AgentTool[] = [];
   if (options.webFetch !== false) {

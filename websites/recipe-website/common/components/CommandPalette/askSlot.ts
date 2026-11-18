@@ -51,6 +51,20 @@ export interface PaletteCuratorHandler {
   offers(text: string): boolean;
   /** Where it goes: the curator with `text` filled in. */
   href(text: string): string;
+  /**
+   * 48b: what the palette says of the curator, read each time it opens —
+   * the review count on Go to's "Curator" and the hand-off row's words
+   * (who answers, what runs like it cost). Absent or failed: neither shows.
+   */
+  summary?(signal: AbortSignal): Promise<PaletteCuratorSummary | undefined>;
+}
+
+/** The curator's lines in the palette (48b), already in words. */
+export interface PaletteCuratorSummary {
+  /** Held changes waiting for review, over how many runs. */
+  review?: { runs: number; calls: number; line: string; href: string };
+  /** The hand-off row's second line: who answers, what it costs, that it only fills. */
+  handoff?: string;
 }
 
 type Register = (handler: PaletteAskHandler | undefined) => void;

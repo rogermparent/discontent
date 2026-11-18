@@ -51,12 +51,14 @@ import {
 import { costBudgetWords, dollarText } from "../llm/cost";
 import { jobContext, type JobContext, type JobRun } from "../jobs/context";
 import { searchFound, writeSummary } from "./changes";
+import { heldPreview, isHeldAnswer, isHeldTool } from "./held";
 import { nearMissHint, withNearMissHint } from "./nearMiss";
 import type {
   AgentBudgetName,
   AgentBudgets,
   AgentEvent,
   AgentFound,
+  AgentHeld,
   AgentMessage,
   AgentResult,
   AgentStopReason,
@@ -78,6 +80,8 @@ interface CallOutcome {
   isError: boolean;
   summary?: AgentWriteSummary;
   found?: AgentFound;
+  /** 48b: a write held for review, and what the review shows of it. */
+  held?: AgentHeld;
 }
 
 /**
@@ -836,6 +840,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
                     ...(error.outcome.found
                       ? { found: error.outcome.found }
                       : {}),
+                    ...(error.outcome.held ? { held: error.outcome.held } : {}),
                   }
               : { content: errorContent(UNKNOWN_OUTCOME), isError: true }),
           });
@@ -858,6 +863,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
         ...(outcome.isError ? { isError: true } : {}),
         ...(outcome.summary ? { summary: outcome.summary } : {}),
         ...(outcome.found ? { found: outcome.found } : {}),
+        ...(outcome.held ? { held: outcome.held } : {}),
       });
       emit({
         type: "tool.end",
@@ -967,15 +973,25 @@ async function runCall(
       );
     }
     const text = capResult(serialized, resultCap);
-    const summary = tool.untrusted
+    /* 48b: one result may be page text though the tool's are not (a held
+     * import's dry run). */
+    const untrusted =
+      tool.untrusted === true || tool.untrustedResult?.(result) === true;
+    const summary = untrusted
       ? undefined
       : writeSummary(tool.name, call.input, result);
-    const found = tool.untrusted ? undefined : searchFound(tool.name, result);
+    const found = untrusted ? undefined : searchFound(tool.name, result);
+    /* 48b: a held write, previewed from the uncut answer for the review. */
+    const held =
+      isHeldTool(tool.name) && isHeldAnswer(result)
+        ? heldPreview(tool.name, call.input, result)
+        : undefined;
     return {
-      content: tool.untrusted ? wrapUntrusted(tool.name, text) : text,
+      content: untrusted ? wrapUntrusted(tool.name, text) : text,
       isError: false,
       ...(summary ? { summary } : {}),
       ...(found ? { found } : {}),
+      ...(held ? { held } : {}),
     };
   };
   const failed = (error: unknown) => {

@@ -30,6 +30,7 @@ export function PromptForm({
   inputRef,
   testId,
   rows = 3,
+  beforeSubmit,
   children,
 }: {
   label: string;
@@ -45,6 +46,8 @@ export function PromptForm({
   inputRef?: RefObject<HTMLTextAreaElement | null>;
   testId: string;
   rows?: number;
+  /** Between the box and its button (48b: who answers). */
+  beforeSubmit?: ReactNode;
   /** Below the box, beside the button: the examples. */
   children?: ReactNode;
 }) {
@@ -98,6 +101,7 @@ export function PromptForm({
           }
         }}
       />
+      {beforeSubmit}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Button type="submit" disabled={busy || empty || over}>
           {busy ? busyLabel : submitLabel}

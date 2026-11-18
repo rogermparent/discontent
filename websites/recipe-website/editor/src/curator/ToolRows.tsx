@@ -6,6 +6,7 @@ import {
   CircleSlash,
   Clock,
   LoaderCircle,
+  PauseCircle,
   X,
 } from "lucide-react";
 import { cn } from "@discontent/component-library/lib/utils";
@@ -23,6 +24,7 @@ const STATUS_WORDS: Record<ToolRowStatus, string> = {
   waiting: "waiting",
   done: "done",
   nothing: "read nothing",
+  held: "held for review",
   error: "error",
   not_run: "not run",
 };
@@ -48,6 +50,10 @@ function StatusIcon({ status }: { status: ToolRowStatus }) {
     case "nothing":
       return (
         <CircleMinus aria-hidden className={cn(className, "text-warning")} />
+      );
+    case "held":
+      return (
+        <PauseCircle aria-hidden className={cn(className, "text-primary")} />
       );
     case "error":
       return <X aria-hidden className={cn(className, "text-foreground")} />;
@@ -93,7 +99,10 @@ function RowLine({
       <StatusIcon status={status} />
       <span className="min-w-0 flex-1 truncate">{phrase}</span>
       <span className="sr-only">, {STATUS_WORDS[status]}</span>
-      {status === "error" || status === "not_run" || status === "nothing" ? (
+      {status === "error" ||
+      status === "not_run" ||
+      status === "nothing" ||
+      status === "held" ? (
         <span aria-hidden className="shrink-0 text-xs text-muted-foreground">
           {STATUS_WORDS[status]}
         </span>

@@ -70,7 +70,11 @@ import { paletteHolidayRows, paletteHolidays } from "./holidayRows";
 import { useToday } from "../Homepage/useToday";
 import { ALMANAC_HREF, holidayHref } from "../HolidaysPage/shared";
 import { countdownLabel, parseDayKey } from "../../util/holidays";
-import { PaletteAskRegistry, type PaletteAskHandler } from "./askSlot";
+import {
+  PaletteAskRegistry,
+  type PaletteAskHandler,
+  type PaletteCuratorSummary,
+} from "./askSlot";
 
 /** The Ask row's cmdk `value` (43q). */
 const ASK_VALUE = "ask:question";
@@ -497,6 +501,21 @@ export function CommandPalette({
 
   /* The curator (44d) joins the owner rows after New Recipe once the
    * editor's slot offers its hand-off (a model is set up). */
+  /* 48b: the curator's review count and hand-off words, read on open. */
+  const [curatorSummary, setCuratorSummary] = useState<PaletteCuratorSummary>();
+  const curatorSummaryOf = askHandler?.curator?.summary;
+  useEffect(() => {
+    if (!open || !curatorSummaryOf) return;
+    const controller = new AbortController();
+    curatorSummaryOf(controller.signal).then(
+      (summary) => {
+        if (!controller.signal.aborted) setCuratorSummary(summary);
+      },
+      () => undefined,
+    );
+    return () => controller.abort();
+  }, [open, curatorSummaryOf]);
+
   const destinations = askHandler?.curator
     ? NAV_DESTINATIONS.flatMap((dest) =>
         dest.href === "/new-recipe" ? [dest, CURATOR_DESTINATION] : [dest],
@@ -828,8 +847,12 @@ export function CommandPalette({
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate">Ask the curator: “{trimmed}”</span>
-            <span className="block truncate text-xs text-muted-foreground">
-              Opens the curator with this filled in
+            <span
+              className="block text-xs text-muted-foreground"
+              data-testid="palette-curator-note"
+            >
+              {curatorSummary?.handoff ??
+                "Opens the curator with this filled in"}
             </span>
           </span>
         </CommandItem>
@@ -1182,15 +1205,39 @@ export function CommandPalette({
             <CommandGroup heading="Go to">
               {navItems.map((dest) => {
                 const Icon = dest.icon;
+                /* 48b: Go to → Curator carries the runs waiting for review. */
+                const review =
+                  dest === CURATOR_DESTINATION &&
+                  curatorSummary?.review &&
+                  curatorSummary.review.calls > 0
+                    ? curatorSummary.review
+                    : undefined;
                 return (
                   <CommandItem
                     key={dest.href}
                     value={`nav:${dest.href}`}
                     keywords={dest.keywords}
-                    onSelect={() => go(dest.href)}
+                    onSelect={() => go(review?.href ?? dest.href)}
                   >
                     <Icon className="size-4 shrink-0 text-muted-foreground" />
-                    <span>{dest.name}</span>
+                    {review ? (
+                      <>
+                        <span className="min-w-0 flex-1">
+                          <span className="block">{dest.name}</span>
+                          <span
+                            className="block truncate text-xs text-muted-foreground"
+                            data-testid="palette-curator-review"
+                          >
+                            {review.line}
+                          </span>
+                        </span>
+                        <span className="shrink-0 rounded-full border border-primary px-1.5 font-mono text-xs leading-5">
+                          Review {review.calls}
+                        </span>
+                      </>
+                    ) : (
+                      <span>{dest.name}</span>
+                    )}
                   </CommandItem>
                 );
               })}

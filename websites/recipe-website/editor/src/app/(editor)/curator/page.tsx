@@ -7,6 +7,7 @@ import {
 import {
   curatorSetup,
   listCuratorRuns,
+  withCostRanges,
 } from "recipe-editor/controller/agent/curator";
 import { AGENT_PROMPT_MAX } from "recipe-editor/controller/agent/follow";
 import { DEFAULT_AGENT_BUDGETS } from "recipe-editor/controller/agent/loop";
@@ -33,7 +34,8 @@ function param(value: string | string[] | undefined): string | undefined {
  * as the route refuses a run (Ec9).
  *
  * `?run=<id>` opens a run (linkable; Back goes back), `?prompt=` fills the
- * ask without starting it — ⌘K's hand-off (Ed6).
+ * ask without starting it — ⌘K's hand-off (Ed6) — and `?show=review` opens
+ * the runs list on those waiting for review (48b, ⌘K's count).
  */
 export default async function CuratorPage({
   searchParams,
@@ -50,14 +52,16 @@ export default async function CuratorPage({
   const runs = await listCuratorRuns({ limit: RECENT_RUNS });
   const run = param(query.run);
   const prompt = param(query.prompt);
+  const show = param(query.show);
   return (
     <PageMain>
       <PageSection maxWidth="none" grow className="mx-auto max-w-6xl">
         <CuratorApp
-          setup={setup}
+          setup={withCostRanges(setup, runs)}
           runs={runs}
           {...(run ? { run } : {})}
           {...(prompt ? { prompt: prompt.slice(0, AGENT_PROMPT_MAX) } : {})}
+          {...(show === "review" || show === "changed" ? { filter: show } : {})}
           maxPrompt={AGENT_PROMPT_MAX}
           maxTurns={DEFAULT_AGENT_BUDGETS.maxTurns}
         />

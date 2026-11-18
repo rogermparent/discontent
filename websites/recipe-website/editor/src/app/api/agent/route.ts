@@ -1,6 +1,11 @@
 /**
- * `POST /api/agent` `{prompt, runId?, maxTurns?, newerWebTools?}` — start a
- * run of the editor's agent, or follow up on one (epic 44, 44c).
+ * `POST /api/agent` `{prompt, runId?, maxTurns?, newerWebTools?, hold?,
+ * model?}` — start a run of the editor's agent, or follow up on one (epic
+ * 44, 44c). **`hold`** (48b, Db9) holds the run's writes for the person's
+ * review on the curator page (`/api/agent/<id>/review` applies them); it
+ * defaults to **true** here, and `recipes agent --remote` sends false.
+ * **`model`** (48b, Db5) picks `claude` or `local` where the editor has
+ * both; a follow-up keeps its conversation's.
  * `newerWebTools: true` (46d) gives a Claude run the newer server web tools
  * (dynamic filtering) on a model that takes them (`takesNewerWebTools`); a
  * follow-up of such a run keeps them, and any other model — a Haiku, a
@@ -60,6 +65,10 @@ const AgentRequestSchema = z.strictObject({
     .optional(),
   /* 46d: Claude's newer web tools for this run (a follow-up keeps them). */
   newerWebTools: z.boolean().optional(),
+  /* 48b: hold the run's writes for review (the default here, Db9). */
+  hold: z.boolean().optional(),
+  /* 48b: who answers, where this editor has both (a follow-up keeps its own). */
+  model: z.enum(["local", "claude"]).optional(),
 });
 
 /**
@@ -102,7 +111,10 @@ export async function POST(request: Request) {
         { status: 413 },
       );
     }
-    const { done: _done, ...started } = await startAgentRun(ctx, body, {
+    /* 48b (Db9): the editor's runs hold their writes for the person's
+     * review unless the caller says otherwise (the CLI does). */
+    const input = { ...body, hold: body.hold ?? true };
+    const { done: _done, ...started } = await startAgentRun(ctx, input, {
       /* The run records its own failure: nothing to rethrow here. */
       background: (done) =>
         after(() =>

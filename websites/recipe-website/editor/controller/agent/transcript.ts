@@ -12,6 +12,7 @@
  * - `message` — one neutral message (`AgentMessage`), the prompt, each
  *   assistant turn (Claude's raw blocks included, Ea4 — a follow-up replays
  *   them), each tool result, and the "not run" answers a stop leaves;
+ * - `turn` — one model turn's usage, as it ends (48b: the live budget);
  * - `end` — how it ended: `stop`, `error?`, `usage`, `costEstimate?`,
  *   `model`, the counts.
  *
@@ -55,6 +56,8 @@ export interface TranscriptStart {
   newerWebTools?: true;
   /** The run's cost budget in USD (46d); absent when it had none. */
   maxCostUsd?: number;
+  /** The run's writes were held for the person's review (48b, Db1). */
+  hold?: true;
 }
 
 export interface TranscriptMessage {
@@ -83,13 +86,29 @@ export interface TranscriptEnd {
   durationMs: number;
 }
 
+/**
+ * One model turn's numbers (48b), written as the turn ends — so the
+ * curator page's budget meter moves per turn while the run is live, not
+ * only at its `end` (44d's Ed2 is amended by Db6). Readers that fold
+ * messages skip it (`historyOf`).
+ */
+export interface TranscriptTurn {
+  t: string;
+  type: "turn";
+  job: string;
+  turn: number;
+  usage: AgentUsage;
+  durationMs: number;
+}
+
 export type TranscriptRecord =
-  TranscriptStart | TranscriptMessage | TranscriptEnd;
+  TranscriptStart | TranscriptMessage | TranscriptTurn | TranscriptEnd;
 
 /** A record without its time: what a writer is handed. */
 export type TranscriptEntry =
   | Omit<TranscriptStart, "t">
   | Omit<TranscriptMessage, "t">
+  | Omit<TranscriptTurn, "t">
   | Omit<TranscriptEnd, "t">;
 
 export interface TranscriptWriter {
