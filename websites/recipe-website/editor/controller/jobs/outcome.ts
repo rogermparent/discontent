@@ -94,8 +94,8 @@ export function jobOutcome(meta: {
  * The same judgement over a tool's result as the curator's model was sent
  * it (44b): compact JSON, perhaps cut at the result cap (44c) and wrapped as
  * untrusted page text (E7). The whole JSON when it parses; else the start of
- * an inspect's answer, whose first keys are `url`, `finalUrl`, `status`,
- * `partial` and then `recipe` when there is one.
+ * an inspect's answer, whose first keys are `url`, `finalUrl`, `status`
+ * and `partial` — and then only a non-2xx status reads as nothing.
  */
 export function readNothingInToolResult(content: string): string | undefined {
   const start = content.indexOf("{");
@@ -109,7 +109,7 @@ export function readNothingInToolResult(content: string): string | undefined {
     }
   }
   const head =
-    /^\{"url":("(?:[^"\\]|\\.)*"),"finalUrl":("(?:[^"\\]|\\.)*"),"status":(\d{3}),"partial":(true|false)(,"recipe":\{)?/.exec(
+    /^\{"url":("(?:[^"\\]|\\.)*"),"finalUrl":("(?:[^"\\]|\\.)*"),"status":(\d{3}),"partial":(true|false)/.exec(
       content.slice(start),
     );
   if (!head) return undefined;
@@ -120,11 +120,18 @@ export function readNothingInToolResult(content: string): string | undefined {
       return undefined;
     }
   };
+  /*
+   * Cut, only the status is judged: a 2xx answer long enough to be cut read
+   * something — and the local model's view of an inspect (`localResult`)
+   * drops `recipe` and leads with `draft`, so "no recipe key next" says
+   * nothing about it (47h review).
+   */
+  const status = Number(head[3]);
+  if (status >= 200 && status < 300) return undefined;
   return readNothingNote({
     url: parse(head[1]),
     finalUrl: parse(head[2]),
-    status: Number(head[3]),
+    status,
     partial: head[4] === "true",
-    ...(head[5] ? { recipe: {} } : {}),
   });
 }

@@ -128,6 +128,12 @@ describe("a page read that read nothing (rows 1, 4)", () => {
     const cutRead = `${JSON.stringify({ ...READ, recipe: { name: "y".repeat(500) } }).slice(0, 200)}…`;
     expect(readNothingInToolResult(cutRead)).toBeUndefined();
     expect(readNothingInToolResult(JSON.stringify(READ))).toBeUndefined();
+    /* The local model's view drops `recipe` and leads with `draft` (review):
+     * cut, a 2xx answer read something. */
+    const { recipe: _recipe, ...local } = READ;
+    void _recipe;
+    const cutLocal = `${JSON.stringify({ ...local, draft: { name: "z".repeat(500) } }).slice(0, 200)}…`;
+    expect(readNothingInToolResult(cutLocal)).toBeUndefined();
     expect(readNothingInToolResult("not json")).toBeUndefined();
   });
 });
