@@ -114,8 +114,91 @@ describe("tagMisses", () => {
       missedCount: 1,
     });
     expect(missedNote(term)).toBe(
-      "The search also found 1 recipe it did not tag",
+      "The search also found 1 recipe it did not tag: bibimbap.",
     );
+  });
+
+  /* Review: the miss lands on the term runChanges keys, not the raw slug. */
+  it("keys on the term the assign wrote, not the slug as typed", () => {
+    const messages = [
+      ...turn([
+        { call: call("recipe_search", { query: "korean" }), result: korean },
+        {
+          call: call("term_assign", { slug: "Korean", add: ["bulgogi"] }),
+          result: {
+            slug: "korean",
+            updated: ["bulgogi"],
+            added: ["bulgogi"],
+            alreadyTagged: [],
+          },
+        },
+      ]),
+    ];
+    const [miss] = tagMisses(messages);
+    expect(miss.term).toBe("korean");
+    const [term] = runChanges(messages).terms;
+    expect(term.slug).toBe("korean");
+    expect(term.missedCount).toBe(2);
+
+    /* A result that no longer parses (cut) and carries no summary still
+     * keys on the slug the site would make. */
+    const cut: AgentMessage[] = [
+      ...turn([
+        { call: call("recipe_search", { query: "korean" }), result: korean },
+        {
+          call: call("term_assign", { slug: "Korean Food", add: ["bulgogi"] }),
+          result: {},
+        },
+      ]),
+    ].map((message) =>
+      message.role === "tool" && message.name === "term_assign"
+        ? {
+            ...message,
+            content: '{"slug":"korean-food","upd',
+            summary: { commits: 1, terms: ["korean-food"] },
+          }
+        : message,
+    );
+    expect(tagMisses(cut).map((miss) => miss.term)).toEqual(["korean-food"]);
+  });
+
+  it("reads a row's tags the way the site slugs them", () => {
+    const messages = [
+      ...turn([
+        {
+          call: call("recipe_search", { query: "mac" }),
+          result: {
+            total: 3,
+            recipes: [
+              row("stovetop-mac"),
+              row("baked-mac", ["Mac & Cheese"]),
+              row("lobster-mac", ["Mac and cheese"]),
+            ],
+          },
+        },
+        {
+          call: call("term_assign", {
+            slug: "mac-and-cheese",
+            add: ["stovetop-mac"],
+          }),
+          result: { slug: "mac-and-cheese", updated: ["stovetop-mac"] },
+        },
+      ]),
+    ];
+    expect(tagMisses(messages)).toEqual([]);
+  });
+
+  it("does not check a remove-only assign", () => {
+    const messages = [
+      ...turn([
+        { call: call("recipe_search", { query: "korean" }), result: korean },
+        {
+          call: call("term_assign", { slug: "korean", remove: ["bulgogi"] }),
+          result: { slug: "korean", updated: ["bulgogi"] },
+        },
+      ]),
+    ];
+    expect(tagMisses(messages)).toEqual([]);
   });
 
   it("reads only the searches that found something it tagged", () => {
@@ -205,8 +288,37 @@ describe("tagMisses", () => {
     expect(term.missed).toBeUndefined();
     expect(term.unseen).toBe(7);
     expect(missedNote(term)).toBe(
-      "The search had 7 more matches than it returned",
+      "The search had 7 more matches than it returned.",
     );
+  });
+
+  it("counts a search's pages together for what it did not return", () => {
+    const messages = [
+      ...turn([
+        {
+          call: call("recipe_search", { query: "korean", limit: 2 }),
+          result: { total: 5, recipes: [row("bulgogi"), row("bibimbap")] },
+        },
+        {
+          call: call("recipe_search", {
+            query: "korean",
+            limit: 2,
+            offset: 2,
+          }),
+          result: { total: 5, recipes: [row("japchae"), row("tteokbokki")] },
+        },
+        {
+          call: call("term_assign", {
+            slug: "korean",
+            add: ["bulgogi", "bibimbap", "japchae", "tteokbokki"],
+          }),
+          result: { slug: "korean", updated: ["bulgogi"] },
+        },
+      ]),
+    ];
+    expect(tagMisses(messages)).toEqual([
+      { term: "korean", missed: [], missedCount: 0, unseen: 1 },
+    ]);
   });
 
   it("caps the names it lists, and counts the rest", () => {
@@ -229,7 +341,17 @@ describe("tagMisses", () => {
     expect(miss.missed).toHaveLength(MISSED_MAX);
     expect(miss.missedCount).toBe(MISSED_MAX + 5);
     expect(missedNote({ missedCount: miss.missedCount, unseen: 3 })).toBe(
-      `The search also found ${MISSED_MAX + 5} recipes it did not tag, and 3 more it did not return`,
+      `The search also found ${MISSED_MAX + 5} recipes it did not tag. It had 3 more matches than it returned.`,
+    );
+    /* The names follow the clause they belong to, then what is left. */
+    expect(
+      missedNote({
+        missed: [{ slug: "bibimbap", name: "Bibimbap" }, { slug: "japchae" }],
+        missedCount: 3,
+        unseen: 14,
+      }),
+    ).toBe(
+      "The search also found 3 recipes it did not tag: Bibimbap, japchae, and 1 more. It had 14 more matches than it returned.",
     );
   });
 });

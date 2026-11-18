@@ -102,19 +102,29 @@ Each item is Roger's "change" on the picks page, with his note:
   counts. The wire mappers pick their fields, so `found` never reaches a
   model.
 - **The check** (`tagMisses`, pure). For each term the run's `term_assign`
-  calls put on recipes: the searches that found at least one recipe an
-  assign for that term named (the search the tagging came from, not every
-  search of the run), less what an assign named (`add`) or took the term
-  off (`remove`) and less a row whose tags already carry the term. Only
-  assigns that answered (not an error) and only on recipes (`type: group`
-  is not checked). `unseen` is the most matches any of those searches had
-  beyond the rows it returned.
+  calls **added** to recipes (a remove-only assign is not checked): the
+  searches that found at least one recipe an assign added it to (the
+  search the tagging came from, not every search of the run), less what an
+  assign named (`add`) or took the term off (`remove`) and less a row
+  whose tags already carry the term. Only assigns that answered (not an
+  error) and only on recipes (`type: group` is not checked). `unseen` is
+  the largest of those searches' totals less the distinct rows they
+  returned, so a search paged with `offset` counts its pages together.
+- **The term is the one written**: the assign's result slug (its summary's
+  when the content was cut), else the asked-for slug through the site's
+  `tagSlug` — "Korean" is `korean`, the key "What changed" lists. A row's
+  tags are compared through `tagSlug` too ("Mac & Cheese" is
+  `mac-and-cheese`). A row carrying only an **alias or a child** of the
+  term still reads as missed: the check has no term records, and it is a
+  list to look over, so a false hit costs a glance.
 - **Where it shows.** `runChanges` puts `missed` (up to `MISSED_MAX` = 24,
   with names), `missedCount` and `unseen` on the term it checks, so
   `/api/agent/<id>/changes` carries them. "What changed" adds **Check what
-  it left out**: "Tag korean: The search also found 1 recipe it did not
-  tag: Bibimbap." (each a link), or "… and 14 more it did not return".
-  Nothing is written: it is a list for the person to look over.
+  it left out**: "Tag korean: The search also found 3 recipes it did not
+  tag: Bibimbap, Japchae, and 1 more. It had 14 more matches than it
+  returned." — each name a link, right after the clause it belongs to
+  (`missedParts`; `missedNote` is the same as one line of text). Nothing
+  is written: it is a list for the person to look over.
 
 **46-e-rows — ⌘K's holiday rows**
 (`common/components/CommandPalette/holidayRows.ts`).
@@ -155,9 +165,10 @@ Each item is Roger's "change" on the picks page, with his note:
   rewritten and there is no real run to make. `ingredientNames.ts` is not
   `specVersions`-pinned and no index stores names, so no reindex.
 - **King Arthur.** ing-7's row is now
-  `(?:king arthur(?: unbleached)?|unbleached)(?= all purpose flour)` → "",
-  so "King Arthur Unbleached All-Purpose Flour" (and a plain "King Arthur
-  All-Purpose Flour") is `all purpose flour`. King Arthur's bread, whole
+  `(?:king arthur(?: (?:organic|unbleached))*|unbleached)(?= all purpose flour)`
+  → "", so "King Arthur Unbleached All-Purpose Flour", "King Arthur
+  Organic All-Purpose Flour" and a plain "King Arthur All-Purpose Flour"
+  are `all purpose flour`. King Arthur's bread, whole
   wheat, golden wheat, pastry and pizza flours keep their names.
 - **Pepper.** `BARE_NAMES` gains `pepper → black pepper` (Dg1's
   line-names-only rule), so "1/2 teaspoon pepper", "freshly ground pepper"
@@ -165,6 +176,12 @@ Each item is Roger's "change" on the picks page, with his note:
   read as black pepper. A step's bare "pepper" already meant black pepper
   (`QUALIFIED_HEADS`), and a typed `pepper` on hand still meets the line by
   its tail.
+- **A counted pepper is the vegetable** (review): `BARE_NAME_SKIPS` leaves
+  a line that says "peppers" or counts with no unit ("2 peppers, diced",
+  "1 large pepper", "2 (8 oz) peppers") as `pepper`; "1/2 tsp. pepper",
+  "pinch pepper" and "a pinch of pepper" still read black. No line of the
+  dry run below moved back: all 63 of its moved pepper lines have a unit
+  or no amount.
 - **"hot pepper" is a compound** (Da2): `hot` is a descriptive word, so
   "Hot pepper (to taste, habanero, scotch bonnet…)" read as a bare
   `pepper` and would have become black pepper. As `COMPOUNDS`' "hot pepper"
@@ -219,7 +236,11 @@ all purpose flour` on hand now meets 23 more lines. `bell pepper`,
   columns there are (`GRID_COLUMNS`, static strings for Tailwind), so a bar
   with no methods or no classics still fills the row. A phone is
   unchanged: each group its own disclosure.
-- The drinks spec checks, wide, that the four groups sit side by side.
+- The drinks spec checks, wide, that the four groups sit side by side —
+  at 1280 px and again at exactly 1024 px (`lg`, the narrowest the row
+  gets: the narrow tracks are ~172 px there, ~200 px at 1280), where no
+  leader wraps and no column overflows its track. So the row stays from
+  `lg`, not `xl`.
 
 **46-h-menu — a menu's drinks, grouped as the reader likes**
 (`common/controller/holidaysPage.ts`, `HolidaysPage/HolidayMenu.tsx`).

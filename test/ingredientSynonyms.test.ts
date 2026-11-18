@@ -377,6 +377,11 @@ describe("the 48a merges across Make, the shopping list and steps", () => {
       "1 cup unbleached all purpose flour",
       "all purpose flour",
     ],
+    [
+      "2 cups King Arthur Organic All-Purpose Flour",
+      "1 cup King Arthur Organic Unbleached All-Purpose Flour",
+      "all purpose flour",
+    ],
     ["1/2 teaspoon pepper", "1/4 tsp black pepper", "black pepper"],
     [
       "1/2 teaspoon freshly ground pepper",
@@ -443,6 +448,32 @@ describe("the 48a merges across Make, the shopping list and steps", () => {
     expect(
       satisfies(item, onlyRequirement("Hot pepper (to taste, habanero)")),
     ).toBe(false);
+  });
+
+  /* 48a review: a counted pepper, or "peppers", is the vegetable. */
+  it("leaves a counted pepper and a line of peppers as pepper", () => {
+    for (const line of [
+      "2 peppers, diced",
+      "1 large pepper",
+      "1 pepper, seeded and sliced",
+      "3 medium peppers, sliced",
+      "2 (8 oz) peppers",
+      "1 lb peppers",
+      '<Multiplyable baseNumber="2" /> large pepper',
+    ]) {
+      expect(requirementLabel(onlyRequirement(line)), line).toBe("pepper");
+    }
+    for (const line of [
+      "1/2 tsp. pepper",
+      '<Multiplyable baseNumber="1/2" /> teaspoon pepper',
+      "Pinch pepper",
+      "A pinch of pepper",
+      "Freshly ground pepper, to taste",
+    ]) {
+      expect(requirementLabel(onlyRequirement(line)), line).toBe(
+        "black pepper",
+      );
+    }
   });
 
   it("a bell pepper on hand no longer meets a bare pepper line", () => {

@@ -6,7 +6,7 @@ import { ClientListItem } from "recipe-website-common/components/ClientList";
 import { RecipeGrid } from "recipe-website-common/components/List/shared";
 import {
   assignedNote,
-  missedNote,
+  missedParts,
   type ChangedPlace,
   type ChangedTerm,
 } from "recipe-editor/controller/agent/changes";
@@ -86,13 +86,16 @@ function RecipeCards({ recipes }: { recipes: CuratorChangedRecipe[] }) {
  * list to look over, with each recipe a link. Nothing here is written.
  */
 function MissedTerms({ terms }: { terms: ChangedTerm[] }) {
-  const checked = terms.filter((term) => missedNote(term));
+  const checked = terms.flatMap((term) => {
+    const parts = missedParts(term);
+    return parts ? [{ term, parts }] : [];
+  });
   if (checked.length === 0) return null;
   return (
     <div data-testid="curator-missed">
       <h3 className="mb-2 text-sm font-semibold">Check what it left out</h3>
       <ul className="flex flex-col gap-2 text-sm">
-        {checked.map((term) => {
+        {checked.map(({ term, parts }) => {
           const missed = term.missed ?? [];
           const rest = (term.missedCount ?? 0) - missed.length;
           return (
@@ -106,22 +109,28 @@ function MissedTerms({ terms }: { terms: ChangedTerm[] }) {
                   {term.slug}
                 </Link>
                 :
-              </span>{" "}
-              {missedNote(term)}
-              {missed.length > 0 ? ": " : "."}
-              {missed.map((recipe, index) => (
-                <span key={recipe.slug}>
-                  {index > 0 ? ", " : ""}
-                  <Link
-                    href={`/recipe/${recipe.slug}`}
-                    className="underline underline-offset-2"
-                  >
-                    {recipe.name ?? recipe.slug}
-                  </Link>
-                </span>
-              ))}
-              {missed.length > 0 && rest > 0 ? `, and ${rest} more.` : ""}
-              {missed.length > 0 && rest <= 0 ? "." : ""}
+              </span>
+              {parts.found && (
+                <>
+                  {" "}
+                  {parts.found}
+                  {missed.length > 0 ? ": " : "."}
+                  {missed.map((recipe, index) => (
+                    <span key={recipe.slug}>
+                      {index > 0 ? ", " : ""}
+                      <Link
+                        href={`/recipe/${recipe.slug}`}
+                        className="underline underline-offset-2"
+                      >
+                        {recipe.name ?? recipe.slug}
+                      </Link>
+                    </span>
+                  ))}
+                  {missed.length > 0 &&
+                    (rest > 0 ? `, and ${rest} more.` : ".")}
+                </>
+              )}
+              {parts.unseen && ` ${parts.unseen}.`}
             </li>
           );
         })}
