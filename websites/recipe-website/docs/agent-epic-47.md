@@ -2287,7 +2287,7 @@ the session's long-lived MCP server), each write followed by `POST
   with Hollandaise.
 - **`warm drinks` respelled as `warm-drinks`** on 11 recipes (Tc4's second
   spelling), so one tag covers them.
-- **`eggs-benedict`'s notes:** its notes were set (Roger had pasted RecipeTin Eats' "Recipe Notes" in as a step group; the migration below moved it).
+- **`eggs-benedict`'s notes:** Roger pasted RecipeTin Eats' six "Recipe Notes"; the orchestrator added them through the CLI as a trailing "Notes" step group (before 47j existed), and the migration below moved them into `notes`.
 - **The 47j notes migration, 2026-11-17 (Roger OK'd the list that day):** five
   recipes had a step group named like notes (`eggs-benedict`,
   `dairy-free-eggnog`, `eggnog-pancakes`,
