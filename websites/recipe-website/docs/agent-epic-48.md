@@ -1353,8 +1353,10 @@ run them with `expectHydrated` in mind (40f) and report a repeat.
 
 Each phase's "Left out" list stands (48b, 48c, 48d, 48e above). In addition:
 
-- 48e's page-weight measurement of `/` on the real corpus (the orchestrator
-  measures it after the deploy and may add the number here).
+- 48e's page weight of `/` on the real corpus, measured by the orchestrator
+  after the workstation update (2026-11-18, signed out): **306 KB of HTML,
+  0.14–0.16 s warm**, against the old homepage's 398 KB on the Pi (still on
+  ff5b6f08 at the time). Done; the pictures' bytes were not measured.
 - Scoping the visual specs' default masks to the locator, so the palette
   baselines stop moving with the homepage.
 - `candy` and `donuts` terms, proposed and not created (48k).
