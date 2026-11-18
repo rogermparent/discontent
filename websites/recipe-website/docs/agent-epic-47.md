@@ -11,7 +11,7 @@
 
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded · 📝 proposed.
 
-**Now:** 47a in gates, 47e building, 47d canvases in progress (2026-11-09); epic 46 closed and deployed the same day.
+**Now:** closed 2026-11-17: see 47-close (Close-out) below. Every phase landed; nothing is deployed; the canvases await Roger's picks, and building them is epic 48.
 
 ## Context
 
@@ -57,14 +57,19 @@ Epics 43–46's way of working, unchanged:
 
 ## Phases
 
-| Phase    | What                                            | Size        | Status |
-| -------- | ----------------------------------------------- | ----------- | ------ |
-| 47a      | DNS-rebinding fix in the fetch guard            | M           | 🟡     |
-| 47b      | Guard the CMS `fileImportUrl` fetch (portfolio) | S           | 📝     |
-| 47c      | Content round: four themes                      | M (content) | 📝     |
-| 47d      | Design canvases for four page groups            | M (design)  | 🟡     |
-| 47e      | Auth on Better Auth (Roger's ask)               | L           | 🟡     |
-| 47-close | Doc, memory, morning report, picks page         | S           | 📝     |
+| Phase    | What                                               | Size        | Status                                   |
+| -------- | -------------------------------------------------- | ----------- | ---------------------------------------- |
+| 47a      | DNS-rebinding fix in the fetch guard               | M           | ✅                                       |
+| 47b      | Guard the CMS `fileImportUrl` fetch (portfolio)    | S           | ✅                                       |
+| 47c      | Content round: four themes (and three more rounds) | M (content) | ✅                                       |
+| 47d      | Design canvases for four page groups               | M (design)  | ✅ (picks await Roger; built in epic 48) |
+| 47e      | Auth on Better Auth (Roger's ask)                  | L           | ✅                                       |
+| 47f      | A step's stored "uses" (Roger's ask)               | M           | ✅                                       |
+| 47g      | The model fills a step's "uses", on demand         | M           | ✅                                       |
+| 47i      | Edit with AI (Roger's ask)                         | M/L         | ✅                                       |
+| 47j      | A recipe's own Notes (Roger's ask)                 | M/L         | ✅                                       |
+| 47h      | Fixes found along the way                          | M           | ✅                                       |
+| 47-close | Doc, memory, morning report, picks page            | S           | ✅                                       |
 
 47a runs first; 47b builds on its shared guard. 47c and 47d are the
 orchestrator's and run while the code phases are in review or CI.
@@ -398,6 +403,45 @@ ADDRCONFIG}` (the resolver's order kept), for the check and for
 - **Scoping assumptions** written into each canvas's notes, since the run
   is unattended.
 - Roger picks in a later session; epic 48 builds the picks.
+
+#### Results (47c)
+
+Four curator agents, one theme at a time, 2026-11-09 evening, through the CLI from the main checkout (`b54d0efe`, then `053d75bb`/`45c96471` — the CLI code they used did not change), `--llm off` throughout (no page needed the model, so no GPU), every write with `--notify` (the workstation revalidated), one commit per recipe, all synced to the Pi by the workstation (0 ahead / 0 behind afterwards). Polite scraping held: one request at a time, ≥ 15 s per host (20–60 s in practice), one 403 each from theseoldcookbooks.com and maangchi.com, both hosts dropped without a retry. Every recipe was checked with `recipes show`: a picture, sane times, its source and its tags. **58 recipes in all.**
+
+| Theme                             | Added | Tag counts                                                                       | Sources                                                                                                                                                |
+| --------------------------------- | ----- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Thanksgiving and Christmas baking | 15    | thanksgiving 51 → 63, christmas 43 → 57 (with the drinks)                        | all Sally's                                                                                                                                            |
+| Weeknight dinners                 | 15    | mains with a total of 45 min or less 11 → 26                                     | A Couple Cooks, RecipeTin Eats, Love and Lemons, Budget Bytes, The Mediterranean Dish, Once Upon a Chef                                                |
+| Winter drinks                     | 10    | drinks 247 → 257; warm-drinks 17 → 25, grocery-store 61 → 65, zero-proof 46 → 52 | A Couple Cooks, Food Network, An Edible Mosaic, True North Kitchen, Muy Bueno, King Arthur, Wholefully, Ahead of Thyme                                 |
+| Gaps by cuisine                   | 18    | korean 3 → 8, filipino 1 → 5, vietnamese 3 → 7, caribbean 10 → 15                | My Korean Kitchen, Kawaling Pinoy, Panlasang Pinoy, RecipeTin Eats, Hungry Huy, Wok and Kin, Cooking with Ria, Skinnytaste, Kitchen Gidget, The Kitchn |
+
+- **Baking** skipped cookies and pumpkin/pecan pies (well covered) for pies, bars, rolls, biscuits and baked sides: brown-sugar sweet potato pie, French silk pie, cranberry pear crumble pie, maple sweet potato pie bars, cranberry crumble pie bars, honey butter rolls, soft sweet potato rolls, brown butter sage dinner rolls, flaky buttermilk biscuits, cornbread, candied sweet potatoes, magic cookie bars, dark chocolate cranberry blondies, gingerbread loaf, mint chocolate brownies. Six Sally's recipes were already on the site (stuffings, sweet potato casserole, dinner rolls, mac and cheese, green bean casserole).
+- **Weeknight dinners** (all mains, total ≤ 45 min; `quick` only at ≤ 30): chicken piccata, mapo tofu, frittata five ways, ground beef fajitas, shrimp saganaki, teriyaki salmon, black bean tacos, spaghetti carbonara, shakshuka, sausage and vegetable skillet, Italian pork chops, fish tacos, turkey taco skillet, tofu stir-fry, chickpea curry. The Korean, Filipino, Vietnamese and Caribbean cuisines were left to theme 4.
+- **Winter drinks:** hot chocolate, gingerbread hot chocolate, coquito, Tom and Jerry, glögg, ponche navideño, champurrado, spiked apple cider, London fog, non-alcoholic eggnog. `grocery-store` only where it truly holds (not ponche: tejocotes, sugarcane; not London fog: lavender).
+- **Cuisines:** japchae, kimchi jjigae, bibimbap, kimchi fried rice, sigeumchi namul; lumpiang shanghai, sinigang na baboy, pancit canton, chicken tinola; phở, bún chả, lemongrass chicken, thịt kho; Trinidad curry chicken, pelau, ropa vieja, arroz con gandules, tostones.
+- **Cleanup the agents did:** ingredient headings where an import flattened a multi-part list (27 recipes), price and footnote debris removed, glued step names and bullets split, three totals corrected to include marinating, one Pinterest picture with title text replaced by the page's plain photo, page videos dropped.
+- **Proposed terms (none created; on the picks page):** `pies`, `bars` (under dessert), `tofu` (main ingredient), `thai` (cuisine), `eggnog`, `hot-chocolate` (under drink), `jamaican`, `trinidadian`, `cuban`, `puerto-rican` (under caribbean).
+- **Alternatives suggestions (none converted; on the picks page):** `frittata` (Variation: five versions), `ropa-vieja` (Method: Instant Pot / stove top), `sinigang-na-baboy` (Tamarind: packaged / fresh pods — a weaker fit).
+
+#### Traps (47c)
+
+- **Tc1: a dry run fetches the picture too.** `create --dry-run` and `import --dry-run` download the recipe's image outside the per-site pacer, so a quick loop of dry runs on one host broke the 15 s rule (about four requests to acouplecooks in seconds). Later themes used `inspect` → a cleaned draft → `create --file` with no picture-fetching dry run. Backlog row.
+- **Tc2: `create --file` refuses `"videoImportUrl": null`** (a validation error; nothing written): leave the key out. Backlog row.
+- **Tc3: Serious Eats answers the importer with HTTP 402**; Maangchi sits behind a Cloudflare 403.
+- **Tc4: two spellings of one tag.** Older warm drinks carried `warm drinks` (with a space); `tag:warm-drinks` still found them. Respelled as `warm-drinks` on 11 recipes afterwards (Close-out, Content).
+
+#### Results (47d)
+
+Four Claude Design canvases, one subagent each, on the Recipe Editor Design System (the site's tokens, fonts and components), prototyped on real data (the corpus, the job store, the content repo's history, and 46k's four real Claude curator runs). Each has a Today board (a screenshot, or a rebuild from source marked as one where the page needs sign-in), variants A (refine), B (rethink) and C (bold) on desktop and phone, B in dark, a label per variant and a scoping-assumptions note (the run was unattended). Not render-checked.
+
+| Page                   | Canvas                                            | A             | B (every agent's pick)                              | C               |
+| ---------------------- | ------------------------------------------------- | ------------- | --------------------------------------------------- | --------------- |
+| `/curator`             | https://claude.ai/artifact/1eW56Q6JuyQKXQucG1F9Fy | Sharper bench | Ask, watch, approve — writes held until you approve | The ticket      |
+| `/jobs` + a job's page | https://claude.ai/artifact/NHrPGNf5TYuvtzBp3naVwx | Sharper log   | Now / needs a look / history                        | The lanes       |
+| Settings + `/git`      | https://claude.ai/artifact/FASzPFRYuYwBqJSEvFr6FX | Sharper bench | Is everything in sync?                              | Two benches     |
+| Homepage               | https://claude.ai/artifact/5Hka15zkvWJ6xXbBohgNA3 | Sharper bench | Tonight, then the next feast                        | The fridge door |
+
+Problems the agents found on today's pages are on the picks page under "Found along the way" (17 rows: e.g. a 404 inspect shown as done, `/jobs` "done" hiding 10 of 115 read-nothing jobs, the Result section empty for curator runs, a green "in sync" beside "no upstream", history naming ids instead of recipes, the homepage showing two recipes three times and Halloween still featured). **Picks page:** https://claude.ai/artifact/MeV82ZbXtvYsNq4SbNS2zn (db capability; probe write/read/delete checked).
 
 ### 47e: Auth on Better Auth (L; branch `agent/47e-auth`; Roger's ask, 2026-11-09)
 
@@ -2189,14 +2233,333 @@ at load average 19–41 throughout (other sessions).
 - Row 4's chip text "read nothing" and the outcome's place beside `done`.
 - Rows 3 and 11 left as design picks; row 13's curation list.
 
-### 47-close
+### 47-close — Close-out
 
-- The Close-out, the CLAUDE.md bullet, backlog strikes and rows, memory
-  (`epic-47.md`), a morning report linking the canvases.
-- A small picks page, as 46c's checklist, on the db capability: a
-  variant per page, plus the content round's proposed terms and
-  alternatives suggestions.
-- No deploy unless Roger asks.
+Closed 2026-11-17. Epic 47 ran 2026-11-09 to 11-17: the two SSRF gaps 46a left
+open (DNS rebinding, the CMS upload import), auth moved to Better Auth, a
+content round, four design-canvas sets, and four of Roger's asks on the edit
+page (a step's stored "uses", the model suggesting it, "Edit with AI", a
+recipe's own Notes), with a fixes phase on top. Every phase landed; the
+canvases await Roger's picks, and building the picks is **epic 48**. Main is
+`9caaf8ee` plus this close-out. **Nothing in 47 is deployed:** the workstation
+and the Pi run epic 46's `b54d0efe`. No real model ran in a test or in CI; the
+measurements (47g, 47i, 47j) used scratch fixtures copied read-only from the
+content repo.
+
+**Reindex: none to run by hand.** No phase moved `indexVersion` (46f's `"3"`
+is current). 47f ("not indexed: no `indexVersion` change, no reindex"), 47g
+and 47i (each "No reindex"), and 47j ("`buildIndexValue` reads neither; no
+`indexVersion` change, no reindex") say so; 47e keeps sessions outside the
+content repo and "untouched by reindex"; 47a, 47b and 47h touch no index. The
+stamp (39b) therefore has nothing to rebuild at the next start.
+
+#### What landed
+
+| Phase | PR   | Merge      | What                                                                                                                                                                                              |
+| ----- | ---- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| plan  | #330 | `430b7337` | The skeleton: context, how it runs, roadmap.                                                                                                                                                      |
+| CI    | #331 | `effa397d` | The Playwright image pinned by digest (Node 24, corepack).                                                                                                                                        |
+| docs  | #332 | `053d75bb` | Epic 46's close-out and the 47e section.                                                                                                                                                          |
+| 47a   | #333 | `45c96471` | DNS rebinding closed: each hop dials only the addresses the guard vetted (`pinnedDispatcher`, undici 6.29.1).                                                                                     |
+| fix   | #334 | `81362f1c` | The step-ingredient matcher (heavy cream, two bowls: a step's Uses lists a line where it comes in) and the YouTube axe exclusion.                                                                 |
+| 47e   | #335 | `8152c9c4` | Auth on Better Auth (`@discontent/auth`): an app-owned `/login` that stays on the host you used, password only, remember this device, sign out everywhere, rate limits.                           |
+| 47b   | #336 | `d49678c5` | The CMS `fileImportUrl` fetch guarded through an injected `uploadFetch` (shared `@discontent/url-guard`); the portfolio passes the guard; fails closed.                                           |
+| 47f   | #337 | `8dfe5bac` | A step's stored `uses` (names) overrides the guess; `resolveStepUses`; chips and a picker in the edit form; every write seat carries it.                                                          |
+| 47g   | #338 | `22aaa95d` | "Fill gaps" suggests each step's `uses`, marked, offered per step (Accept / Dismiss), never on import; `recipes fill --uses`.                                                                     |
+| 47i   | #339 | `c4750fbf` | "Edit with AI" on the edit page: a free request, the local model by default, "Use Claude", "Suggest step uses"; a strict all-or-nothing check; `recipes revise`.                                  |
+| 47j   | #340 | `d8e81c6d` | A recipe's own Notes (`notes: string[]`), a page section, a form editor, learned per-site selectors on import, `recipes notes migrate`.                                                           |
+| 47h   | #341 | `9caaf8ee` | Nineteen rows worked (most fixed, a few left as design picks): read-nothing jobs, names in rows, `/git` history, the homepage's duplicates, upload type and size caps, a flake fixed at the root. |
+| 47c   | —    | (CLI)      | The content round: 58 recipes (Results above), then the later rounds (Content below).                                                                                                             |
+| 47d   | —    | artifact   | Four canvases and a picks page (Canvases below).                                                                                                                                                  |
+| close | —    | this PR    | This close-out, the status lines, backlog rows and the CLAUDE.md bullet.                                                                                                                          |
+
+#### Content
+
+Applied outside PRs, all through the CLI from the updated main checkout (never
+the session's long-lived MCP server), each write followed by `POST
+/api/revalidate`; the workstation synced them to the Pi.
+
+- **47c's round:** 58 recipes in four themes (Thanksgiving and Christmas
+  baking 15, weeknight dinners 15, winter drinks 10, cuisine gaps 18). Counts,
+  sources, the proposed terms and the alternatives suggestions are in Results
+  (47c) above.
+- **Three more rounds:** spaghetti squash, homemade eggnog, and Eggs Benedict
+  with Hollandaise.
+- **`warm drinks` respelled as `warm-drinks`** on 11 recipes (Tc4's second
+  spelling), so one tag covers them.
+- **`eggs-benedict`'s notes:** Roger pasted RecipeTin Eats' six "Recipe Notes"; the orchestrator added them through the CLI as a trailing "Notes" step group (before 47j existed), and the migration below moved them into `notes`.
+- **The 47j notes migration, 2026-11-17 (Roger OK'd the list that day):** five
+  recipes had a step group named like notes (`eggs-benedict`,
+  `dairy-free-eggnog`, `eggnog-pancakes`,
+  `make-ahead-eggnog-french-toast-casserole`, `dense-bean-salad`); each moved
+  its group into `notes` with one `recipes update` commit, and three
+  run-together notes ("…before serving.Storage: …") were split into separate
+  notes on the way. Their steps stay as before.
+
+#### Canvases
+
+Four sets on the Recipe Editor Design System, each with a Today board, A (refine),
+B (rethink) and C (bold) on desktop and phone, B in dark. Not render-checked.
+**The agent's pick is B on all four.** Roger's picks come first; epic 48
+builds them. The picks page (also carrying the content round's proposed terms,
+the alternatives suggestions and 17 "found along the way" rows, most fixed by
+47h) is https://claude.ai/artifact/MeV82ZbXtvYsNq4SbNS2zn.
+
+| Page              | Canvas                                            | A             | B (agent's pick)                                                                                | C               |
+| ----------------- | ------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------- | --------------- |
+| `/curator`        | https://claude.ai/artifact/1eW56Q6JuyQKXQucG1F9Fy | Sharper bench | Ask, watch, approve: writes held until Save, Ask → Working → Review, a cost per ask             | The ticket      |
+| `/jobs` + a job   | https://claude.ai/artifact/NHrPGNf5TYuvtzBp3naVwx | Sharper log   | Now / needs a look / history: a live chip in the masthead, failures grouped by cause            | The lanes       |
+| Settings + `/git` | https://claude.ai/artifact/FASzPFRYuYwBqJSEvFr6FX | Sharper bench | Is everything in sync?: one "Sync & upkeep" page, two machines side by side, git under Advanced | Two benches     |
+| Homepage          | https://claude.ai/artifact/5Hka15zkvWJ6xXbBohgNA3 | Sharper bench | Tonight, then the next feast: search + Ask, the next holiday's menu, new by batch               | The fridge door |
+
+Notes for epic 48: the `/curator` B needs loop work (a held write answers like
+a dry run); sessions are per editor (47e), so Settings' "Sign out everywhere"
+will not reach the Pi; the `/git` canvas assumes the token UI that 47h row 11
+left as a feature.
+
+#### Roger's steps
+
+1. **Update the workstation, then the Pi.** `pnpm workstation update` (on a
+   quiet machine: it builds in place), then `pnpm deploy:pi`. Nothing in 47 is
+   deployed; both run `b54d0efe`. Reindex: none by hand.
+2. **Until then the five migrated recipes' notes are hidden on both editors**
+   (`eggs-benedict`, `dairy-free-eggnog`, `eggnog-pancakes`,
+   `make-ahead-eggnog-french-toast-casserole`, `dense-bean-salad`): the old
+   builds do not know the `notes` field, and the notes left their steps. They
+   appear on the recipe pages after each update.
+3. **Sign in once on each device after each update (47e).** Existing sessions
+   end at the switch (Auth.js's cookies mean nothing to Better Auth). Nothing
+   to create and nothing to set: users and API tokens stay in the content
+   repo, and Better Auth reads the existing `AUTH_SECRET`. Behind a proxy,
+   pass the browser's `Host` through (Te5, `deploy-pi.md`).
+4. **Optional, workstation:** `RECIPE_LLM_CLAUDE_API_KEY=<key>` in
+   `editor/.env`, for "Use Claude" and "Suggest step uses" in Edit with AI
+   beside the local model. Without it the box says "Suggest step uses" is off
+   and why. `RECIPE_LLM_EDIT_MODEL=<model>` picks another local model for
+   requests; `RECIPE_LLM_USES=1` lets qwen suggest step uses anyway.
+5. **After the deploy, one smoke test (47a):** import one public recipe URL
+   (any Sally's page) on the workstation and check the job's fetch step
+   answers 200: no test runs `pinnedDispatcher` inside the Next bundle
+   against a real public host.
+6. Pick a variant per canvas (the picks page), and answer the list below.
+
+#### Roger to confirm
+
+Each item is one line; the reasons are in the phase's section. 59 items:
+47a 1, 47b 2, 47e 4, 47f 13, 47g 13, 47i 12, 47j 8, 47h 6.
+
+**47a, DNS rebinding**
+
+1. Ga2: under `RECIPE_TEST_DNS` (Playwright, vitest) the connection resolves
+   for itself and checks each answer at connect, rather than pinning to the
+   stand-in address.
+
+**47b, the CMS upload fetch**
+
+2. Gb1: the wording for an editor with no fetcher ("This editor does not
+   import files from a URL; upload the file instead.").
+3. Gb5: no test allowance in the portfolio until a spec needs one.
+
+**47e, auth**
+
+4. De6: "Remember this device" off by default, and 90 days when on.
+5. De7 / De13: sign out everywhere includes this device and is per editor;
+   the workstation's does not reach the Pi.
+6. De5: the rate limits: per address 5 a minute (best effort,
+   `x-forwarded-for` is the client's), per account 10 per 15 minutes (a
+   stranger who knows the email can hold the owner off for 15 minutes), 60 a
+   minute overall.
+7. Existing sessions end at the switch: everyone signs in once per device.
+
+**47f, a step's stored "uses"**
+
+8. Chips editable straight away on every step (Df10), rather than behind a
+   per-step "Edit".
+9. The form stores the matcher's short names ("granulated sugar", "milk"),
+   not the line's own words (Tf1).
+10. A name that matches no ingredient is accepted by every write; only the
+    form says so (Df4).
+11. A name two lines go by picks the one in the step's section, else the
+    first (Df3).
+12. Taking a line off a step lets a later step whose text names it list it
+    (Df5).
+13. "Every ingredient is named in a step" still counts a line whose chip was
+    removed, if some step's text names it (Df6).
+14. The picker lists all the recipe's other lines, whole, in list order.
+15. Chips cannot be reordered; a new one goes last.
+16. A stored list stays as it is when the step's text is edited; only "Back to
+    automatic" returns to the guess.
+17. The recipe page shows a stored and a guessed list the same way.
+18. The words: "guessed from the text", "Back to automatic", "uses" then
+    "nothing", "Can’t be added: written the same as another line", "No
+    ingredient called “X”…".
+19. Limits: 100 names a step, 200 characters a name (Df9, Df11).
+20. The second of two identically written lines cannot be added to a step
+    outside both sections (Df12).
+
+**47g, the model fills "uses"**
+
+21. A suggestion is stored only if you press Accept (Dg3), not marked-and-kept
+    as estimated times are.
+22. Only the Claude API is asked; qwen is not unless `RECIPE_LLM_USES=1`
+    (Dg2; it scored 25/36 against Claude's 35).
+23. On the Pi every "Fill gaps" press makes one more Claude call, about half
+    a cent.
+24. The reading rides on "Fill gaps", so a recipe with no source cannot get
+    one (47i's "Suggest step uses" covers that).
+25. A step that stores a list is skipped; ask again with "Back to automatic"
+    then Fill, or `--all-uses` (Dg6).
+26. A step whose text you edited after the fill loses its suggestion (Dg4).
+27. "Accept all N" stores only the lists that are needed, so fewer than N
+    steps may end up marked (Dg5).
+28. An accepted list is stored in the ingredient list's order (Dg7).
+29. A step that uses one of two identically written lines gets no suggestion,
+    with a note (Tg1).
+30. `--no-estimate` no longer means "no model at all"; `--no-uses` turns the
+    other call off (Dg9).
+31. The import form does not mention that Fill gaps can suggest uses.
+32. The words: "suggested by <model>", "Accept", "Dismiss", "Accepted. Not
+    saved yet.", "Undo", "Accept all N".
+33. With a local model not opted in, `recipes fill` prints one line saying so;
+    the edit page says nothing (Dg10).
+
+**47i, Edit with AI**
+
+34. Save keeps a request's change once it is in the form, accepted or not
+    (Di5).
+35. The local model stays the default for requests although it measured 5 of
+    10 (thinking) against Claude's 9, at ~20 s a request (Di10).
+36. `RECIPE_LLM_CLAUDE_API_KEY` as a second, explicit key beside a local model.
+37. "Suggest step uses" asks only the Claude API (or `RECIPE_LLM_USES=1`), so
+    with no Claude key the box says it is off; the picked model's thinking
+    was not measured for uses.
+38. A request refused for its structure names what it dropped or added; the
+    person asks again naming it.
+39. A change that empties a list, or cuts one of 3+ items by more than a
+    third, is refused unless the request says so.
+40. The box shows the latest job's panel and words only.
+41. The fill's Undo puts the stored recipe back, taking a request's change
+    with it.
+42. No `?edit=<job>` link: leaving the page mid-request loses its result (the
+    job is on /jobs).
+43. The words: "Edit with AI", "What should change?", "Send", "Try:", "Use
+    Claude (…) instead of …", "Changed by AI — not saved yet", "Before →
+    after", "edited", "Accept", "Undo", "Undo all".
+44. MCP gets no tool for this (the curator has `recipe_update`).
+45. The CLI verb is `recipes revise`.
+
+**47j, Notes**
+
+46. The migration list (done, 2026-11-17): eggs-benedict and four "Recipe
+    Notes" groups.
+47. Learned selectors live in this editor's `settings.json`, per instance
+    (the Pi learns its own, with Claude) (Dj7).
+48. The list is a card on Settings → Tools; on the Pi, Tools is not in the
+    nav, so it is at `/settings/tools` by address (Dj8).
+49. A page whose recipe is in a known card never asks a model, even with a
+    "Notes" heading elsewhere (Dj4).
+50. Notes are not searched, as step text is not.
+51. The migration's commits read "Update recipe: <slug>"; a moved step's
+    title leads its note in bold.
+52. The words: "Notes", "Note N", "Add a note", "No notes. Tips…", "Notes
+    (N)", "Recipe notes", "Forget".
+53. A several-recipe page brings no notes in; a site where learning found no
+    selector is not asked again for 30 days (Forget to retry sooner).
+
+**47h, fixes**
+
+54. Dh2 / row 7: whether a page's own picture may follow its page without the
+    15 s gap.
+55. Dh4: reading order (Featured before New this week on a laptop too).
+56. Dh6: Holidays in the masthead from `xl` only (768–1279 px reach it by the
+    footer and ⌘K).
+57. Row 13: Featured also leaves out a dated holiday more than 180 days off,
+    not only a past one.
+58. Row 4's chip text "read nothing" and the outcome's place beside `done`.
+59. Rows 3 and 11 left as design picks; row 13's curation list (below).
+
+#### Lessons and traps
+
+- **The Playwright image pin (#331)** held through the epic; move the tag and
+  the digest together (46's Close-out).
+- **A client box must not import a value from a server module (Ti7).** A
+  `"use client"` file importing from `askEdit.ts` pulls `node:fs` into the
+  browser bundle; types and `isEditResult` live in `editResult.ts`. Related:
+  a `"use client"` module's functions are not callable on the server (Ti4).
+- **Better Auth quirks (47e).** Its origin check is off under test unless set
+  explicitly (Te3); a proxy that rewrites `Host` gets a 403 on sign-in (Te5);
+  session tokens are plain LMDB keys under `<settings>/auth`, so keep the
+  volume private (Te6); the Playwright reset removes `test-settings` and the
+  sessions with it (Te1, Te9), and the login form posts a server action, so
+  specs wait for the page to leave `/login` (Te7); one `next` copy only (Te4).
+  An open redirect through dot segments (`/.//evil.com`) was a review blocker.
+- **A patch's `instructions` replaces the list (Tf4, Tg4, Tg7).** An agent
+  that rewrites steps without reading them drops their `uses`; a fill's patch
+  holds every step as it was read, so apply it before editing. `toDraft`
+  drops step fields; use `patchInstructions`.
+- **A stored list changes its neighbours (Tg3, 47f Df5):** accepting one
+  suggestion can make another appear or vanish.
+- **Two identical ingredient lines cannot be told apart by name (Tf6, Tg1,
+  Df12);** headings fix it.
+- **Claude's structured-output limits (Ti2, Ti3):** at most 24 optional
+  properties in a schema, nested ones included, and the first call with a new
+  schema took 112 s (grammar compile), so `ANTHROPIC_TIMEOUT_MS` is 300 s.
+- **Small models restructure (Ti5):** qwen3:8b made a group of every step it
+  recapitalised; the added-group check came out of that run. A `nullish()` in
+  a tool's zod schema is in its JSON Schema (Th5): it pushed the local view
+  over its 3,500-token budget.
+- **A tool result may be cut and the local model's is reshaped (Th4);** judge
+  a cut `page_inspect` by its `status` alone.
+- **`Readable.pipe` does not forward errors (Th2);** use a web
+  `TransformStream` (`pipeThrough`) so a body that fails mid-stream fails the
+  write. `new Response("text")` is `text/plain` (Th3).
+- **A server action's answer, not its click, starts the UI's clock (Th1):**
+  `clickAndAwaitAction` in `playwright/support/hydration.ts`.
+- **Notes (47j).** The markdown field reads its value once, so rows need a
+  stable key (Tj5); descendant combinators backtrack, so selector matching is
+  memoised (Tj6); a heading's words show up in nav and buttons, so the finder
+  skips chrome (Tj3); Cloudflare answers curl's Chrome UA with 403 where the
+  importer's Node agent gets in (Tj1); the settings form saves through
+  `updateSettings`' lock (Tj7).
+- **A dry run fetches the picture too (Tc1)** and **`create --file` refused
+  `"videoImportUrl": null` (Tc2):** addressed by 47h rows 15 and 16 (`create
+--file` and the API accept the null; the dry-run probe is now paced, though
+  it still fetches).
+- **The machine's GPU is AMD (Tg6):** no `nvidia-smi`; read
+  `/sys/class/drm/card1/device/mem_info_vram_used` and Ollama's `/api/ps`.
+- **Epic 46's traps still stand:** `workstation update` builds in place (CSS
+  answers 500 for minutes) and a stale `.next/dev` fails its build.
+
+#### Current baselines
+
+47h moved the masthead baselines (Holidays from `xl`) and re-read the plan
+panel in the `api-write` specs; regenerated in Docker. See each phase's Gates
+for any other.
+
+#### Follow-ups
+
+- **A new flake: `jobs.spec.ts:391`, "Cancel stops a long import: from the
+  panel, and from its page".** Failed once on #341 and passed on retry. Not
+  diagnosed. Backlog row.
+- **47h row 13's curation list** (content, the orchestrator's; nothing
+  changed): Thanksgiving's strip is its four newest photographed recipes, not
+  the menu (the turkey, stuffings and pies exist and are tagged; the strip
+  reads no pins, so a strip by course is a homepage variant); Halloween is
+  still featured (hidden by date now; `unfeature`, held back, would tidy it);
+  `christmas-baking` is absent from "On the plan" because the newest plan wins
+  (feature it, or let the homepage canvas pick the next holiday's plan).
+- **Proposed terms and alternatives suggestions** from 47c: on the picks page
+  (`pies`, `bars`, `tofu`, `thai`, `eggnog`, `hot-chocolate`, `jamaican`,
+  `trinidadian`, `cuban`, `puerto-rican`; `frittata`, `ropa-vieja`,
+  `sinigang-na-baboy`). None created or converted.
+- **47i / 47g:** give `suggestUses` the picked model's `think` setting
+  (not measured); the harness's uncached-only `tokens.in` count (46k) stays
+  open.
+
+#### Next
+
+Epic 48: build the canvas variants Roger picks (`/curator`, `/jobs` and a
+job's page, Settings + `/git`, the homepage), then whatever he answers above.
 
 ## Verification
 
