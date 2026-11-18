@@ -49,7 +49,7 @@ export function attentionText(state: MirrorSyncState): {
   if (state.outcome === "conflict" || state.conflictSince) {
     return {
       title: `Recipe sync with ${state.remote}: conflict`,
-      body: "Both sides changed the same recipe. Open Content Sync on the workstation and Pull to resolve it.",
+      body: "Both sides changed the same recipe. Open Sync & upkeep on the workstation and Pull to resolve it.",
     };
   }
   switch (state.outcome) {

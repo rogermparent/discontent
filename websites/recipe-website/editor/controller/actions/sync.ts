@@ -673,11 +673,9 @@ export async function getCommitLogPage(offset: number): Promise<CommitLogPage> {
       contentNames(contentDirectory),
     );
     /* 48d: which way each went, as the first page's (`readSyncView`). */
-    const directions = await readDirections(
-      contentDirectory,
-      await gitStatus(readCtx()),
-      titled,
-    ).catch(() => ({}));
+    const directions = await readDirections(contentDirectory, titled).catch(
+      () => ({}),
+    );
     return { commits: titled, hasMore, directions };
   } catch {
     return { commits: [], hasMore: false };

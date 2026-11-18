@@ -7,8 +7,8 @@
  * JSON by **top-level field**, from git's three stages of the file — the
  * common ancestor (`:1:`), this side (`:2:`, ours) and the other (`:3:`,
  * theirs). A field only one side changed takes that side's value; a field
- * both changed to the same value takes it; a list of words (tags, say) both
- * changed merges as a set — what either side added, less what either side
+ * both changed to the same value takes it; tags or aliases both changed
+ * merge as a set — what either side added, less what either side
  * removed. A field both changed differently is the one line that asks: the
  * person picks a side for it, and nothing is guessed. A file that is not a
  * JSON object on all three sides (an image, a record added or deleted on one
@@ -30,6 +30,18 @@ function isWordList(value: Json): value is string[] {
   return (
     Array.isArray(value) && value.every((entry) => typeof entry === "string")
   );
+}
+
+/**
+ * The fields whose lists are sets of words, whose order means nothing:
+ * a recipe's or group's tags, a term's aliases. Any other list — notes
+ * (numbered), a term's pinned recipes (ordered), ingredients — that both
+ * sides changed differently is a clash for the person to pick.
+ */
+const SET_FIELDS = new Set(["tags", "aliases"]);
+
+function isSetField(field: string): boolean {
+  return SET_FIELDS.has(field);
 }
 
 /** Deep equality for JSON values (key order does not matter). */
@@ -97,7 +109,7 @@ function changesOf(base: JsonObject, side: JsonObject): FieldChange[] {
     };
     const before = base[field] ?? [];
     const after = side[field] ?? [];
-    if (isWordList(before) && isWordList(after)) {
+    if (isSetField(field) && isWordList(before) && isWordList(after)) {
       Object.assign(change, wordDiff(before, after));
     }
     changed.push(change);
@@ -158,6 +170,7 @@ export function planConflict(
     if (!other || sameJson(mine.after, other.after)) continue;
     const before = b[mine.field] ?? [];
     if (
+      isSetField(mine.field) &&
       isWordList(before) &&
       isWordList(mine.after ?? []) &&
       isWordList(other.after ?? [])
@@ -225,6 +238,15 @@ export function mergeBoth(
         (o[field] as string[] | undefined) ?? [],
         (t[field] as string[] | undefined) ?? [],
       );
+      /* Both emptied a list neither had to begin with: leave it out. */
+      if (
+        (value as string[]).length === 0 &&
+        (b[field] === undefined ||
+          o[field] === undefined ||
+          t[field] === undefined)
+      ) {
+        value = undefined;
+      }
     }
     if (value !== undefined) result[field] = value;
   }

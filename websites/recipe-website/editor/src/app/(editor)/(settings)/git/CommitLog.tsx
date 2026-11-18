@@ -182,8 +182,17 @@ export function CommitLog({
   const today = new Date(now);
   return (
     <div className="flex flex-col">
-      {byDay(commits, local).map(({ day, commits: dayCommits }) => (
-        <section key={day} aria-label={dayHeading(day, today, local)}>
+      {byDay(commits, local).map(({ day, commits: dayCommits }, index) => (
+        /*
+         * A group, not a region: commits out of date order (clock skew
+         * between machines, a merged history) can make one day two runs,
+         * and two regions with one name is axe's landmark-unique.
+         */
+        <div
+          key={`${day}:${index}`}
+          role="group"
+          aria-label={dayHeading(day, today, local)}
+        >
           <p className="flex items-baseline gap-2.5 border-b pt-3 pb-1.5 font-mono text-xs tracking-[0.08em] text-muted-foreground uppercase">
             <span className="text-foreground">
               {dayHeading(day, today, local)}
@@ -205,7 +214,7 @@ export function CommitLog({
               </li>
             ))}
           </ul>
-        </section>
+        </div>
       ))}
       {hasMore && (
         <Button

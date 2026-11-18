@@ -12,6 +12,7 @@ import {
   getWorkstationName,
   type EditorRole,
 } from "recipe-website-common/config/role";
+import simpleGit from "simple-git";
 import { readSettings } from "../../src/settings";
 import type { CommitSummary, SyncStatus } from "../curation/git";
 import { readPingState, type PingState } from "../instance/pinger";
@@ -40,7 +41,12 @@ export interface SyncView {
   now: number;
 }
 
-async function peerFor(status: SyncStatus, role: EditorRole) {
+async function peerFor(
+  status: Pick<SyncStatus, "branch" | "upstream"> & {
+    remotes: { name: string }[];
+  },
+  role: EditorRole,
+) {
   const mirrors =
     role === "mirror" ? [] : ((await readSettings()).mirrors ?? []);
   const peer = peerOf({
@@ -106,6 +112,7 @@ export async function readSyncView(
     },
     upstream: status.upstream,
     hasRemote: status.remotes.length > 0,
+    linked: !peer || facts.peerRefKnown,
     ...counted,
     indexStale: status.indexStale && !status.indexVersionStale,
     indexVersionStale: status.indexVersionStale,
@@ -135,13 +142,24 @@ export async function readSyncView(
   };
 }
 
-/** The directions of a later page of the history ("Load more"). */
+/**
+ * The directions of a later page of the history ("Load more"): the other
+ * side from the branch, its upstream and the remotes alone — no full status.
+ */
 export async function readDirections(
   contentDirectory: string,
-  status: SyncStatus,
   commits: CommitSummary[],
 ): Promise<Record<string, Direction>> {
-  const { peer } = await peerFor(status, getEditorRole());
+  const git = simpleGit({ baseDir: contentDirectory });
+  const [state, remotes] = await Promise.all([git.status(), git.getRemotes()]);
+  const { peer } = await peerFor(
+    {
+      branch: state.current ?? undefined,
+      upstream: state.tracking ?? undefined,
+      remotes: remotes.map((remote) => ({ name: remote.name })),
+    },
+    getEditorRole(),
+  );
   const facts = await readMachineFacts(
     contentDirectory,
     peer,

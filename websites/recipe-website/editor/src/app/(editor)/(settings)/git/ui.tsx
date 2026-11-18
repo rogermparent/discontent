@@ -244,9 +244,7 @@ function Glance({
   behind: number;
   staleness: Staleness | null;
 }) {
-  const syncing = Boolean(
-    view.peer && (status.upstream || view.facts.peerRefKnown),
-  );
+  const syncing = Boolean(view.peer && view.facts.peerRefKnown);
   const indexes = status.indexStale || status.indexVersionStale;
   const published = staleness === null ? null : exportWords(staleness);
   return (
@@ -341,7 +339,7 @@ function Machines({
 }) {
   const { peer, facts, role } = view;
   const latest = status.log[0];
-  const known = Boolean(peer && (facts.peerRefKnown || status.upstream));
+  const known = Boolean(peer && facts.peerRefKnown);
   const cameIn = status.log.find(
     (commit) => view.directions[commit.hash] === "in",
   );
@@ -781,9 +779,9 @@ function Advanced({ status, view }: { status: SyncStatus; view: SyncView }) {
           <AdvancedItem
             title="Remotes"
             caption={
-              status.remotes.length === 0
-                ? "none"
-                : status.remotes.map((remote) => remote.name).join(", ")
+              status.remotes.length === 1
+                ? "1 remote"
+                : `${status.remotes.length} remotes`
             }
           >
             <RemoteSelector remotes={status.remotes} />
@@ -870,7 +868,13 @@ function SyncUpkeep({
             one for its details.
           </p>
         </div>
+        {/*
+          Keyed by HEAD: the list keeps its pages in state, so a sync or
+          pull that moves HEAD (a server action's revalidation) starts it
+          afresh rather than showing the history from before.
+        */}
         <CommitLog
+          key={status.log[0]?.hash ?? "empty"}
           initialCommits={status.log}
           initialHasMore={status.hasMore}
           initialDirections={view.directions}

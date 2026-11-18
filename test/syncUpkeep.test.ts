@@ -175,6 +175,12 @@ describe("the status sentence", () => {
     );
   });
 
+  it("doesn't say in sync with an other side it has never read", () => {
+    const sentence = syncSentence({ ...base, linked: false });
+    expect(sentence.title).toBe("Not checked with uraninite yet.");
+    expect(sentence.tone).toBe("waiting");
+  });
+
   it("on a mirror, a workstation's conflict and a divergence", () => {
     const mirror = {
       ...base,
@@ -371,6 +377,33 @@ describe("a conflict as a choice", () => {
     expect(
       planConflict(baseText, recipe({ servings: 12 }), theirs).clashes,
     ).toEqual([]);
+  });
+
+  it("merges only tags and aliases as sets; an ordered list both changed is a pick", () => {
+    const withNotes = (notes: string[]) => recipe({ notes });
+    const plan = planConflict(
+      withNotes(["one", "two"]),
+      withNotes(["one", "two, mine"]),
+      withNotes(["one", "two, theirs"]),
+    );
+    expect(plan.clashes.map((clash) => clash.field)).toEqual(["notes"]);
+    expect(
+      mergeBoth(
+        withNotes(["one", "two"]),
+        withNotes(["one", "two, mine"]),
+        withNotes(["one", "two, theirs"]),
+        { notes: "theirs" },
+      ).notes,
+    ).toEqual(["one", "two, theirs"]);
+    /* One side emptied the tags, the other removed the field: left out, not `[]`. */
+    expect(
+      mergeBoth(
+        `${JSON.stringify({ name: "X", tags: ["a"] })}\n`,
+        `${JSON.stringify({ name: "X", tags: [] })}\n`,
+        `${JSON.stringify({ name: "Y" })}\n`,
+        {},
+      ),
+    ).toEqual({ name: "Y" });
   });
 
   it("offers only whole sides for a file that isn't a JSON record on all three", () => {
@@ -585,6 +618,33 @@ describe("API tokens from the editor", () => {
     expect(
       (await listTokens(contentDirectory, email)).map((row) => row.name),
     ).toEqual(["laptop"]);
+  });
+
+  it("puts the user file back when the commit fails, so no token lives unseen", async () => {
+    const git = await initRepo();
+    const before = await readFile(
+      join(contentDirectory, "users", email),
+      "utf8",
+    );
+    /* The branch's ref is locked: the commit cannot move HEAD. */
+    const branch = (await git.revparse(["--abbrev-ref", "HEAD"])).trim();
+    const refLock = join(
+      contentDirectory,
+      ".git",
+      "refs",
+      "heads",
+      `${branch}.lock`,
+    );
+    await writeFile(refLock, "");
+    await expect(
+      createToken(contentDirectory, email, { name: "x", scope: "read" }),
+    ).rejects.toThrow();
+    await rm(refLock, { force: true });
+    expect(await readFile(join(contentDirectory, "users", email), "utf8")).toBe(
+      before,
+    );
+    expect(await listTokens(contentDirectory, email)).toEqual([]);
+    expect((await git.status()).isClean()).toBe(true);
   });
 
   it("refuses a missing name or scope, and writes nothing", async () => {

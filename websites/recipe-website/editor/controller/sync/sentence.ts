@@ -38,6 +38,12 @@ export interface SentenceInput {
   merge: { inProgress: boolean; unresolved: number };
   upstream?: string;
   hasRemote: boolean;
+  /**
+   * Whether the other side's remote-tracking ref is here, i.e. it has been
+   * fetched or synced at least once. Without it the counts below say
+   * nothing, and the sentence must not say "in sync". Absent: linked.
+   */
+  linked?: boolean;
   /** Against the peer's remote-tracking ref when there is one, else the upstream. */
   ahead: number;
   behind: number;
@@ -179,6 +185,14 @@ export function syncSentence(input: SentenceInput): SyncSentence {
         ? "They were built by another version of the editor, which rebuilds them by itself when it starts. Lists, tags and search may miss a change until it has."
         : "The content changed outside the editor since they were built, so lists, tags and search may miss it until they are rebuilt.",
       action: "rebuild",
+    };
+  }
+
+  if (peer && input.linked === false) {
+    return {
+      tone: "waiting",
+      title: `Not checked with ${peer} yet.`,
+      lede: `This editor hasn't read ${peer} since it was added. Check again reads it; the next sync does too.`,
     };
   }
 

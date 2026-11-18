@@ -56,11 +56,15 @@ function branchesSection(page: Page) {
 
 async function openByHand(page: Page) {
   await expectHydrated(
-    page.getByRole("button", {
-      name: "Fetch",
-      exact: true,
-      includeHidden: true,
-    }),
+    page
+      .locator("details", {
+        has: page.getByText("Pull, push and fetch by hand", { exact: true }),
+      })
+      .getByRole("button", {
+        name: "Fetch",
+        exact: true,
+        includeHidden: true,
+      }),
   );
   await page.getByText("Pull, push and fetch by hand", { exact: true }).click();
 }

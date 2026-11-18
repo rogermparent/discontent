@@ -144,7 +144,7 @@ test.describe("Sync & upkeep", () => {
     });
     await expect
       .poll(() => getRemoteLog(remote))
-      .toContain("Add new recipe: made-here");
+      .toContain("Create recipe: made-here");
   });
 
   test("on a phone, the page stacks and nothing scrolls sideways @mobile", async ({
@@ -259,6 +259,11 @@ test.describe("Account & devices", () => {
       name: /phone shortcuts/,
     });
     await expect(row).toContainText("Read only");
+
+    /* Shown once: Done takes it off this page, with no reload. */
+    await shown.getByRole("button", { name: "Done" }).click();
+    await expect(tokens.getByTestId("new-token")).toHaveCount(0);
+    expect(await page.content()).not.toContain(token.slice(13));
 
     /* It works, read-only: a GET passes, a write is refused. */
     const headers = { authorization: `Bearer ${token}` };

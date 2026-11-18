@@ -21,6 +21,8 @@
  * Plain Node, no Next: the account page's actions call it, and vitest does.
  */
 import simpleGit from "simple-git";
+import { readFile } from "node:fs/promises";
+import { writeFileAtomic } from "@discontent/cms/fs/atomicWrite";
 import { relative } from "node:path";
 import {
   assertNoMergeInProgress,
@@ -119,6 +121,32 @@ async function commitUserFile(
 }
 
 /**
+ * Change the owner's user file and commit it, or neither: a commit that
+ * fails (no git identity, a held `index.lock`) puts the file back as it
+ * was, so no token lives on unseen and no uncommitted user file stops the
+ * syncs (Dd6).
+ */
+async function changeAndCommit<T>(
+  contentDirectory: string,
+  email: string,
+  change: () => Promise<T>,
+  message: (result: T) => string | null,
+): Promise<T> {
+  const path = userFilePath(contentDirectory, email);
+  const before = await readFile(path, "utf8").catch(() => null);
+  const result = await change();
+  const subject = message(result);
+  if (subject === null) return result;
+  try {
+    await commitUserFile(contentDirectory, email, subject);
+  } catch (error) {
+    if (before !== null) await writeFileAtomic(path, before);
+    throw error;
+  }
+  return result;
+}
+
+/**
  * Make a token for the owner. Answers the token itself — the only time it
  * exists outside the person's hands — and its row.
  */
@@ -132,19 +160,17 @@ export async function createToken(
   return withWriteLock(contentDirectory, "add an API token", async () => {
     /* Refused before the file is touched, so a merge never gains a stray change. */
     await assertNoMergeInProgress(contentDirectory);
-    const token = await addTokenToUser(contentDirectory, email, name, {
-      scope,
-    });
+    const token = await changeAndCommit(
+      contentDirectory,
+      email,
+      () => addTokenToUser(contentDirectory, email, name, { scope }),
+      () => `Add API token: ${name} (${scope})`,
+    );
     const id = token.split("_")[1];
     const row = (await listTokens(contentDirectory, email)).find(
       (entry) => entry.id === id,
     );
     if (!row) throw new Error("The new token's row wasn't written.");
-    await commitUserFile(
-      contentDirectory,
-      email,
-      `Add API token: ${name} (${scope})`,
-    );
     return { token, row };
   });
 }
@@ -158,16 +184,14 @@ export async function revokeToken(
   if (typeof id !== "string" || !/^[0-9a-f]{8}$/.test(id)) return null;
   return withWriteLock(contentDirectory, "revoke an API token", async () => {
     await assertNoMergeInProgress(contentDirectory);
-    const removed = await removeTokensFromUser(contentDirectory, email, {
-      id,
-    });
-    const gone = removed[0];
-    if (!gone) return null;
-    await commitUserFile(
+    const removed = await changeAndCommit(
       contentDirectory,
       email,
-      `Revoke API token: ${gone.name}`,
+      () => removeTokensFromUser(contentDirectory, email, { id }),
+      (rows) => (rows[0] ? `Revoke API token: ${rows[0].name}` : null),
     );
+    const gone = removed[0];
+    if (!gone) return null;
     return {
       id: gone.id,
       name: gone.name,
