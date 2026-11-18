@@ -8,6 +8,8 @@
 import { describe, expect, it } from "vitest";
 import {
   almanacView,
+  drinkGroupingOf,
+  drinkMenuGroups,
   holidayAfter,
   holidayAliasTarget,
   holidayEntries,
@@ -460,5 +462,97 @@ describe("menuGroups and menuCourses", () => {
         (group) => group.slug,
       ),
     ).toEqual(["main", "more"]);
+  });
+});
+
+/* 48a (Roger's pick 46-h-menu): style then strength stays the default, and
+ * the reader can group a menu's drinks by spirit, by method, or A to Z. */
+describe("a menu's drink groupings (48a)", () => {
+  const barTree = {
+    ...tree,
+    drink: {
+      ...tree.drink,
+      children: [...tree.drink.children, "shaken", "stirred", "zero-proof"],
+    },
+    shaken: { label: "Shaken", parent: "drink", children: [] },
+    stirred: { label: "Stirred", parent: "drink", children: [] },
+    "zero-proof": { label: "Zero-proof", parent: "drink", children: [] },
+    spirit: { ...tree.spirit, children: ["rum", "gin"] },
+    gin: { label: "Gin", parent: "spirit", children: [] },
+  };
+  const party = [
+    recipe("zombie", 9, ["drink", "rum", "sour", "shaken", "party"]),
+    recipe("martini", 8, ["drink", "gin", "stirred", "party"]),
+    recipe("Cider", 7, ["drink", "zero-proof", "party"]),
+    recipe("gimlet", 6, ["drink", "gin", "shaken", "party"]),
+    recipe("dip", 5, ["snack", "party"]),
+  ];
+  const partyTree = {
+    ...barTree,
+    holidays: { ...barTree.holidays, children: ["party"] },
+    party: { label: "Party", parent: "holidays", children: [] },
+  };
+  const menu = holidayMenuData({
+    slug: "party",
+    tree: partyTree,
+    recipeRows: (key) =>
+      key === "party" ? { label: "party", items: party } : undefined,
+  })!;
+  const shape = (groups: ReturnType<typeof drinkMenuGroups>) =>
+    groups.map((group) => [
+      group.label,
+      group.recipes.map((recipe) => recipe.slug),
+    ]);
+
+  it("reads a drink's spirit and method off its tags", () => {
+    const zombie = menu.recipes.find((recipe) => recipe.slug === "zombie");
+    expect(zombie).toMatchObject({
+      style: "sour",
+      spirit: "rum",
+      method: "shaken",
+      base: "Rum",
+    });
+    const dip = menu.recipes.find((recipe) => recipe.slug === "dip");
+    expect(dip?.spirit).toBeUndefined();
+    expect(dip?.method).toBeUndefined();
+  });
+
+  it("keeps style then strength as the default", () => {
+    expect(drinkGroupingOf(null)).toBe("style");
+    expect(drinkGroupingOf("nonsense")).toBe("style");
+    expect(drinkMenuGroups(menu, "style")).toBe(menu.styles);
+    expect(shape(menu.styles)).toEqual([
+      ["Sour", ["zombie"]],
+      ["Zero-proof", ["Cider"]],
+      ["More", ["martini", "gimlet"]],
+    ]);
+  });
+
+  it("groups by spirit in the tree's order, the rest under More", () => {
+    expect(drinkGroupingOf("spirit")).toBe("spirit");
+    expect(shape(drinkMenuGroups(menu, "spirit"))).toEqual([
+      ["Rum", ["zombie"]],
+      ["Gin", ["martini", "gimlet"]],
+      ["More", ["Cider"]],
+    ]);
+  });
+
+  it("groups by method", () => {
+    expect(shape(drinkMenuGroups(menu, "method"))).toEqual([
+      ["Shaken", ["zombie", "gimlet"]],
+      ["Stirred", ["martini"]],
+      ["More", ["Cider"]],
+    ]);
+  });
+
+  it("lists them A to Z, case aside, and never a dish", () => {
+    expect(shape(drinkMenuGroups(menu, "name"))).toEqual([
+      ["A–Z", ["Cider", "gimlet", "martini", "zombie"]],
+    ]);
+    const dishesOnly = {
+      ...menu,
+      recipes: menu.recipes.filter((r) => r.kind === "food"),
+    };
+    expect(drinkMenuGroups(dishesOnly, "name")).toEqual([]);
   });
 });

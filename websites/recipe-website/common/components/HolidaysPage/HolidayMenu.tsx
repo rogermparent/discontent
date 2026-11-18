@@ -4,6 +4,9 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useId, useMemo, type ReactNode } from "react";
 import {
+  DRINK_GROUPINGS,
+  drinkGroupingOf,
+  drinkMenuGroups,
   holidayAfter,
   kindCounts,
   MENU_LEAD_CARDS,
@@ -11,6 +14,7 @@ import {
   recipesOfKind,
   type HolidayEntry,
   type HolidayMenuData,
+  type DrinkGrouping,
   type HolidayRecipe,
   type MenuGroup,
 } from "../../controller/holidaysPage";
@@ -25,6 +29,7 @@ import { useToday } from "../Homepage/useToday";
 import { MAKE_KINDS, withKind, type MakeKind } from "../MakePage/kinds";
 import { KindMenu } from "../MakePage/KindMenu";
 import { SLOT } from "../MakePage/MakeQuestion";
+import { Segmented } from "../TagPage/parts";
 import {
   ALMANAC_HREF,
   countsLine,
@@ -62,7 +67,22 @@ export interface HolidayMenuProps {
  */
 export function HolidayMenuFromUrl(props: HolidayMenuProps) {
   const params = useSearchParams();
-  return <HolidayMenu {...props} kindParam={params.get("kind")} />;
+  return (
+    <HolidayMenu
+      {...props}
+      kindParam={params.get("kind")}
+      drinksParam={params.get("drinks")}
+    />
+  );
+}
+
+/** The menu's query: `?kind=` and `?drinks=`, each left out at its default. */
+function menuQuery(kind: MakeKind, drinks: DrinkGrouping): string {
+  const params = new URLSearchParams();
+  if (kind.id !== MAKE_KINDS[0].id) params.set("kind", kind.word);
+  if (drinks !== DRINK_GROUPINGS[0].id) params.set("drinks", drinks);
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
 /**
@@ -77,6 +97,11 @@ export function HolidayMenuFromUrl(props: HolidayMenuProps) {
  * `?kind=<word>`, so a link shares it, and "What can I make?" carries it on
  * to `/make` as the query's kind (`withKind`).
  *
+ * **The drinks' grouping** (48a, Roger's pick 46-h-menu): style then
+ * strength by default, as 46h set it; the reader can switch to spirit &
+ * base, method, or one list A to Z (`DRINK_GROUPINGS`). It lives in
+ * `?drinks=<id>` beside the kind, so a link keeps it too.
+ *
  * **Today is the browser's**, as on the almanac: the countdown waits for it
  * (`useToday(null)`), and the server's day only places the first render.
  */
@@ -87,8 +112,17 @@ export function HolidayMenu({
   intro,
   serverDay,
   kindParam,
-}: HolidayMenuProps & { kindParam?: string | null }) {
+  drinksParam,
+}: HolidayMenuProps & {
+  kindParam?: string | null;
+  drinksParam?: string | null;
+}) {
   const kind = kindOfParam(kindParam);
+  const drinksBy = drinkGroupingOf(drinksParam);
+  const drinkGroups = useMemo(
+    () => drinkMenuGroups(menu, drinksBy),
+    [menu, drinksBy],
+  );
   const pathname = usePathname();
   const heroId = useId();
   const menuId = useId();
@@ -117,12 +151,48 @@ export function HolidayMenu({
     withKind(`tag:${menu.slug}`, kind),
   )}`;
 
-  const setKind = (next: MakeKind) => {
-    const query = next.id === MAKE_KINDS[0].id ? "" : `?kind=${next.word}`;
-    /* Next keeps `useSearchParams` in step with the History API: no
-     * round trip to the server, and the static export works the same. */
-    window.history.replaceState(null, "", `${pathname}${query}`);
-  };
+  /* Next keeps `useSearchParams` in step with the History API: no round
+   * trip to the server, and the static export works the same. */
+  const setKind = (next: MakeKind) =>
+    window.history.replaceState(
+      null,
+      "",
+      `${pathname}${menuQuery(next, drinksBy)}`,
+    );
+  const setDrinksBy = (next: DrinkGrouping) =>
+    window.history.replaceState(
+      null,
+      "",
+      `${pathname}${menuQuery(kind, next)}`,
+    );
+  /* The switch only where it changes something: two or more drinks shown. */
+  const drinksShown = kind.id !== "food" && menu.counts.drinks > 1;
+  /* By spirit the line's right-hand side would repeat its heading: it
+   * names the style instead. */
+  const styleLabels = useMemo(
+    () =>
+      new Map(
+        menu.styles.flatMap((group) =>
+          group.slug === MORE_GROUP
+            ? []
+            : group.recipes.map((recipe) => [recipe.slug, group.label]),
+        ),
+      ),
+    [menu.styles],
+  );
+  const drinkSide =
+    drinksBy === "spirit"
+      ? (recipe: HolidayRecipe) => styleLabels.get(recipe.slug)
+      : undefined;
+  const drinksSwitch = drinksShown ? (
+    <Segmented
+      label="Group drinks by"
+      value={drinksBy}
+      options={DRINK_GROUPINGS}
+      onChange={setDrinksBy}
+      testId="holiday-drinks-by"
+    />
+  ) : undefined;
 
   const words = days !== undefined ? daysTo(days) : undefined;
 
@@ -267,18 +337,20 @@ export function HolidayMenu({
             <MenuPart
               title="Drinks"
               count={kindCount(menu.counts.drinks, "drinks")}
-              groups={menu.styles}
+              groups={drinkGroups}
+              action={drinksSwitch}
+              side={drinkSide}
             />
           </>
+        ) : kind.id === "drinks" || menu.courses.length === 0 ? (
+          <>
+            {drinksSwitch && (
+              <div className="flex justify-end">{drinksSwitch}</div>
+            )}
+            <MenuGroups groups={drinkGroups} level={3} side={drinkSide} />
+          </>
         ) : (
-          <MenuGroups
-            groups={
-              kind.id === "drinks" || menu.courses.length === 0
-                ? menu.styles
-                : menu.courses
-            }
-            level={3}
-          />
+          <MenuGroups groups={menu.courses} level={3} />
         )}
         <p className="m-0 text-sm">
           <Link
@@ -318,30 +390,51 @@ function MenuPart({
   title,
   count,
   groups,
+  action,
+  side,
 }: {
   title: string;
   count: string;
   groups: MenuGroup[];
+  /** Beside the count: the drinks' grouping switch (48a). */
+  action?: ReactNode;
+  side?: (recipe: HolidayRecipe) => string | undefined;
 }) {
   const id = useId();
   return (
     <section aria-labelledby={id} className="flex flex-col gap-5">
-      <div className="flex items-baseline justify-between gap-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
         <h3
           id={id}
           className="m-0 font-display text-2xl leading-none font-bold tracking-[-0.03em] sm:text-[2rem]"
         >
           {title}
         </h3>
-        <span className="font-mono text-xs text-muted-foreground">{count}</span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {action}
+          <span className="font-mono text-xs text-muted-foreground">
+            {count}
+          </span>
+        </div>
       </div>
-      <MenuGroups groups={groups} level={4} />
+      <MenuGroups groups={groups} level={4} side={side} />
     </section>
   );
 }
 
-/** The groups in newspaper columns, each a dot-leader list. */
-function MenuGroups({ groups, level }: { groups: MenuGroup[]; level: 3 | 4 }) {
+/**
+ * The groups in newspaper columns, each a dot-leader list. `side` is a
+ * line's right-hand side; by default its base (spirit, main ingredient).
+ */
+function MenuGroups({
+  groups,
+  level,
+  side = (recipe) => recipe.base,
+}: {
+  groups: MenuGroup[];
+  level: 3 | 4;
+  side?: (recipe: HolidayRecipe) => string | undefined;
+}) {
   const Heading = level === 3 ? "h3" : "h4";
   return (
     <div className="columns-1 gap-x-12 md:columns-2 lg:columns-3">
@@ -360,29 +453,32 @@ function MenuGroups({ groups, level }: { groups: MenuGroup[]; level: 3 | 4 }) {
             </span>
           </div>
           <ul className="m-0 flex list-none flex-col p-0">
-            {group.recipes.map((recipe) => (
-              <li key={recipe.slug}>
-                <Link
-                  href={`/recipe/${recipe.slug}`}
-                  className="group flex min-h-10 items-baseline gap-2 py-1"
-                >
-                  <span className="font-display text-lg leading-snug font-semibold tracking-[-0.01em] group-hover:text-primary sm:text-xl">
-                    {recipe.name}
-                  </span>
-                  {recipe.base && (
-                    <>
-                      <i
-                        aria-hidden
-                        className="min-w-4 flex-1 -translate-y-1 border-b-2 border-dotted border-muted-foreground/55 group-hover:border-primary"
-                      />
-                      <span className="shrink-0 font-mono text-sm text-muted-foreground">
-                        {recipe.base}
-                      </span>
-                    </>
-                  )}
-                </Link>
-              </li>
-            ))}
+            {group.recipes.map((recipe) => {
+              const right = side(recipe);
+              return (
+                <li key={recipe.slug}>
+                  <Link
+                    href={`/recipe/${recipe.slug}`}
+                    className="group flex min-h-10 items-baseline gap-2 py-1"
+                  >
+                    <span className="font-display text-lg leading-snug font-semibold tracking-[-0.01em] group-hover:text-primary sm:text-xl">
+                      {recipe.name}
+                    </span>
+                    {right && (
+                      <>
+                        <i
+                          aria-hidden
+                          className="min-w-4 flex-1 -translate-y-1 border-b-2 border-dotted border-muted-foreground/55 group-hover:border-primary"
+                        />
+                        <span className="shrink-0 font-mono text-sm text-muted-foreground">
+                          {right}
+                        </span>
+                      </>
+                    )}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </div>
       ))}

@@ -22,6 +22,8 @@ import { snapshotLocator } from "../support/visual";
  * - "…braise…": recipe_search, then recipe_create (a fixture recipe), then
  *   its answer with a link to the new recipe;
  * - "…tag it…" (a follow-up): term_assign, then a line;
+ * - "…tag the stews…" (48a): recipe_search for "stew", then term_assign of
+ *   only the first stew, then a line — for the tagging post-check;
  * - "…slowly…": the first turn never answers (until the run stops it);
  * - anything else: one line, no tools.
  *
@@ -68,6 +70,16 @@ function nextMessage(messages: OllamaMessage[]) {
     .slice(last + 1)
     .filter((message) => message.role === "tool").length;
   if (results === 0) asked.push(ask);
+  if (/tag the stews/i.test(ask)) {
+    if (results === 0) return toolCall("recipe_search", { query: "stew" });
+    if (results === 1) {
+      return toolCall("term_assign", {
+        slug: "stews",
+        add: ["curator-beef-stew"],
+      });
+    }
+    return { role: "assistant", content: "Tagged the stews." };
+  }
   if (/tag it/i.test(ask)) {
     return results === 0
       ? toolCall("term_assign", { slug: "braises", add: [SLUG] })
@@ -351,6 +363,37 @@ test.describe("Curator", () => {
     await page.goBack();
     await expect(page).toHaveURL(new RegExp(`run=${first}$`));
     await expect(page.getByTestId("curator-ask")).toHaveCount(1);
+  });
+
+  /* 48a (Roger's pick 46-d-tag): a tagging run's post-check lists what
+   * its own search found and it left out — a list, never a write. */
+  test("a tagging run lists what its search found and it did not tag", async ({
+    page,
+    request,
+    createApiToken,
+  }) => {
+    const headers = { authorization: `Bearer ${await createApiToken()}` };
+    for (const name of ["Curator Beef Stew", "Curator Lentil Stew"]) {
+      const created = await request.post("/api/recipes", {
+        headers,
+        data: { name, ingredients: ["1 onion"], instructions: ["Simmer."] },
+      });
+      expect(created.status()).toBe(201);
+    }
+    await signInAndOpen(page);
+    await start(page, "Please tag the stews stews");
+    await expect(status(page)).toHaveText("Finished", { timeout: RUN });
+    const changes = page.getByTestId("curator-changes");
+    await expect(changes).toBeVisible({ timeout: FIRST_VISIT });
+    const missed = changes.getByTestId("curator-missed-term");
+    await expect(missed).toHaveCount(1);
+    await expect(missed).toContainText(
+      "Tag stews: The search also found 1 recipe it did not tag: Curator Lentil Stew.",
+    );
+    await expect(
+      missed.getByRole("link", { name: "Curator Lentil Stew" }),
+    ).toHaveAttribute("href", "/recipe/curator-lentil-stew");
+    await axeClean(page);
   });
 
   test("Stop ends a run held open by a slow model", async ({ page }) => {

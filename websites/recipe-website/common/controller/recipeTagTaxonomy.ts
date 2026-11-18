@@ -54,8 +54,12 @@ export const recipeTagTaxonomy: TaxonomyConfig<
    * `"3"` (46e): the rows gained `totalTime`. Since 39b the index-version
    * stamp covers taxonomies, so every instance rebuilds once at start — no
    * manual reindex.
+   *
+   * `"4"` (48a): a row without a total carries its `prepTime` and
+   * `cookTime`, so the card shows prep + cook (Roger's pick, 46-e-total).
+   * The same automatic rebuild.
    */
-  version: "3",
+  version: "4",
   /*
    * The same five fields the paginated pages carry, so `RecipeList` renders a
    * tag page and a `/recipes` page from identical rows — and, more to the
@@ -75,7 +79,9 @@ export const recipeTagTaxonomy: TaxonomyConfig<
    *
    * `totalTime` is that future field (46e): set only when the recipe has a
    * total, so a term page's card can say "1 h 15 m" in place of the date.
-   * Prep plus cook is not summed here — a total is what the recipe says.
+   * Without one, the row carries `prepTime` and `cookTime` instead (48a),
+   * and the card adds them up (`cardTime`), as the recipe page does; they
+   * are not summed here, so the row still says what the recipe says.
    */
   project: ({ key: [date], value, id }) => ({
     slug: id,
@@ -83,7 +89,12 @@ export const recipeTagTaxonomy: TaxonomyConfig<
     name: value.name,
     ...(value.image ? { image: value.image } : {}),
     ...(value.tags ? { tags: value.tags } : {}),
-    ...(value.totalTime ? { totalTime: value.totalTime } : {}),
+    ...(value.totalTime
+      ? { totalTime: value.totalTime }
+      : {
+          ...(value.prepTime ? { prepTime: value.prepTime } : {}),
+          ...(value.cookTime ? { cookTime: value.cookTime } : {}),
+        }),
   }),
 };
 

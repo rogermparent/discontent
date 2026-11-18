@@ -319,7 +319,7 @@ test.describe("Drinks", () => {
     await expect(season).toHaveCount(0);
   });
 
-  test("browse the bar: spirit & base, style and the classics", async ({
+  test("browse the bar: spirit & base, style, strength & method and the classics", async ({
     page,
   }) => {
     await page.goto("/drinks");
@@ -339,12 +339,46 @@ test.describe("Drinks", () => {
       "Sour 1",
       "Collins 1",
     ]);
-    /* 46h (43-Df2): strength & method apart, under Style. */
+    /* 46h (43-Df2): strength & method apart from Style. */
     await expect(groups.nth(2)).toContainText("Strength & method");
     await expect(groups.nth(2).getByRole("listitem")).toHaveText([
       "Zero-proof 2",
       "Shaken 1",
     ]);
+    /* 48a (46-h-drinks): its own fourth column — wide, the four groups
+     * sit side by side, each left of the next. */
+    if ((page.viewportSize()?.width ?? 0) >= 1024) {
+      const inOneRow = async () => {
+        const boxes = await groups.evaluateAll((elements) =>
+          elements.map((element) => {
+            const box = element.getBoundingClientRect();
+            return { top: Math.round(box.top), left: box.left };
+          }),
+        );
+        expect(boxes).toHaveLength(4);
+        expect(new Set(boxes.map((box) => box.top)).size).toBe(1);
+        for (let i = 1; i < boxes.length; i++) {
+          expect(boxes[i].left).toBeGreaterThan(boxes[i - 1].left);
+        }
+      };
+      await inOneRow();
+      /* 48a review: at exactly `lg` (1024 px), the narrowest they get —
+       * still one row, no line wrapped (a leader is one 32 px line), and
+       * no column wider than its track. */
+      await page.setViewportSize({ width: 1024, height: 800 });
+      await inOneRow();
+      const crowded = await groups.evaluateAll((elements) =>
+        elements.flatMap((element) => [
+          ...(element.scrollWidth > element.clientWidth + 1
+            ? [`overflow: ${element.textContent?.slice(0, 24)}`]
+            : []),
+          ...[...element.querySelectorAll("li a")]
+            .filter((link) => link.getBoundingClientRect().height > 40)
+            .map((link) => `wrapped: ${link.textContent}`),
+        ]),
+      );
+      expect(crowded).toEqual([]);
+    }
     /* A child of `drink` that is no style is a classic. */
     await expect(groups.nth(3)).toContainText("Classics · 2 families");
     await expect(groups.nth(3).getByRole("listitem")).toHaveText([

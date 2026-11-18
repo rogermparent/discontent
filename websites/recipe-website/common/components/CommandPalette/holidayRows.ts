@@ -26,10 +26,23 @@ export interface PaletteHoliday {
   rule?: string;
   /** Folded words of its label, slug and aliases — what typed words match. */
   words: string[];
+  /**
+   * Its label, slug and aliases, each as its folded words joined by a space
+   * ("christmas eve") — a typed name that is one of them leads (48a).
+   */
+  names?: string[];
 }
 
-/** How many holiday rows the palette shows at once (46e: "the next 1–2"). */
+/** How many Coming up rows an empty palette shows (46e: "the next 1–2"). */
 export const PALETTE_HOLIDAY_LIMIT = 2;
+
+/**
+ * How many holiday rows a typed search shows (48a, Roger's pick 46-e-rows:
+ * "prioritise individual matches and tags for search while still keeping
+ * holidays as a secondary option"): one, after the recipes, groups and the
+ * tag rows.
+ */
+export const PALETTE_HOLIDAY_MATCH_LIMIT = 1;
 
 /**
  * Below this many characters the input is "short": it names nothing yet, so
@@ -71,12 +84,14 @@ export function paletteHolidays(
       slug,
       aliases.map((alias) => tagSlug(alias)),
     );
+    const named = [term.label, slug, ...aliases];
     return [
       {
         slug,
         label: term.label,
         ...(rule ? { rule } : {}),
-        words: [...new Set([term.label, slug, ...aliases].flatMap(wordsOf))],
+        words: [...new Set(named.flatMap(wordsOf))],
+        names: [...new Set(named.map((name) => wordsOf(name).join(" ")))],
       },
     ];
   });
@@ -128,15 +143,18 @@ export interface PaletteHolidayRows {
  *   `PALETTE_HOLIDAY_LIMIT` dated holidays within the homepage's coming-up
  *   window (`withinComingUpWindow`, 180 days);
  * - otherwise: the holidays every typed word names (`positiveWords`:
- *   filter terms, negated words and a NOT's word are not words), soonest
- *   first, undated ones after — a match is offered however far off it is,
- *   since the reader asked for it.
+ *   filter terms, negated words and a NOT's word are not words), one whose
+ *   name is what was typed first ("christmas" is Christmas, not Christmas
+ *   Eve), then soonest, undated ones after — a match is offered however far
+ *   off it is, since the reader asked for it — at most `matchLimit` (48a:
+ *   one, a secondary option beside the recipes and tags).
  */
 export function paletteHolidayRows(
   holidays: readonly PaletteHoliday[],
   input: string,
   today: CalendarDay,
   limit: number = PALETTE_HOLIDAY_LIMIT,
+  matchLimit: number = PALETTE_HOLIDAY_MATCH_LIMIT,
 ): PaletteHolidayRows {
   const trimmed = input.trim();
   if (trimmed.length < HOLIDAY_MATCH_MIN) {
@@ -147,11 +165,18 @@ export function paletteHolidayRows(
   }
   const typed = wordsOf(positiveWords(trimmed).join(" "));
   if (typed.length === 0) return { mode: "match", rows: [] };
+  const name = typed.join(" ");
+  const ordered = orderByNextOccurrence(
+    holidays.filter((holiday) => matches(holiday, typed)),
+    today,
+  );
+  const named = (holiday: PaletteHoliday) =>
+    (holiday.names ?? []).includes(name);
   return {
     mode: "match",
-    rows: orderByNextOccurrence(
-      holidays.filter((holiday) => matches(holiday, typed)),
-      today,
-    ).slice(0, limit),
+    rows: [
+      ...ordered.filter(named),
+      ...ordered.filter((holiday) => !named(holiday)),
+    ].slice(0, matchLimit),
   };
 }

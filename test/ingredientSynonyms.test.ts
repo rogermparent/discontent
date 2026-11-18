@@ -200,8 +200,8 @@ describe("the 46g merges across Make, the shopping list and steps", () => {
       "all purpose flour",
     ],
     ["1 cup all-purpose white flour", "1 cup AP flour", "all purpose flour"],
-    /* ing-10 */
-    ["1/2 tsp ground pepper", "1/4 tsp pepper", "pepper"],
+    /* ing-10, and a bare pepper is black since 48a. */
+    ["1/2 tsp ground pepper", "1/4 tsp pepper", "black pepper"],
     /* ing-12 */
     ["2 tbsp low-sodium soy sauce", "1 tbsp soy sauce", "soy sauce"],
     ["1 tbsp reduced sodium soy sauce", "1 tbsp soy sauce", "soy sauce"],
@@ -257,7 +257,7 @@ describe("the 46g merges across Make, the shopping list and steps", () => {
       ["sugar", "granulated sugar"],
       ["yellow onion", "onion"],
       ["unbleached all purpose flour", "all purpose flour"],
-      ["ground pepper", "pepper"],
+      ["ground pepper", "black pepper"],
       ["low sodium soy sauce", "soy sauce"],
       ["lean ground beef", "ground beef"],
       ["chicken stock", "chicken broth"],
@@ -356,6 +356,143 @@ describe("the 46g merges across Make, the shopping list and steps", () => {
       [[0, 1]],
       [[]],
       [[2]],
+    ]);
+  });
+});
+
+/*
+ * 48a: two more merges Roger picked on the epic-47 picks page (46-g-ka,
+ * 46-g-pepper) — King Arthur's unbleached all-purpose flour is all-purpose
+ * flour, and a line's bare "pepper" is black pepper.
+ */
+describe("the 48a merges across Make, the shopping list and steps", () => {
+  const MERGED: [string, string, string][] = [
+    [
+      "3 cups (360g) King Arthur Unbleached All-Purpose Flour",
+      "2 cups all-purpose flour",
+      "all purpose flour",
+    ],
+    [
+      "1 cup King Arthur All-Purpose Flour",
+      "1 cup unbleached all purpose flour",
+      "all purpose flour",
+    ],
+    [
+      "2 cups King Arthur Organic All-Purpose Flour",
+      "1 cup King Arthur Organic Unbleached All-Purpose Flour",
+      "all purpose flour",
+    ],
+    ["1/2 teaspoon pepper", "1/4 tsp black pepper", "black pepper"],
+    [
+      "1/2 teaspoon freshly ground pepper",
+      "1 tsp ground black pepper",
+      "black pepper",
+    ],
+    ["Pinch pepper", "1/8 tsp black pepper", "black pepper"],
+  ];
+
+  it.each(MERGED)("%s and %s are one name: %s", (a, b, name) => {
+    expect(shoppingNameOf(a).key).toBe(name);
+    expect(shoppingNameOf(b).key).toBe(name);
+    for (const typed of [a, b]) {
+      const item = parseInventoryItem(
+        onlyRequirement(typed).alternatives[0].words.join(" "),
+      );
+      expect(satisfies(item, onlyRequirement(a)), `${typed} → ${a}`).toBe(true);
+      expect(satisfies(item, onlyRequirement(b)), `${typed} → ${b}`).toBe(true);
+    }
+  });
+
+  it("splits salt and pepper into salt and black pepper", () => {
+    for (const line of [
+      "Salt and pepper to taste",
+      "Kosher salt and pepper, to taste",
+      "1 teaspoon salt and pepper, plus more to taste",
+    ]) {
+      const labels = parseIngredientLine(line).map(requirementLabel);
+      expect(labels[1], line).toBe("black pepper");
+    }
+  });
+
+  it("shelves the merged names where their old forms were", () => {
+    expect(aisleFor("all purpose flour")).toBe(
+      aisleFor("king arthur unbleached all purpose flour"),
+    );
+    expect(aisleFor("black pepper")).toBe(aisleFor("pepper"));
+  });
+
+  /* What the two rows must not reach. */
+  const KEPT: [string, string][] = [
+    [
+      "2 1/2 cups King Arthur Unbleached Bread Flour",
+      "2 cups all-purpose flour",
+    ],
+    ["1 cup King Arthur Whole Wheat Flour", "1 cup all-purpose flour"],
+    ["1 cup King Arthur Pastry Flour Blend", "1 cup all-purpose flour"],
+    ["Hot pepper (chopped, optional)", "1/2 teaspoon pepper"],
+    ["1 tsp hot pepper sauce", "1/2 teaspoon pepper"],
+    ["1/4 tsp white pepper", "1/4 tsp pepper"],
+    ["1 tsp lemon pepper", "1/4 tsp pepper"],
+    ["1 red bell pepper", "1/4 tsp pepper"],
+    ["1 tsp red pepper flakes", "1/4 tsp pepper"],
+    ["1 tsp cayenne pepper", "1/4 tsp pepper"],
+  ];
+
+  it.each(KEPT)("%s and %s stay apart", (a, b) => {
+    expect(shoppingNameOf(a).key).not.toBe(shoppingNameOf(b).key);
+  });
+
+  it("a hot pepper is not met by black pepper on hand", () => {
+    const item = parseInventoryItem("black pepper");
+    expect(satisfies(item, onlyRequirement("1/2 teaspoon pepper"))).toBe(true);
+    expect(
+      satisfies(item, onlyRequirement("Hot pepper (to taste, habanero)")),
+    ).toBe(false);
+  });
+
+  /* 48a review: a counted pepper, or "peppers", is the vegetable. */
+  it("leaves a counted pepper and a line of peppers as pepper", () => {
+    for (const line of [
+      "2 peppers, diced",
+      "1 large pepper",
+      "1 pepper, seeded and sliced",
+      "3 medium peppers, sliced",
+      "2 (8 oz) peppers",
+      "1 lb peppers",
+      '<Multiplyable baseNumber="2" /> large pepper',
+    ]) {
+      expect(requirementLabel(onlyRequirement(line)), line).toBe("pepper");
+    }
+    for (const line of [
+      "1/2 tsp. pepper",
+      '<Multiplyable baseNumber="1/2" /> teaspoon pepper',
+      "Pinch pepper",
+      "A pinch of pepper",
+      "Freshly ground pepper, to taste",
+    ]) {
+      expect(requirementLabel(onlyRequirement(line)), line).toBe(
+        "black pepper",
+      );
+    }
+  });
+
+  it("a bell pepper on hand no longer meets a bare pepper line", () => {
+    const item = parseInventoryItem("bell pepper");
+    expect(satisfies(item, onlyRequirement("1/2 teaspoon pepper"))).toBe(false);
+  });
+
+  it("a step's salt and pepper still finds the line, not the bell pepper", () => {
+    const ingredients: Ingredient[] = [
+      { ingredient: "1 red bell pepper, diced" },
+      { ingredient: "Salt and pepper to taste" },
+    ];
+    const instructions: InstructionEntry[] = [
+      { text: "Season with salt and pepper." },
+      { text: "Add the red bell pepper." },
+    ];
+    expect(matchStepIngredients(ingredients, instructions)).toEqual([
+      [[1]],
+      [[0]],
     ]);
   });
 });

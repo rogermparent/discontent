@@ -50,12 +50,13 @@ import {
 } from "../llm/tools";
 import { costBudgetWords, dollarText } from "../llm/cost";
 import { jobContext, type JobContext, type JobRun } from "../jobs/context";
-import { writeSummary } from "./changes";
+import { searchFound, writeSummary } from "./changes";
 import { nearMissHint, withNearMissHint } from "./nearMiss";
 import type {
   AgentBudgetName,
   AgentBudgets,
   AgentEvent,
+  AgentFound,
   AgentMessage,
   AgentResult,
   AgentStopReason,
@@ -68,11 +69,15 @@ import type {
   ToolSpec,
 } from "./types";
 
-/** One call's answer: what the model reads, and a write's summary (44d). */
+/**
+ * One call's answer: what the model reads, a write's summary (44d), and a
+ * search's rows for the tagging post-check (48a).
+ */
 interface CallOutcome {
   content: string;
   isError: boolean;
   summary?: AgentWriteSummary;
+  found?: AgentFound;
 }
 
 /**
@@ -828,6 +833,9 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
                     ...(error.outcome.summary
                       ? { summary: error.outcome.summary }
                       : {}),
+                    ...(error.outcome.found
+                      ? { found: error.outcome.found }
+                      : {}),
                   }
               : { content: errorContent(UNKNOWN_OUTCOME), isError: true }),
           });
@@ -849,6 +857,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
         content: outcome.content,
         ...(outcome.isError ? { isError: true } : {}),
         ...(outcome.summary ? { summary: outcome.summary } : {}),
+        ...(outcome.found ? { found: outcome.found } : {}),
       });
       emit({
         type: "tool.end",
@@ -961,10 +970,12 @@ async function runCall(
     const summary = tool.untrusted
       ? undefined
       : writeSummary(tool.name, call.input, result);
+    const found = tool.untrusted ? undefined : searchFound(tool.name, result);
     return {
       content: tool.untrusted ? wrapUntrusted(tool.name, text) : text,
       isError: false,
       ...(summary ? { summary } : {}),
+      ...(found ? { found } : {}),
     };
   };
   const failed = (error: unknown) => {

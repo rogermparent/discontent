@@ -31,6 +31,12 @@ export interface RecipeListEntry {
    * are unchanged.
    */
   totalTime?: number;
+  /**
+   * Prep and cook minutes, on a by-term row with no `totalTime` only (48a):
+   * the card shows their sum in place of the date.
+   */
+  prepTime?: number;
+  cookTime?: number;
 }
 
 /**

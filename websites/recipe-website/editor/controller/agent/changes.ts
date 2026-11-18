@@ -25,10 +25,13 @@
  * `summary`: the content the transcript keeps may be cut for the model's
  * context (Ea6) and no longer parse, which would drop a write that landed.
  *
- * Pure and dependency-free (type imports only): it runs in the browser too.
+ * Pure, and safe in the browser (it runs there too): type imports and the
+ * site's `tagSlug` only.
  */
+import { tagSlug } from "recipe-website-common/controller/tagSlug";
 import type {
   AgentAssistantMessage,
+  AgentFound,
   AgentMessage,
   AgentToolCall,
   AgentToolResultMessage,
@@ -60,6 +63,20 @@ export interface ChangedTerm {
    * counted as a change.
    */
   unchanged?: true;
+  /**
+   * The tagging post-check (48a, Roger's pick 46-d-tag): recipes the run's
+   * own searches found that its `term_assign` calls for this term left out
+   * — not named, not removed, not already carrying it (`tagMisses`). Capped
+   * at `MISSED_MAX`; `missedCount` is the whole count. A list for the
+   * person to look over, never written.
+   */
+  missed?: { slug: string; name?: string }[];
+  missedCount?: number;
+  /**
+   * Matches those searches had beyond the rows they returned, which the
+   * check could not see (the most any one of them had).
+   */
+  unseen?: number;
 }
 
 export interface ChangedGroup {
@@ -400,6 +417,167 @@ export function writeSummary(
   return into.summary();
 }
 
+/** At most this many rows of one search are kept for the post-check. */
+export const FOUND_MAX = 200;
+
+/** A term's missed recipes listed by name; the rest are counted. */
+export const MISSED_MAX = 24;
+
+/**
+ * What a `recipe_search` found (48a), from its uncut result: the rows'
+ * slug, name and tags, and its total — the tagging post-check's input,
+ * kept on the tool-result message as `found`. `undefined` for any other
+ * tool or a result that is not a search's answer.
+ */
+export function searchFound(
+  name: string,
+  result: unknown,
+): AgentFound | undefined {
+  if (name !== "recipe_search") return undefined;
+  let value = result;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!isObject(value) || "error" in value || !Array.isArray(value.recipes)) {
+    return undefined;
+  }
+  const recipes = value.recipes
+    .filter(isObject)
+    .flatMap((row) => {
+      const slug = str(row.slug);
+      if (!slug) return [];
+      const name = str(row.name);
+      const tags = strings(row.tags);
+      return [
+        {
+          slug,
+          ...(name ? { name: name.slice(0, SUMMARY_NAME_MAX) } : {}),
+          ...(tags.length ? { tags } : {}),
+        },
+      ];
+    })
+    .slice(0, FOUND_MAX);
+  const total =
+    typeof value.total === "number" && value.total >= recipes.length
+      ? value.total
+      : recipes.length;
+  return { total, recipes };
+}
+
+export interface TagMiss {
+  term: string;
+  missed: { slug: string; name?: string }[];
+  missedCount: number;
+  unseen: number;
+}
+
+/**
+ * The term a `term_assign` wrote, as `runChanges` keys it: the result's slug
+ * (its summary's, when the content was cut), else the asked-for slug as the
+ * site slugifies it — "Korean" is `korean`.
+ */
+function assignedTerm(
+  input: Record<string, unknown>,
+  result: AgentToolResultMessage,
+): string | undefined {
+  const summary = result.summary;
+  const parsed = parseToolResult(result);
+  const asked = str(input.slug);
+  return (
+    summary?.assigned?.[0]?.term ??
+    summary?.terms?.[0] ??
+    str(parsed?.slug) ??
+    (asked ? tagSlug(asked) || undefined : undefined)
+  );
+}
+
+/**
+ * The tagging post-check (48a, Roger's pick 46-d-tag; backlog "Local
+ * tagging writes: completeness"): for each term a run's `term_assign`
+ * calls put on recipes, the recipes its own `recipe_search` calls found
+ * that those calls left out.
+ *
+ * - Checked: a term some assign **added** to recipes; a remove-only assign
+ *   is not a tagging run, though what it took off still counts below.
+ * - A search counts for a term when it found at least one recipe an
+ *   assign added it to — the search the tagging came from, not every
+ *   search of the run.
+ * - Left out of the list: what an assign named (`add`) or took the term
+ *   off (`remove`), and a row whose tags already carry the term (compared
+ *   as `tagSlug`s). A row tagged only with an alias or a child of the term
+ *   still reads as missed: the check has no term records.
+ * - Only assigns that answered (not an error, not a dry run), and only on
+ *   recipes (a plan's assign is not checked).
+ * - `unseen`: the matches those searches had beyond what they returned —
+ *   the largest total less the distinct rows seen, so a search paged with
+ *   `offset` counts its pages together.
+ *
+ * A search row is not a promise the recipe belongs: "thai" also finds a
+ * Thai-basil pesto. The list is for the person to look over.
+ */
+export function tagMisses(messages: readonly AgentMessage[]): TagMiss[] {
+  const named = new Map<string, Set<string>>();
+  const added = new Map<string, Set<string>>();
+  const searches: AgentFound[] = [];
+  for (const { call, result } of callsWithResults(messages)) {
+    if (!result || result.isError) continue;
+    if (call.name === "recipe_search") {
+      const found =
+        result.found ?? searchFound(call.name, parseToolResult(result));
+      if (found) searches.push(found);
+      continue;
+    }
+    if (call.name !== "term_assign") continue;
+    const input = isObject(call.input) ? call.input : {};
+    if (input.dryRun === true || input.type === "group") continue;
+    if (!result.summary && !parseToolResult(result)) continue;
+    const term = assignedTerm(input, result);
+    if (!term) continue;
+    const adds = strings(input.add);
+    const set = named.get(term) ?? new Set<string>();
+    for (const slug of [...adds, ...strings(input.remove)]) set.add(slug);
+    named.set(term, set);
+    if (adds.length > 0) {
+      const addSet = added.get(term) ?? new Set<string>();
+      for (const slug of adds) addSet.add(slug);
+      added.set(term, addSet);
+    }
+  }
+  const misses: TagMiss[] = [];
+  for (const [term, adds] of added) {
+    const slugs = named.get(term) ?? adds;
+    const missed = new Map<string, { slug: string; name?: string }>();
+    const seen = new Set<string>();
+    let total = 0;
+    for (const found of searches) {
+      if (!found.recipes.some((row) => adds.has(row.slug))) continue;
+      total = Math.max(total, found.total);
+      for (const row of found.recipes) {
+        seen.add(row.slug);
+        if (slugs.has(row.slug) || missed.has(row.slug)) continue;
+        if ((row.tags ?? []).some((tag) => tagSlug(tag) === term)) continue;
+        missed.set(row.slug, {
+          slug: row.slug,
+          ...(row.name ? { name: row.name } : {}),
+        });
+      }
+    }
+    const unseen = Math.max(0, total - seen.size);
+    if (missed.size === 0 && unseen === 0) continue;
+    misses.push({
+      term,
+      missed: [...missed.values()].slice(0, MISSED_MAX),
+      missedCount: missed.size,
+      unseen,
+    });
+  }
+  return misses;
+}
+
 /**
  * What the conversation's tool calls wrote (the rules above). A result's
  * `summary` (the loop's, from the uncut result) is read first; a result
@@ -418,7 +596,76 @@ export function runChanges(messages: readonly AgentMessage[]): RunChanges {
     if (!parsed) continue;
     collect(into, call.name, isObject(call.input) ? call.input : {}, parsed);
   }
-  return into.done();
+  const done = into.done();
+  /* 48a: each assigned term's post-check, on the term it checks. */
+  const misses = new Map(tagMisses(messages).map((miss) => [miss.term, miss]));
+  if (misses.size === 0) return done;
+  return {
+    ...done,
+    terms: done.terms.map((term) => {
+      const miss = misses.get(term.slug);
+      if (!miss) return term;
+      return {
+        ...term,
+        ...(miss.missedCount > 0
+          ? { missed: miss.missed, missedCount: miss.missedCount }
+          : {}),
+        ...(miss.unseen > 0 ? { unseen: miss.unseen } : {}),
+      };
+    }),
+  };
+}
+
+/**
+ * A term's post-check in words (48a), in two parts so a list of names can
+ * follow the first: `found` — "The search also found 3 recipes it did not
+ * tag" — and `unseen` — "It had 14 more matches than it returned" (or "The
+ * search had …" alone). `undefined` when the check has nothing to say.
+ */
+export function missedParts(
+  term: Pick<ChangedTerm, "missedCount" | "unseen">,
+): { found?: string; unseen?: string } | undefined {
+  const count = term.missedCount ?? 0;
+  const unseen = term.unseen ?? 0;
+  if (count === 0 && unseen === 0) return undefined;
+  return {
+    ...(count > 0
+      ? {
+          found: `The search also found ${count} ${count === 1 ? "recipe" : "recipes"} it did not tag`,
+        }
+      : {}),
+    ...(unseen > 0
+      ? {
+          unseen: `${count > 0 ? "It" : "The search"} had ${unseen} more ${unseen === 1 ? "match" : "matches"} than it returned`,
+        }
+      : {}),
+  };
+}
+
+/**
+ * The post-check as one line of text, the names right after the clause
+ * they belong to: "The search also found 3 recipes it did not tag:
+ * Bibimbap, Japchae, and 1 more. It had 14 more matches than it returned."
+ */
+export function missedNote(
+  term: Pick<ChangedTerm, "missed" | "missedCount" | "unseen">,
+): string | undefined {
+  const parts = missedParts(term);
+  if (!parts) return undefined;
+  const sentences: string[] = [];
+  if (parts.found) {
+    const names = (term.missed ?? []).map(
+      (recipe) => recipe.name ?? recipe.slug,
+    );
+    const rest = (term.missedCount ?? 0) - names.length;
+    sentences.push(
+      names.length > 0
+        ? `${parts.found}: ${names.join(", ")}${rest > 0 ? `, and ${rest} more` : ""}.`
+        : `${parts.found}.`,
+    );
+  }
+  if (parts.unseen) sentences.push(`${parts.unseen}.`);
+  return sentences.join(" ");
 }
 
 /**

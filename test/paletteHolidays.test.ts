@@ -2,11 +2,15 @@
 //
 // 46e: the ⌘K palette's holiday rows — which holidays it may offer (the
 // `holidays` root's children that lead somewhere), the coming-up rows on an
-// empty or short input, and the matches while typing.
+// empty or short input, and the matches while typing — one since 48a
+// (Roger's pick 46-e-rows: recipes and tags first, a holiday secondary),
+// the holiday a typed name names first.
 
 import { describe, expect, it } from "vitest";
 import {
   HOLIDAY_MATCH_MIN,
+  PALETTE_HOLIDAY_LIMIT,
+  PALETTE_HOLIDAY_MATCH_LIMIT,
   paletteHolidayRows,
   paletteHolidays,
   type PaletteHoliday,
@@ -95,6 +99,10 @@ describe("paletteHolidays", () => {
     const xmas = holidays.find((holiday) => holiday.slug === "xmas");
     expect(xmas?.rule).toBe("christmas");
     expect(xmas?.words).toEqual(["xmas", "christmas"]);
+    expect(xmas?.names).toEqual(["xmas", "christmas"]);
+    expect(
+      holidays.find((holiday) => holiday.slug === "christmas-eve")?.names,
+    ).toEqual(["christmas eve"]);
     expect(
       holidays.find((holiday) => holiday.slug === "fall-favorites")?.rule,
     ).toBeUndefined();
@@ -164,9 +172,15 @@ describe("paletteHolidayRows", () => {
     expect(match("thanks").mode).toBe("match");
     expect(slugs(match("thanks").rows)).toEqual(["thanksgiving"]);
     expect(slugs(match("Thanksgiving").rows)).toEqual(["thanksgiving"]);
-    /* An alias names it too. */
-    expect(slugs(match("christmas").rows)).toEqual(["christmas-eve", "xmas"]);
+    /* An alias names it too; the holiday the typed name names leads its
+     * sooner namesake (48a), and one row is all a search shows. */
+    expect(slugs(match("christmas").rows)).toEqual(["xmas"]);
     expect(slugs(match("christmas eve").rows)).toEqual(["christmas-eve"]);
+    /* A prefix names neither: the soonest. */
+    expect(slugs(match("christ").rows)).toEqual(["christmas-eve"]);
+    expect(
+      slugs(paletteHolidayRows(holidays, "christ", at, 2, 2).rows),
+    ).toEqual(["christmas-eve", "xmas"]);
     expect(slugs(match("XMAS").rows)).toEqual(["xmas"]);
     /* Undated: offered, with no countdown. */
     expect(match("fall").rows).toEqual([
@@ -196,12 +210,14 @@ describe("paletteHolidayRows", () => {
     expect(paletteHolidayRows(holidays, "not christmas", at).rows).toEqual([]);
     expect(
       slugs(paletteHolidayRows(holidays, "christmas -cookie", at).rows),
-    ).toEqual(["christmas-eve", "xmas"]);
+    ).toEqual(["xmas"]);
     /* An empty-carrier holiday never comes back by name. */
     expect(paletteHolidayRows(holidays, "valentine", at).rows).toEqual([]);
   });
 
-  it("caps the rows at two", () => {
+  it("caps Coming up at two and a search at one (48a)", () => {
+    expect(PALETTE_HOLIDAY_LIMIT).toBe(2);
+    expect(PALETTE_HOLIDAY_MATCH_LIMIT).toBe(1);
     const many = Array.from({ length: 5 }, (_, i): PaletteHoliday => ({
       slug: `halloween-${i}`,
       label: `Halloween ${i}`,
@@ -210,6 +226,9 @@ describe("paletteHolidayRows", () => {
     }));
     expect(
       paletteHolidayRows(many, "halloween", day("2026-10-18")).rows,
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+    expect(paletteHolidayRows(many, "", day("2026-10-18")).rows).toHaveLength(
+      2,
+    );
   });
 });

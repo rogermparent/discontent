@@ -193,6 +193,8 @@ const DESCRIPTIVE = new Set([
 const COMPOUNDS = new Set([
   /* Paired *before* `hot` is dropped as descriptive (27c), or it reads `sauce`. */
   "hot sauce",
+  /* A chilli, not the black pepper a bare `pepper` line reads as (48a). */
+  "hot pepper",
   "ginger beer",
   "ginger ale",
   "root beer",
@@ -347,10 +349,16 @@ export const NAME_SYNONYMS: readonly (readonly [string, string])[] = [
    */
   /* ing-6: a bare "onion" is yellow; white onion stays its own. */
   ["yellow(?= onions?\\b)", ""],
-  /* ing-7: one bag. */
+  /* ing-7: one bag — King Arthur's (unbleached, organic) too since 48a
+   * (Roger's pick); its bread, whole wheat and pastry flours keep their
+   * names. */
   ["all purpose white flour", "all purpose flour"],
-  ["(?<!king arthur )unbleached(?= all purpose flour)", ""],
-  /* ing-10: "pepper" and "ground pepper" are one; white pepper stays. */
+  [
+    "(?:king arthur(?: (?:organic|unbleached))*|unbleached)(?= all purpose flour)",
+    "",
+  ],
+  /* ing-10: "pepper" and "ground pepper" are one; white pepper stays. A
+   * line's bare `pepper` reads as black pepper since 48a (`BARE_NAMES`). */
   ["ground pepper(?! flakes?\\b)", "pepper"],
   /* ing-12 and ing-15: low sodium is a preference, not another bottle. */
   ["(?:low|lower|less|reduced) sodium(?= soy sauce)", ""],
@@ -409,12 +417,44 @@ export const NAME_DESCRIPTORS: readonly string[] = ["mild", "uncooked"];
  */
 export const BARE_NAMES: Readonly<Record<string, string>> = {
   sugar: "granulated sugar",
+  /*
+   * 48a (Roger's pick, 46-g-pepper): "1/2 teaspoon pepper" and the pepper of
+   * "salt and pepper" are black pepper, as the step matcher already read a
+   * step's bare "pepper" (`QUALIFIED_HEADS`) and `black pepper` on hand
+   * already met them. "Hot pepper" is its own name (`COMPOUNDS`), so a
+   * chilli never lands here.
+   */
+  pepper: "black pepper",
 };
 
-/** A line's name with `BARE_NAMES` applied. */
-function lineName(name: IngredientName): IngredientName {
-  const kind = BARE_NAMES[name.words.join(" ")];
-  return kind ? { ...name, words: kind.split(" ") } : name;
+/**
+ * Lines a `BARE_NAMES` row leaves alone (48a review): "2 peppers, diced"
+ * and "1 large pepper" are the vegetable — a line that says "peppers", or
+ * counts with no unit. "1/2 teaspoon pepper", "pinch pepper" and "salt and
+ * pepper" still read black.
+ */
+const BARE_NAME_SKIPS: Readonly<Record<string, (line: string) => boolean>> = {
+  pepper: (line) => /\bpeppers\b/i.test(line) || countsWithoutUnit(line),
+};
+
+/** "1 large pepper", "2 peppers": a quantity, and no unit after it. */
+function countsWithoutUnit(line: string): boolean {
+  const text = readableLine(line).replace(/\*+/g, "").trim();
+  const quantity = QUANTITY_RE.exec(text);
+  if (!quantity || quantity[0].length === 0) return false;
+  /* A count is a number ("a pinch" is a unit's amount). */
+  if (!/\d|[½¼¾⅓⅔⅛]/.test(quantity[0])) return false;
+  const rest = text.slice(quantity[0].length).replace(MEASURE_BRACKET_RE, "");
+  return !UNIT_RE.test(rest);
+}
+
+/** A line's name with `BARE_NAMES` applied; `line` is its whole text. */
+function lineName(name: IngredientName, line?: string): IngredientName {
+  const bare = name.words.join(" ");
+  const kind = BARE_NAMES[bare];
+  if (!kind) return name;
+  if (line !== undefined && BARE_NAME_SKIPS[bare]?.(line)) return name;
+  return { ...name, words: kind.split(" ") };
 }
 
 /**
@@ -1091,12 +1131,14 @@ function requirement(
   loose = false,
 ): Requirement {
   const seen = new Set<string>();
-  const kept = alternatives.map(lineName).filter((name) => {
-    const key = nameKey(name);
-    if (name.words.length === 0 || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const kept = alternatives
+    .map((name) => lineName(name, text))
+    .filter((name) => {
+      const key = nameKey(name);
+      if (name.words.length === 0 || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   const named = aliases.filter((alias) => aliasKey(alias));
   return {
     line: index,
