@@ -2133,7 +2133,39 @@ done`, the API and MCP readers keep working. `outcome` is additive and
 
 #### Gates
 
-(Filled in after the gates run.)
+2026-11-17, on `origin/main` d8e81c6d (47i and 47j merged), the machine
+at load average 19–41 throughout (other sessions).
+
+- Typecheck clean ×3: `recipe-editor`, `recipe-website tsc --noEmit`, the
+  portfolio editor.
+- Full vitest, run 1: 185 files, 4,096 tests, 4,093 passed. Two were real
+  (`mcp.test`'s advertised `recipe_create` shape, `agentLocal.test`'s
+  3,500-token budget at 3,526: Th5, fixed by moving row 15's nulls out of
+  the schema) and one a load timeout (`editFormRoundTrip`, untouched by
+  this branch). After the fix the affected files (`fixes47h`,
+  `agentLocal`, `mcp`, `curation`, `dryRunPacing`, `curatorPage`,
+  `specVersions`) passed 217/218, the one again `editFormRoundTrip` at
+  8.4 s. Run 2 at load ~25: 19 timeouts in 12 files none of this branch
+  touches (5 s, 30 s and 90 s timeouts, a 200 ms timing assertion, the
+  `ENOTEMPTY` cleanups that follow a timed-out git test). CI's Checks job
+  is the clean run.
+- New unit tests: `fixes47h` (12), `uploadLimits` (6), `dryRunPacing`
+  (2), `portfolioImageImport` +2, `homepageSections` one assertion moved.
+- Playwright in Docker, production build: homepage-browse, featured-
+  recipes, visual, mobile, holidays, header, git, mirrors-card, jobs,
+  curator, shopping and accessibility — 261 tests, 250 passed, 11 failed,
+  all expected moves: 7 baselines (below), 3 git-history lines now titled
+  with names, 2 featured specs (a recipe featured twice, a featured plan
+  that is the panel's). After the spec updates: featured-recipes + git
+  79/82, then git 30/30 (recipe-b's name in the bundle is "edited").
+  Dev mode is CI's four Recipe shards.
+- Baselines regenerated in Docker (`--update-snapshots`, 45 passed), each
+  opened: `holidays-almanac-e2e`, `holidays-menu-e2e`, `search-bands-e2e`,
+  `search-term-e2e` (Holidays in the masthead, a fixture with holidays);
+  `homepage-season-rail-e2e` (the same, and New this week leaves out the
+  four recipes the season strips and Featured show, so five rows);
+  `homepage-mobile-mobile`, `homepage-season-mobile-mobile` (the short
+  search hint).
 
 #### Roger to confirm (47h)
 
