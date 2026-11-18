@@ -141,6 +141,8 @@ export interface ImportDryRunResult {
 export interface ImportCreateResult extends RecipeWriteResult {
   /** The job that ran it (epic 37): `recipes jobs show <job>` has its steps. */
   job?: string;
+  /** The recipe's name as written (47h: the curator's rows say it). */
+  name?: string;
   source?: RecipeSource;
   /** Read from this many photos' transcription (38e). */
   photos?: number;
@@ -776,6 +778,8 @@ async function finishImport(
   const suggestedChoices = suggestChoices(input.instructions);
   return {
     ...result,
+    /* 47h: the name it was written under, for a reader of the result. */
+    name: input.name,
     ...(photos ? { photos } : {}),
     ...(input.source ? { source: input.source } : {}),
     ...(llm ? { llm } : {}),

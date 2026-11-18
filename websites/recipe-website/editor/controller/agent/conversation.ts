@@ -9,6 +9,7 @@
  */
 import type { LlmApi } from "../llm/client";
 import { costBudgetWords } from "../llm/cost";
+import { readNothingInToolResult } from "../jobs/outcome";
 import type {
   TranscriptEnd,
   TranscriptRecord,
@@ -27,6 +28,12 @@ export type ToolRowStatus =
   /** Waiting behind it (calls run one at a time, Ea10). */
   | "waiting"
   | "done"
+  /**
+   * 47h: it answered, but read nothing — a page inspect whose page answered
+   * 402 or 404, or held no recipe. Not an error for the model, and not done
+   * for the person either.
+   */
+  | "nothing"
   | "error"
   /** A stop answered it "not run", or the run ended without its result. */
   | "not_run";
@@ -42,6 +49,8 @@ export interface ToolRow {
   durationMs?: number;
   /** "Searched your recipes for “pork”": `toolPhrase`. */
   phrase: string;
+  /** Why it is `nothing` (47h): "example.com answered HTTP 404 (not found): …". */
+  note?: string;
 }
 
 export interface UserItem {
@@ -119,6 +128,8 @@ export function buildConversation(
   const open = new Map<string, { row: ToolRow; since: number }>();
   /* When the last thing in the newest turn happened (its record, a result). */
   let lastAt = 0;
+  /* 47h: recipe slug → name, from every result in the conversation. */
+  const names = recipeNames(records);
 
   records.forEach((record, index) => {
     const key = `${record.job}:${index}`;
@@ -151,7 +162,7 @@ export function buildConversation(
         name: call.name,
         input: call.input,
         status: "not_run",
-        phrase: toolPhrase(call),
+        phrase: toolPhrase(call, undefined, names),
       }));
       for (const row of tools) open.set(row.id, { row, since: at });
       items.push({
@@ -171,17 +182,25 @@ export function buildConversation(
     open.delete(message.toolCallId);
     const { row } = waiting;
     row.result = message.content;
+    const nothing =
+      !message.isError && READ_TOOLS.has(row.name)
+        ? readNothingInToolResult(message.content)
+        : undefined;
     row.status = notRun(message.content)
       ? "not_run"
       : message.isError
         ? "error"
-        : "done";
+        : nothing
+          ? "nothing"
+          : "done";
+    if (nothing) row.note = nothing;
     if (row.status !== "not_run") {
       row.durationMs = Math.max(0, at - Math.max(waiting.since, lastAt));
     }
     row.phrase = toolPhrase(
       { id: row.id, name: row.name, input: row.input },
       row.status === "done" ? message.content : undefined,
+      names,
     );
     lastAt = at;
   });
@@ -211,9 +230,64 @@ export function buildConversation(
   };
 }
 
+/** The tools whose answer is a page read (47h): judged for "read nothing". */
+const READ_TOOLS: ReadonlySet<string> = new Set(["page_inspect"]);
+
 /* ------------------------------------------------------------------ */
 /* Tool phrases                                                         */
 /* ------------------------------------------------------------------ */
+
+/** A recipe slug → its name, as the conversation's results said it. */
+export type RecipeNames = ReadonlyMap<string, string>;
+
+function rememberRow(names: Map<string, string>, row: unknown): void {
+  if (!isObject(row)) return;
+  const slug = str(row.slug);
+  const name =
+    str(row.name) ?? (isObject(row.recipe) ? str(row.recipe.name) : undefined);
+  if (slug && name && !names.has(slug)) names.set(slug, name);
+}
+
+/**
+ * Every recipe's name the conversation's results carry (47h): a search's or
+ * a list's rows, a read recipe, an import's or a create's result (with the
+ * name the create asked for). A row then says "Read “Pork Braise”", not the
+ * slug. Results the loop cut for the model may not parse; their names are
+ * simply unknown.
+ */
+export function recipeNames(records: readonly TranscriptRecord[]): RecipeNames {
+  const names = new Map<string, string>();
+  const calls = new Map<string, AgentToolCall>();
+  for (const record of records) {
+    if (record.type !== "message") continue;
+    const { message } = record;
+    if (message.role === "assistant") {
+      for (const call of message.toolCalls) calls.set(call.id, call);
+      continue;
+    }
+    if (message.role !== "tool" || message.isError) continue;
+    const call = calls.get(message.toolCallId);
+    const out = parsedResult(message.content);
+    if (!call || !out) continue;
+    for (const key of ["recipes", "results"] as const) {
+      const list = out[key];
+      if (Array.isArray(list)) for (const row of list) rememberRow(names, row);
+    }
+    rememberRow(names, out);
+    if (call.name === "recipe_create") {
+      const input = isObject(call.input) ? call.input : {};
+      const recipe = isObject(input.recipe) ? input.recipe : {};
+      rememberRow(names, { slug: out.slug, name: recipe.name });
+    }
+  }
+  return names;
+}
+
+/** “Pork Braise” when the conversation knows the slug's name, else the slug. */
+function recipeWords(slug: string, names?: RecipeNames): string {
+  const name = names?.get(slug);
+  return name ? `“${short(name, 50)}”` : slug;
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -268,6 +342,7 @@ function countArray(value: unknown): number | undefined {
 export function toolPhrase(
   call: Pick<AgentToolCall, "id" | "name" | "input">,
   result?: string,
+  names?: RecipeNames,
 ): string {
   const input = isObject(call.input) ? call.input : {};
   const out = parsedResult(result);
@@ -283,7 +358,7 @@ export function toolPhrase(
         ? `Listed your recipes tagged ${short(String(input.tag), 40)}`
         : "Listed your recipes";
     case "recipe_get":
-      return slug ? `Read the recipe ${slug}` : "Read a recipe";
+      return slug ? `Read ${recipeWords(slug, names)}` : "Read a recipe";
     case "page_inspect":
       return site ? `Inspected a page on ${site}` : "Inspected a page";
     case "page_inspect_list":
@@ -299,7 +374,9 @@ export function toolPhrase(
         return `Imported ${plural(imported, "recipe")}${site ? ` from ${site}` : ""}`;
       }
       const landed = str(out?.slug);
-      if (landed) return `Imported ${landed}${site ? ` from ${site}` : ""}`;
+      if (landed) {
+        return `Imported ${recipeWords(landed, names)}${site ? ` from ${site}` : ""}`;
+      }
       if (str(input.text)) return "Imported pasted text";
       return site ? `Imported from ${site}` : "Imported a recipe";
     }
@@ -320,9 +397,11 @@ export function toolPhrase(
       return name ? `Created “${short(name, 50)}”` : "Created a recipe";
     }
     case "recipe_update":
-      return slug ? `Updated ${slug}` : "Updated a recipe";
+      return slug ? `Updated ${recipeWords(slug, names)}` : "Updated a recipe";
     case "recipe_set_image":
-      return slug ? `Set the picture of ${slug}` : "Set a recipe's picture";
+      return slug
+        ? `Set the picture of ${recipeWords(slug, names)}`
+        : "Set a recipe's picture";
     case "tag_list":
       return "Listed the tags";
     case "term_list":
