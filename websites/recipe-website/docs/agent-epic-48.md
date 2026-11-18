@@ -1140,7 +1140,62 @@ stays up. No export file changed.
 - Tonight's caption says "the weekend" on Friday and Saturday and "a
   weeknight" otherwise.
 
-<!-- 48e gates -->
+#### Review fixes (48e, after the read-only review of 47a00e1b)
+
+- **The homepage squares' srcset** (De11): `THUMB_IMAGE` and `CARD_IMAGE`
+  drop `sizes`, so each picture is `1x` / `2x` — two widths, not fifteen.
+- **Ask unstuck in place**: `HomeAsk` frees the field when the answer opens
+  in place (`useOpenAsk` answers `true`), as `/search`'s Ask does.
+- **The relabel checked again**: homepage-browse relabels the Course root
+  ("Meal courses 8") — the record's label, not the slug, on the line.
+- A plan's repeated line gets its own key; the warm season after Christmas
+  went to Roger to confirm (De2).
+- Found on the first baselines: a lone Make tile spanned the row; Tonight
+  is thirds on a laptop whatever the day has.
+
+#### Gates (48e)
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean (heavy slot), after the review fixes.
+- `pnpm exec vitest run`: **194 files, 4,240 tests**, all passed (on
+  `a94703e9`; an earlier run had one `editFormRoundTrip` timeout under load,
+  untouched by this branch, which passed here). New:
+  `test/homepage48e.test.ts` (23: the menu by course — turkey, stuffing and
+  pie in their courses and at their heads, pins over the description, the
+  head-noun weighting, the card choice; Tonight's candidates; the day's
+  turn, the warm season, Next up / Then / After that, a recipe once,
+  Featured's rules, On the plan's hiding; the batches and cuisines; the
+  prefill round trip and its bounds). `fixes47h.test.ts`' three
+  homepage-shown cases moved to `homepageDay`.
+- Playwright in Docker, production build: a first run (homepage-browse,
+  homepage, homepage-feasts, holidays, ask, groups, featured-recipes,
+  reference-updates) **140 passed, 1 failed** — homepage-feasts looked for a
+  course card by a name starting with the dish ("Mains · 1 Roast Turkey");
+  fixed. The gate run (homepage-browse, homepage, homepage-feasts, holidays,
+  featured-recipes, command-palette, accessibility, visual, mobile,
+  empty-state, footer, ask, groups, api-write, reference-updates, edit,
+  `recipe.spec` — which also matches the recipe-\* and new-recipe specs —
+  and bookmarks; e2e + mobile): **430 passed**.
+- Dev mode once (Docker, `next dev`): homepage-feasts and homepage-browse
+  **24 passed**.
+- **Sixteen baselines moved**, regenerated in Docker
+  (`--update-snapshots`) and opened:
+  - `visual.spec.ts/homepage-three-recipes-e2e`, `homepage-two-pages-e2e`,
+    `homepage-season-rail-e2e` (drinks-bar on 18 Oct: Tonight with the
+    Make tile, Next up Halloween — Other dishes · Hand Pies, Drinks · Vodka
+    Sour — Then Christmas, New in the collection by batch beside Featured,
+    Browse's line), `layout-footer-signed-{in,out}-e2e` (full-page shots of
+    the homepage);
+  - `mobile.spec.ts/homepage-mobile-mobile`,
+    `homepage-season-mobile-mobile`; `footer.spec.ts/footer-mobile-mobile`;
+    `empty-state.spec.ts/homepage-empty-e2e`;
+  - `command-palette.spec.ts/palette-{empty-light,empty-dark,results-light,owner-light,recents-light,insert-rows-light,deep-rows-light}-e2e`
+    — the dialog is unchanged; the masks of the homepage's `<time>`s
+    behind it moved (42f's trap, again).
+- The real corpus's homepage was not measured (the real repo is off-limits
+  to code phases): its page weight with the candidates' pictures, and the
+  Thanksgiving menu as rendered, are Roger's check after `pnpm workstation
+update`.
 
 ### 48k: Content (S; the orchestrator, CLI from the main checkout)
 
