@@ -2166,6 +2166,16 @@ at load average 19–41 throughout (other sessions).
   four recipes the season strips and Featured show, so five rows);
   `homepage-mobile-mobile`, `homepage-season-mobile-mobile` (the short
   search hint).
+- CI on the first push (#341): every unit, typecheck, lint, portfolio,
+  resume-builder, demo and main-checkout-shape job green; the Recipe
+  shards 7 failed, no flake (`accessibility.spec.ts:555` passed first
+  time): 5 more baselines with Holidays in the masthead on holiday
+  fixtures — `drinks-page-e2e`, `plan-page-e2e`, `plan-sheet-e2e`,
+  `plans-list-e2e`, `tags-board-e2e` (and `tags-root-e2e`, `tags-term-e2e`
+  in the same test), regenerated in Docker and opened — and two
+  `api-write` specs that featured the newest plan and looked for it in
+  Featured (row 13: it is the plan panel's now; the specs read it there
+  and on `/featured-recipes`). Docker build: those four spec files 78/78.
 
 #### Roger to confirm (47h)
 
