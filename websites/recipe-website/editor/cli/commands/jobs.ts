@@ -20,6 +20,7 @@
 import { UsageError } from "../../controller/curation/errors";
 import { cliSignal, interruptibleSleep } from "../interrupt";
 import { formatJobLine, type JobLine } from "../../controller/jobs/log";
+import { jobOutcome, type JobOutcome } from "../../controller/jobs/outcome";
 import type { JobMeta, JobStatus } from "../../controller/jobs/store";
 import type {
   JobCancelResult,
@@ -47,6 +48,8 @@ export interface JobShowResult {
   meta: JobRecord;
   /** The step log, line by line (`log.ts`'s `JobLine`). */
   steps: JobLine[];
+  /** 47h: a `done` job that read nothing, and what it says. */
+  outcome?: JobOutcome;
 }
 
 export interface JobLogResult {
@@ -129,7 +132,8 @@ export const jobsListCommand: CommandDef<JobListResult> = {
     if (jobs.length === 0) return "No jobs.";
     const rows = jobs.map((job: JobSummary) => [
       job.id,
-      job.status,
+      /* 47h: the stored status, and when it read nothing, that too. */
+      job.outcome ? `${job.status} (read nothing)` : job.status,
       job.kind,
       seconds(job.durationMs) ?? "",
       when(job.startedAt ?? job.queuedAt)
@@ -158,9 +162,16 @@ export const jobsShowCommand: CommandDef<JobShowResult> = {
   options: {},
   async run({ backend, positionals }) {
     const view = await backend.getJob(needId(positionals, "show"));
-    return { job: view.job, meta: view.meta, steps: view.lines };
+    /* An older editor's view (`--remote`) has no outcome: derive it here. */
+    const outcome = view.outcome ?? jobOutcome(view.meta);
+    return {
+      job: view.job,
+      meta: view.meta,
+      steps: view.lines,
+      ...(outcome ? { outcome } : {}),
+    };
   },
-  format({ meta: job, steps }) {
+  format({ meta: job, steps, outcome }) {
     const took = tookLine(job);
     return [
       `${job.id}  ${job.kind}  ${job.status}${took ? `  ${took}` : ""}`,
@@ -171,6 +182,7 @@ export const jobsShowCommand: CommandDef<JobShowResult> = {
       job.error
         ? `  error: ${job.error.code}: ${job.error.message}`
         : undefined,
+      outcome ? `  read nothing: ${outcome.note}` : undefined,
       ...steps.map((line) => formatJobLine(job.id, line)),
     ]
       .filter(Boolean)

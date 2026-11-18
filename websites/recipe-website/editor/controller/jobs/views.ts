@@ -22,6 +22,7 @@ import {
 } from "../curation/errors";
 import type { CurationContext } from "../curation/context";
 import { redactUrlText, type JobLine } from "./log";
+import { jobOutcome, type JobOutcome } from "./outcome";
 import {
   JOB_LIST_DEFAULT_LIMIT,
   JOB_LIST_MAX_LIMIT,
@@ -67,6 +68,11 @@ export interface JobSummary {
   /** The process that runs (or ran) it. */
   pid: number;
   host: string;
+  /**
+   * 47h: `done`, but it read nothing (a page that answered 402 or 404) —
+   * derived from the result, so the stored `status` stays `done`.
+   */
+  outcome?: JobOutcome;
 }
 
 export interface JobListOptions {
@@ -96,6 +102,8 @@ export interface JobView {
   next: number;
   /** Still `queued` or `running`. */
   live: boolean;
+  /** 47h: as `JobSummary`'s — a `done` job that read nothing. */
+  outcome?: JobOutcome;
 }
 
 export interface JobCancelResult {
@@ -134,6 +142,7 @@ function durationOf(meta: JobMeta, now: number): number | undefined {
 
 export function summarizeJob(meta: JobMeta, now = Date.now()): JobSummary {
   const duration = durationOf(meta, now);
+  const outcome = jobOutcome(meta);
   return {
     id: meta.id,
     kind: meta.kind,
@@ -152,6 +161,7 @@ export function summarizeJob(meta: JobMeta, now = Date.now()): JobSummary {
     ...(meta.cancellable === false ? { cancellable: false as const } : {}),
     pid: meta.pid,
     host: meta.host,
+    ...(outcome ? { outcome } : {}),
   };
 }
 
@@ -431,12 +441,14 @@ export async function getJobView(
       ? { waiting: { ...meta.waiting, position } }
       : {}),
   };
+  const outcome = jobOutcome(meta);
   return {
     job: meta.id,
     meta: record,
     lines,
     next,
     live: LIVE_STATUSES.includes(meta.status),
+    ...(outcome ? { outcome } : {}),
   };
 }
 

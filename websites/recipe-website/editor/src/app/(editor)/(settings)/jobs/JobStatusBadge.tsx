@@ -1,8 +1,18 @@
 import { cn } from "@discontent/component-library/lib/utils";
 
-/** A job's status as a small word with its colour (the word carries it). */
-export function JobStatusBadge({ status }: { status: string }) {
-  return (
+/**
+ * A job's status as a small word with its colour (the word carries it).
+ * `nothing` (47h): it ended `done` but read nothing — a second word beside
+ * the status, so the stored status still reads as it is.
+ */
+export function JobStatusBadge({
+  status,
+  nothing = false,
+}: {
+  status: string;
+  nothing?: boolean;
+}) {
+  const badge = (
     <span
       data-testid="job-status"
       className={cn(
@@ -16,6 +26,18 @@ export function JobStatusBadge({ status }: { status: string }) {
       )}
     >
       {status}
+    </span>
+  );
+  if (!nothing) return badge;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {badge}
+      <span
+        data-testid="job-outcome"
+        className="inline-block rounded border border-warning px-1.5 py-0.5 font-mono text-xs text-warning"
+      >
+        read nothing
+      </span>
     </span>
   );
 }

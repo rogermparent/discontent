@@ -351,7 +351,10 @@ export function JobsDashboard({
                     data-job={job.id}
                   >
                     <td className="py-1 pr-3">
-                      <JobStatusBadge status={job.status} />
+                      <JobStatusBadge
+                        status={job.status}
+                        nothing={job.outcome?.kind === "nothing"}
+                      />
                     </td>
                     <td className="py-1 pr-3 font-mono text-xs">{job.kind}</td>
                     <td className="max-w-[24rem] py-1 pr-3">
@@ -364,6 +367,11 @@ export function JobsDashboard({
                       {job.error && job.status !== "cancelled" && (
                         <p className="border-l-2 border-destructive pl-2 text-xs">
                           {job.error.message}
+                        </p>
+                      )}
+                      {job.outcome && (
+                        <p className="border-l-2 border-warning pl-2 text-xs">
+                          {job.outcome.note}
                         </p>
                       )}
                     </td>
