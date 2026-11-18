@@ -263,15 +263,22 @@ let pacing: Pacing;
 
 const listUrl = () => `${servers.a.origin}/fall-bakes/`;
 
-/** Every same-site pair of requests, in order, is at least 15 s apart. */
+/**
+ * Every same-site pair of requests, in order, is at least 15 s apart — but
+ * a page's own picture (`/img/`), right after its page, may follow at once
+ * (48c, Dc1: the amended 30-D5); the request after the picture still waits.
+ */
 function expectPolite() {
   for (const site of ["a", "b"] as const) {
-    const times = hits.filter((hit) => hit.site === site).map((hit) => hit.at);
-    for (let i = 1; i < times.length; i += 1) {
+    const mine = hits.filter((hit) => hit.site === site);
+    for (let i = 1; i < mine.length; i += 1) {
+      const follows =
+        mine[i].path.startsWith("/img/") &&
+        !mine[i - 1].path.startsWith("/img/");
       expect(
-        times[i] - times[i - 1],
+        mine[i].at - mine[i - 1].at,
         `${site} request ${i}`,
-      ).toBeGreaterThanOrEqual(15_000);
+      ).toBeGreaterThanOrEqual(follows ? 0 : 15_000);
     }
   }
 }
@@ -448,6 +455,10 @@ describe("importList", () => {
     ]);
     expect(result.requests).toBe(5);
     expectPolite();
+    /* 48c: each picture followed its own page at once; the next page waited. */
+    const at = hits.map((hit) => hit.at);
+    expect([at[2] - at[1], at[4] - at[3]]).toEqual([0, 0]);
+    expect(at[3] - at[2]).toBeGreaterThanOrEqual(15_000);
   });
 
   it("creates the term and assigns it to imported and existing items in one commit", async () => {

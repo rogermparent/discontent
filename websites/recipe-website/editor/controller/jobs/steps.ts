@@ -14,6 +14,7 @@ import {
   type ImportedRecipe,
   type ParsedRecipePage,
 } from "recipe-website-common/util/importRecipeData";
+import { namePagePictures } from "../curation/sitePacing";
 import { importerFetch } from "../guardedFetch";
 import { jobContext, type JobRun } from "./context";
 import type { StepHandle } from "./log";
@@ -87,6 +88,10 @@ export function recipeShape(
  * A fetched page's parse and map as a `parse` step: whether it has a Recipe
  * node (the schema), and what the mapper found — or that it is the SEO
  * `partial`. `base` resolves relative image URLs (where the page ended up).
+ *
+ * 48c: the pictures a page that answered 2xx names are its own, for the
+ * pacer — one may follow the page without the polite gap
+ * (`namePagePictures`, the amended 30-D5).
  */
 export function parsePage(
   url: string,
@@ -98,6 +103,12 @@ export function parsePage(
 }> {
   return jobContext(job).log.step("parse", async (step) => {
     const parsed = parseRecipePage(page.html, base);
+    if (page.ok) {
+      namePagePictures(
+        url,
+        parsed.images.map((candidate) => candidate.url),
+      );
+    }
     const mapped = mapRecipePage(url, parsed, { ok: page.ok });
     step.set({
       schema: parsed.recipeNodes.length > 0,
