@@ -345,6 +345,36 @@ test.describe("Ask", () => {
     await expect(banner(page)).toContainText("something sour please");
   });
 
+  /* 48e: the homepage's one field for search and Ask (canvas B). */
+  test("the homepage's Ask opens the page a question fills in; Escape is search again", async ({
+    page,
+  }) => {
+    await signInAndHome(page);
+    const ask = page
+      .getByTestId("home-ask-switch")
+      .getByRole("button", { name: "Ask" });
+    await expectHydrated(ask);
+    await expect(ask).toHaveAttribute("aria-pressed", "false");
+    await ask.click();
+    await expect(ask).toHaveAttribute("aria-pressed", "true");
+    const field = page.getByLabel("Your question");
+    await expect(field).toBeFocused();
+    await expect(page.getByTestId("home-ask-status")).toHaveText("");
+    await axeClean(page);
+    /* Escape is the search field again, focused. */
+    await field.press("Escape");
+    await expect(ask).toHaveAttribute("aria-pressed", "false");
+    await expect(
+      page.getByRole("searchbox", { name: "Search recipes" }),
+    ).toBeFocused();
+
+    await ask.click();
+    await field.fill("christmas drinks");
+    await field.press("Enter");
+    await expect(page).toHaveURL(/\/holidays\/christmas\?/);
+    expect(asked).toEqual(["christmas drinks"]);
+  });
+
   /* Dq14: a link with `?ask=` but no record in this tab — Undo can't know
    * where it came from, so it opens the empty search, never history back. */
   test("Undo with no record of the Ask opens the empty search", async ({
@@ -401,6 +431,8 @@ test.describe("Ask", () => {
     await expect(askGroup(page)).toHaveCount(0);
     await expect(page.getByTestId("palette-ask-hint")).toHaveCount(0);
     await page.keyboard.press("Escape");
+    /* 48e: nor beside the homepage's search field. */
+    await expect(page.getByTestId("home-ask-switch")).toHaveCount(0);
     await page.goto("/search");
     await expect(page.getByLabel("Search recipes")).toBeVisible();
     await expect(page.getByTestId("search-ask-toggle")).toHaveCount(0);
@@ -412,6 +444,9 @@ test.describe("Ask", () => {
 
     await useModel(request);
     await signIn(page);
+    await page.goto("/");
+    await expect(page.getByTestId("make-tile")).toBeVisible();
+    await expect(page.getByTestId("home-ask-switch")).toHaveCount(0);
     await page.goto("/search");
     await expect(page.getByLabel("Search recipes")).toBeVisible();
     await expect(page.getByTestId("search-ask-toggle")).toHaveCount(0);

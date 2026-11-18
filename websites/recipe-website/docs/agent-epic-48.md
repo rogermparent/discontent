@@ -945,6 +945,258 @@ turkey, stuffing or pie) + Start a plan / Ask the curator (editor only),
 Christmas with its Christmas Baking plan, new by batch and cuisine,
 Holidays in the masthead (47h already added it).
 
+#### Results (48e)
+
+Branch `agent/48e-home`. The homepage is canvas B, "Tonight, then the next
+feast" (https://claude.ai/artifact/5Hka15zkvWJ6xXbBohgNA3), built on the
+real corpus shapes (Thanksgiving read once through `holiday_get` on
+2026-11-18: 64 recipes; Mains all turkey, Sides newest-first led by Candied
+Sweet Potatoes with the two stuffings sixth and ninth, Desserts led by
+Indian Pudding and the pie bars). One route still does every read
+(`Homepage/route.tsx`); `index.tsx` only arranges; what depends on the
+reader's day is worked out once in the browser (`HomeDayProvider` over
+`homepageDay`), the server's day for the first render.
+
+**The page, top to bottom** (`common/components/Homepage/`):
+
+- **The band** (`HomeIntro`, `TodayLine`): the date, then "· 17 days to
+  Thanksgiving" (the holiday Next up shows, once the browser's day is
+  known), "What are you making?", the search field (unchanged: `next/form`,
+  "Search recipes", the placeholder and ⌘K hint), the `tag:` chips. For a
+  signed-in editor with a model, the field sits in the editor's `HomeAsk`
+  (below). The Make tile moved down into Tonight.
+- **Tonight** (`Tonight`, client): "A quick dinner · N quick mains" (two,
+  each with its picture, "20 m · Korean · easy" and "All N quick mains" →
+  `/search?q=tag:quick tag:main`), the **Make tile** (`MakeTile`: "From what
+  you have", the big _N ready now_, "N one away · N two away", three of the
+  ready names "and N more", "Buy next: soda water makes 13 more", "Open What
+  can I make?"; the same browser-list judgement (U6) and the same
+  `make-tile` / `make-tile-status` strings), and "Something warm · N warm
+  drinks" (the pick with a larger picture, its time and style, "or …", "All
+  N warm drinks"). One, two or three columns, by what the day has.
+- **Next up** (`Feasts`, client): the next dated holiday within 180 days —
+  its calendar leaf, "Next up", the name (→ its menu) and countdown, "52
+  dishes · 7 drinks · featured", "Open the menu"; then **its menu by
+  course**, six cards on a laptop (a picture, "MAINS · 6", the lead dish)
+  and rows on a phone, "Also on the menu: Soups & stews 3 · …", and its plan
+  ("On the plan: … · Open the plan") or, editor only, "No Thanksgiving plan
+  yet." with **Start a plan from the menu** and **Ask the curator**.
+- **Then**: the two holidays after it as cards — a plan filed under the
+  holiday shows as "On the plan: Christmas Baking · 6 recipes", its lines'
+  pictures, Open the plan, (editor) Put it on the shopping list, Open the
+  menu; a holiday with no plan shows four of its dishes — then "After that:
+  Valentine's Day, in 97 days · 4 dishes" and "All holidays".
+- **New in the collection** (`NewInCollection` + client `FreshRows`), beside
+  **On the plan** and **Featured** (`HomeRail`): the newest six no section
+  above shows, **by batch** — the day they were added ("Today", "Yesterday",
+  else "Mon 9 Nov"; a `<time>`), how many, what the batch mostly is
+  ("Thanksgiving · Desserts and Breads & doughs") — as square tiles that
+  keep "Mains · 10/17" under the name; then **New to the shelf**: the
+  cuisines the head's newest recipes bring ("Korean 2 new · Bo Ssam ·
+  Kimchi Fried Rice", → `/tags/<cuisine>`).
+- **Browse** (`BrowseTerms`): one index line — each facet root with its
+  subtree total, then Every tag (a `nav` named "Browse").
+- Holidays in the masthead: 47h's, kept. The phone is one column in the
+  same order.
+
+**The rules** (pure, `common/controller/`, unit-tested):
+
+- `homepageTonight.ts` — `tonightCandidates`: quick dinners are recipes
+  under `quick` whose tags fall under the `main` course (epic 33's D2 is the
+  tag's own definition: ≤ 30 minutes), aliases and subtrees included; warm
+  drinks are under `warm-drinks`; both sorted by slug, each with its minutes
+  (total, else prep + cook, 48a), cuisine (a child of `cuisine`, Jamaican →
+  Caribbean) and "easy"; `warmHolidays` are the dated holidays a warm drink
+  is filed under.
+- `homepageFeasts.ts` — `feastEntries`: each dated holiday with a recipe,
+  through 42e's `holidayMenuData` (so a dish is in the same course here as on
+  `/holidays/<slug>`), as course cards (`chooseCards`: mains, sides,
+  desserts and the drinks always when present, then the biggest of the rest
+  to six, "Other dishes" — no course — last; menu order, drinks last) with
+  three candidates each, and the eight top recipes. **`leadOrder`** picks a
+  course's lead: the holiday's pins, then the recipe whose name says most of
+  the holiday's **description** (`classicWords` / `classicScore`: dish words,
+  "pies" = "pie", one more when the name's last word is one — "Pumpkin Pie"
+  is a pie, "Cranberry Crumble Pie Bars" are bars), then a photo, then the
+  newest. On the real Thanksgiving ("The whole table: turkey, stuffing and
+  sides, cranberry sauce, rolls, and pumpkin, pecan and apple pies.") that
+  leads Mains with Turkey Pot Pie Recipe, Sides with Cornbread Stuffing,
+  Breads with Brown Butter Sage Dinner Rolls, Sauces with Cranberry Sauce
+  and Desserts with Apple Cranberry Crumble Pie (checked with `leadOrder` on
+  the real names and dates; before, the newest were Candied Sweet Potatoes
+  and Indian Pudding) — the 47h row 13 complaint answered from the
+  curator's own words.
+- `homepageDay.ts` — `homepageDay` (47h's `homepageShown`, moved): Tonight's
+  turn (`rotate` by `dayNumber`: the pick moves once a day, the same for
+  everyone that day); warm only when `nextSeasonal(warmHolidays)` finds one
+  within 60 days; Next up / Then / After that from `withinComingUpWindow`;
+  **a recipe once on the page**, earliest section winning (Tonight, the
+  course cards — a card whose candidates are all above shows its first
+  anyway —, Then's pictures, Featured, New in the collection); Featured less
+  a holiday shown above, a past holiday, a plan shown above or in On the
+  plan, a recipe shown or featured twice; `planShown` hides On the plan when
+  its plan is a holiday's shown above.
+- `homepageFresh.ts` — `freshBatches` (runs of the same server calendar day,
+  42f's Df9; the summary names a holiday half the batch is under, then its
+  one or two commonest courses, "Drinks" for drinks) and `freshCuisines`.
+- `groupPrefill.ts` — `groupPrefillHref` / `groupPrefill`: `/group/new`
+  takes `name`, `tags`, `recipe` and `label` (paired by position), bounded
+  (24 rows, 12 tags, 120 characters, slugs checked) — the menu's Start a
+  plan opens the form filled in ("Thanksgiving", tag `thanksgiving`, a dish
+  per card labelled with its course), and nothing is saved until Submit.
+  `?recipe=x` stays the plain link (`groups.spec`'s sign-in round trip).
+
+**Editor only** (canvas B's dashed outlines) — the editor's `page.tsx`
+passes `editor` to the shared route:
+
+- signed in: Start a plan from the menu, Put it on the shopping list (the
+  plan page's Shopping list panel, `#plan-shopping-heading`), the plan
+  panel's Shopping list (42f);
+- signed in **and** a model set up (`askAvailable`, the rule that puts Ask
+  and the curator's hand-off in ⌘K): **Ask** beside the search field
+  (`editor/src/ask/HomeAsk.tsx`: a Search | Ask switch under the field, the
+  question box, `/api/ask`, `useOpenAsk`; Escape is search again) and **Ask
+  the curator** (`curatorHref`: `/curator?prompt=Plan Thanksgiving from its
+menu on this site (…) as a meal plan tagged thanksgiving.`, filled in, not
+  started — 44d's Ed6).
+
+**The export** shares all of it: `export/src/app/(recipes)/page.tsx` still
+calls `homepageRoute()` with no options, so its homepage is the reader's —
+Tonight, Next up, Then, New in the collection, Featured, Browse — and has no
+Ask, no plan prompt, no curator and no shopping link. Its day-dependent
+parts are browser-side as before (Df2, Df10), so a build day's answer never
+stays up. No export file changed.
+
+#### Decisions (48e)
+
+- **De1 — Tonight's rule is the server's, the day's turn the browser's.**
+  The candidates are computed on the server from tags (no model); which of
+  them is tonight's is `rotate(candidates, dayNumber(today))` in the
+  browser, like every other day-dependent part (Df2): the export is static,
+  and a spec cannot freeze the server's clock (42f's trap).
+- **De2 — warm drinks are in season when the corpus says so**: a dated
+  holiday within `/drinks`' 60-day window (38a) has a warm drink filed under
+  it — Thanksgiving's ciders, Christmas's cocoa. No month rule in code
+  (canvas B's "Nov–Feb"); a summer with no warm holiday drink has no warm
+  panel.
+- **De3 — a course's lead dish**: pins, then the holiday description's dish
+  words (+1 for the head noun), then a photo, then the newest. A curator who
+  wants Lagerstrom Roast Turkey to lead Mains over Turkey Pot Pie Recipe pins
+  it on `thanksgiving`.
+- **De4 — Featured keeps six**, not the canvas's five: every featured spec
+  and `/featured-recipes`' "first six" were written to it.
+- **De5 — "On the plan" stays** beside Featured (canvas B drops it): the
+  newest plan, hidden when it is a holiday's plan already shown above, so a
+  plan not filed under a holiday (a birthday, a week) still has a place.
+- **De6 — a holiday's plan is the newest plan filed under its subtree.**
+- **De7 — Start a plan opens `/group/new` filled in** (De-prefill above),
+  never a write from the homepage; **Put it on the shopping list** links to
+  the plan page's Shopping list panel, which already adds a plan with its
+  scale.
+- **De8 — the batches are by day** (the server's calendar), the tiles keep
+  their "Mains · 10/17" line (edit, recipe and bookmarks specs read it), and
+  "New to the shelf" counts the head's newest (up to 24 rows) per cuisine.
+- **De9 — Browse is one index line of roots with totals**; the children are
+  `/tags`' (its board narrows them). homepage-browse's child checks moved to
+  the roots' totals ("Dessert 8", "Drinks 7" with the alias carrier,
+  "Course 9" after the first Bars recipe).
+- **De10 — left out**: the "2 ways" badge on the warm drink (a choice set is
+  on the recipe, not the by-term row: it needs a per-recipe read or a new
+  row field — a follow-up), the cards' "New" tape, and the band's
+  `tag:<next holiday>` chip (Df3's "no rule says which terms earn one"
+  still holds; Next up is right below).
+- **De11 — the homepage squares carry a two-entry srcset** (review): no
+  `sizes` on `THUMB_IMAGE` / `CARD_IMAGE`, so Next writes `1x` / `2x`
+  instead of all fifteen widths — the page hands down a picture for every
+  candidate the day may pick (Tonight's quick mains and warm drinks, each
+  holiday's course candidates and top recipes, its plan's lines), and with
+  fifteen widths that was ~2 KB and fifteen transforms a picture.
+
+#### Left out, or for later (48e)
+
+- The warm drink's "2 ways" (De10): a `ways` field on the by-term row, or a
+  read of the shown recipe.
+- Measuring `/`'s weight on the real corpus (the real repo is off-limits to
+  code phases): Roger's check after `pnpm workstation update`.
+- Scoping the visual specs' default masks to the locator (42f's trap): the
+  palette baselines moved with the homepage again.
+
+#### Roger to confirm (48e)
+
+- De2: the warm season is a holiday with warm drinks within 60 days — so it
+  ends the day after Christmas (or after New Year's, once a warm drink is
+  filed under it), where the canvas said "Nov–Feb". Filing a warm drink
+  under a winter term with a date (none exists yet: Valentine's would do)
+  stretches it.
+- De3: Mains on the real Thanksgiving leads with Turkey Pot Pie Recipe (two
+  of the description's words); pin Lagerstrom Roast Turkey on
+  `thanksgiving` if it should lead.
+- De4: Featured keeps six rows; De5: On the plan stays beside Featured.
+- De7: Put it on the shopping list opens the plan's Shopping list panel
+  rather than adding from the homepage.
+- De8: tiles keep "Mains · 10/17"; batches are by the server's day.
+- De9: Browse lists the roots only; their children are on `/tags`.
+- De10: no "2 ways", no "New" tape, no `tag:<next holiday>` chip.
+- Tonight's caption says "the weekend" on Friday and Saturday and "a
+  weeknight" otherwise.
+
+#### Review fixes (48e, after the read-only review of 47a00e1b)
+
+- **The homepage squares' srcset** (De11): `THUMB_IMAGE` and `CARD_IMAGE`
+  drop `sizes`, so each picture is `1x` / `2x` — two widths, not fifteen.
+- **Ask unstuck in place**: `HomeAsk` frees the field when the answer opens
+  in place (`useOpenAsk` answers `true`), as `/search`'s Ask does.
+- **The relabel checked again**: homepage-browse relabels the Course root
+  ("Meal courses 8") — the record's label, not the slug, on the line.
+- A plan's repeated line gets its own key; the warm season after Christmas
+  went to Roger to confirm (De2).
+- Found on the first baselines: a lone Make tile spanned the row; Tonight
+  is thirds on a laptop whatever the day has.
+
+#### Gates (48e)
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean (heavy slot), after the review fixes.
+- `pnpm exec vitest run`: **194 files, 4,240 tests**, all passed (on
+  `a94703e9`; an earlier run had one `editFormRoundTrip` timeout under load,
+  untouched by this branch, which passed here). New:
+  `test/homepage48e.test.ts` (23: the menu by course — turkey, stuffing and
+  pie in their courses and at their heads, pins over the description, the
+  head-noun weighting, the card choice; Tonight's candidates; the day's
+  turn, the warm season, Next up / Then / After that, a recipe once,
+  Featured's rules, On the plan's hiding; the batches and cuisines; the
+  prefill round trip and its bounds). `fixes47h.test.ts`' three
+  homepage-shown cases moved to `homepageDay`.
+- Playwright in Docker, production build: a first run (homepage-browse,
+  homepage, homepage-feasts, holidays, ask, groups, featured-recipes,
+  reference-updates) **140 passed, 1 failed** — homepage-feasts looked for a
+  course card by a name starting with the dish ("Mains · 1 Roast Turkey");
+  fixed. The gate run (homepage-browse, homepage, homepage-feasts, holidays,
+  featured-recipes, command-palette, accessibility, visual, mobile,
+  empty-state, footer, ask, groups, api-write, reference-updates, edit,
+  `recipe.spec` — which also matches the recipe-\* and new-recipe specs —
+  and bookmarks; e2e + mobile): **430 passed**.
+- Dev mode once (Docker, `next dev`): homepage-feasts and homepage-browse
+  **24 passed**.
+- **Sixteen baselines moved**, regenerated in Docker
+  (`--update-snapshots`) and opened:
+  - `visual.spec.ts/homepage-three-recipes-e2e`, `homepage-two-pages-e2e`,
+    `homepage-season-rail-e2e` (drinks-bar on 18 Oct: Tonight with the
+    Make tile, Next up Halloween — Other dishes · Hand Pies, Drinks · Vodka
+    Sour — Then Christmas, New in the collection by batch beside Featured,
+    Browse's line), `layout-footer-signed-{in,out}-e2e` (full-page shots of
+    the homepage);
+  - `mobile.spec.ts/homepage-mobile-mobile`,
+    `homepage-season-mobile-mobile`; `footer.spec.ts/footer-mobile-mobile`;
+    `empty-state.spec.ts/homepage-empty-e2e`;
+  - `command-palette.spec.ts/palette-{empty-light,empty-dark,results-light,owner-light,recents-light,insert-rows-light,deep-rows-light}-e2e`
+    — the dialog is unchanged; the masks of the homepage's `<time>`s
+    behind it moved (42f's trap, again).
+- The real corpus's homepage was not measured (the real repo is off-limits
+  to code phases): its page weight with the candidates' pictures, and the
+  Thanksgiving menu as rendered, are Roger's check after `pnpm workstation
+update`.
+
 ### 48k: Content (S; the orchestrator, CLI from the main checkout)
 
 Terms (all "add"): `pies` (Pies & tarts — **not under dessert**: Roger

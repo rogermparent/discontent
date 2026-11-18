@@ -311,7 +311,7 @@ export function featureCandidates<T>(
   return kept;
 }
 
-/** A featured row as `homepageShown` reads it: what it points at. */
+/** A featured row as `homepageDay` reads it: what it points at (48e). */
 export interface ShownFeature {
   key: string;
   /** A feature of a dated holiday term: the holiday's slug. */
@@ -322,97 +322,4 @@ export interface ShownFeature {
   group?: string;
   /** Its recipe, plan or term is gone: it keeps its slot, and shows nothing. */
   dangling?: boolean;
-}
-
-/** What the homepage shows on one day (`homepageShown`). */
-export interface HomepageShown {
-  /** The season's rows, soonest first, each with the recipes its strip shows. */
-  season: Array<{ slug: string; days: number; picks: string[] }>;
-  /** The featured list's rows, in order, by `key`. */
-  featured: string[];
-  /** New this week's recipes, in order. */
-  fresh: string[];
-}
-
-/**
- * Which recipes each homepage section shows on `today` (47h): **a recipe
- * shows once on the page, and the earliest section wins**, in the page's
- * reading order — the season's rows (soonest first), then the featured
- * list, then New this week. The canvas found one recipe three times: two
- * season strips and New this week. The plan panel lists its plan's lines
- * as they are, and is left out of it.
- *
- * - **The season**: the next `SEASON_LIMIT` holidays within the window
- *   (`seasonRows`); each strip takes its first `SEASON_PICKS` candidates no
- *   earlier strip showed.
- * - **Featured**: less a holiday with a season row (42f: it shows once, as
- *   its row), less a dated holiday outside the window (47h: Halloween after
- *   31 October — past, so not "featured" any more), less the plan the plan
- *   panel shows (47h: Connor's Birthday was on the page twice), less a recipe
- *   already shown above or featured twice; then cut to `featuredLimit`,
- *   and a dangling entry drops after the cut (22g: it takes its slot).
- * - **New this week**: the candidates no section above shows, cut to
- *   `freshLimit`. Should every candidate be shown above, the newest are
- *   shown anyway: a "New this week" with nothing in it says nothing.
- */
-export function homepageShown({
-  today,
-  season,
-  featured,
-  featuredLimit,
-  planGroup,
-  fresh,
-  freshLimit,
-}: {
-  today: CalendarDay;
-  /** The dated holidays, each with its strip's candidates in order. */
-  season: Array<{ slug: string; rule?: string; picks: string[] }>;
-  featured: ShownFeature[];
-  featuredLimit: number;
-  /** The plan the plan panel shows. */
-  planGroup?: string;
-  /** New this week's candidates, newest first. */
-  fresh: string[];
-  freshLimit: number;
-}): HomepageShown {
-  const shown = new Set<string>();
-  const rows = seasonRows(season, today).map((row) => {
-    const picks = row.picks
-      .filter((slug) => !shown.has(slug))
-      .slice(0, SEASON_PICKS);
-    for (const slug of picks) shown.add(slug);
-    return { slug: row.slug, days: row.days, picks };
-  });
-  const inSeason = new Set(rows.map((row) => row.slug));
-  const inWindow = new Set(
-    withinComingUpWindow(season, today).map((row) => row.slug),
-  );
-  const dated = new Set(season.map((row) => row.slug));
-  const featuredRecipes = new Set<string>();
-  const kept = featured
-    .filter((entry) => {
-      if (entry.holiday) {
-        if (inSeason.has(entry.holiday)) return false;
-        if (dated.has(entry.holiday) && !inWindow.has(entry.holiday)) {
-          return false;
-        }
-      }
-      if (entry.group && entry.group === planGroup) return false;
-      if (entry.recipe) {
-        if (shown.has(entry.recipe) || featuredRecipes.has(entry.recipe)) {
-          return false;
-        }
-        featuredRecipes.add(entry.recipe);
-      }
-      return true;
-    })
-    .slice(0, featuredLimit)
-    .filter((entry) => !entry.dangling);
-  for (const entry of kept) if (entry.recipe) shown.add(entry.recipe);
-  const unseen = fresh.filter((slug) => !shown.has(slug));
-  return {
-    season: rows,
-    featured: kept.map((entry) => entry.key),
-    fresh: (unseen.length > 0 ? unseen : fresh).slice(0, freshLimit),
-  };
 }
