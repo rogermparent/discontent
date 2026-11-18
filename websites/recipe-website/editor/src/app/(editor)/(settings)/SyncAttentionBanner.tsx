@@ -66,7 +66,7 @@ async function MirrorConflictBanner({
 
 /**
  * "Sync with <mirror> needs you" (epic 28, D5) on the workstation's `/git`
- * and Maintenance: a conflict, a mirror with uncommitted changes, or three
+ * (Sync & upkeep since 48d, which took Maintenance in): a conflict, a mirror with uncommitted changes, or three
  * failures in a row — the same states that raise a desktop notification.
  * A conflict says since when and links the sync job that hit it (39d). On a
  * mirror, the workstation's conflict instead (39d, D4). Renders nothing
@@ -116,9 +116,6 @@ export async function SyncAttentionBanner() {
           </div>
         );
       })}
-      <Link href="/git" className="text-sm underline">
-        Content Sync
-      </Link>
     </div>
   );
 }

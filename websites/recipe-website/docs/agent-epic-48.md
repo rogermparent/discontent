@@ -737,6 +737,206 @@ devices page — **with an API token screen** (create with scopes, list,
 revoke; 27b's token scopes; 47h row 11, Roger "fix"). 47e's sessions are
 per editor: say so on the page.
 
+#### Results (48d)
+
+**Sync & upkeep** (`/git`; `src/app/(editor)/(settings)/git/`,
+`controller/sync/`). One page, as B draws it:
+
+- **The sentence first** (`sentence.ts`, `syncSentence`): "Everything is
+  in sync.", or what isn't and why, in the order a person acts — a merge
+  being resolved ("One change needs you."), a conflict a sync stopped on
+  ("A change needs you.", with Pull to resolve), what keeps a sync from
+  running (no branch, uncommitted files with Commit working changes, no
+  upstream with Set upstream & push, no remote), a failing sync (its
+  outcome in 47h's words and the tally), the indexes, and what is merely
+  waiting ("1 change from uraninite to bring in."). Check again fetches.
+  The old status line's words stay as ledes ("No upstream configured. …",
+  "No upstream — this mirror pulls from …").
+- **At a glance** chips (sync, indexes, the public site), then **the two
+  editors side by side** (`machines.ts`): this editor (latest change,
+  waiting to send, indexes, a re-staging note when the index lags) and
+  the one it syncs with (has everything from here, the last change made
+  there, waiting to come), with "N ↑ · M ↓" and when it last synced
+  between them.
+- **What moved** (`moved.ts`, the history keyed by HEAD): by day (UTC
+  until hydrated, then the reader's), each change with a glyph for its
+  kind and "Here → uraninite", "uraninite → here" or "Here, not sent
+  yet"; a change opens to its details and diff as before.
+- **Upkeep**, each row saying what it did last and when you'd step in:
+  Search indexes (Rebuild indexes; "Rebuild one kind" holds Maintenance's
+  four per-type buttons), Sync with the mirror (epic 28's Mirrors card:
+  Sync now, Remove, Add mirror; with only an upstream, Sync; on a mirror,
+  "Synced by the workstation" with Ask and Pull from the workstation),
+  Site settings on the mirror (or, on a mirror, from the workstation), the
+  Public site (39's export staleness, Open Export) and Telling you (the
+  notifications and `RECIPE_NOTIFY_URL`). Without a repository the page
+  offers Initialize and the index row.
+- **Advanced — git underneath:** Branches and Remotes (workstation only),
+  the Index stamp, and "Pull, push and fetch by hand".
+- **A conflict as a choice** (`conflictMerge.ts`, `conflicts.ts`,
+  `resolveConflict`'s new `both`): per conflicted record, what each side
+  changed field by field and when, then **Keep both changes**, **Keep only
+  this editor's** or **Keep only uraninite's**; a field both changed
+  differently asks which to keep. Then Complete Merge, as before.
+
+**Account & devices** (`/settings/account`; `controller/account/`,
+`controller/actions/account.ts`, `@discontent/auth`'s
+`listUserSessions` / `revokeUserSession` / `signOutSession`):
+
+- **Signed in on this editor:** every live session of the owner here —
+  "Firefox on Linux", "this one", last active, from which address,
+  remembered until a date or until the browser closes — with **Sign out**
+  for each other device and **Sign out everywhere** (moved from
+  Maintenance). The page says plainly that this editor keeps its own
+  sign-ins and the other editor its own, naming them by role.
+- **API tokens** (47h row 11): a table of name, what it can do (Read only
+  / Read and write — 27b's scopes) and when it was made; **Make token**
+  with a name and a scope (Read only by default), shown once in a field
+  with Copy until Done or the page is left; **Revoke** asks first. "Last
+  used isn't recorded" (27b D6 declined it). A token is made and revoked
+  under the write lock and **committed** (`users/` is tracked, 27b T4), so
+  the sync carries it to the other editor.
+
+**Settings regrouped** as B: Site (Site details, Appearance, Navigation,
+Pages) · System (Sync & upkeep, Jobs, Export, Tools) · You (Account &
+devices). `/settings/maintenance` redirects to `/git#upkeep`. ⌘K: "Sync &
+upkeep" (also found by content sync, maintenance, reindex…) and "Account &
+devices" in place of Content Sync and Maintenance.
+
+#### Decisions (48d)
+
+- **Dd1 — Sync & upkeep stays at `/git`.** Every sync action revalidates
+  it, the banners and notifications point at it, and the specs and
+  bookmarks use it; the page's name changed, not its address.
+  Maintenance's address redirects; Account & devices is new at
+  `/settings/account`.
+- **Dd2 — The sentence's order** is the order above; one sentence, the
+  first that holds. The stale-index and attention banners stay under it
+  for their detail and buttons.
+- **Dd3 — Where a change was made is read from its committer** (B's own
+  risk note: "the commit author is a proxy today"). The engine commits
+  with the person as author and the machine's git identity as committer,
+  so a commit with this repository's identity was made here; any other
+  came in. Two machines with one identity read as one, and then the page
+  says nothing rather than guess. "Not sent yet" is a commit the other
+  side's remote-tracking ref lacks. Nothing new is recorded by the sync.
+- **Dd4 — Keep both, the smallest honest version:** a three-way merge of
+  the record's JSON by **top-level field**, from git's three stages of
+  the file (`:1:`, `:2:`, `:3:`). A field one side changed takes that
+  side; one both changed alike takes it; `tags` or `aliases` both changed
+  merge as a set (what either added, less what either removed); any other
+  field both changed differently — notes, ingredients, a term's pinned
+  order — is picked by the person, never guessed. A file
+  that isn't a JSON object on all three sides (an image, a record added or
+  deleted on one side) offers only the two whole-side choices. Only a
+  file the merge left conflicted can be written, only from its stages.
+  The resolution is still two steps (choose, then Complete Merge, one
+  commit "Merge remote content"); B's single "Resolve: X — both kept"
+  commit is not built.
+- **Dd5 — The other side** is a workstation's first mirror (epic 28's
+  `settings.mirrors`), else its upstream's remote, else none; a mirror's
+  is its workstation, through its upstream. Named by the remote (or
+  `WORKSTATION_NAME`), not "the Pi".
+- **Dd6 — Tokens from the editor are committed**, as "Add API token:
+  <name> (<scope>)" / "Revoke API token: <name>" with the owner as author,
+  because an uncommitted user file stops every sync (`dirty_tree`). Refused
+  while a merge is in progress (before the file is touched); an ignored
+  `users/`, or no repository, is written and not committed. Read only is
+  the default scope (B drew it checked). The token is answered once, by
+  the action, and nothing logs it.
+- **Dd7 — Sessions are read from the session store by scan**, as Sign out
+  everywhere's sweep does (De7), so a session missing from Better Auth's
+  list still shows and can be ended; the page gets ids, never tokens. This
+  device signs out from the footer, so it has no button of its own.
+  "Remembered" is read from the session's term: more than two days left
+  after its last use.
+- **Dd8 — The footer keeps "Content Sync"** (→ `/git`): the owner footer is
+  on every signed-in baseline (48c's Dc2 reason).
+
+#### Review fixes (48d, after the read-only review of 04ae7323)
+
+- "Keep both" set-merged **every** list of strings: numbered notes and a
+  term's pinned order too. Only `tags` and `aliases` merge as sets now;
+  any other list both changed is a pick, and a list both emptied that a
+  side no longer has is left out rather than written as `[]`.
+- A token whose commit failed (a held ref, no identity) stayed live and
+  unseen in an uncommitted user file. The file is now put back when the
+  commit fails (`changeAndCommit`), for revoke too; tested with a locked
+  branch ref.
+- A workstation with a mirror it had never fetched said "Everything is in
+  sync." beside "not linked". The sentence takes `linked` and says "Not
+  checked with <mirror> yet."; the chips and the machines read the same
+  fact (the mirror's remote-tracking ref).
+- The history's day groups could repeat a day (commits out of date order)
+  with a duplicate key and two regions of one name: keyed by position and
+  made groups, not regions.
+- The "shown once" spec now checks the page after Done, without a reload.
+- "Load more" reads the branch and remotes, not a whole status; the
+  conflict notification says "Open Sync & upkeep".
+
+#### Traps (48d)
+
+- **Td1 — A history kept in client state outlives a revalidation.** The
+  commit list held its pages in `useState`, so after Sync now the page's
+  sentence said "in sync" while What moved still showed the history from
+  before. It is keyed by HEAD.
+- **Td2 — `revokeUserSession` reads outside its transaction:** a session
+  refresh in flight for the device being signed out could write its row
+  back. Rare (it needs a request from that device in the same instant);
+  Sign out everywhere has the same window (De7).
+
+#### Left out, or for later (48d)
+
+- Photos in What moved (each change has its kind's glyph); recipe, tag and
+  plan counts in the in-sync lede; the sidebar's status dot; "Compare every
+  field" and "Open the recipe" on a conflict; "Change password" (there is
+  no flow); "last used" for tokens (27b D6).
+
+#### Roger to confirm (48d)
+
+- Dd1: the address stays `/git` (the page is "Sync & upkeep").
+- Dd3: "made here" by committer identity — give the Pi and the
+  workstation different git identities (they have today) or the chips go
+  quiet.
+- Dd4: keep both is by top-level field (an ingredient list both edited is a
+  pick, not a line-by-line merge), and still ends with Complete Merge.
+- Dd6: tokens made in the editor are committed and so synced to the other
+  editor; Read only by default.
+- Dd8: the footer still says Content Sync.
+- The other side is the first mirror; a second mirror is listed in the sync
+  row but not drawn as a third machine.
+
+#### Gates (48d)
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean (heavy slot), after the review fixes.
+- `pnpm exec vitest run`: **193 files, 4,214 tests**, all passed (on
+  04ae7323); after the review fixes `syncUpkeep`, `apiTokens`, `piSync`,
+  `instance` and `curationGit` again, **180 passed**. New:
+  `test/syncUpkeep.test.ts` (26: the sentence, the other side, what moved
+  and which way, keep both and its picks, devices, the session store's list
+  and revoke, tokens made, listed, revoked, never logged, committed as a
+  hash, rolled back on a failed commit).
+- Playwright in Docker, production build: the first run (`sync-upkeep`,
+  `git`, `settings-nav`, `mirror-role`, `mirrors-card`) **50 passed, 6
+  failed** — a remote's name repeated in the Remotes caption, the spec's
+  "Fetch" also matching the RemoteSelector's, the history not refreshed
+  after a sync (Td1), and an API recipe's commit subject; all fixed. The
+  gate run (`sync-upkeep`, `git`, `mirror-role`, `mirrors-card`,
+  `settings-nav`, `sign-in-hosts`, `signin`, `accessibility`, `visual`,
+  `command-palette`, `footer`, `theme-editor`, `export-page`, e2e +
+  mobile): **227 passed, 1 failed** — the token spec's axe after a reload
+  read the translucent masthead over the Sign out everywhere button (the
+  reload kept the scroll); it checks from the top now, and `sync-upkeep`
+  again: **6 passed**.
+- Dev mode once (Docker, `next dev`): `sync-upkeep` and `settings-nav`
+  **15 passed**.
+- **One baseline moved**, regenerated in Docker:
+  `visual.spec.ts/git-page-e2e.png` (the page is Sync & upkeep now:
+  sentence, chips, the two editors, What moved, Upkeep, Advanced with
+  Branches and Remotes open; the settings sidebar regrouped). Checked by
+  eye. No other baseline shows the settings sidebar or the page.
+
 ### 48e: The homepage, variant B (L)
 
 Search + Ask field, Tonight (quick dinner / ready now / warm drink), the

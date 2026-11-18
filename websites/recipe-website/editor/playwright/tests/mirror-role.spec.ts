@@ -45,10 +45,11 @@ test.describe("Mirror role", () => {
       "Appearance",
       "Navigation",
       "Pages",
-      "Content Sync",
+      "Sync & upkeep",
       /* 38b: a mirror's imports are jobs too. */
       "Jobs",
-      "Maintenance",
+      /* 48d: Maintenance moved into Sync & upkeep and Account & devices. */
+      "Account & devices",
     ]) {
       await expect(sidebar.getByRole("link", { name })).toBeVisible();
     }
@@ -100,10 +101,13 @@ test.describe("Mirror role", () => {
         0,
       );
     }
-    await expect(page.getByText("Advanced: branches")).toHaveCount(0);
-    await expect(page.getByText("Advanced: remotes")).toHaveCount(0);
+    /* 48d: Advanced keeps the index stamp and Fetch, not branches or remotes. */
+    await expect(page.getByText("Branches", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Remotes", { exact: true })).toHaveCount(0);
     /* History stays: a mirror can still read and revert. */
-    await expect(page.getByText("Commit history")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "What moved", exact: true }),
+    ).toBeVisible();
   });
 
   /*
@@ -179,8 +183,13 @@ test.describe("Mirror role", () => {
       "datetime",
       "2026-10-16T10:00:00.000Z",
     );
+    /* 48d: Maintenance redirects to Sync & upkeep, which says so too. */
     await page.goto("/settings/maintenance");
+    await expect(page).toHaveURL(/\/git#upkeep$/);
     await expect(page.getByTestId("workstation-conflict-banner")).toBeVisible();
+    await expect(page.getByTestId("sync-sentence")).toHaveText(
+      "The workstation needs you.",
+    );
 
     /* An older answer cannot undo it; a newer "clear" does. */
     const stale = await request.put("/api/git/standing", {

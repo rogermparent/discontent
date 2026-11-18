@@ -60,6 +60,8 @@ function getAuth(): EditorAuth {
 export const {
   auth,
   redirectToLogin,
+  listOwnSessions,
+  signOutSession,
   signInWithPassword,
   startSignIn,
   signOut,

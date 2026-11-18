@@ -6,6 +6,7 @@ import {
   deleteWithConfirm,
 } from "../support/helpers";
 import { expectHydrated } from "../support/hydration";
+import { readContentJson, tagRecipeInClone } from "../support/tasks";
 import type { Page } from "@playwright/test";
 
 /*
@@ -23,7 +24,7 @@ async function openBranchesSection(page: Page) {
       includeHidden: true,
     }),
   );
-  await page.getByText("Advanced: branches", { exact: true }).click();
+  await page.getByText("Branches", { exact: true }).click();
 }
 
 async function openRemotesSection(page: Page) {
@@ -34,15 +35,43 @@ async function openRemotesSection(page: Page) {
       includeHidden: true,
     }),
   );
-  await page.getByText("Advanced: remotes", { exact: true }).click();
+  await page.getByText("Remotes", { exact: true }).click();
 }
 
+/*
+ * 48d: Sync & upkeep keeps git under Advanced — branches, remotes, and
+ * "Pull, push and fetch by hand" are each a `<details>` there.
+ */
 function remotesSection(page: Page) {
-  return page.locator("details", { hasText: "Advanced: remotes" });
+  return page.locator("details", {
+    has: page.getByText("Remotes", { exact: true }),
+  });
 }
 
 function branchesSection(page: Page) {
-  return page.locator("details", { hasText: "Advanced: branches" });
+  return page.locator("details", {
+    has: page.getByText("Branches", { exact: true }),
+  });
+}
+
+async function openByHand(page: Page) {
+  await expectHydrated(
+    page
+      .locator("details", {
+        has: page.getByText("Pull, push and fetch by hand", { exact: true }),
+      })
+      .getByRole("button", {
+        name: "Fetch",
+        exact: true,
+        includeHidden: true,
+      }),
+  );
+  await page.getByText("Pull, push and fetch by hand", { exact: true }).click();
+}
+
+/* 48d: the history is "What moved"; the machines' cards name the latest change too. */
+function history(page: Page) {
+  return page.getByTestId("what-moved");
 }
 
 async function makeTestRecipe(page: Page, recipeName: string) {
@@ -192,7 +221,7 @@ test.describe("Git content", () => {
       await expect(
         page.getByText("Content directory is not tracked with Git."),
       ).toHaveCount(0);
-      await expect(page.getByText("Initial commit")).toBeVisible();
+      await expect(history(page).getByText("Initial commit")).toBeVisible();
     });
 
     test("should display an error message when creating a branch with an empty name", async ({
@@ -300,7 +329,9 @@ test.describe("Git content", () => {
       await expect(
         page.getByText("Content directory is not tracked with Git."),
       ).toBeVisible();
-      await expect(page.getByText("Commit history")).toHaveCount(0);
+      await expect(page.getByText("What moved", { exact: true })).toHaveCount(
+        0,
+      );
     });
 
     test("should be able to work with a git-tracked content directory", async ({
@@ -322,7 +353,7 @@ test.describe("Git content", () => {
       await expect(
         page.getByText("Content directory is not tracked with Git."),
       ).toHaveCount(0);
-      await expect(page.getByText("Initial commit")).toBeVisible();
+      await expect(history(page).getByText("Initial commit")).toBeVisible();
 
       const firstRecipeName = "Recipe A";
       const secondRecipeName = "Recipe B";
@@ -419,7 +450,7 @@ test.describe("Git content", () => {
         .getByRole("button", { name: "Initialize", exact: true })
         .click();
 
-      await expect(page.getByText("Initial commit")).toBeVisible();
+      await expect(history(page).getByText("Initial commit")).toBeVisible();
     });
   });
 
@@ -449,15 +480,21 @@ test.describe("Git content", () => {
       page,
     }) => {
       await page.goto("/git");
-      await expect(page.getByText("Commit history")).toBeVisible();
-      await expect(page.getByText("Initial commit")).toBeVisible();
       await expect(
-        page.getByText(`Add new recipe: ${firstRecipeSlug}`, { exact: true }),
+        page.getByRole("heading", { name: "What moved", exact: true }),
+      ).toBeVisible();
+      await expect(history(page).getByText("Initial commit")).toBeVisible();
+      await expect(
+        history(page).getByText(`Add new recipe: ${firstRecipeSlug}`, {
+          exact: true,
+        }),
       ).toBeVisible();
       await expect(secondRecipeTitle(page, "Add new recipe")).toBeVisible();
       await expect(secondRecipeTitle(page, "Update recipe")).toBeVisible();
       await expect(
-        page.getByText(`Delete recipe: ${firstRecipeSlug}`, { exact: true }),
+        history(page).getByText(`Delete recipe: ${firstRecipeSlug}`, {
+          exact: true,
+        }),
       ).toBeVisible();
     });
 
@@ -507,7 +544,7 @@ test.describe("Git content", () => {
       page,
     }) => {
       await page.goto("/git");
-      await page
+      await history(page)
         .getByText(`Delete recipe: ${firstRecipeSlug}`, { exact: true })
         .click();
 
@@ -519,7 +556,7 @@ test.describe("Git content", () => {
       page,
     }) => {
       await page.goto("/git");
-      await page
+      await history(page)
         .getByText(`Add new recipe: ${firstRecipeSlug}`, { exact: true })
         .click();
 
@@ -863,6 +900,7 @@ test.describe("Git content", () => {
       await makeTestRecipe(page, "Local Recipe");
 
       await page.goto("/git");
+      await openByHand(page);
       await page.getByRole("button", { name: "Push", exact: true }).click();
 
       await expect
@@ -894,6 +932,7 @@ test.describe("Git content", () => {
       await makeTestRecipe(page, "Local Only");
 
       await page.goto("/git");
+      await openByHand(page);
       await page.getByRole("button", { name: "Push", exact: true }).click();
 
       await expect(page.getByText(/Push rejected/)).toBeVisible();
@@ -979,8 +1018,9 @@ test.describe("Git content", () => {
           pushClone,
         });
 
+        /* 48d: a conflicted record is a choice; "Take Theirs" was this. */
         await page
-          .getByRole("button", { name: "Take Theirs", exact: true })
+          .getByRole("button", { name: "Keep only origin's", exact: true })
           .click();
         await page
           .getByRole("button", { name: "Complete Merge", exact: true })
@@ -1028,8 +1068,9 @@ test.describe("Git content", () => {
           pushClone,
         });
 
+        /* 48d: "Keep Mine" was this. */
         await page
-          .getByRole("button", { name: "Keep Mine", exact: true })
+          .getByRole("button", { name: "Keep only this editor's", exact: true })
           .click();
         await page
           .getByRole("button", { name: "Complete Merge", exact: true })
@@ -1039,6 +1080,78 @@ test.describe("Git content", () => {
         await page.goto("/");
         await expect(
           page.getByTestId("recipe-list").getByText("Mine"),
+        ).toBeVisible();
+      });
+
+      /*
+       * 48d (Dd4): the two sides changed different fields of one record —
+       * this editor its name, the other a tag — so "Keep both changes"
+       * keeps both, and one merge commit carries them.
+       */
+      test("keeps both changes when the sides changed different fields", async ({
+        page,
+        resetData,
+        initializeContentGit,
+        createBareRemote,
+        addRemoteAndPush,
+        cloneFromRemote,
+        pushClone,
+      }) => {
+        await resetData();
+        await initializeContentGit();
+        const remote = await createBareRemote();
+        await page.goto("/git");
+        await fillSignInForm(page);
+        await makeTestRecipe(page, "Shared");
+        await addRemoteAndPush(remote);
+
+        const clone = await cloneFromRemote(remote);
+        await tagRecipeInClone(clone, "shared", "from-the-other-side");
+        await pushClone(clone);
+
+        await page.goto("/recipe/shared/edit");
+        await markdownEditorReady(page, "description");
+        await page.getByLabel("Name").first().clear();
+        await page.getByLabel("Name").first().fill("Mine");
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await expect(
+          page.getByRole("heading", { level: 1, name: "Mine" }),
+        ).toBeVisible();
+
+        await page.goto("/git");
+        await page.getByRole("button", { name: "Sync", exact: true }).click();
+        await expect(page.getByTestId("sync-sentence")).toHaveText(
+          "One change needs you.",
+        );
+        const card = page
+          .getByTestId("conflict-resolver")
+          .getByRole("listitem")
+          .filter({ hasText: "Recipe: shared" });
+        await expect(card.getByRole("heading", { name: "Mine" })).toBeVisible();
+        await expect(
+          card.getByText("They changed different things, so both can stay."),
+        ).toBeVisible();
+        await expect(card.getByText("+ from-the-other-side")).toBeVisible();
+        const keepBoth = card.getByRole("button", {
+          name: "Keep both changes",
+          exact: true,
+        });
+        await expectHydrated(keepBoth);
+        await keepBoth.click();
+        await expect(page.getByText("Every record has a choice")).toBeVisible();
+        await page
+          .getByRole("button", { name: "Complete Merge", exact: true })
+          .click();
+        await expect(page.getByText("Resolve merge conflicts")).toHaveCount(0);
+
+        const merged = (await readContentJson(
+          "recipes/data/shared/recipe.json",
+        )) as { name: string; tags?: string[] };
+        expect(merged.name).toBe("Mine");
+        expect(merged.tags).toContain("from-the-other-side");
+        await page.goto("/recipe/shared");
+        await expect(
+          page.getByRole("heading", { level: 1, name: "Mine" }),
         ).toBeVisible();
       });
 

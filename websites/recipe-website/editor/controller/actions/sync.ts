@@ -52,6 +52,15 @@ import {
   mergeInProgress,
 } from "../curation/git";
 import { rebuildAllIndexes } from "./index";
+import { join } from "node:path";
+import { writeJsonAtomic } from "@discontent/cms/fs/atomicWrite";
+import {
+  ConflictChoiceError,
+  mergeBoth,
+  type Side,
+} from "../sync/conflictMerge";
+import { stageText } from "../sync/conflicts";
+import { readDirections } from "../sync/view";
 import {
   commitTitle,
   contentNames,
@@ -130,8 +139,9 @@ async function titledCommits(
 /**
  * Whether the indexes describe HEAD, for the stale-index banner (27b/D3).
  *
- * Its own read rather than `getSyncStatus().indexStale` because Settings →
- * Maintenance shows the banner too, and has no use for the rest of a status.
+ * Its own read rather than `getSyncStatus().indexStale`: the banner reads
+ * only this (it was on Settings → Maintenance too, until 48d moved that
+ * page's rebuilds into Sync & upkeep).
  */
 export async function getIndexFreshness() {
   return indexFreshness(readCtx());
@@ -140,8 +150,8 @@ export async function getIndexFreshness() {
 /**
  * The banner's one button: rebuild every index, which also stamps HEAD.
  *
- * Auth-gated here because it is a form action a page renders; the two pages
- * that show it are revalidated so the banner goes away on the next render.
+ * Auth-gated here because it is a form action a page renders; `/git` is
+ * revalidated so the banner goes away on the next render.
  */
 export async function rebuildIndexesAction(): Promise<void> {
   const session = await auth();
@@ -159,7 +169,6 @@ export async function rebuildIndexesAction(): Promise<void> {
     return;
   }
   revalidatePath("/git");
-  revalidatePath("/settings/maintenance");
 }
 
 async function doFetch(git: SimpleGit, remote?: string): Promise<void> {
@@ -441,7 +450,7 @@ export async function resolveConflict(
   if (typeof path !== "string" || !path) {
     return "Invalid file path";
   }
-  if (choice !== "ours" && choice !== "theirs") {
+  if (choice !== "ours" && choice !== "theirs" && choice !== "both") {
     return "Invalid resolution choice";
   }
 
@@ -452,10 +461,52 @@ export async function resolveConflict(
 
   try {
     const git = getGit(contentDirectory);
-    await locked(contentDirectory, `resolve conflict: ${path}`, async () => {
-      await git.raw(["checkout", `--${choice}`, "--", path]);
-      await git.add(path);
-    });
+    const refusal = await locked(
+      contentDirectory,
+      `resolve conflict: ${path}`,
+      async () => {
+        if (choice !== "both") {
+          await git.raw(["checkout", `--${choice}`, "--", path]);
+          await git.add(path);
+          return null;
+        }
+        /*
+         * 48d (Dd4): both sides' changes, field by field. Only a file the
+         * merge left conflicted — never a path the form merely names — and
+         * only from git's own three stages of it.
+         */
+        if (!(await git.status()).conflicted.includes(path)) {
+          return "That file isn't waiting for a choice.";
+        }
+        const picks: Record<string, Side> = {};
+        for (const [key, value] of formData.entries()) {
+          if (!key.startsWith("pick:")) continue;
+          if (value === "ours" || value === "theirs") {
+            picks[key.slice("pick:".length)] = value;
+          }
+        }
+        const [base, ours, theirs] = await Promise.all([
+          stageText(git, 1, path),
+          stageText(git, 2, path),
+          stageText(git, 3, path),
+        ]);
+        let merged;
+        try {
+          merged = mergeBoth(base, ours, theirs, picks);
+        } catch (error) {
+          if (error instanceof ConflictChoiceError) return error.message;
+          throw error;
+        }
+        await writeJsonAtomic(
+          join(/*turbopackIgnore: true*/ contentDirectory, path),
+          merged,
+          { spaces: 2 },
+        );
+        await git.add(path);
+        return null;
+      },
+    );
+    if (refusal) return refusal;
   } catch (e) {
     return normalizeError(e);
   }
@@ -612,18 +663,20 @@ export async function getCommitLogPage(offset: number): Promise<CommitLogPage> {
      * The entries' `files` are dropped rather than forwarded: the log list does
      * not render them, and they would ride every "Load more" over the RSC wire.
      */
-    return {
-      commits: await titledCommits(
-        commits.map(({ hash, message, author_name, date }) => ({
-          hash,
-          message,
-          author_name,
-          date,
-        })),
-        contentNames(contentDirectory),
-      ),
-      hasMore,
-    };
+    const titled = await titledCommits(
+      commits.map(({ hash, message, author_name, date }) => ({
+        hash,
+        message,
+        author_name,
+        date,
+      })),
+      contentNames(contentDirectory),
+    );
+    /* 48d: which way each went, as the first page's (`readSyncView`). */
+    const directions = await readDirections(contentDirectory, titled).catch(
+      () => ({}),
+    );
+    return { commits: titled, hasMore, directions };
   } catch {
     return { commits: [], hasMore: false };
   }

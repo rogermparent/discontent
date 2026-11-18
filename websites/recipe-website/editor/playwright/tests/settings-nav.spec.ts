@@ -2,16 +2,17 @@ import { test, expect } from "../support/test";
 import { signIn } from "../support/helpers";
 import { recordOutsideJob } from "../support/tasks";
 
+/* 48d: canvas B's Site / System / You. */
 const AREAS = [
   "Site details",
   "Appearance",
   "Navigation",
   "Pages",
-  "Content Sync",
+  "Sync & upkeep",
+  "Jobs",
   "Export",
   "Tools",
-  "Jobs",
-  "Maintenance",
+  "Account & devices",
 ];
 
 test.describe("Settings navigation", () => {
@@ -133,22 +134,43 @@ test.describe("Settings navigation", () => {
     );
   });
 
-  test("navigates to Maintenance with active state", async ({ page }) => {
+  /*
+   * 48d: Maintenance moved — its rebuilds are Sync & upkeep's Upkeep, its
+   * Sign out everywhere is on Account & devices — and its address lands on
+   * Sync & upkeep.
+   */
+  test("navigates to Sync & upkeep with active state; Maintenance lands there", async ({
+    page,
+  }) => {
     await page.goto("/");
     await signIn(page);
     await page.goto("/settings");
     const sidebar = page.getByRole("complementary", { name: "Settings" });
 
-    await sidebar.getByRole("link", { name: "Maintenance" }).click();
-    await expect(page).toHaveURL(/\/settings\/maintenance/);
+    await sidebar.getByRole("link", { name: "Sync & upkeep" }).click();
+    await expect(page).toHaveURL(/\/git$/);
+    await expect(page.getByTestId("sync-sentence")).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Maintenance" }),
+      page.getByRole("button", { name: "Rebuild indexes", exact: true }),
     ).toBeVisible();
+    await page.getByText("Rebuild one kind", { exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Reload Recipe Database" }),
     ).toBeVisible();
     await expect(
-      sidebar.getByRole("link", { name: "Maintenance" }),
+      sidebar.getByRole("link", { name: "Sync & upkeep" }),
+    ).toHaveAttribute("aria-current", "page");
+
+    await page.goto("/settings/maintenance");
+    await expect(page).toHaveURL(/\/git#upkeep$/);
+
+    await sidebar.getByRole("link", { name: "Account & devices" }).click();
+    await expect(page).toHaveURL(/\/settings\/account$/);
+    await expect(
+      page.getByRole("heading", { name: "Account & devices", level: 1 }),
+    ).toBeVisible();
+    await expect(
+      sidebar.getByRole("link", { name: "Account & devices" }),
     ).toHaveAttribute("aria-current", "page");
   });
 
