@@ -226,7 +226,7 @@ describe("parseIngredientLine — quantities, units and alternatives", () => {
     expect(label("2 cups macaroni and cheese")).toBe("macaroni and cheese");
     expect(
       parseIngredientLine("Salt and pepper").map(requirementLabel),
-    ).toEqual(["salt", "pepper"]);
+    ).toEqual(["salt", "black pepper"]);
     expect(
       parseIngredientLine(
         "1 tsp kosher salt & freshly ground black pepper",
@@ -397,7 +397,7 @@ describe("parseIngredientLine — food lines (32j)", () => {
   it("splits salt and pepper, keeping the line optional when it is", () => {
     const [salt, pepper] = parseIngredientLine("Salt and pepper to taste");
     expect([salt.optional, pepper.optional]).toEqual([true, true]);
-    expect(requirementLabel(pepper)).toBe("pepper");
+    expect(requirementLabel(pepper)).toBe("black pepper");
   });
 });
 
@@ -793,12 +793,12 @@ describe("parseIngredientLine — mixed numbers written with and (43n2)", () => 
   it("joins only a whole number, `and`, then a fraction", () => {
     expect(
       parseIngredientLine("salt and pepper").map(requirementLabel),
-    ).toEqual(["salt", "pepper"]);
+    ).toEqual(["salt", "black pepper"]);
     expect(
       parseIngredientLine("2 tablespoons salt and pepper").map(
         requirementLabel,
       ),
-    ).toEqual(["salt", "pepper"]);
+    ).toEqual(["salt", "black pepper"]);
     /* The 27c chain rule: a quantity and a unit continue the amount, a
      * count does not — the second ingredient stays in the name. */
     expect(label("1 cup salt and 2 eggs")).toBe("salt and egg");

@@ -193,6 +193,8 @@ const DESCRIPTIVE = new Set([
 const COMPOUNDS = new Set([
   /* Paired *before* `hot` is dropped as descriptive (27c), or it reads `sauce`. */
   "hot sauce",
+  /* A chilli, not the black pepper a bare `pepper` line reads as (48a). */
+  "hot pepper",
   "ginger beer",
   "ginger ale",
   "root beer",
@@ -347,10 +349,12 @@ export const NAME_SYNONYMS: readonly (readonly [string, string])[] = [
    */
   /* ing-6: a bare "onion" is yellow; white onion stays its own. */
   ["yellow(?= onions?\\b)", ""],
-  /* ing-7: one bag. */
+  /* ing-7: one bag — King Arthur's unbleached too since 48a (Roger's
+   * pick); its bread, whole wheat and pastry flours keep their names. */
   ["all purpose white flour", "all purpose flour"],
-  ["(?<!king arthur )unbleached(?= all purpose flour)", ""],
-  /* ing-10: "pepper" and "ground pepper" are one; white pepper stays. */
+  ["(?:king arthur(?: unbleached)?|unbleached)(?= all purpose flour)", ""],
+  /* ing-10: "pepper" and "ground pepper" are one; white pepper stays. A
+   * line's bare `pepper` reads as black pepper since 48a (`BARE_NAMES`). */
   ["ground pepper(?! flakes?\\b)", "pepper"],
   /* ing-12 and ing-15: low sodium is a preference, not another bottle. */
   ["(?:low|lower|less|reduced) sodium(?= soy sauce)", ""],
@@ -409,6 +413,14 @@ export const NAME_DESCRIPTORS: readonly string[] = ["mild", "uncooked"];
  */
 export const BARE_NAMES: Readonly<Record<string, string>> = {
   sugar: "granulated sugar",
+  /*
+   * 48a (Roger's pick, 46-g-pepper): "1/2 teaspoon pepper" and the pepper of
+   * "salt and pepper" are black pepper, as the step matcher already read a
+   * step's bare "pepper" (`QUALIFIED_HEADS`) and `black pepper` on hand
+   * already met them. "Hot pepper" is its own name (`COMPOUNDS`), so a
+   * chilli never lands here.
+   */
+  pepper: "black pepper",
 };
 
 /** A line's name with `BARE_NAMES` applied. */
