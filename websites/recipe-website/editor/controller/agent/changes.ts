@@ -298,6 +298,8 @@ function collect(
   result: Record<string, unknown>,
 ): void {
   if (input.dryRun === true || result.dryRun === true) return;
+  /* 48b: a held write wrote nothing; its review's decision says if it did. */
+  if (result.held === true) return;
   switch (name) {
     case "recipe_create": {
       const recipe = isObject(input.recipe) ? input.recipe : {};
@@ -584,10 +586,17 @@ export function tagMisses(messages: readonly AgentMessage[]): TagMiss[] {
  * without one — older transcripts, a test's — is parsed from its content,
  * which a cut result fails (and counts nothing).
  */
-export function runChanges(messages: readonly AgentMessage[]): RunChanges {
+export function runChanges(
+  messages: readonly AgentMessage[],
+  /**
+   * 48b: what the person's approvals of held writes wrote (each decision's
+   * summary), folded in after the conversation's own writes.
+   */
+  applied: readonly AgentWriteSummary[] = [],
+): RunChanges {
   const into = new Collector();
   for (const { call, result } of callsWithResults(messages)) {
-    if (!result || result.isError) continue;
+    if (!result || result.isError || result.held) continue;
     if (result.summary) {
       into.add(result.summary);
       continue;
@@ -596,6 +605,7 @@ export function runChanges(messages: readonly AgentMessage[]): RunChanges {
     if (!parsed) continue;
     collect(into, call.name, isObject(call.input) ? call.input : {}, parsed);
   }
+  for (const summary of applied) into.add(summary);
   const done = into.done();
   /* 48a: each assigned term's post-check, on the term it checks. */
   const misses = new Map(tagMisses(messages).map((miss) => [miss.term, miss]));

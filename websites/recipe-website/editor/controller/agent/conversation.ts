@@ -10,6 +10,7 @@
 import type { LlmApi } from "../llm/client";
 import { costBudgetWords } from "../llm/cost";
 import { readNothingInToolResult } from "../jobs/outcome";
+import { heldPhrase } from "./held";
 import type {
   TranscriptEnd,
   TranscriptRecord,
@@ -34,6 +35,11 @@ export type ToolRowStatus =
    * for the person either.
    */
   | "nothing"
+  /**
+   * 48b: a write held for the person's review — nothing was written; the
+   * review applies it or skips it.
+   */
+  | "held"
   | "error"
   /** A stop answered it "not run", or the run ended without its result. */
   | "not_run";
@@ -90,6 +96,12 @@ export interface Conversation {
   /** The newest run's model turns and tool calls so far. */
   turns: number;
   toolCalls: number;
+  /**
+   * 48b (Db6): the newest run's estimated cost so far, summed from its
+   * `turn` records as each turn ends (Claude only; absent for a local
+   * model, or a transcript from before 48b).
+   */
+  costSoFar?: number;
   /** The conversation's first ask, and how many asks it holds. */
   firstAsk?: string;
   asks: number;
@@ -122,6 +134,7 @@ export function buildConversation(
   let end: TranscriptEnd | undefined;
   let turns = 0;
   let toolCalls = 0;
+  let costSoFar: number | undefined;
   let firstAsk: string | undefined;
   let asks = 0;
   /* The calls still waiting for a result, by id → their row and turn. */
@@ -138,6 +151,17 @@ export function buildConversation(
       end = undefined;
       turns = 0;
       toolCalls = 0;
+      costSoFar = undefined;
+      return;
+    }
+    if (record.type === "turn") {
+      /* 48b: a turn's numbers, for the live budget. */
+      if (
+        record.job === start?.job &&
+        record.usage.costEstimateUsd !== undefined
+      ) {
+        costSoFar = (costSoFar ?? 0) + record.usage.costEstimateUsd;
+      }
       return;
     }
     if (record.type === "end") {
@@ -190,18 +214,24 @@ export function buildConversation(
       ? "not_run"
       : message.isError
         ? "error"
-        : nothing
-          ? "nothing"
-          : "done";
+        : message.held
+          ? "held"
+          : nothing
+            ? "nothing"
+            : "done";
     if (nothing) row.note = nothing;
     if (row.status !== "not_run") {
       row.durationMs = Math.max(0, at - Math.max(waiting.since, lastAt));
     }
-    row.phrase = toolPhrase(
-      { id: row.id, name: row.name, input: row.input },
-      row.status === "done" ? message.content : undefined,
-      names,
-    );
+    row.phrase =
+      row.status === "held"
+        ? /* 48b: a proposal, not a deed. */
+          heldPhrase({ name: row.name, input: row.input }, message.held, names)
+        : toolPhrase(
+            { id: row.id, name: row.name, input: row.input },
+            row.status === "done" ? message.content : undefined,
+            names,
+          );
     lastAt = at;
   });
 
@@ -224,6 +254,7 @@ export function buildConversation(
     ...(end ? { end } : {}),
     turns,
     toolCalls,
+    ...(costSoFar !== undefined ? { costSoFar } : {}),
     ...(firstAsk !== undefined ? { firstAsk } : {}),
     asks,
     messages,
@@ -267,7 +298,10 @@ export function recipeNames(records: readonly TranscriptRecord[]): RecipeNames {
     }
     if (message.role !== "tool" || message.isError) continue;
     const call = calls.get(message.toolCallId);
-    const out = parsedResult(message.content);
+    const answer = parsedResult(message.content);
+    /* 48b: a held write's dry run names what it would make. */
+    const out =
+      answer?.held === true && isObject(answer.dryRun) ? answer.dryRun : answer;
     if (!call || !out) continue;
     for (const key of ["recipes", "results"] as const) {
       const list = out[key];

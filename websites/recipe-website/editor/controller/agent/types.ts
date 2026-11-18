@@ -32,6 +32,12 @@ export interface AgentTool {
   /** Untrusted page text (E7): wrapped before the model sees it. */
   untrusted?: boolean;
   run(input: unknown, ctx: AgentToolContext): Promise<unknown>;
+  /**
+   * 48b, additive: whether this one result is page text (E7) though the
+   * tool's usually are not — a held import's dry run carries the page's
+   * recipe. Wrapped like an `untrusted` tool's.
+   */
+  untrustedResult?(result: unknown): boolean;
 }
 export interface AgentToolContext {
   signal: AbortSignal;
@@ -151,6 +157,40 @@ export interface AgentToolResultMessage {
    * model.
    */
   found?: AgentFound;
+  /**
+   * The call was a write **held for the person's review** (48b, Db1):
+   * nothing was written, and `content` told the model so (with a dry run's
+   * answer where the tool has one). What the review shows of it, from the
+   * uncut result; never sent to the model. The curator page applies it,
+   * exactly as asked or narrowed, when the person saves it.
+   */
+  held?: AgentHeld;
+}
+
+/**
+ * A held write as the review shows it (48b, `held.ts`): what its dry run,
+ * or a read of the recipes it names, said it would do. Every field is
+ * optional: a tool with no dry run says only that it was held.
+ */
+export interface AgentHeld {
+  /** The slug a create or a single import would write (its dry run's). */
+  slug?: string;
+  /** The recipe's name (a create's input, an import's dry run). */
+  name?: string;
+  /** Something already lives at `slug` (a create's dry run). */
+  conflict?: true;
+  /** The page an import reads. */
+  url?: string;
+  /** A batch import's or a roundup's recipes, as the dry run listed them. */
+  recipes?: { name: string; slug?: string; status?: string }[];
+  /**
+   * A `term_assign`'s `add`s as the content stood when it was held: those it
+   * would tag, those already tagged, and those that are not recipes (yet:
+   * a held import or create may make them).
+   */
+  wouldAdd?: string[];
+  alreadyTagged?: string[];
+  missing?: string[];
 }
 
 /** One `recipe_search` answer, as the tagging post-check reads it (48a). */

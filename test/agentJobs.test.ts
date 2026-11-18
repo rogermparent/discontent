@@ -233,18 +233,23 @@ describe("the agent job kind", () => {
       "agent.turn",
     ]);
 
-    /* The transcript: start, every message as it happened, end. */
+    /* The transcript: start, every message as it happened — each turn's
+     * numbers after its answer (48b) — end. */
     const records = await transcriptOf(started.job);
     expect(records.map((record) => record.type)).toEqual([
       "start",
       "message",
       "message",
+      "turn",
       "message",
       "message",
+      "turn",
       "message",
       "message",
+      "turn",
       "end",
     ]);
+    expect(records[3]).toMatchObject({ type: "turn", turn: 1 });
     expect(records[0]).toMatchObject({
       type: "start",
       job: started.job,
@@ -289,7 +294,8 @@ describe("the agent job kind", () => {
     /* The view: the steps and the transcript, raw blocks left out. */
     const view = await getAgentRunView(started.job, { dir });
     expect(view.live).toBe(false);
-    expect(view.transcript).toHaveLength(8);
+    /* 48b: three `turn` records among them. */
+    expect(view.transcript).toHaveLength(11);
     expect(JSON.stringify(view.transcript)).not.toContain('"raw"');
     expect(view.transcriptNext).toBe(Buffer.byteLength(raw));
     const tail = await getAgentRunView(started.job, {

@@ -974,6 +974,17 @@ describe("the page's words", () => {
       api: "local",
       search: false,
       newerWebTools: false,
+      /* 48b (Db5): one model here, so no choice. */
+      models: [
+        {
+          id: "local",
+          words: "qwen3:8b on this machine",
+          name: "qwen3:8b",
+          api: "local",
+          search: false,
+          newerWebTools: false,
+        },
+      ],
     });
     expect(
       curatorSetup({
@@ -985,11 +996,12 @@ describe("the page's words", () => {
       RECIPE_LLM_API: "anthropic",
       RECIPE_LLM_API_KEY: "sk-ant-secret-0000",
     });
-    expect(claude).toEqual({
+    expect(claude).toMatchObject({
       model: "Claude Sonnet 5 through the API",
       api: "anthropic",
       search: true,
       newerWebTools: true,
+      models: [{ id: "claude", name: "Claude Sonnet 5", maxCostUsd: 1 }],
     });
     expect(JSON.stringify(claude)).not.toContain("sk-ant");
     /* 46d: a Haiku has no newer web tools: the box is not offered. */

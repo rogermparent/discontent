@@ -130,6 +130,7 @@ const META = ".meta.json";
 const LOG = ".log.jsonl";
 const CANCEL = ".cancel";
 const TRANSCRIPT = ".transcript.jsonl";
+const REVIEW = ".review.json";
 const JOB_ID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
 export function metaPath(dir: string, id: string): string {
@@ -147,6 +148,15 @@ export function logPath(dir: string, id: string): string {
  */
 export function transcriptPath(dir: string, id: string): string {
   return path.join(dir, `${id}${TRANSCRIPT}`);
+}
+
+/**
+ * The person's decisions on an agent run's held writes (48b, Db2):
+ * `<id>.review.json`, beside the run the calls were made in, so a later
+ * follow-up's view finds them. Pruned with its job.
+ */
+export function reviewPath(dir: string, id: string): string {
+  return path.join(dir, `${id}${REVIEW}`);
 }
 
 /**
@@ -511,6 +521,8 @@ export async function pruneJobs(
     await rm(cancelPath(dir, id), { force: true });
     /* 44c: an agent run's conversation goes with it. */
     await rm(transcriptPath(dir, id), { force: true });
+    /* 48b: its review's decisions too. */
+    await rm(reviewPath(dir, id), { force: true });
     removed.push(id);
   }
   /*
@@ -522,7 +534,8 @@ export async function pruneJobs(
     const orphanLog =
       (name.endsWith(LOG) && !ids.includes(name.slice(0, -LOG.length))) ||
       (name.endsWith(TRANSCRIPT) &&
-        !ids.includes(name.slice(0, -TRANSCRIPT.length)));
+        !ids.includes(name.slice(0, -TRANSCRIPT.length))) ||
+      (name.endsWith(REVIEW) && !ids.includes(name.slice(0, -REVIEW.length)));
     if (!orphanLog && !name.endsWith(".tmp") && !name.endsWith(CANCEL)) {
       continue;
     }

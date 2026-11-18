@@ -177,7 +177,7 @@ describe("POST /api/agent", () => {
     expect(body.meta.spec).not.toHaveProperty("author");
     expect(
       body.transcript.map((record: { type: string }) => record.type),
-    ).toEqual(["start", "message", "message", "end"]);
+    ).toEqual(["start", "message", "message", "turn", "end"]);
     expect(body.next).toBeGreaterThan(0);
     expect(body.transcriptNext).toBeGreaterThan(0);
 

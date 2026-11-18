@@ -181,6 +181,10 @@ export type JobSpec =
        * `newerWebTools`); a follow-up keeps its conversation's.
        */
       newerWebTools?: boolean;
+      /** 48b: hold the run's writes for the person's review (the curator page). */
+      hold?: boolean;
+      /** 48b: who answers, where the editor has both (`curatorModels`). */
+      model?: "local" | "claude";
     })
   /**
    * A recipe's gaps filled from its source (45b): the edit page's "Fill gaps

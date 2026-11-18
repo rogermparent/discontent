@@ -50,6 +50,8 @@ import {
   agentAvailable,
   agentUnavailableMessage,
   checkAgentPrompt,
+  curatorModelFor,
+  type CuratorModelId,
 } from "./job";
 import { readTranscript, readableRecord, transcriptSize } from "./transcript";
 
@@ -279,13 +281,28 @@ export async function startAgentRun(
   ) {
     throw new UsageError("newerWebTools is true or false.");
   }
+  if (input.hold !== undefined && typeof input.hold !== "boolean") {
+    throw new UsageError("hold is true or false.");
+  }
+  if (
+    input.model !== undefined &&
+    input.model !== "local" &&
+    input.model !== "claude"
+  ) {
+    throw new UsageError('model is "local" or "claude".');
+  }
 
   const start = async (
     continues: string | undefined,
     /** The conversation's setting: a follow-up keeps the newer web tools (46d). */
     inheritedNewer = false,
+    /** 48b: a follow-up keeps its conversation's model. */
+    inheritedModel?: CuratorModelId,
   ) => {
     const newerWebTools = inheritedNewer || input.newerWebTools === true;
+    const model = inheritedModel ?? input.model;
+    /* 48b: a model this editor lacks is refused now, not in the job. */
+    if (model) curatorModelFor(model);
     const started = await startSpec(
       {
         kind: "agent",
@@ -294,6 +311,8 @@ export async function startAgentRun(
         ...(continues ? { continues } : {}),
         ...(maxTurns ? { maxTurns } : {}),
         ...(newerWebTools ? { newerWebTools: true } : {}),
+        ...(input.hold === true ? { hold: true } : {}),
+        ...(model ? { model } : {}),
       },
       { ctx, dir },
     );
@@ -326,11 +345,26 @@ export async function startAgentRun(
         runId,
         (earlier.spec as { newerWebTools?: unknown } | undefined)
           ?.newerWebTools === true,
+        conversationModel(earlier),
       );
     });
   } finally {
     starting.delete(runId);
   }
+}
+
+/**
+ * The model a conversation ran on (48b): its run's `model`, else — a run
+ * from before 48b — the API its result names. Claude's raw blocks replay
+ * only to Claude (Ea4), so a follow-up stays on it.
+ */
+function conversationModel(meta: JobMeta): CuratorModelId | undefined {
+  const spec = (meta.spec ?? {}) as { model?: unknown };
+  if (spec.model === "local" || spec.model === "claude") return spec.model;
+  const api = (meta.result as { api?: unknown } | undefined)?.api;
+  if (api === "anthropic") return "claude";
+  if (typeof api === "string") return "local";
+  return undefined;
 }
 
 /** One run: the job's view, and its transcript from `transcriptFrom`. */

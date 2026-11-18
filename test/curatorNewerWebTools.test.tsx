@@ -90,8 +90,10 @@ describe("the newer web tools toggle (46d)", () => {
 
     await ask("find two cookies I don't have yet");
     expect(fetchMock.mock.calls[0][0]).toBe("/api/agent");
+    /* 48b: the page's runs hold their writes for review. */
     expect(sentBody(fetchMock)).toEqual({
       prompt: "find two cookies I don't have yet",
+      hold: true,
     });
     expect(pushed).toEqual(["/curator?run=01RUN"]);
 
@@ -107,6 +109,7 @@ describe("the newer web tools toggle (46d)", () => {
     expect(sentBody(fetchMock, 1)).toEqual({
       prompt: "find two more",
       newerWebTools: true,
+      hold: true,
     });
   });
 
@@ -117,7 +120,10 @@ describe("the newer web tools toggle (46d)", () => {
       screen.queryByRole("checkbox", { name: "Use newer web tools" }),
     ).toBeNull();
     await ask("find a braise");
-    expect(sentBody(fetchMock)).toEqual({ prompt: "find a braise" });
+    expect(sentBody(fetchMock)).toEqual({
+      prompt: "find a braise",
+      hold: true,
+    });
   });
 
   it("is not offered for a local model, which never sends it", async () => {
@@ -127,6 +133,9 @@ describe("the newer web tools toggle (46d)", () => {
       screen.queryByRole("checkbox", { name: "Use newer web tools" }),
     ).toBeNull();
     await ask("find a braise");
-    expect(sentBody(fetchMock)).toEqual({ prompt: "find a braise" });
+    expect(sentBody(fetchMock)).toEqual({
+      prompt: "find a braise",
+      hold: true,
+    });
   });
 });
