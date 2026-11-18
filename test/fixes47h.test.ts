@@ -40,6 +40,7 @@ import {
 import { syncOutcomeWords } from "../websites/recipe-website/editor/controller/curation/syncWords";
 import {
   RecipeInputSchema,
+  noneForNull,
   parseInput,
 } from "../websites/recipe-website/editor/controller/curation/schema";
 import { wrapUntrusted } from "../websites/recipe-website/editor/controller/agent/loop";
@@ -426,22 +427,31 @@ describe("the homepage shows a recipe once (rows 12, 13)", () => {
 
 describe("a create takes null as none (row 15)", () => {
   it("reads null in the patch's nullable fields as not set", () => {
-    const input = parseInput(RecipeInputSchema, {
-      name: "Toast",
-      description: null,
-      tags: null,
-      prepTime: null,
-      recipeYield: null,
-      ingredients: null,
-      instructions: null,
-      source: null,
-      drink: null,
-      notes: null,
-      imageImportUrl: null,
-      videoUrl: null,
-      videoImportUrl: null,
-    });
+    const input = parseInput(
+      RecipeInputSchema,
+      noneForNull({
+        name: "Toast",
+        description: null,
+        tags: null,
+        prepTime: null,
+        recipeYield: null,
+        ingredients: null,
+        instructions: null,
+        source: null,
+        drink: null,
+        notes: null,
+        imageImportUrl: null,
+        videoUrl: null,
+        videoImportUrl: null,
+      }),
+    );
     expect(input).toEqual({ name: "Toast" });
-    expect(() => parseInput(RecipeInputSchema, { name: null })).toThrow();
+    expect(() =>
+      parseInput(RecipeInputSchema, noneForNull({ name: null })),
+    ).toThrow();
+    /* The schema MCP advertises still says no null (its size, 44e). */
+    expect(() =>
+      parseInput(RecipeInputSchema, { name: "Toast", videoImportUrl: null }),
+    ).toThrow();
   });
 });

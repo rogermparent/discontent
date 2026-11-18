@@ -89,7 +89,12 @@ import {
   slugIsTaken,
   type RecipeWriteResult,
 } from "./recipes";
-import { RecipeInputSchema, parseInput, type RecipeInput } from "./schema";
+import {
+  RecipeInputSchema,
+  noneForNull,
+  parseInput,
+  type RecipeInput,
+} from "./schema";
 import { pacedRequest } from "./sitePacing";
 import { withoutBlankRows } from "recipe-website-common/util/blankRows";
 import {
@@ -403,7 +408,7 @@ export function importedToInput(
       ? { videoImportUrl: imported.videoImportUrl }
       : {}),
   };
-  return parseInput(RecipeInputSchema, raw);
+  return parseInput(RecipeInputSchema, noneForNull(raw));
 }
 
 /** What an import takes besides its URL or text: the same for both. */

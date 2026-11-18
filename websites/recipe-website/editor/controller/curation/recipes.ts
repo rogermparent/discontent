@@ -57,6 +57,7 @@ import { readTagResolver } from "./tagResolver";
 import { NotFoundError, SlugConflictError, ValidationError } from "./errors";
 import {
   RecipeInputSchema,
+  noneForNull,
   RecipePatchSchema,
   parseInput,
   toIngredients,
@@ -432,7 +433,7 @@ export async function createRecipe(
     commitNote?: string;
   } = {},
 ): Promise<RecipeWriteResult> {
-  const input = parseInput(RecipeInputSchema, raw);
+  const input = parseInput(RecipeInputSchema, noneForNull(raw));
   const slug = resolveCreateSlug(input);
   const date = input.date ?? Date.now();
   const { data, uploads, warnings } = await buildRecipeWrite(input, {
@@ -599,7 +600,7 @@ export async function previewCreateRecipe(
   ctx: CurationContext,
   raw: unknown,
 ): Promise<RecipeDryRunResult> {
-  const input = parseInput(RecipeInputSchema, raw);
+  const input = parseInput(RecipeInputSchema, noneForNull(raw));
   const slug = resolveCreateSlug(input);
   const date = input.date ?? Date.now();
   const { data, image, warnings } = await buildRecipeWrite(input, {

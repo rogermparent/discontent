@@ -239,42 +239,70 @@ export const NotesSchema = z
   .max(NOTES_MAX, { error: `At most ${NOTES_MAX} notes` })
   .transform((notes) => cleanNotes(notes));
 
-/**
- * A create's optional field that also takes `null` as "none" (47h): the
- * patch's nullable fields, where `null` clears, read on a create as not
- * set — a draft or a hand-written file with `"videoImportUrl": null` is a
- * recipe without one, not a validation error. `name` and `date` stay
- * strict, as on a patch.
- */
-function none<T extends z.ZodType>(schema: T) {
-  return schema
-    .nullish()
-    .transform((value): z.output<T> | undefined => value ?? undefined);
-}
-
 export const RecipeInputSchema = z.strictObject({
   name: z.string().min(1, "A recipe needs a name"),
   slug: z.string().optional(),
   date: EpochSchema.optional(),
-  description: none(z.string()),
-  tags: none(z.array(z.string())),
-  prepTime: none(z.number()),
-  cookTime: none(z.number()),
-  totalTime: none(z.number()),
-  recipeYield: none(z.string()),
-  ingredients: none(z.array(IngredientInputSchema)),
-  instructions: none(z.array(InstructionInputSchema).superRefine(checkChoices)),
-  timelines: none(z.array(TimelineSchema)),
-  source: none(SourceSchema),
-  drink: none(DrinkSpecSchema),
+  description: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  prepTime: z.number().optional(),
+  cookTime: z.number().optional(),
+  totalTime: z.number().optional(),
+  recipeYield: z.string().optional(),
+  ingredients: z.array(IngredientInputSchema).optional(),
+  instructions: z
+    .array(InstructionInputSchema)
+    .superRefine(checkChoices)
+    .optional(),
+  timelines: z.array(TimelineSchema).optional(),
+  source: SourceSchema.optional(),
+  drink: DrinkSpecSchema.optional(),
   /** The recipe's own notes (47j), after the steps. */
-  notes: none(NotesSchema),
+  notes: NotesSchema.optional(),
   /** Downloaded into the recipe's uploads directory, never stored verbatim. */
-  imageImportUrl: none(z.string()),
+  imageImportUrl: z.string().optional(),
   /** A video the site links rather than hosts. */
-  videoUrl: none(z.string()),
-  videoImportUrl: none(z.string()),
+  videoUrl: z.string().optional(),
+  videoImportUrl: z.string().optional(),
 });
+
+/** The fields a patch takes `null` for: on a create, `null` is "none" (47h). */
+const NONE_ON_CREATE = [
+  "description",
+  "tags",
+  "prepTime",
+  "cookTime",
+  "totalTime",
+  "recipeYield",
+  "ingredients",
+  "instructions",
+  "timelines",
+  "source",
+  "drink",
+  "notes",
+  "imageImportUrl",
+  "videoUrl",
+  "videoImportUrl",
+] as const;
+
+/**
+ * A create's input with `null` read as "none" (47h): in each field the
+ * patch takes `null` for (where it clears), a create has nothing to clear,
+ * so a draft or a hand-written `create --file` with `"videoImportUrl":
+ * null` is a recipe without one, not a validation error. `name` and `date`
+ * stay strict, as on a patch. The write paths parse with this; the tool
+ * schema MCP advertises (`RecipeInputSchema`) is unchanged, so a client
+ * that reads it never sends `null` and the local model's tool view keeps
+ * its size.
+ */
+export function noneForNull(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const record = raw as Record<string, unknown>;
+  if (!NONE_ON_CREATE.some((key) => record[key] === null)) return raw;
+  const kept = { ...record };
+  for (const key of NONE_ON_CREATE) if (kept[key] === null) delete kept[key];
+  return kept;
+}
 
 export type RecipeInput = z.infer<typeof RecipeInputSchema>;
 
