@@ -94,6 +94,10 @@ export interface HolidayRecipe {
   course?: string;
   /** Drinks: the style term it is grouped under (`menuStyles`). */
   style?: string;
+  /** Drinks: its spirit or base term (48a: the Spirit grouping). */
+  spirit?: string;
+  /** Drinks: its method term — shaken, stirred, built (48a: Method). */
+  method?: string;
   /**
    * The right-hand side of its menu line: a drink's spirit or base, a dish's
    * main ingredient — the label of the root's child it sits under.
@@ -142,8 +146,67 @@ export interface HolidayMenuData {
   recipes: HolidayRecipe[];
   /** Dishes by course (`MENU_COURSE_ORDER`), then "More". */
   courses: MenuGroup[];
-  /** Drinks by style (`menuStyles`), then "More". */
+  /** Drinks by style (`menuStyles`), then "More": the default grouping. */
   styles: MenuGroup[];
+  /**
+   * The terms the reader's other drink groupings run by (48a): spirit &
+   * base and the methods, each in its order. The browser groups by them
+   * (`drinkMenuGroups`), so the recipes ride once.
+   */
+  drinkTerms: Record<
+    "spirit" | "method",
+    Array<{ slug: string; label: string }>
+  >;
+}
+
+/**
+ * How a holiday menu's drinks can be grouped (48a, Roger's pick
+ * 46-h-menu): by style then strength — the default, as 46h set it — or by
+ * spirit & base, by method, or as one list A to Z. The reader switches on
+ * the page (`?drinks=<id>`); the agents' `holiday_get` keeps the default.
+ */
+export const DRINK_GROUPINGS = [
+  { id: "style", label: "Style" },
+  { id: "spirit", label: "Spirit" },
+  { id: "method", label: "Method" },
+  { id: "name", label: "A–Z" },
+] as const;
+
+export type DrinkGrouping = (typeof DRINK_GROUPINGS)[number]["id"];
+
+/** The grouping a `?drinks=` names; else the default, by style. */
+export function drinkGroupingOf(
+  param: string | null | undefined,
+): DrinkGrouping {
+  return (
+    DRINK_GROUPINGS.find((grouping) => grouping.id === param)?.id ?? "style"
+  );
+}
+
+/**
+ * A menu's drinks under `by`: the server's style groups as they are; by
+ * spirit or method, one run per term with drinks (`menuGroups`), then
+ * "More"; by name, one run, A to Z.
+ */
+export function drinkMenuGroups(
+  menu: Pick<HolidayMenuData, "recipes" | "styles" | "drinkTerms">,
+  by: DrinkGrouping,
+): MenuGroup[] {
+  if (by === "style") return menu.styles;
+  const drinks = menu.recipes.filter((recipe) => recipe.kind === "drinks");
+  if (drinks.length === 0) return [];
+  if (by === "name") {
+    return [
+      {
+        slug: "all",
+        label: "A–Z",
+        recipes: [...drinks].sort((a, b) =>
+          a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+        ),
+      },
+    ];
+  }
+  return menuGroups(drinks, menu.drinkTerms[by], by);
 }
 
 type RecipeRows = (key: string) => TermRow<RecipeListEntry> | null | undefined;
@@ -259,6 +322,16 @@ export function menuStyles(
   }));
 }
 
+/** The methods (`DRINK_METHOD_SLUGS`), for the menu's Method grouping. */
+export function menuMethods(
+  tree: TermTree | null | undefined,
+): Array<{ slug: string; label: string }> {
+  return DRINK_METHOD_SLUGS.map((slug) => ({
+    slug,
+    label: labelOf(tree, slug),
+  }));
+}
+
 /**
  * Tag slug → the first of `terms` whose subtree (aliases included) holds
  * it, with that term's place in `terms` (`earliestTerm` picks by it).
@@ -311,6 +384,7 @@ export function holidayRecipeOf(
   const courseOf = firstTermOf(tree, menuCourses(tree));
   const styleOf = firstTermOf(tree, menuStyles(tree));
   const spiritOf = firstTermOf(tree, childTerms(tree, SPIRIT_ROOT));
+  const methodOf = firstTermOf(tree, menuMethods(tree));
   const ingredientOf = firstTermOf(
     tree,
     childTerms(tree, MAIN_INGREDIENT_ROOT),
@@ -326,6 +400,7 @@ export function holidayRecipeOf(
       tags,
       kind === "drinks" ? spiritOf : ingredientOf,
     );
+    const method = kind === "drinks" ? earliestTerm(tags, methodOf) : undefined;
     return {
       slug: recipe.slug,
       name: recipe.name,
@@ -334,6 +409,8 @@ export function holidayRecipeOf(
       kind,
       ...(course ? { course: course.slug } : {}),
       ...(style ? { style: style.slug } : {}),
+      ...(kind === "drinks" && base ? { spirit: base.slug } : {}),
+      ...(method ? { method: method.slug } : {}),
       ...(base ? { base: base.label } : {}),
     };
   };
@@ -425,7 +502,7 @@ export function holidayEntries({
 export function menuGroups(
   recipes: HolidayRecipe[],
   terms: Array<{ slug: string; label: string }>,
-  key: "course" | "style",
+  key: "course" | "style" | "spirit" | "method",
 ): MenuGroup[] {
   const groups = terms
     .map((term) => ({
@@ -487,6 +564,10 @@ export function holidayMenuData({
       menuStyles(tree),
       "style",
     ),
+    drinkTerms: {
+      spirit: childTerms(tree, SPIRIT_ROOT),
+      method: menuMethods(tree),
+    },
   };
 }
 

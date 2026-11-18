@@ -209,6 +209,70 @@ test.describe("Holidays", () => {
     );
   });
 
+  /* 48a (Roger's pick 46-h-menu): style then strength stays the default;
+   * the reader can switch the drinks' grouping, and the URL keeps it. */
+  test("the drinks' grouping switches, in the URL", async ({
+    page,
+    request,
+    createApiToken,
+  }) => {
+    const assigned = await request.post(
+      "/api/taxonomies/tag/halloween/assign",
+      {
+        headers: { authorization: `Bearer ${await createApiToken()}` },
+        data: { add: ["gin-and-tonic", "lavender-gnista-tonic"] },
+      },
+    );
+    expect(assigned.status()).toBe(200);
+    await page.goto("/holidays/halloween");
+    await menuReady(page);
+    const by = page.getByTestId("holiday-drinks-by");
+    const drinks = page.getByRole("region", { name: "Drinks" });
+    const groups = drinks.getByTestId("menu-group");
+    await expect(by.getByRole("button", { name: "Style" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(groups.getByRole("heading")).toHaveText(["Sour", "Highball"]);
+
+    const spirit = by.getByRole("button", { name: "Spirit" });
+    await expectHydrated(spirit);
+    await spirit.click();
+    await expect(page).toHaveURL(/\/holidays\/halloween\?drinks=spirit$/);
+    await expect(spirit).toHaveAttribute("aria-pressed", "true");
+    await expect(groups).toHaveCount(3);
+    await expect(groups.last().getByRole("heading")).toHaveText("More");
+    /* By spirit, a line's right-hand side names its style instead. */
+    await expect(
+      groups.filter({ has: page.getByRole("heading", { name: "Gin" }) }),
+    ).toContainText(/Gin and Tonic\s*Highball/);
+
+    await by.getByRole("button", { name: "Method" }).click();
+    await expect(groups.getByRole("heading")).toHaveText(["Shaken", "More"]);
+
+    await by.getByRole("button", { name: "A–Z" }).click();
+    await expect(page).toHaveURL(/\?drinks=name$/);
+    await expect(groups.getByRole("link")).toHaveText([
+      /^Gin and Tonic/,
+      /^Lavender Gnista Tonic/,
+      /^Vodka Sour/,
+    ]);
+    /* The dishes keep their courses. */
+    await expect(
+      page.getByRole("region", { name: "Dishes" }).getByTestId("menu-group"),
+    ).toHaveText([/Desserts/]);
+
+    /* Shareable beside the kind; the dishes alone have no switch. */
+    await page.goto("/holidays/halloween?kind=drinks&drinks=method");
+    await menuReady(page);
+    await expect(
+      page.getByTestId("menu-group").getByRole("heading"),
+    ).toHaveText(["Shaken", "More"]);
+    await page.goto("/holidays/halloween?kind=dishes&drinks=method");
+    await menuReady(page);
+    await expect(page.getByTestId("holiday-drinks-by")).toHaveCount(0);
+  });
+
   test("a non-holiday is a 404, an alias of one sends you on", async ({
     page,
   }) => {
