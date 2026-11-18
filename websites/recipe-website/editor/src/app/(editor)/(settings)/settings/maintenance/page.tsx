@@ -1,93 +1,10 @@
-import { rebuildRecipeIndex } from "recipe-editor/controller/actions";
-import { rebuildFeaturedRecipeIndex } from "recipe-editor/controller/actions/featuredRecipes";
-import { rebuildGroupIndex } from "recipe-editor/controller/actions/groups";
-import { rebuildTermIndex } from "recipe-editor/controller/actions/tagTerms";
-import { auth, redirectToLogin } from "@/auth";
-import { signOutEverywhereAction } from "@/app/authActions";
-import { SubmitButton } from "@discontent/component-library/components/SubmitButton";
-import {
-  PageMain,
-  PageSection,
-  PageHeading,
-} from "recipe-website-common/components/PageLayout";
-import { rebuildIndexesAction } from "recipe-editor/controller/actions/sync";
-import { isMirror } from "recipe-website-common/config/role";
-import { SettingsCard } from "../../SettingsCard";
-import { IndexStaleBanner } from "../../IndexStaleBanner";
-import { SyncAttentionBanner } from "../../SyncAttentionBanner";
+import { redirect } from "next/navigation";
 
-export default async function MaintenancePage() {
-  const user = await auth();
-  if (!user) {
-    return redirectToLogin(`/settings/maintenance`);
-  }
-  /* Which editor's sessions the button ends (epic 28's roles). */
-  const mirror = isMirror();
-  const thisEditor = mirror
-    ? "this editor (the mirror)"
-    : "this editor (the workstation)";
-  const otherEditor = mirror
-    ? "The workstation's editor"
-    : "A mirror's editor (the Pi)";
-  return (
-    <PageMain>
-      <PageSection maxWidth="4xl" grow>
-        <PageHeading>Maintenance</PageHeading>
-        <IndexStaleBanner />
-        <SyncAttentionBanner />
-        <div className="space-y-6">
-          <SettingsCard
-            title="Search index"
-            description="Rebuild the indexes if listings drift out of sync with the content on disk. After a pull or a change from outside the editor, rebuild all of them."
-          >
-            <div className="flex flex-col gap-4">
-              {/*
-                Every index, and the HEAD stamp the banner above reads (27b).
-                The per-type buttons below stay for the narrow repairs they
-                were made for.
-              */}
-              <form action={rebuildIndexesAction}>
-                <SubmitButton>Rebuild all indexes</SubmitButton>
-              </form>
-              <form action={rebuildRecipeIndex}>
-                <SubmitButton>Reload Recipe Database</SubmitButton>
-              </form>
-              <form action={rebuildFeaturedRecipeIndex}>
-                <SubmitButton>Reload Featured Recipe Database</SubmitButton>
-              </form>
-              <form action={rebuildGroupIndex}>
-                <SubmitButton>Reload Groups Database</SubmitButton>
-              </form>
-              {/*
-                The `tag` vocabulary's term records (24c). Its own button rather
-                than a line on one of the three above, because a term rebuild
-                touches a different keyspace — and because it is the *only*
-                server action term records have until 24e gives them seats.
-              */}
-              <form action={rebuildTermIndex}>
-                <SubmitButton>Reload Term Database</SubmitButton>
-              </form>
-            </div>
-          </SettingsCard>
-          {/*
-            47e: every session of this account *on this editor* ends — this
-            browser's too — and the next page is /login. Sessions live in
-            each editor's settings directory, not the synced content repo, so
-            the workstation and the Pi each keep their own (De13). API tokens
-            are not sessions: they keep working (`pnpm revoke-token`).
-          */}
-          <SettingsCard
-            title="Sign-in"
-            description={`Signed in on a device you no longer use, or a shared computer? End every session of this account on ${thisEditor} — every device signed in here, this one included. ${otherEditor} keeps its own sign-ins: sign out there too. API tokens keep working.`}
-          >
-            <form action={signOutEverywhereAction}>
-              <SubmitButton variant="outline" pendingChildren="Signing out…">
-                Sign out everywhere
-              </SubmitButton>
-            </form>
-          </SettingsCard>
-        </div>
-      </PageSection>
-    </PageMain>
-  );
+/**
+ * Settings → Maintenance moved in 48d (canvas B): its index rebuilds are
+ * Sync & upkeep's first upkeep row (`/git#upkeep`), and its Sign out
+ * everywhere is on Account & devices. The old address still lands.
+ */
+export default function MaintenancePage(): never {
+  redirect("/git#upkeep");
 }

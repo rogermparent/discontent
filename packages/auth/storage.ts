@@ -40,6 +40,20 @@ export interface AuthStorage extends SecondaryStorage {
    * sessions missing from it only in 1.7.16, after the version pinned here).
    */
   sweepUserSessions(userId: string): Promise<number>;
+  /**
+   * Every live session of `userId` (48d, Account & devices), read the way
+   * the sweep finds them — every row, not only the session list — so a
+   * session missing from the list (the 1.7.13 behaviour De7 works around)
+   * still shows and can still be ended. The token stays in here: it is the
+   * session's secret, and the page gets only `id`.
+   */
+  listUserSessions(userId: string): Promise<StoredSession[]>;
+  /**
+   * End one session of `userId` by its id: its row goes, and its entry in
+   * the session list. Answers whether one went. A session of another user
+   * with that id is left alone.
+   */
+  revokeUserSession(userId: string, sessionId: string): Promise<boolean>;
   /** Remove every expired row now (normally done at most once a minute). */
   prune(): Promise<number>;
   /**
@@ -50,6 +64,53 @@ export interface AuthStorage extends SecondaryStorage {
     key: string,
     ttlSeconds: number,
   ): Promise<{ count: number; resetAt: number | null }>;
+}
+
+/** A session row as Account & devices reads it — never its token. */
+export interface StoredSession {
+  id: string;
+  /** Epoch ms. */
+  createdAt: number;
+  updatedAt: number;
+  expiresAt: number;
+  userAgent: string | null;
+  ipAddress: string | null;
+}
+
+interface SessionValue {
+  session?: {
+    id?: unknown;
+    userId?: unknown;
+    token?: unknown;
+    createdAt?: unknown;
+    updatedAt?: unknown;
+    expiresAt?: unknown;
+    userAgent?: unknown;
+    ipAddress?: unknown;
+  };
+}
+
+function epoch(value: unknown): number {
+  const time =
+    typeof value === "number" ? value : Date.parse(String(value ?? ""));
+  return Number.isFinite(time) ? time : 0;
+}
+
+function text(value: unknown): string | null {
+  return typeof value === "string" && value ? value : null;
+}
+
+/** A session row's parsed value, or `undefined` for every other row. */
+function sessionOf(value: Entry | undefined): SessionValue["session"] {
+  if (typeof value?.v !== "string" || !value.v.startsWith("{")) return;
+  try {
+    const parsed = JSON.parse(value.v) as SessionValue;
+    return parsed?.session && typeof parsed.session === "object"
+      ? parsed.session
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const PRUNE_INTERVAL_MS = 60_000;
@@ -215,19 +276,65 @@ export function lmdbSecondaryStorage(
       const store = database();
       const doomed: string[] = [];
       for (const { key, value } of store.getRange({})) {
-        if (typeof value?.v !== "string" || !value.v.startsWith("{")) continue;
-        try {
-          const parsed = JSON.parse(value.v) as {
-            session?: { userId?: unknown };
-          };
-          if (parsed?.session?.userId === userId) doomed.push(key);
-        } catch {
-          /* Not a session row. */
-        }
+        if (sessionOf(value)?.userId === userId) doomed.push(key);
       }
       doomed.push(`active-sessions-${userId}`);
       for (const key of doomed) await store.remove(key);
       return doomed.length - 1;
+    },
+
+    async listUserSessions(userId) {
+      const store = database();
+      const at = now();
+      const found: StoredSession[] = [];
+      for (const { value } of store.getRange({})) {
+        if (!isLive(value, at)) continue;
+        const session = sessionOf(value);
+        if (!session || session.userId !== userId) continue;
+        const id = text(session.id);
+        const expiresAt = epoch(session.expiresAt);
+        if (!id || expiresAt <= at) continue;
+        found.push({
+          id,
+          createdAt: epoch(session.createdAt),
+          updatedAt: epoch(session.updatedAt),
+          expiresAt,
+          userAgent: text(session.userAgent),
+          ipAddress: text(session.ipAddress),
+        });
+      }
+      return found;
+    },
+
+    async revokeUserSession(userId, sessionId) {
+      const store = database();
+      let token: string | undefined;
+      for (const { key, value } of store.getRange({})) {
+        const session = sessionOf(value);
+        if (session?.userId === userId && session.id === sessionId) {
+          token = key;
+          break;
+        }
+      }
+      if (!token) return false;
+      const doomed = token;
+      store.transactionSync(() => {
+        store.removeSync(doomed);
+        const listKey = `active-sessions-${userId}`;
+        const list = store.get(listKey);
+        if (typeof list?.v !== "string") return;
+        try {
+          const entries = JSON.parse(list.v) as { token?: unknown }[];
+          const kept = Array.isArray(entries)
+            ? entries.filter((entry) => entry?.token !== doomed)
+            : [];
+          if (kept.length === 0) store.removeSync(listKey);
+          else store.putSync(listKey, { v: JSON.stringify(kept), e: list.e });
+        } catch {
+          /* A list we can't read is Better Auth's to rewrite; the row is gone. */
+        }
+      });
+      return true;
     },
 
     prune,

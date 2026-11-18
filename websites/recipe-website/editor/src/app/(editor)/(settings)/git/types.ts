@@ -17,6 +17,7 @@ export type {
 } from "../../../../../controller/curation/git";
 
 import type { CommitSummary } from "../../../../../controller/curation/git";
+import type { Direction } from "../../../../../controller/sync/moved";
 
 /**
  * One "Load more" page of the commit log.
@@ -28,4 +29,6 @@ import type { CommitSummary } from "../../../../../controller/curation/git";
 export interface CommitLogPage {
   commits: CommitSummary[];
   hasMore: boolean;
+  /** 48d: where each commit was made and went, by hash, when known. */
+  directions?: Record<string, Direction>;
 }

@@ -195,7 +195,7 @@ test.describe("Command palette", () => {
       page.getByRole("option", { name: "New Recipe" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("option", { name: "Content Sync" }),
+      page.getByRole("option", { name: "Sync & upkeep" }),
     ).toBeVisible();
     // The editor-injected auth action reads "Sign out" when signed in.
     await expect(page.getByRole("option", { name: "Sign out" })).toBeVisible();
@@ -210,7 +210,7 @@ test.describe("Command palette", () => {
       0,
     );
     await expect(
-      page.getByRole("option", { name: "Content Sync" }),
+      page.getByRole("option", { name: "Sync & upkeep" }),
     ).toHaveCount(0);
     // Reader destinations are present.
     await expect(page.getByRole("option", { name: "Saved" })).toBeVisible();

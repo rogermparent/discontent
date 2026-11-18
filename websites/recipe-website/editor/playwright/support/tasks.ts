@@ -274,6 +274,11 @@ export async function copyFixtures(fixtureName: string): Promise<void> {
   await copy(testContentDir, fixtureDir);
 }
 
+/** A JSON file of the test content, parsed (48d's merged record). */
+export async function readContentJson(relative: string): Promise<unknown> {
+  return readJSON(resolve(testContentDir, relative));
+}
+
 export async function getContentGitLog(): Promise<string[]> {
   const log = await simpleGit(testContentDir).log();
   return log.all.map((item) => item.message);
@@ -414,6 +419,24 @@ export async function editRecipeInClone(
   const file = resolve(cloneDir, "recipes", "data", slug, "recipe.json");
   const data = await readJSON(file);
   data.name = name;
+  await outputJSON(file, data);
+  await simpleGit(cloneDir).add(".").commit(`Update recipe: ${slug}`);
+}
+
+/**
+ * The other side adds a tag to a recipe (48d's "keep both"): a change to a
+ * field this side's edit of the name leaves alone. Written as one line, as
+ * `editRecipeInClone` writes, so git's text merge conflicts whatever the
+ * fields were.
+ */
+export async function tagRecipeInClone(
+  cloneDir: string,
+  slug: string,
+  tag: string,
+): Promise<void> {
+  const file = resolve(cloneDir, "recipes", "data", slug, "recipe.json");
+  const data = await readJSON(file);
+  data.tags = [...(Array.isArray(data.tags) ? data.tags : []), tag];
   await outputJSON(file, data);
   await simpleGit(cloneDir).add(".").commit(`Update recipe: ${slug}`);
 }

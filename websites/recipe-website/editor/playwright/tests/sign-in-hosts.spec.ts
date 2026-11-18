@@ -158,7 +158,8 @@ test.describe("Sign-in stays on the host you used (47e)", () => {
     const laptop = await signedInContext(browser, `localhost:${PORT}`);
     const phone = await signedInContext(browser, `127.0.0.1:${PORT}`);
 
-    await laptop.page.goto("/settings/maintenance");
+    /* 48d: Account & devices (it was on Settings → Maintenance). */
+    await laptop.page.goto("/settings/account");
     const everywhere = laptop.page.getByRole("button", {
       name: "Sign out everywhere",
       exact: true,

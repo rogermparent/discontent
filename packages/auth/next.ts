@@ -14,6 +14,7 @@ import {
 import { loginPath, safeRedirectPath } from "./redirect";
 import { authRequest, requestHost } from "./request";
 import { readStoredUser } from "./userFiles";
+import type { StoredSession } from "./storage";
 
 /**
  * What each editor's `@/auth` module is made of (47e): the session helper
@@ -247,7 +248,7 @@ export function createNextAuthHelpers({
   async function signOutEverywhere(): Promise<never> {
     const requestHeaders = await headers();
     const owner = await auth();
-    if (!owner) redirectToLogin("/settings/maintenance");
+    if (!owner) redirectToLogin(refererPath(requestHeaders));
     const { auth: instance, storage } = getAuth();
     try {
       await instance.api.revokeSessions({ headers: requestHeaders });
@@ -259,9 +260,36 @@ export function createNextAuthHelpers({
     redirect("/login?signedOut=everywhere");
   }
 
+  /**
+   * The owner's sign-ins on this editor (48d, Account & devices), and which
+   * one is this browser's. Never a session's token. `null` signed out.
+   */
+  async function listOwnSessions(): Promise<{
+    currentId: string;
+    sessions: StoredSession[];
+  } | null> {
+    const owner = await auth();
+    if (!owner) return null;
+    const sessions = await getAuth().storage.listUserSessions(owner.user.id);
+    return { currentId: owner.session.id, sessions };
+  }
+
+  /**
+   * End one of the owner's other sign-ins by its id (48d). This browser's
+   * own is a plain sign-out, so it is refused here: answers `false` for it,
+   * for an id that is not the owner's, and signed out.
+   */
+  async function signOutSession(sessionId: string): Promise<boolean> {
+    const owner = await auth();
+    if (!owner || !sessionId || sessionId === owner.session.id) return false;
+    return getAuth().storage.revokeUserSession(owner.user.id, sessionId);
+  }
+
   return {
     auth,
     redirectToLogin,
+    listOwnSessions,
+    signOutSession,
     signInWithPassword,
     startSignIn,
     signOut,

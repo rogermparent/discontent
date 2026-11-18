@@ -297,9 +297,7 @@ test.describe("Accessibility (axe)", () => {
       await signIn(page);
       await page.goto("/git");
       await expectMode(page, mode);
-      await expect(
-        page.getByRole("heading", { name: "Content Sync" }),
-      ).toBeVisible();
+      await expect(page.getByTestId("sync-sentence")).toBeVisible();
       await expectNoViolations(page);
     });
   }
@@ -401,10 +399,11 @@ const EDITOR_PAGES: Array<{
     fixture: "three-recipes",
     ready: (page) => headingVisible(page, "Tools"),
   },
+  /* 48d: Maintenance's place; its rebuilds are on /git, swept above. */
   {
-    path: "/settings/maintenance",
+    path: "/settings/account",
     fixture: "three-recipes",
-    ready: (page) => headingVisible(page, "Maintenance"),
+    ready: (page) => headingVisible(page, "Account & devices"),
   },
   {
     path: "/export",

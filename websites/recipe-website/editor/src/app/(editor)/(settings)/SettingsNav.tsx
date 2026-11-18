@@ -8,11 +8,11 @@ import {
   Palette,
   ListTree,
   FileText,
-  FolderSync,
+  RefreshCw,
   Download,
   Wrench,
   ListChecks,
-  Database,
+  UserRound,
 } from "lucide-react";
 import { cn } from "@discontent/component-library/lib/utils";
 import type { EditorRole } from "recipe-website-common/config/role";
@@ -34,21 +34,19 @@ interface NavItem {
 }
 
 /**
- * The settings areas, grouped as an "instrument rack" (PR 14). Each area is its
- * own page; the drawer auto-closes on navigation (handled by `SidebarLayout`),
- * so no `onNavigate` prop is threaded through.
+ * The settings areas, grouped as canvas B drew them (48d): the site, the
+ * system, and you. Each area is its own page; the drawer auto-closes on
+ * navigation (handled by `SidebarLayout`), so no `onNavigate` prop is
+ * threaded through. Sync & upkeep took Maintenance's rebuilds in, and
+ * Account & devices its Sign out everywhere (`/settings/maintenance`
+ * redirects).
  */
 const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
-    label: "Setup",
+    label: "Site",
     items: [
       { name: "Site details", href: "/settings", icon: Store },
       { name: "Appearance", href: "/settings/theme", icon: Palette },
-    ],
-  },
-  {
-    label: "Content",
-    items: [
       { name: "Navigation", href: "/menus", icon: ListTree },
       { name: "Pages", href: "/pages", icon: FileText },
     ],
@@ -56,7 +54,8 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
     label: "System",
     items: [
-      { name: "Content Sync", href: "/git", icon: FolderSync },
+      { name: "Sync & upkeep", href: "/git", icon: RefreshCw },
+      { name: "Jobs", href: "/jobs", icon: ListChecks },
       {
         name: "Export",
         href: "/export",
@@ -69,8 +68,16 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
         icon: Wrench,
         workstationOnly: true,
       },
-      { name: "Jobs", href: "/jobs", icon: ListChecks },
-      { name: "Maintenance", href: "/settings/maintenance", icon: Database },
+    ],
+  },
+  {
+    label: "You",
+    items: [
+      {
+        name: "Account & devices",
+        href: "/settings/account",
+        icon: UserRound,
+      },
     ],
   },
 ];

@@ -199,8 +199,9 @@ test.describe("Visual baselines @visual", () => {
     await initializeContentGit();
     await page.goto("/git");
     await fillSignInForm(page);
-    await page.getByText("Advanced: branches", { exact: true }).click();
-    await page.getByText("Advanced: remotes", { exact: true }).click();
+    /* 48d: Sync & upkeep, with Advanced's branches and remotes open. */
+    await page.getByText("Branches", { exact: true }).click();
+    await page.getByText("Remotes", { exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Checkout", exact: true }),
     ).toBeVisible();
