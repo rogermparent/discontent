@@ -319,6 +319,11 @@ exec tsc --noEmit`: clean, before and after merging `origin/main`
     `drinks-page-mobile` did not move.
 - After merging `origin/main` (Next.js 16.4.6): drinks, visual and curator
   in Docker again — **47 passed**, the new baselines included.
+- CI's first run (#344) found a third baseline the local set did not run:
+  `edit-form-frame.spec.ts/new-recipe-imported-e2e.png` — the naan
+  fixture's "King Arthur Unbleached All-Purpose Flour" now reads `all
+purpose flour` in "Not named in a step". Regenerated in Docker (5
+  passed).
 
 #### Roger to confirm (48a)
 
