@@ -443,7 +443,17 @@ export class SitePacer {
           throw new SiteDroppedError(`${site} is dropped for now: ${late}`);
         }
       }
-      if (pass) {
+      /*
+       * Judged again now the slot is held: a redirect elsewhere may have
+       * ended on this site meanwhile (the mark is gone then), and another
+       * process's request makes the shared grant wait the gap — then the
+       * picture did not follow at once, and the log does not say it did.
+       */
+      const followed =
+        pass !== undefined &&
+        this.picturePass(url) === pass &&
+        (slot === undefined || slot.waitedMs < 50);
+      if (followed) {
         this.job.log.info("pace.follow", "the page's own picture, no gap", {
           site,
         });

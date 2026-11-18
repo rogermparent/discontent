@@ -13,14 +13,19 @@ export const LIVE_CHIP_IDLE_POLL_MS = 20_000;
 /*
  * One reader for every chip on the page (the masthead draws one for the
  * desktop row and one for the phone's): the first subscriber starts it,
- * the last one stops it, and nothing is read while the tab is hidden.
+ * the last one stops it, and nothing is read while the tab is hidden. One
+ * chain of reads at a time: each start bumps `generation`, and a read of
+ * an older generation (StrictMode's subscribe-unsubscribe-subscribe, a tab
+ * shown while a read is in flight) schedules nothing.
  */
 const NONE: LiveJobCounts = { running: 0, queued: 0 };
 let counts: LiveJobCounts = NONE;
 const listeners = new Set<() => void>();
 let timer: ReturnType<typeof setTimeout> | undefined;
-let stopped = true;
-/* Signed out or refused (401/403): asking again would only repeat it. */
+let generation = 0;
+let inFlight = false;
+/* Signed out or refused (401/403): asking again would only repeat it — until
+ * the next first subscriber (a later page, after signing in again). */
 let refused = false;
 
 function emit(next: LiveJobCounts) {
@@ -29,10 +34,17 @@ function emit(next: LiveJobCounts) {
   for (const listener of listeners) listener();
 }
 
-async function read() {
+function schedule(mine: number, ms: number) {
+  if (mine !== generation || listeners.size === 0 || refused) return;
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(() => void read(mine), ms);
+}
+
+async function read(mine: number) {
   timer = undefined;
-  if (stopped || refused) return;
-  if (!document.hidden) {
+  if (mine !== generation || listeners.size === 0 || refused) return;
+  if (!document.hidden && !inFlight) {
+    inFlight = true;
     try {
       const response = await fetch("/api/jobs/live", { cache: "no-store" });
       if (response.status === 401 || response.status === 403) {
@@ -49,34 +61,41 @@ async function read() {
       }
     } catch {
       /* A failed read keeps what was shown; the next one tries again. */
+    } finally {
+      inFlight = false;
     }
   }
-  if (stopped) return;
-  timer = setTimeout(
-    read,
+  schedule(
+    mine,
     counts.running + counts.queued > 0
       ? LIVE_CHIP_POLL_MS
       : LIVE_CHIP_IDLE_POLL_MS,
   );
 }
 
-function onVisible() {
-  if (document.hidden || stopped || refused) return;
+/** A new chain of reads, ending any other: on the first subscriber, and when shown. */
+function restart() {
+  generation += 1;
   if (timer) clearTimeout(timer);
-  void read();
+  timer = undefined;
+  void read(generation);
+}
+
+function onVisible() {
+  if (!document.hidden && listeners.size > 0 && !refused) restart();
 }
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   if (listeners.size === 1) {
-    stopped = false;
+    refused = false;
     document.addEventListener("visibilitychange", onVisible);
-    void read();
+    restart();
   }
   return () => {
     listeners.delete(listener);
     if (listeners.size === 0) {
-      stopped = true;
+      generation += 1;
       document.removeEventListener("visibilitychange", onVisible);
       if (timer) clearTimeout(timer);
       timer = undefined;
@@ -91,8 +110,8 @@ const serverCounts = () => NONE;
  * The masthead's live chip (48c, canvas B): "2 running · 1 queued" while a
  * job runs or waits, linking to `/jobs`; nothing at all while every job is
  * idle, so the masthead is as it was. Signed in only (the root layout
- * passes it to an owner). `compact` is the phone's "2 · 1", named in full
- * for a screen reader.
+ * passes it to an owner). `compact` is the phone's "2 · 1", its words in
+ * the name for a screen reader.
  */
 export function JobsLiveChip({ compact = false }: { compact?: boolean }) {
   const { running, queued } = useSyncExternalStore(
@@ -113,7 +132,6 @@ export function JobsLiveChip({ compact = false }: { compact?: boolean }) {
       href="/jobs"
       data-testid="jobs-live-chip"
       aria-current={here ? "page" : undefined}
-      aria-label={compact ? `Jobs: ${words.replace(" · ", ", ")}` : undefined}
       className={cn(
         "inline-flex min-h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-primary/55 bg-accent px-3 text-sm font-medium text-accent-foreground hover:bg-accent/80",
         compact && "px-2.5",
@@ -123,9 +141,17 @@ export function JobsLiveChip({ compact = false }: { compact?: boolean }) {
         aria-hidden
         className="size-2 rounded-full bg-primary shadow-[0_0_0_3px] shadow-primary/25 motion-safe:animate-pulse"
       />
-      {compact
-        ? [running, queued].filter((count) => count > 0).join(" · ")
-        : words}
+      {/* The name holds what shows (2.5.3): "Jobs: 2 running · 1 queued",
+          or on the phone "Jobs: 2 · 1 (2 running, 1 queued)". */}
+      <span className="sr-only">Jobs: </span>
+      {compact ? (
+        <>
+          {[running, queued].filter((count) => count > 0).join(" · ")}
+          <span className="sr-only">{` (${words.replace(" · ", ", ")})`}</span>
+        </>
+      ) : (
+        words
+      )}
     </Link>
   );
 }

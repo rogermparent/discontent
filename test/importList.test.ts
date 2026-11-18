@@ -271,10 +271,18 @@ const listUrl = () => `${servers.a.origin}/fall-bakes/`;
 function expectPolite() {
   for (const site of ["a", "b"] as const) {
     const mine = hits.filter((hit) => hit.site === site);
+    /* `/img/apple-cake.png` is `/r/apple-cake/`'s own picture. */
+    const slugOf = (path: string) =>
+      path
+        .split("/")
+        .filter(Boolean)
+        .at(-1)
+        ?.replace(/\.[a-z]+$/, "");
     for (let i = 1; i < mine.length; i += 1) {
       const follows =
         mine[i].path.startsWith("/img/") &&
-        !mine[i - 1].path.startsWith("/img/");
+        !mine[i - 1].path.startsWith("/img/") &&
+        slugOf(mine[i].path) === slugOf(mine[i - 1].path);
       expect(
         mine[i].at - mine[i - 1].at,
         `${site} request ${i}`,

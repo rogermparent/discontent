@@ -60,6 +60,9 @@ export interface StoryJob {
 
 const WAIT_STEPS = new Set(["pace.wait", "queue.wait"]);
 
+/** 30-D5's gap, as the sentences say it (`sitePacing`'s `POLITE_GAP_MS`). */
+const POLITE_GAP_MS = 15_000;
+
 /** The steps a model runs: calls to the local model or Claude. */
 export function isModelStep(step: string): boolean {
   return (
@@ -849,6 +852,28 @@ export function whyWaiting(
     const name = resourceName(resource);
     const behind = holderName(line?.holder, job.id);
     const where = `${placeInLine(position)} for ${name}${behind ? `, behind ${behind}` : ""}`;
+    /*
+     * Its turn, and the site's polite gap left (37b: the shared slot's gap
+     * is slept while the job holds it, `position` 0): when it ends, from the
+     * slot's last release.
+     */
+    if (
+      resource.startsWith("site:") &&
+      (position <= 0 || (line?.holder?.jobId === job.id && !!job.id))
+    ) {
+      if (line?.lastRelease === undefined) {
+        return {
+          lead: `Waiting for ${name}'s polite pause.`,
+          rest: "A site gets one request every 15 s: the polite pause.",
+        };
+      }
+      const untilAt = line.lastRelease + POLITE_GAP_MS;
+      return {
+        lead: `Waiting ${secondsWords(Math.max(0, untilAt - now))} for ${name}.`,
+        rest: "A site gets one request every 15 s: the polite pause.",
+        untilAt,
+      };
+    }
     if (resource.startsWith("site:")) {
       return {
         lead: `${where[0].toUpperCase()}${where.slice(1)}.`,

@@ -420,6 +420,46 @@ describe("a live job: its strip, and why it waits", () => {
     ).toBe("Next in line for the recipe-content repository.");
   });
 
+  it("says the shared slot's polite gap while the job holds the site (37b)", () => {
+    const queue = [
+      {
+        resource: "site:example.com",
+        holder: { jobId: "J1" },
+        waiters: [],
+        lastRelease: T0,
+      },
+    ];
+    expect(
+      whyWaiting(
+        {
+          id: "J1",
+          status: "running",
+          waiting: { resource: "site:example.com", position: 0 },
+        },
+        [],
+        queue,
+        T0 + 6_000,
+      ),
+    ).toEqual({
+      lead: "Waiting 9.0 s for example.com.",
+      rest: "A site gets one request every 15 s: the polite pause.",
+      untilAt: T0 + 15_000,
+    });
+    /* No clock read yet: it still names the pause. */
+    expect(
+      whyWaiting(
+        {
+          id: "J1",
+          status: "running",
+          waiting: { resource: "site:example.com", position: 0 },
+        },
+        [],
+        [],
+        T0,
+      ).lead,
+    ).toBe("Waiting for example.com's polite pause.");
+  });
+
   it("says what a model step holds and who waits behind it", () => {
     const model = log({ n: 1, step: "llm.extract", from: 0 });
     const queue = [

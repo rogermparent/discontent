@@ -83,7 +83,9 @@ async function boardReady(page: Page) {
 }
 
 test.describe("Jobs, variant B (48c)", () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, resetData }) => {
+    /* The content and its users (sign-in needs them); the job store stays. */
+    await resetData();
     await page.goto("/");
     await signIn(page);
   });

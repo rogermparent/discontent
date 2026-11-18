@@ -710,7 +710,8 @@ function Lines({ queue, now }: { queue: ResourceView[]; now?: number }) {
   );
 }
 
-function Stats({ jobs }: { jobs: BoardJob[] }) {
+/** The fortnight's counts — or, past the rows read, the newest rows'. */
+function Stats({ jobs, more }: { jobs: BoardJob[]; more: boolean }) {
   const ended = jobs.filter((job) => !LIVE.has(job.status));
   const failed = ended.filter(didNotWork).length;
   const cancelled = ended.filter((job) => job.status === "cancelled").length;
@@ -734,7 +735,7 @@ function Stats({ jobs }: { jobs: BoardJob[] }) {
         id="jobs-stats-heading"
         className="font-display text-base font-semibold"
       >
-        Last 14 days
+        {more ? `The newest ${jobs.length} jobs` : "Last 14 days"}
       </h2>
       <dl className="grid grid-cols-2 gap-2">
         {tiles.map(([value, label]) => (
@@ -1022,7 +1023,7 @@ export function JobsBoard({
 
         <aside className="flex flex-col gap-4" aria-label="The machine">
           <Lines queue={board.queue} now={now} />
-          <Stats jobs={board.jobs} />
+          <Stats jobs={board.jobs} more={board.more} />
           {models}
         </aside>
       </div>
