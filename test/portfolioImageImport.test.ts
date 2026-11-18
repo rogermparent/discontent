@@ -32,7 +32,13 @@ beforeEach(async () => {
   process.env.CONTENT_DIRECTORY = contentDirectory;
   auth.mockReset();
   auth.mockResolvedValue({ user: { email: "author@test.local" } });
-  fetchSpy = vi.fn(async () => new Response("PNGDATA", { status: 200 }));
+  fetchSpy = vi.fn(
+    async () =>
+      new Response("PNGDATA", {
+        status: 200,
+        headers: { "content-type": "image/png" },
+      }),
+  );
   vi.stubGlobal("fetch", fetchSpy);
 });
 
@@ -116,6 +122,36 @@ describe("the portfolio editor's image import URL (47b)", () => {
       "PNGDATA",
     );
     expect(await pathExists(projectData("public"))).toBe(true);
+  });
+
+  /* 47h: the project's picture field takes only an image. */
+  it("refuses a page that is not an image, writing nothing", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response("<html>a page</html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      }),
+    );
+    const state = await createProject(
+      null,
+      projectForm("page", "http://203.0.113.10/photo.png"),
+    );
+    expect(state.message).toBe(
+      "http://203.0.113.10/photo.png is not an image (content-type text/html); nothing was saved.",
+    );
+    expect(await pathExists(projectData("page"))).toBe(false);
+  });
+
+  /* 47h: `buildProjectData`'s `new URL` threw before the write. */
+  it("refuses an image URL that is not a web address, plainly", async () => {
+    for (const value of ["not a url", "ftp://203.0.113.10/x.png"]) {
+      const state = await createProject(null, projectForm("odd", value));
+      expect(state.message).toBe(
+        "The image URL is not a web address: give one starting with http:// or https://, or upload the file.",
+      );
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(await pathExists(projectData("odd"))).toBe(false);
   });
 
   /* No test allowance: under vitest (`VITEST` set) the recipe editor's

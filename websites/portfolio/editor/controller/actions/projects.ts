@@ -93,6 +93,8 @@ function buildProjectData(
       clearFile: clearImage,
       fileImportUrl: imageImportUrl,
       existingFile: current?.image,
+      /* 47h: a project's picture — an HTML page answered is refused. */
+      accept: "image",
     },
   };
 
@@ -104,7 +106,7 @@ function buildProjectData(
       ? image.name
       : clearImage
         ? undefined
-        : imageImportUrl
+        : imageImportUrl && URL.canParse(imageImportUrl)
           ? new URL(imageImportUrl).pathname.split("/").pop()
           : current?.image;
 
@@ -166,11 +168,14 @@ const projectEditorConfig: EditorContentConfig<
   parseFormData: (formData: FormData) => {
     const validated = parseProjectFormData(formData);
     if (!validated.success) {
+      const errors = z.flattenError(validated.error).fieldErrors;
       return {
         success: false as const,
         state: {
-          errors: z.flattenError(validated.error).fieldErrors,
-          message: "Failed to save project.",
+          errors,
+          /* 47h: the image URL's refusal is the one the form can say whole
+           * (the form draws no field for it). */
+          message: errors.imageImportUrl?.[0] ?? "Failed to save project.",
         } as ProjectFormState,
       };
     }
