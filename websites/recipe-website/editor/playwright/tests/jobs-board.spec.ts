@@ -176,9 +176,11 @@ test.describe("Jobs, variant B (48c)", () => {
     /* Its page: the wait is the last line, still running. */
     await card.getByRole("link", { name: `${site}/r/slow-pie` }).click();
     const timeline = page.getByTestId("job-timeline");
+    /* Its log's first read (in `next dev`, the route's first compile). */
     await expect(timeline.locator("li").last()).toHaveAttribute(
       "data-step",
       "pace.wait",
+      { timeout: 30_000 },
     );
     await expect(timeline.locator("li").last()).toContainText(
       `Waiting for ${site} — now`,

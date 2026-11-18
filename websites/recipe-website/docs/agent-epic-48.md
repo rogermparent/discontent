@@ -688,6 +688,32 @@ bars — and the raw log).
 - Rounds: one kind, gaps under 10 min — a mixed evening (roundups, imports
   and rebuilds) is several rows, not B's one "Thanksgiving" row.
 
+#### Gates (48c)
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean (heavy slot), after the gate fixes.
+- `pnpm exec vitest run`: **192 files, 4,191 tests**, all passed. New:
+  `test/jobStory.test.ts` (the step log as sentences, the time split,
+  the live strip and why it waits, attention groups by cause, rounds),
+  `test/jobsBoard.test.ts` (`boardJob`, `GET /api/jobs/board` and
+  `/api/jobs/live`) and `test/picturePass.test.ts` (Dc1 on a fake clock and
+  across processes through the shared slot); `importList` updated.
+- Playwright in Docker, production build: `jobs-board.spec` **5 passed**
+  (after three gate fixes: a failed row's state word is filled, since
+  `--destructive` as text on the page is 4.49:1; the History filter fits a
+  390 px screen; the spec loads a fresh page after planting live jobs, as an
+  idle chip's next read is 20 s away); `accessibility`, `visual`,
+  `curator`, `git`, `jobs` **148 passed**; the import specs that show the
+  panel (`new-recipe`, `ytdlp-import`, `multi-recipe`, `photo-import`,
+  `import-roundup`, `fill-gaps`, `fill-uses`, `edit-with-ai`,
+  `edit-form-frame`) **77 passed**; `settings-nav` **9 passed**.
+- **No baseline moved**: the chip draws nothing while idle and is hidden in
+  screenshots.
+- Dev mode once (Docker, `next dev`): `jobs-board` and `settings-nav`
+  **13 passed, 1 flaky** — the job page's timeline waited past 5 s for its
+  log while `next dev` compiled the route; that wait is now 30 s, and
+  `jobs-board` again in dev mode: **5 passed**.
+
 ### 48d: Settings and `/git`, variant B (L)
 
 One "Sync & upkeep" page opening on a status sentence, the two machines
