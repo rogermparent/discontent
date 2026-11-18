@@ -249,6 +249,15 @@ survives a cleared context.
   Pi run epic 46's `b54d0efe`; 59 "Roger to confirm" items and Roger's steps
   (workstation update, `deploy:pi`, sign in once per device, the optional
   `RECIPE_LLM_CLAUDE_API_KEY`) are in the Close-out.
+- `websites/recipe-website/docs/agent-epic-48.md` — epic 48, **in progress**
+  (planned 2026-11-17): Roger's picks built — the seven epic 46 decisions he
+  changed (48a: a tagging run's post-check of what its search found and it
+  left out, one ⌘K holiday row while typing, prep + cook on a card with no
+  total, King Arthur AP flour and a bare pepper merged, `/drinks`' Strength &
+  method its own column, a holiday menu's drinks grouped as the reader
+  picks), then variant B of the four 47d canvases (48b `/curator`, 48c
+  `/jobs`, 48d Settings + `/git` with an API token screen, 48e the homepage)
+  and a content round of 10 terms and 2 choice conversions (48k).
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
