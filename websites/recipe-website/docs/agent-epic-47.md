@@ -57,19 +57,19 @@ Epics 43–46's way of working, unchanged:
 
 ## Phases
 
-| Phase    | What                                                  | Size        | Status |
-| -------- | ----------------------------------------------------- | ----------- | ------ |
-| 47a      | DNS-rebinding fix in the fetch guard                  | M           | ✅     |
-| 47b      | Guard the CMS `fileImportUrl` fetch (portfolio)       | S           | ✅     |
-| 47c      | Content round: four themes (and three more rounds)    | M (content) | ✅     |
-| 47d      | Design canvases for four page groups                  | M (design)  | ✅ (picks await Roger; built in epic 48) |
-| 47e      | Auth on Better Auth (Roger's ask)                     | L           | ✅     |
-| 47f      | A step's stored "uses" (Roger's ask)                  | M           | ✅     |
-| 47g      | The model fills a step's "uses", on demand            | M           | ✅     |
-| 47i      | Edit with AI (Roger's ask)                            | M/L         | ✅     |
-| 47j      | A recipe's own Notes (Roger's ask)                    | M/L         | ✅     |
-| 47h      | Fixes found along the way                             | M           | ✅     |
-| 47-close | Doc, memory, morning report, picks page               | S           | ✅     |
+| Phase    | What                                               | Size        | Status                                   |
+| -------- | -------------------------------------------------- | ----------- | ---------------------------------------- |
+| 47a      | DNS-rebinding fix in the fetch guard               | M           | ✅                                       |
+| 47b      | Guard the CMS `fileImportUrl` fetch (portfolio)    | S           | ✅                                       |
+| 47c      | Content round: four themes (and three more rounds) | M (content) | ✅                                       |
+| 47d      | Design canvases for four page groups               | M (design)  | ✅ (picks await Roger; built in epic 48) |
+| 47e      | Auth on Better Auth (Roger's ask)                  | L           | ✅                                       |
+| 47f      | A step's stored "uses" (Roger's ask)               | M           | ✅                                       |
+| 47g      | The model fills a step's "uses", on demand         | M           | ✅                                       |
+| 47i      | Edit with AI (Roger's ask)                         | M/L         | ✅                                       |
+| 47j      | A recipe's own Notes (Roger's ask)                 | M/L         | ✅                                       |
+| 47h      | Fixes found along the way                          | M           | ✅                                       |
+| 47-close | Doc, memory, morning report, picks page            | S           | ✅                                       |
 
 47a runs first; 47b builds on its shared guard. 47c and 47d are the
 orchestrator's and run while the code phases are in review or CI.
@@ -408,12 +408,12 @@ ADDRCONFIG}` (the resolver's order kept), for the check and for
 
 Four curator agents, one theme at a time, 2026-11-09 evening, through the CLI from the main checkout (`b54d0efe`, then `053d75bb`/`45c96471` — the CLI code they used did not change), `--llm off` throughout (no page needed the model, so no GPU), every write with `--notify` (the workstation revalidated), one commit per recipe, all synced to the Pi by the workstation (0 ahead / 0 behind afterwards). Polite scraping held: one request at a time, ≥ 15 s per host (20–60 s in practice), one 403 each from theseoldcookbooks.com and maangchi.com, both hosts dropped without a retry. Every recipe was checked with `recipes show`: a picture, sane times, its source and its tags. **58 recipes in all.**
 
-| Theme | Added | Tag counts | Sources |
-| --- | --- | --- | --- |
-| Thanksgiving and Christmas baking | 15 | thanksgiving 51 → 63, christmas 43 → 57 (with the drinks) | all Sally's |
-| Weeknight dinners | 15 | mains with a total of 45 min or less 11 → 26 | A Couple Cooks, RecipeTin Eats, Love and Lemons, Budget Bytes, The Mediterranean Dish, Once Upon a Chef |
-| Winter drinks | 10 | drinks 247 → 257; warm-drinks 17 → 25, grocery-store 61 → 65, zero-proof 46 → 52 | A Couple Cooks, Food Network, An Edible Mosaic, True North Kitchen, Muy Bueno, King Arthur, Wholefully, Ahead of Thyme |
-| Gaps by cuisine | 18 | korean 3 → 8, filipino 1 → 5, vietnamese 3 → 7, caribbean 10 → 15 | My Korean Kitchen, Kawaling Pinoy, Panlasang Pinoy, RecipeTin Eats, Hungry Huy, Wok and Kin, Cooking with Ria, Skinnytaste, Kitchen Gidget, The Kitchn |
+| Theme                             | Added | Tag counts                                                                       | Sources                                                                                                                                                |
+| --------------------------------- | ----- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Thanksgiving and Christmas baking | 15    | thanksgiving 51 → 63, christmas 43 → 57 (with the drinks)                        | all Sally's                                                                                                                                            |
+| Weeknight dinners                 | 15    | mains with a total of 45 min or less 11 → 26                                     | A Couple Cooks, RecipeTin Eats, Love and Lemons, Budget Bytes, The Mediterranean Dish, Once Upon a Chef                                                |
+| Winter drinks                     | 10    | drinks 247 → 257; warm-drinks 17 → 25, grocery-store 61 → 65, zero-proof 46 → 52 | A Couple Cooks, Food Network, An Edible Mosaic, True North Kitchen, Muy Bueno, King Arthur, Wholefully, Ahead of Thyme                                 |
+| Gaps by cuisine                   | 18    | korean 3 → 8, filipino 1 → 5, vietnamese 3 → 7, caribbean 10 → 15                | My Korean Kitchen, Kawaling Pinoy, Panlasang Pinoy, RecipeTin Eats, Hungry Huy, Wok and Kin, Cooking with Ria, Skinnytaste, Kitchen Gidget, The Kitchn |
 
 - **Baking** skipped cookies and pumpkin/pecan pies (well covered) for pies, bars, rolls, biscuits and baked sides: brown-sugar sweet potato pie, French silk pie, cranberry pear crumble pie, maple sweet potato pie bars, cranberry crumble pie bars, honey butter rolls, soft sweet potato rolls, brown butter sage dinner rolls, flaky buttermilk biscuits, cornbread, candied sweet potatoes, magic cookie bars, dark chocolate cranberry blondies, gingerbread loaf, mint chocolate brownies. Six Sally's recipes were already on the site (stuffings, sweet potato casserole, dinner rolls, mac and cheese, green bean casserole).
 - **Weeknight dinners** (all mains, total ≤ 45 min; `quick` only at ≤ 30): chicken piccata, mapo tofu, frittata five ways, ground beef fajitas, shrimp saganaki, teriyaki salmon, black bean tacos, spaghetti carbonara, shakshuka, sausage and vegetable skillet, Italian pork chops, fish tacos, turkey taco skillet, tofu stir-fry, chickpea curry. The Korean, Filipino, Vietnamese and Caribbean cuisines were left to theme 4.
@@ -434,12 +434,12 @@ Four curator agents, one theme at a time, 2026-11-09 evening, through the CLI fr
 
 Four Claude Design canvases, one subagent each, on the Recipe Editor Design System (the site's tokens, fonts and components), prototyped on real data (the corpus, the job store, the content repo's history, and 46k's four real Claude curator runs). Each has a Today board (a screenshot, or a rebuild from source marked as one where the page needs sign-in), variants A (refine), B (rethink) and C (bold) on desktop and phone, B in dark, a label per variant and a scoping-assumptions note (the run was unattended). Not render-checked.
 
-| Page | Canvas | A | B (every agent's pick) | C |
-| --- | --- | --- | --- | --- |
-| `/curator` | https://claude.ai/artifact/1eW56Q6JuyQKXQucG1F9Fy | Sharper bench | Ask, watch, approve — writes held until you approve | The ticket |
-| `/jobs` + a job's page | https://claude.ai/artifact/NHrPGNf5TYuvtzBp3naVwx | Sharper log | Now / needs a look / history | The lanes |
-| Settings + `/git` | https://claude.ai/artifact/FASzPFRYuYwBqJSEvFr6FX | Sharper bench | Is everything in sync? | Two benches |
-| Homepage | https://claude.ai/artifact/5Hka15zkvWJ6xXbBohgNA3 | Sharper bench | Tonight, then the next feast | The fridge door |
+| Page                   | Canvas                                            | A             | B (every agent's pick)                              | C               |
+| ---------------------- | ------------------------------------------------- | ------------- | --------------------------------------------------- | --------------- |
+| `/curator`             | https://claude.ai/artifact/1eW56Q6JuyQKXQucG1F9Fy | Sharper bench | Ask, watch, approve — writes held until you approve | The ticket      |
+| `/jobs` + a job's page | https://claude.ai/artifact/NHrPGNf5TYuvtzBp3naVwx | Sharper log   | Now / needs a look / history                        | The lanes       |
+| Settings + `/git`      | https://claude.ai/artifact/FASzPFRYuYwBqJSEvFr6FX | Sharper bench | Is everything in sync?                              | Two benches     |
+| Homepage               | https://claude.ai/artifact/5Hka15zkvWJ6xXbBohgNA3 | Sharper bench | Tonight, then the next feast                        | The fridge door |
 
 Problems the agents found on today's pages are on the picks page under "Found along the way" (17 rows: e.g. a 404 inspect shown as done, `/jobs` "done" hiding 10 of 115 read-nothing jobs, the Result section empty for curator runs, a green "in sync" beside "no upstream", history naming ids instead of recipes, the homepage showing two recipes three times and Halloween still featured). **Picks page:** https://claude.ai/artifact/MeV82ZbXtvYsNq4SbNS2zn (db capability; probe write/read/delete checked).
 
@@ -2255,23 +2255,23 @@ stamp (39b) therefore has nothing to rebuild at the next start.
 
 #### What landed
 
-| Phase | PR   | Merge      | What                                                                                                                                                                        |
-| ----- | ---- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| plan  | #330 | `430b7337` | The skeleton: context, how it runs, roadmap.                                                                                                                                |
-| CI    | #331 | `effa397d` | The Playwright image pinned by digest (Node 24, corepack).                                                                                                                  |
-| docs  | #332 | `053d75bb` | Epic 46's close-out and the 47e section.                                                                                                                                    |
-| 47a   | #333 | `45c96471` | DNS rebinding closed: each hop dials only the addresses the guard vetted (`pinnedDispatcher`, undici 6.29.1).                                                               |
-| fix   | #334 | `81362f1c` | The step-ingredient matcher (heavy cream, two bowls: a step's Uses lists a line where it comes in) and the YouTube axe exclusion.                                           |
-| 47e   | #335 | `8152c9c4` | Auth on Better Auth (`@discontent/auth`): an app-owned `/login` that stays on the host you used, password only, remember this device, sign out everywhere, rate limits.     |
-| 47b   | #336 | `d49678c5` | The CMS `fileImportUrl` fetch guarded through an injected `uploadFetch` (shared `@discontent/url-guard`); the portfolio passes the guard; fails closed.                      |
-| 47f   | #337 | `8dfe5bac` | A step's stored `uses` (names) overrides the guess; `resolveStepUses`; chips and a picker in the edit form; every write seat carries it.                                     |
-| 47g   | #338 | `22aaa95d` | "Fill gaps" suggests each step's `uses`, marked, offered per step (Accept / Dismiss), never on import; `recipes fill --uses`.                                               |
-| 47i   | #339 | `c4750fbf` | "Edit with AI" on the edit page: a free request, the local model by default, "Use Claude", "Suggest step uses"; a strict all-or-nothing check; `recipes revise`.            |
-| 47j   | #340 | `d8e81c6d` | A recipe's own Notes (`notes: string[]`), a page section, a form editor, learned per-site selectors on import, `recipes notes migrate`.                                      |
-| 47h   | #341 | `9caaf8ee` | Nineteen rows worked (most fixed, a few left as design picks): read-nothing jobs, names in rows, `/git` history, the homepage's duplicates, upload type and size caps, a flake fixed at the root.      |
-| 47c   | —    | (CLI)      | The content round: 58 recipes (Results above), then the later rounds (Content below).                                                                                       |
-| 47d   | —    | artifact   | Four canvases and a picks page (Canvases below).                                                                                                                            |
-| close | —    | this PR    | This close-out, the status lines, backlog rows and the CLAUDE.md bullet.                                                                                                   |
+| Phase | PR   | Merge      | What                                                                                                                                                                                              |
+| ----- | ---- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| plan  | #330 | `430b7337` | The skeleton: context, how it runs, roadmap.                                                                                                                                                      |
+| CI    | #331 | `effa397d` | The Playwright image pinned by digest (Node 24, corepack).                                                                                                                                        |
+| docs  | #332 | `053d75bb` | Epic 46's close-out and the 47e section.                                                                                                                                                          |
+| 47a   | #333 | `45c96471` | DNS rebinding closed: each hop dials only the addresses the guard vetted (`pinnedDispatcher`, undici 6.29.1).                                                                                     |
+| fix   | #334 | `81362f1c` | The step-ingredient matcher (heavy cream, two bowls: a step's Uses lists a line where it comes in) and the YouTube axe exclusion.                                                                 |
+| 47e   | #335 | `8152c9c4` | Auth on Better Auth (`@discontent/auth`): an app-owned `/login` that stays on the host you used, password only, remember this device, sign out everywhere, rate limits.                           |
+| 47b   | #336 | `d49678c5` | The CMS `fileImportUrl` fetch guarded through an injected `uploadFetch` (shared `@discontent/url-guard`); the portfolio passes the guard; fails closed.                                           |
+| 47f   | #337 | `8dfe5bac` | A step's stored `uses` (names) overrides the guess; `resolveStepUses`; chips and a picker in the edit form; every write seat carries it.                                                          |
+| 47g   | #338 | `22aaa95d` | "Fill gaps" suggests each step's `uses`, marked, offered per step (Accept / Dismiss), never on import; `recipes fill --uses`.                                                                     |
+| 47i   | #339 | `c4750fbf` | "Edit with AI" on the edit page: a free request, the local model by default, "Use Claude", "Suggest step uses"; a strict all-or-nothing check; `recipes revise`.                                  |
+| 47j   | #340 | `d8e81c6d` | A recipe's own Notes (`notes: string[]`), a page section, a form editor, learned per-site selectors on import, `recipes notes migrate`.                                                           |
+| 47h   | #341 | `9caaf8ee` | Nineteen rows worked (most fixed, a few left as design picks): read-nothing jobs, names in rows, `/git` history, the homepage's duplicates, upload type and size caps, a flake fixed at the root. |
+| 47c   | —    | (CLI)      | The content round: 58 recipes (Results above), then the later rounds (Content below).                                                                                                             |
+| 47d   | —    | artifact   | Four canvases and a picks page (Canvases below).                                                                                                                                                  |
+| close | —    | this PR    | This close-out, the status lines, backlog rows and the CLAUDE.md bullet.                                                                                                                          |
 
 #### Content
 
@@ -2305,12 +2305,12 @@ builds them. The picks page (also carrying the content round's proposed terms,
 the alternatives suggestions and 17 "found along the way" rows, most fixed by
 47h) is https://claude.ai/artifact/MeV82ZbXtvYsNq4SbNS2zn.
 
-| Page                  | Canvas                                              | A              | B (agent's pick)                                                                         | C                |
-| --------------------- | --------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------- | ---------------- |
-| `/curator`            | https://claude.ai/artifact/1eW56Q6JuyQKXQucG1F9Fy   | Sharper bench  | Ask, watch, approve: writes held until Save, Ask → Working → Review, a cost per ask      | The ticket       |
-| `/jobs` + a job       | https://claude.ai/artifact/NHrPGNf5TYuvtzBp3naVwx   | Sharper log    | Now / needs a look / history: a live chip in the masthead, failures grouped by cause     | The lanes        |
-| Settings + `/git`     | https://claude.ai/artifact/FASzPFRYuYwBqJSEvFr6FX   | Sharper bench  | Is everything in sync?: one "Sync & upkeep" page, two machines side by side, git under Advanced | Two benches |
-| Homepage              | https://claude.ai/artifact/5Hka15zkvWJ6xXbBohgNA3   | Sharper bench  | Tonight, then the next feast: search + Ask, the next holiday's menu, new by batch        | The fridge door  |
+| Page              | Canvas                                            | A             | B (agent's pick)                                                                                | C               |
+| ----------------- | ------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------- | --------------- |
+| `/curator`        | https://claude.ai/artifact/1eW56Q6JuyQKXQucG1F9Fy | Sharper bench | Ask, watch, approve: writes held until Save, Ask → Working → Review, a cost per ask             | The ticket      |
+| `/jobs` + a job   | https://claude.ai/artifact/NHrPGNf5TYuvtzBp3naVwx | Sharper log   | Now / needs a look / history: a live chip in the masthead, failures grouped by cause            | The lanes       |
+| Settings + `/git` | https://claude.ai/artifact/FASzPFRYuYwBqJSEvFr6FX | Sharper bench | Is everything in sync?: one "Sync & upkeep" page, two machines side by side, git under Advanced | Two benches     |
+| Homepage          | https://claude.ai/artifact/5Hka15zkvWJ6xXbBohgNA3 | Sharper bench | Tonight, then the next feast: search + Ask, the next holiday's menu, new by batch               | The fridge door |
 
 Notes for epic 48: the `/curator` B needs loop work (a held write answers like
 a dry run); sessions are per editor (47e), so Settings' "Sign out everywhere"
@@ -2523,7 +2523,7 @@ Each item is one line; the reasons are in the phase's section. 59 items:
   `updateSettings`' lock (Tj7).
 - **A dry run fetches the picture too (Tc1)** and **`create --file` refused
   `"videoImportUrl": null` (Tc2):** addressed by 47h rows 15 and 16 (`create
-  --file` and the API accept the null; the dry-run probe is now paced, though
+--file` and the API accept the null; the dry-run probe is now paced, though
   it still fetches).
 - **The machine's GPU is AMD (Tg6):** no `nvidia-smi`; read
   `/sys/class/drm/card1/device/mem_info_vram_used` and Ollama's `/api/ps`.
