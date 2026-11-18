@@ -719,7 +719,10 @@ exec tsc --noEmit`: clean (heavy slot), after the gate fixes.
   released, as accessibility.spec's phone sweep does (41f).
   `expectNoViolations` takes `disable` and `only` for that. After the fix:
   `jobs-board` **5 passed** and `mirror-role` **8 passed** (production),
-  and both **13 passed** in dev mode.
+  and both **13 passed** in dev mode. CI's second run (f1889809) passed
+  all four Recipe shards; its Unit tests caught `jobsBoard.test.ts`
+  planting two jobs in one millisecond, whose ULIDs sort at random. The
+  done job is now planted a minute earlier.
 - Dev mode once (Docker, `next dev`): `jobs-board` and `settings-nav`
   **13 passed, 1 flaky** — the job page's timeline waited past 5 s for its
   log while `next dev` compiled the route; that wait is now 30 s, and

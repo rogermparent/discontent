@@ -131,9 +131,11 @@ describe("boardJob", () => {
 
 describe("GET /api/jobs/board", () => {
   it("answers the rows, the live jobs' logs and the queue", async () => {
-    const done = await plant({
-      spec: { kind: "inspect", url: "https://a.test/" },
-    });
+    /* Older than the live one: two ids in one millisecond sort at random. */
+    const done = await plant(
+      { spec: { kind: "inspect", url: "https://a.test/" } },
+      60_000,
+    );
     const live = await plant({
       spec: { kind: "import-url", url: "https://a.test/slow" },
       status: "running",
