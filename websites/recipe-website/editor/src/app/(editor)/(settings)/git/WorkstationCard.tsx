@@ -6,6 +6,7 @@ import {
   readPingState,
   workstationConfig,
 } from "../../../../../controller/instance/pinger";
+import { syncOutcomeWords } from "../../../../../controller/curation/syncWords";
 import { pingWorkstationAction } from "./mirrorActions";
 
 /**
@@ -45,7 +46,7 @@ export async function WorkstationCard() {
             {ping
               ? `Last asked ${new Date(ping.at).toLocaleString()}: ` +
                 (ping.ok
-                  ? `${name} answered ${ping.outcome ?? "ok"}`
+                  ? `${name} answered: ${ping.outcome ? syncOutcomeWords(ping.outcome) : "ok"}`
                   : (ping.message ?? `HTTP ${ping.status}`))
               : `Not asked yet.`}
           </p>
