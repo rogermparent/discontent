@@ -102,7 +102,7 @@ test.describe("Settings navigation", () => {
     ).not.toHaveAttribute("aria-current", "page");
   });
 
-  test("Jobs is its own item, lit on /jobs and a job's page; Tools links it too (38b)", async ({
+  test("Jobs is its own item; Tools links it too (38b); /jobs is a page of its own (48c)", async ({
     page,
   }) => {
     await page.goto("/");
@@ -118,22 +118,19 @@ test.describe("Settings navigation", () => {
     await expect(
       page.getByRole("heading", { name: "Jobs", exact: true }),
     ).toBeVisible();
-    await expect(
-      sidebar.getByRole("link", { name: "Jobs", exact: true }),
-    ).toHaveAttribute("aria-current", "page");
-    await expect(
-      sidebar.getByRole("link", { name: "Tools", exact: true }),
-    ).not.toHaveAttribute("aria-current", "page");
-
-    /* A job's page keeps Jobs lit. */
+    /* 48c (canvas B): Jobs left Settings for a page of its own, so the
+     * Settings sidebar is not on it, nor on a job's page. */
+    await expect(sidebar).toHaveCount(0);
     const job = await recordOutsideJob("a settings-nav job");
     await page.goto(`/jobs/${job}`);
     await expect(
       page.getByRole("heading", { name: "a settings-nav job" }),
     ).toBeVisible();
-    await expect(
-      sidebar.getByRole("link", { name: "Jobs", exact: true }),
-    ).toHaveAttribute("aria-current", "page");
+    await expect(sidebar).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "← Jobs" })).toHaveAttribute(
+      "href",
+      "/jobs",
+    );
   });
 
   test("navigates to Maintenance with active state", async ({ page }) => {

@@ -13,7 +13,9 @@ import { cn } from "@discontent/component-library/lib/utils";
  * A job's steps as bars on one time axis (37c): each step a row — its
  * name indented by its nesting (`parent`), a bar from its start to its end
  * (or to now, while it runs), its time — so a look says where the minute
- * went: the model, the queue, a site's polite gap.
+ * went: the model, the queue, a site's polite gap. Since 48c it sits under
+ * the job page's "For the curious" ("Every step, to scale"); the page's own
+ * timeline is the story (`jobStory`).
  */
 export function StepTimeline({
   steps,
@@ -38,7 +40,7 @@ export function StepTimeline({
   );
   const span = Math.max(1, last - start);
   return (
-    <ol className="space-y-1 text-sm" data-testid="job-timeline">
+    <ol className="space-y-1 text-sm" data-testid="job-step-bars">
       {rows.map((node) => {
         const offset = Math.max(0, node.startedAt - start);
         const length = node.ms ?? Math.max(0, now - node.startedAt);

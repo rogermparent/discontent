@@ -667,13 +667,14 @@ test.describe("Git content", () => {
       await expect(page.getByTestId("index-stale-banner")).toHaveCount(0);
 
       /* D2: that rebuild was a job, with a step per content type. */
-      await page.goto("/jobs");
+      /* 48c: one row per job, so no round of rebuilds folds this one. */
+      await page.goto("/jobs?rows=each");
       const row = page
         .getByTestId("job-list")
         .locator("[data-job]")
         .filter({ hasText: "rebuild every index (the editor)" })
         .first();
-      await expect(row).toContainText("reindex");
+      await expect(row).toHaveAttribute("data-kind", "reindex");
       await expect(row.getByTestId("job-status")).toHaveText("done");
       await row.getByRole("link").click();
       const timeline = page.getByTestId("job-timeline");

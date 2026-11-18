@@ -22,7 +22,15 @@ import { ulid } from "@discontent/cms/util/ulid";
 import { recipeContentTypes } from "../../controller/contentTypes";
 import { writeExportStamp } from "../../controller/exportStamp";
 import { currentIndexVersion } from "../../controller/indexVersion";
-import { newJobMeta, writeJobMeta } from "../../controller/jobs/store";
+import type { JobLine } from "../../controller/jobs/log";
+import {
+  logPath,
+  metaPath,
+  newJobMeta,
+  readJobMeta,
+  writeJobMeta,
+  type JobMeta,
+} from "../../controller/jobs/store";
 import { addTokenToUser, removeTokensFromUser } from "../../src/users";
 
 const projectRoot = resolve(__dirname, "..", "..");
@@ -103,6 +111,56 @@ export async function recordOutsideJob(label: string): Promise<string> {
     result: {},
   });
   return id;
+}
+
+/**
+ * A job planted in the server's store with a step log (48c), as another
+ * process leaves one: `patch` over a fresh record (this test process's pid,
+ * so a `running` one stays live until `endPlantedJob`), `lines` as its
+ * `<id>.log.jsonl`. `at` dates its id (a ULID sorts by time). Answers its
+ * id.
+ */
+export async function plantJob(
+  patch: Partial<JobMeta> & Pick<JobMeta, "kind" | "label" | "spec">,
+  { lines = [], at = Date.now() }: { lines?: JobLine[]; at?: number } = {},
+): Promise<string> {
+  const dir = resolve(projectRoot, "test-jobs");
+  await ensureDir(dir);
+  const id = ulid(at);
+  const base = newJobMeta(
+    id,
+    { kind: patch.kind, label: patch.label, spec: patch.spec },
+    at,
+  );
+  await writeJobMeta(dir, { ...base, ...patch, id });
+  if (lines.length) {
+    await writeFile(
+      logPath(dir, id),
+      lines.map((line) => JSON.stringify(line)).join("\n") + "\n",
+    );
+  }
+  return id;
+}
+
+/** End a planted live job (48c): no other test sees it running. */
+export async function endPlantedJob(
+  id: string,
+  status: JobMeta["status"] = "cancelled",
+): Promise<void> {
+  const dir = resolve(projectRoot, "test-jobs");
+  const meta = await readJobMeta(dir, id).catch(() => undefined);
+  if (!meta) return;
+  const { waiting: _waiting, ...rest } = meta;
+  await writeJobMeta(dir, { ...rest, status, endedAt: Date.now() });
+}
+
+/** Take planted jobs out of the store again (48c). */
+export async function removePlantedJobs(ids: readonly string[]): Promise<void> {
+  const dir = resolve(projectRoot, "test-jobs");
+  for (const id of ids) {
+    await remove(metaPath(dir, id));
+    await remove(logPath(dir, id));
+  }
 }
 
 export function fixturePath(...segments: string[]): string {

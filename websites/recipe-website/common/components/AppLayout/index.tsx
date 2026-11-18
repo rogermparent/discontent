@@ -62,6 +62,8 @@ async function readRecipeCount(): Promise<number | undefined> {
 
 interface SiteHeaderProps {
   extraNavItems?: ReactNode;
+  /** 48c: the editor's live jobs chip (`HeaderNav`'s `liveStatus`). */
+  liveStatus?: { desktop: ReactNode; phone: ReactNode };
   /** The signed-in owner also sees Shopping (U2). */
   isOwner?: boolean;
 }
@@ -72,7 +74,11 @@ interface SiteHeaderProps {
  * the masthead's two links before; every masthead change regenerates every
  * full-page visual baseline, because the masthead is on every page.
  */
-async function SiteHeader({ extraNavItems, isOwner = false }: SiteHeaderProps) {
+async function SiteHeader({
+  extraNavItems,
+  liveStatus,
+  isOwner = false,
+}: SiteHeaderProps) {
   const [headerMenu, recipeCount, hasHolidays] = await Promise.all([
     getMenuBySlug<MenuItem>("header"),
     readRecipeCount(),
@@ -104,6 +110,7 @@ async function SiteHeader({ extraNavItems, isOwner = false }: SiteHeaderProps) {
         <HeaderNav
           menuItems={headerMenu?.items ?? []}
           extraNavItems={extraNavItems}
+          liveStatus={liveStatus}
           isOwner={isOwner}
           recipeCount={recipeCount}
           hasHolidays={hasHolidays}
@@ -274,6 +281,11 @@ async function SiteFooter({ ownerLinks, footer }: SiteFooterProps) {
 export interface AppLayoutProps {
   children: React.ReactNode;
   headerNavItems?: ReactNode;
+  /**
+   * Editor-only (48c): the live jobs chip in the masthead, a desktop and a
+   * phone element (each nothing while idle). The export never passes it.
+   */
+  liveStatus?: { desktop: ReactNode; phone: ReactNode };
   /** Owner-only "Manage" column for the footer (editor app only). */
   footerNavItems?: ReactNode;
   /** Owner-configured footer note + contact links (shared plumbing, PR 13). */
@@ -299,6 +311,7 @@ export interface AppLayoutProps {
 export async function AppLayout({
   children,
   headerNavItems,
+  liveStatus,
   footerNavItems,
   footer,
   theme,
@@ -350,7 +363,11 @@ export async function AppLayout({
           commandPaletteAuth={commandPaletteAuth}
           commandPaletteAsk={commandPaletteAsk}
         >
-          <SiteHeader extraNavItems={headerNavItems} isOwner={isOwner} />
+          <SiteHeader
+            extraNavItems={headerNavItems}
+            liveStatus={liveStatus}
+            isOwner={isOwner}
+          />
           {children}
           <SiteFooter ownerLinks={footerNavItems} footer={footer} />
           <PhoneTabBar />

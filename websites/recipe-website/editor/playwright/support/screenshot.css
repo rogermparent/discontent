@@ -12,3 +12,12 @@
 nextjs-portal {
   display: none !important;
 }
+
+/*
+ * 48c: the masthead's live jobs chip shows only while a job runs or waits —
+ * a job another test left running (or cancelled, still winding down) would
+ * otherwise move every full-page baseline's masthead.
+ */
+[data-testid="jobs-live-chip"] {
+  display: none !important;
+}
