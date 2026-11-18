@@ -153,8 +153,9 @@ export function Tonight({
       <div
         className={cn(
           "grid grid-cols-1 items-stretch gap-4 lg:gap-5",
-          panels === 3 && "lg:grid-cols-3",
-          panels === 2 && "md:grid-cols-2",
+          /* Thirds on a laptop whatever the day has, so a lone Make tile is
+           * a tile, not a banner. */
+          panels === 3 ? "lg:grid-cols-3" : "md:grid-cols-2 lg:grid-cols-3",
         )}
       >
         {quickShown.length > 0 && (
