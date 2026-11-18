@@ -2,6 +2,8 @@
 //
 // 46e: the by-term row carries `totalTime` when the recipe has one, so a term
 // page's card can show the time in place of the date. Version "3".
+// 48a: without a total it carries `prepTime` and `cookTime`, and the card
+// shows their sum (`cardTime`). Version "4".
 
 import { describe, expect, it } from "vitest";
 import { recipeTagTaxonomy } from "../websites/recipe-website/common/controller/recipeTagTaxonomy";
@@ -37,20 +39,34 @@ describe("recipeTagTaxonomy's by-term row", () => {
     });
   });
 
-  it("leaves the key out when there is no total, not undefined", () => {
+  it("carries prep and cook when there is no total (48a)", () => {
     const row = project({ name: "Banana Bread", prepTime: 15, cookTime: 60 });
     expect(row).toEqual({
       slug: "banana-bread",
       date: 1_790_000_000_000,
       name: "Banana Bread",
+      prepTime: 15,
+      cookTime: 60,
     });
     expect(Object.keys(row)).not.toContain("totalTime");
-    expect(
-      Object.keys(project({ name: "Banana Bread", totalTime: 0 })),
-    ).not.toContain("totalTime");
+    expect(project({ name: "Banana Bread", cookTime: 60 })).toEqual({
+      slug: "banana-bread",
+      date: 1_790_000_000_000,
+      name: "Banana Bread",
+      cookTime: 60,
+    });
   });
 
-  it("is version 3, so the stamp rebuilds every instance once (39b)", () => {
-    expect(recipeTagTaxonomy.version).toBe("3");
+  it("leaves the keys out when there are no times, not undefined", () => {
+    for (const value of [
+      { name: "Banana Bread" },
+      { name: "Banana Bread", totalTime: 0, prepTime: 0, cookTime: 0 },
+    ]) {
+      expect(Object.keys(project(value))).toEqual(["slug", "date", "name"]);
+    }
+  });
+
+  it("is version 4, so the stamp rebuilds every instance once (39b)", () => {
+    expect(recipeTagTaxonomy.version).toBe("4");
   });
 });

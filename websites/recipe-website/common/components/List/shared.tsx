@@ -160,11 +160,17 @@ export function RecipeCardMeta({ children }: { children: ReactNode }) {
 /**
  * A recipe card's time in place of its date (46e: term-page cards) — "1 h
  * 15 m" in the plan page's short form, as a `<time>` with an ISO duration
- * (`PT75M`) so "55 m" is not read as metres — or `undefined` without a
- * total, and the card shows its date as before.
+ * (`PT75M`) so "55 m" is not read as metres. Its total, else prep + cook
+ * (48a, Roger's pick: the recipe page's total adds them up the same way);
+ * `undefined` with no time at all, and the card shows its date as before.
  */
-export function cardTime(recipe: { totalTime?: number }): ReactNode {
-  const minutes = recipe.totalTime;
+export function cardTime(recipe: {
+  totalTime?: number;
+  prepTime?: number;
+  cookTime?: number;
+}): ReactNode {
+  const minutes =
+    recipe.totalTime || (recipe.prepTime ?? 0) + (recipe.cookTime ?? 0);
   if (!minutes) return undefined;
   return <time dateTime={`PT${minutes}M`}>{formatTotalTime(minutes)}</time>;
 }
