@@ -1,6 +1,6 @@
 import { test, expect } from "../support/test";
 import { searchFor } from "../support/helpers";
-import { snapshotPage } from "../support/visual";
+import { BASELINE_DAY, snapshotPage } from "../support/visual";
 
 test.describe("Empty States", () => {
   test("homepage shows empty message when there are no recipes", async ({
@@ -8,6 +8,7 @@ test.describe("Empty States", () => {
     resetData,
   }) => {
     await resetData();
+    await page.clock.setFixedTime(BASELINE_DAY);
     await page.goto("/");
 
     await expect(page.getByText("There are no recipes yet.")).toBeVisible();

@@ -27,11 +27,23 @@ async function waitForReady(page: Page): Promise<void> {
   });
 }
 
+/**
+ * The day the homepage baselines were drawn: Wednesday 18 November 2026,
+ * noon. Since 48e the homepage reads the browser's day (Tonight says "the
+ * weekend" on Friday and Saturday, and the date line's width follows the
+ * day's name), so a homepage snapshot pins the browser's clock to it with
+ * `page.clock.setFixedTime(BASELINE_DAY)` before the first `goto`, or CI
+ * fails every Friday and Saturday (found 2026-11-20).
+ */
+export const BASELINE_DAY = new Date(2026, 10, 18, 12);
+
 function defaultMasks(page: Page): Locator[] {
   return [
     page.locator("time"),
     page.locator("[data-testid='commit-hash']"),
     page.locator("[data-testid='recipe-date']"),
+    /* Sync & upkeep's "Today · Wed 18 Nov": the server's day (48d). */
+    page.locator("[data-testid='commit-day']"),
   ];
 }
 
