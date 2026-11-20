@@ -53,7 +53,8 @@ export function ModelChoice({
 }) {
   const name = useId();
   const models = setup.models ?? [];
-  if (models.length < 2) {
+  const unavailable = setup.unavailable ?? [];
+  if (models.length < 2 && unavailable.length === 0) {
     const only = models[0];
     return (
       <div className="flex flex-col gap-0.5">
@@ -113,6 +114,34 @@ export function ModelChoice({
           </label>
         );
       })}
+      {/* 48-close #12 (Roger): a model this editor can't run yet stays in
+       * view, disabled, saying what to set. */}
+      {unavailable.map((option) => (
+        <label
+          key={option.id}
+          className="flex min-h-11 cursor-not-allowed items-start gap-2.5 rounded-md border border-dashed border-input bg-muted/40 px-3 py-2 text-left"
+          data-testid={`curator-model-unavailable-${option.id}`}
+        >
+          <input
+            type="radio"
+            name={name}
+            value={option.id}
+            checked={false}
+            disabled
+            readOnly
+            className="mt-1 size-4 shrink-0"
+          />
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
+              <Cloud aria-hidden className="size-3.5 shrink-0" />
+              {option.words}
+            </span>
+            <span className="text-xs break-words text-muted-foreground">
+              {option.why}.
+            </span>
+          </span>
+        </label>
+      ))}
     </fieldset>
   );
 }

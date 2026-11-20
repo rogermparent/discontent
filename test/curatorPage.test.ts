@@ -985,7 +985,26 @@ describe("the page's words", () => {
           newerWebTools: false,
         },
       ],
+      /* 48-close #12: Claude shows, disabled, saying what to set. */
+      unavailable: [
+        {
+          id: "claude",
+          words: "Claude Sonnet 5 through the API",
+          why: "Not set up here: add RECIPE_LLM_CLAUDE_API_KEY to this editor's editor/.env to offer it",
+        },
+      ],
     });
+    /* With the key, Claude is a real choice and nothing is unavailable. */
+    const both = curatorSetup({
+      RECIPE_LLM_URL: "http://localhost:11434",
+      RECIPE_LLM_CLAUDE_API_KEY: "sk-ant-secret-1111",
+    });
+    expect(both?.models?.map((option) => option.id)).toEqual([
+      "local",
+      "claude",
+    ]);
+    expect(both?.unavailable).toBeUndefined();
+    expect(JSON.stringify(both)).not.toContain("sk-ant");
     expect(
       curatorSetup({
         RECIPE_LLM_URL: "http://localhost:11434",
@@ -1003,6 +1022,8 @@ describe("the page's words", () => {
       newerWebTools: true,
       models: [{ id: "claude", name: "Claude Sonnet 5", maxCostUsd: 1 }],
     });
+    /* A Claude-only editor (the Pi) shows no disabled local model. */
+    expect(claude?.unavailable).toBeUndefined();
     expect(JSON.stringify(claude)).not.toContain("sk-ant");
     /* 46d: a Haiku has no newer web tools: the box is not offered. */
     expect(

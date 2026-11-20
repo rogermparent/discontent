@@ -15,8 +15,18 @@
  *   away is marked `missing`).
  */
 import { getRecipeBySlug } from "recipe-website-common/controller/data/read";
-import { takesNewerWebTools, type LlmConfig } from "../llm/client";
-import { agentCostBudget, curatorModels, type CuratorModelId } from "./job";
+import {
+  DEFAULT_CLAUDE_MODEL,
+  takesNewerWebTools,
+  type LlmConfig,
+} from "../llm/client";
+import {
+  agentCostBudget,
+  CURATOR_CLAUDE_KEY_ENV,
+  CURATOR_CLAUDE_MODEL_ENV,
+  curatorModels,
+  type CuratorModelId,
+} from "./job";
 import { heldCalls } from "./held";
 import { readDecisions } from "./reviewStore";
 import { appliedSummaries } from "./review";
@@ -60,6 +70,23 @@ export interface CuratorSetup {
    * above are the first's.
    */
   models?: CuratorModelOption[];
+  /**
+   * Models this editor could offer but can't yet, each with why (Roger,
+   * 2026-11-20, 48-close #12): on a local-model editor with no Claude key,
+   * Claude shows as a disabled choice that says what to set, so the option
+   * is apparent. Kept apart from `models`, which lists only what a run may
+   * pick.
+   */
+  unavailable?: CuratorUnavailableModel[];
+}
+
+/** A model shown but not offered (48-close #12). */
+export interface CuratorUnavailableModel {
+  id: CuratorModelId;
+  /** "Claude Sonnet 5 through the API". */
+  words: string;
+  /** What to set to offer it; never a key. */
+  why: string;
 }
 
 /** One model an ask may pick (48b, Db5). */
@@ -110,12 +137,24 @@ export function curatorSetup(
     return config ? [modelOption(id, config, env)] : [];
   });
   const first = options[0];
+  const unavailable: CuratorUnavailableModel[] = models.claude
+    ? []
+    : [
+        {
+          id: "claude",
+          words: `${claudeModelName(
+            env[CURATOR_CLAUDE_MODEL_ENV]?.trim() || DEFAULT_CLAUDE_MODEL,
+          )} through the API`,
+          why: `Not set up here: add ${CURATOR_CLAUDE_KEY_ENV} to this editor's editor/.env to offer it`,
+        },
+      ];
   return {
     model: first.words,
     api: first.api,
     search: first.search,
     newerWebTools: first.newerWebTools,
     models: options,
+    ...(unavailable.length ? { unavailable } : {}),
   };
 }
 
