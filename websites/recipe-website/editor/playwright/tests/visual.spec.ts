@@ -6,7 +6,7 @@ import {
   searchFor,
   signIn,
 } from "../support/helpers";
-import { snapshotLocator, snapshotPage } from "../support/visual";
+import { BASELINE_DAY, snapshotLocator, snapshotPage } from "../support/visual";
 
 /*
  * The edit form's preview of Recipe 6's image is a downscaled raster, and
@@ -21,6 +21,7 @@ const EDIT_FORM_IMAGE = { maxDiffPixels: 1_500 };
 test.describe("Visual baselines @visual", () => {
   test("homepage with three recipes", async ({ page, resetData }) => {
     await resetData("three-recipes");
+    await page.clock.setFixedTime(BASELINE_DAY);
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await snapshotPage(page, "homepage-three-recipes.png");
@@ -31,6 +32,7 @@ test.describe("Visual baselines @visual", () => {
     resetData,
   }) => {
     await resetData("two-pages");
+    await page.clock.setFixedTime(BASELINE_DAY);
     await page.goto("/");
     await expect(
       page.getByRole("link", { name: "All 7 recipes", exact: true }),
@@ -207,6 +209,11 @@ test.describe("Visual baselines @visual", () => {
     await expect(
       page.getByRole("button", { name: "Checkout", exact: true }),
     ).toBeVisible();
+    /* The day heading is the server's today (masked by default); a fixed
+     * width keeps the mask the same size on "Sat 7 Nov" and "Wed 18 Nov". */
+    await page.addStyleTag({
+      content: "[data-testid='commit-day']{display:inline-block;width:24ch}",
+    });
     await snapshotPage(page, "git-page.png");
   });
 
@@ -226,6 +233,7 @@ test.describe("Visual baselines @visual", () => {
 
   test("layout footer signed out", async ({ page, resetData }) => {
     await resetData();
+    await page.clock.setFixedTime(BASELINE_DAY);
     await page.goto("/");
     await expect(
       page.getByRole("button", { name: "Sign In", exact: true }),
@@ -235,6 +243,7 @@ test.describe("Visual baselines @visual", () => {
 
   test("layout footer signed in", async ({ page, resetData }) => {
     await resetData();
+    await page.clock.setFixedTime(BASELINE_DAY);
     await page.goto("/");
     await signIn(page);
     await expect(

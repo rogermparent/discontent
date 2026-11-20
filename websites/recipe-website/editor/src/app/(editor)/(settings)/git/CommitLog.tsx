@@ -194,7 +194,7 @@ export function CommitLog({
           aria-label={dayHeading(day, today, local)}
         >
           <p className="flex items-baseline gap-2.5 border-b pt-3 pb-1.5 font-mono text-xs tracking-[0.08em] text-muted-foreground uppercase">
-            <span className="text-foreground">
+            <span className="text-foreground" data-testid="commit-day">
               {dayHeading(day, today, local)}
             </span>
             {dayCommits.length > 1 && (
