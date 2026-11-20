@@ -110,6 +110,11 @@ export default defineConfig({
        * and would send a stand-in Claude's request shape. */
       RECIPE_LLM_API: "",
       RECIPE_LLM_API_KEY: "",
+      /* 48-close: nor the curator's second model, Claude beside a local
+       * one — an `editor/.env` with the key would offer it, and the
+       * curator spec expects it shown disabled. */
+      RECIPE_LLM_CLAUDE_API_KEY: "",
+      RECIPE_LLM_CLAUDE_MODEL: "",
       /* 38e: nor a vision model — `photo-import.spec` turns one on through
        * `/settings/test-llm?vision=`, read by its loopback stand-in. */
       RECIPE_LLM_VISION_MODEL: "",

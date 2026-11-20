@@ -1265,6 +1265,22 @@ Orchestrator-run, through the CLI from the updated main checkout, real repo.
 
 #### Roger to confirm
 
+**Answered 2026-11-20** on the close-out page
+(https://claude.ai/artifact/5dfxvrMcwhHiUZuvL7yBq8, collection `answers`):
+29 OK, one change.
+
+- **#12, change:** "Yes but show a disabled claude selection option and
+  indicate why it cannot be selected to make it apparent to the user."
+  Built in the follow-up PR "48-close: show Claude disabled when it isn't
+  set up". `curatorSetup` gains `unavailable` (kept apart from `models`, so
+  nothing that counts the choices changes). On a local-model editor with no
+  `RECIPE_LLM_CLAUDE_API_KEY`, `/curator`'s Who answers shows Claude as a
+  disabled radio that names the key to add. A Claude-only editor (the Pi)
+  shows no disabled local model. Playwright now pins
+  `RECIPE_LLM_CLAUDE_API_KEY` and `RECIPE_LLM_CLAUDE_MODEL` to `""`, so a
+  checkout whose `editor/.env` has the key still sees the disabled choice.
+  The baseline that moved is `curator-idle.png`.
+
 1. (48a) Da1: the post-check on Claude runs too, and shown only to you.
 2. (48a) Da4: one holiday row while typing, two on an empty palette.
 3. (48a) Da5: a recipe with only a cook (or only a prep) time shows that time

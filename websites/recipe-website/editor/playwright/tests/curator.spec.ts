@@ -277,8 +277,25 @@ test.describe("Curator", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Curator" }),
     ).toBeVisible();
-    await expect(page.getByTestId("curator-setup")).toHaveText(
-      "Running on qwen3:8b on this machine. Web search is off here: give it the URLs to read.",
+    /* 48-close #12: with no Claude key, the picker still shows Claude,
+     * disabled, saying what to set; the local model is picked. */
+    const models = page.getByTestId("curator-models");
+    await expect(
+      models.getByRole("radio", { name: /qwen3:8b on this machine/ }),
+    ).toBeChecked();
+    await expect(
+      models.getByText(
+        "Free · best for reads and single imports · no web search",
+      ),
+    ).toBeVisible();
+    const claude = models.getByRole("radio", {
+      name: /Claude Sonnet 5 through the API/,
+    });
+    await expect(claude).toBeDisabled();
+    await expect(
+      page.getByTestId("curator-model-unavailable-claude"),
+    ).toContainText(
+      "Not set up here: add RECIPE_LLM_CLAUDE_API_KEY to this editor's editor/.env to offer it.",
     );
     /* 46d: Claude's newer web tools are not offered to a local model. */
     await expect(page.getByTestId("curator-newer-web-tools")).toHaveCount(0);
