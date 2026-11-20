@@ -1,6 +1,6 @@
 import { test, expect } from "../support/test";
 import { searchFor } from "../support/helpers";
-import { snapshotPage } from "../support/visual";
+import { BASELINE_DAY, snapshotPage } from "../support/visual";
 
 test.describe("Mobile @mobile", () => {
   test.beforeEach(async ({ resetData }) => {
@@ -8,6 +8,7 @@ test.describe("Mobile @mobile", () => {
   });
 
   test("homepage renders on a small viewport @visual", async ({ page }) => {
+    await page.clock.setFixedTime(BASELINE_DAY);
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await snapshotPage(page, "homepage-mobile.png");
