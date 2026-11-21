@@ -460,6 +460,28 @@ export function createLocalBackend({
       await guard();
       return shopping.splitShoppingMerge(ctx, raw);
     },
+    async listShoppingLayers() {
+      const { listLayers } =
+        await import("recipe-website-common/util/shoppingChanges");
+      const { layers, items } = await shopping.readShopping(ctx);
+      return { layers: listLayers(layers, items) };
+    },
+    async addShoppingLayer(raw) {
+      await guard();
+      return shopping.addShoppingLayer(ctx, raw);
+    },
+    async setShoppingLayer(raw) {
+      await guard();
+      return shopping.setShoppingLayer(ctx, raw);
+    },
+    async removeShoppingLayer(raw) {
+      await guard();
+      return shopping.removeShoppingLayer(ctx, raw);
+    },
+    async setShoppingLeaveOff(raw) {
+      await guard();
+      return shopping.setShoppingLeaveOff(ctx, raw);
+    },
     /* 49b: reads the list, asks a model, writes nothing — no identity. A
      * local job lives in this process, so it always runs to its end. */
     async askShopping(input, _options, run) {

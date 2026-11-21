@@ -268,13 +268,14 @@ test.describe("Shopping list", () => {
     await page.goto("/shopping");
     await listReady(page);
     /* The syrup's sugar and water merge with the lemonade's own (a bare
-     * sugar is granulated, 46g). */
+     * sugar is granulated, 46g) — and water, from the tap, is left off the
+     * list (50a), there with its reason. */
     await expect(
       page.getByLabel("¾ cup granulated sugar", { exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByLabel("4½ cups water", { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByTestId("shopping-left-off-row")).toHaveText(
+      /^4½ cups water\s*tap water · always left off/,
+    );
     /* The linking line itself is no row (the notes name the syrup). */
     await expect(list(page)).not.toContainText("batch Simple Syrup");
     const sugar = rows(page).filter({ hasText: "¾ cup granulated sugar" });
@@ -286,12 +287,12 @@ test.describe("Shopping list", () => {
       "1/2 cup sugar (for Simple Syrup)",
     );
 
-    /* 39c: undo the expansion — the syrup's two lines go, in one commit. */
+    /* 39c: undo the expansion — the syrup's two lines go, in one commit (the page counts one: its water is left off, 50a). */
     const subRecipes = page.getByTestId("shopping-subrecipes");
     await subRecipes.getByText("Sub-recipes (1)").click();
     const syrup = subRecipes.getByTestId("shopping-subrecipe");
     await expect(syrup).toContainText(
-      "for Simple Syrup · 2 lines · in Lemonade",
+      "for Simple Syrup · 1 line · in Lemonade",
     );
     const removeThese = syrup.getByRole("button", {
       name: "Remove these lines for Simple Syrup",
@@ -299,7 +300,7 @@ test.describe("Shopping list", () => {
     await removeThese.click();
     /* The question takes focus, and Cancel gives it back. */
     const question = syrup.getByRole("group", {
-      name: "Remove what Simple Syrup added to 2 lines?",
+      name: "Remove what Simple Syrup added to 1 line?",
     });
     await expect(
       question.getByRole("button", { name: "Cancel" }),
@@ -312,9 +313,9 @@ test.describe("Shopping list", () => {
     await expect(
       page.getByLabel("¼ cup granulated sugar", { exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByLabel("4 cups water", { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByTestId("shopping-left-off-row")).toHaveText(
+      /^4 cups water\s*tap water/,
+    );
     await expect(page.getByTestId("shopping-row-note")).toHaveCount(0);
     await expect(subRecipes).toHaveCount(0);
     await expect

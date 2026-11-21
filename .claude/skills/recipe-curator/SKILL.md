@@ -748,6 +748,12 @@ shopping_remove {"recipe": "chili"}
 - **"I have simple syrup already"** → `shopping_remove {"for": "simple-syrup"}`
   takes off what a linked sub-recipe's expansion added, wherever it was
   linked from; the recipe that linked it keeps its own lines.
+- **"Why isn't the water on the list?"** — the list is composed: what is
+  left off is `view.leftOff` (`{row, reason, source}`; water is left off
+  built in, as "tap water"), and `layers` are Roger's own changes to this
+  list (`{layer, ops, text, stale}`). A changed row carries `changes` (what
+  changed it, who, why) and `asWritten`. Read them back when asked; changing
+  them is Roger's, on `/shopping`.
 
 Never empty the list or change its settings: clearing what was bought and
 switching features are Roger's, on the `/shopping` page. Ticking is not

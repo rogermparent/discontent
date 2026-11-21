@@ -11,7 +11,11 @@ import {
 import { cn } from "@discontent/component-library/lib/utils";
 import { AISLE_LABELS, AISLES, type Aisle } from "../../util/aisles";
 import type { ShoppingSettings } from "../../util/shoppingTypes";
-import { shoppingNameOf, type ShoppingRow } from "../../util/shoppingView";
+import {
+  shoppingNameOf,
+  type ShoppingChange,
+  type ShoppingRow,
+} from "../../util/shoppingView";
 
 export interface RowHandlers {
   tick(ids: readonly string[], checked: boolean): void;
@@ -68,6 +72,60 @@ function MergedFrom({
         </Button>
       )}
     </p>
+  );
+}
+
+/** 50a: who made a change, as the chain says it. */
+export function changedBy(
+  change: Pick<ShoppingChange, "source" | "by">,
+): string {
+  if (change.source === "rule") return "a rule for every list";
+  return change.by?.kind === "model"
+    ? `suggested by ${change.by.model ?? "the model"}`
+    : "by you";
+}
+
+/**
+ * 50a (Plan): a changed row's marker, and its chain — as written, then each
+ * change, who made it and why.
+ */
+function Changes({ row }: { row: ShoppingRow }) {
+  const changes = row.changes ?? [];
+  if (changes.length === 0) return null;
+  return (
+    <details
+      className="mt-0.5 text-xs text-muted-foreground print:hidden"
+      data-testid="shopping-row-changes"
+    >
+      <summary className="min-h-6 cursor-pointer select-none py-1">
+        <span
+          className="mr-1 rounded-sm border border-border px-1 font-mono text-[0.6875rem] uppercase tracking-wide text-foreground"
+          data-testid="shopping-row-changed"
+        >
+          changed
+        </span>
+        {changes.length === 1 ? "1 change" : `${changes.length} changes`}
+      </summary>
+      <ol
+        className="ml-3 flex flex-col gap-0.5"
+        aria-label="How this line changed"
+      >
+        {row.asWritten && row.asWritten.length > 0 && (
+          <li>
+            <span className="font-medium">As written:</span>{" "}
+            {row.asWritten.join(" · ")}
+          </li>
+        )}
+        {changes.map((change, index) => (
+          <li key={`${change.id}:${index}`}>
+            → {change.text}
+            {change.skipped && ` (not applied: ${change.skipped})`} —{" "}
+            {changedBy(change)}
+            {change.reason && ` · ${change.reason}`}
+          </li>
+        ))}
+      </ol>
+    </details>
   );
 }
 
@@ -345,6 +403,7 @@ export function ShoppingRowView({
           row.need ||
           row.partial ||
           row.forNote ||
+          (row.notes?.length ?? 0) > 0 ||
           row.merge?.amountStale) && (
           <p
             className="text-xs text-muted-foreground"
@@ -356,6 +415,8 @@ export function ShoppingRowView({
               row.optional ? "optional" : row.partlyOptional,
               row.need && "buy anyway",
               row.merge?.amountStale && "your amount was for the old list",
+              /* 50a: a layer's note: "or make from ~4 pears". */
+              ...(row.notes ?? []),
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -379,6 +440,7 @@ export function ShoppingRowView({
           </ul>
         )}
         {!shop && <MergedFrom row={row} handlers={handlers} />}
+        {!shop && <Changes row={row} />}
         {settings.features.sources && <Sources row={row} />}
       </div>
       <RowMenu row={row} settings={settings} handlers={handlers} />

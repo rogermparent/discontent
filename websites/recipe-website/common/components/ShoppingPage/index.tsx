@@ -143,16 +143,39 @@ export function ShoppingPage({
       ?.focus();
   }, [mode]);
 
+  /*
+   * 50a: the list composed — merges, the leave-off rules and this list's
+   * layers over the base rows — or, with "As written" on (Plan only), the
+   * base rows alone. Shop always shows the composed list.
+   */
+  const [asWrittenChosen, setAsWritten] = useState(false);
+  const asWritten = asWrittenChosen && mode === "plan";
   const fullView = useMemo(
     () =>
-      buildShoppingView(
-        list.items,
-        list.settings,
-        list.inventory,
-        DEFAULT_STAPLES,
-        list.merges,
-      ),
-    [list.items, list.settings, list.inventory, list.merges],
+      asWritten
+        ? buildShoppingView(
+            list.items,
+            list.settings,
+            list.inventory,
+            DEFAULT_STAPLES,
+          )
+        : buildShoppingView(
+            list.items,
+            list.settings,
+            list.inventory,
+            DEFAULT_STAPLES,
+            list.merges,
+            { layers: list.layers, rules: list.rules },
+          ),
+    [
+      asWritten,
+      list.items,
+      list.settings,
+      list.inventory,
+      list.merges,
+      list.layers,
+      list.rules,
+    ],
   );
   /* 49a: the open "same thing, different names" proposals (Da8). */
   const proposals = useMemo(
@@ -245,6 +268,8 @@ export function ShoppingPage({
           proposals={proposals}
           asker={asker}
           handlers={handlers}
+          asWritten={asWritten}
+          setAsWritten={setAsWritten}
           store={chosen}
           setStore={setStore}
           storesOn={storesOn}
