@@ -466,6 +466,13 @@ export function createHttpBackend({
         },
       );
     },
+    /* 50e: a long, polite crawl of the corpus's pages — run it where the
+     * content is, not over a request. */
+    async scanLinked() {
+      throw new UsageError(
+        "linked --scan reads every recipe's page and runs against a content directory: use --content-dir (or CONTENT_DIRECTORY), not --remote.",
+      );
+    },
     reviseRecipe(slug, options) {
       return call<EditResult>(
         "POST",

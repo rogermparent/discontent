@@ -313,6 +313,33 @@ function skipUrl(url: string, context: SkipContext): boolean {
   return segments.some((segment) => SKIP_SEGMENTS.has(segment.toLowerCase()));
 }
 
+/**
+ * `true` when a link out of the page at `pageUrl` is certainly not a recipe
+ * page (50e, `linkedRecipes.ts`): the page itself (or `canonical`), a share
+ * target or shop, an archive, account or utility path, a file, a private
+ * host unless `allowPrivate` — the roundup's own rule (`skipUrl`), so the
+ * two readers drop the same links.
+ */
+export function isNonRecipeLink(
+  url: string,
+  pageUrl: string,
+  {
+    canonical,
+    allowPrivate = false,
+  }: { canonical?: string; allowPrivate?: boolean } = {},
+): boolean {
+  const pageKeys = new Set(
+    [sourceUrlKey(pageUrl), canonical && sourceUrlKey(canonical)].filter(
+      (key): key is string => Boolean(key),
+    ),
+  );
+  try {
+    return skipUrl(url, { pageKeys, allowPrivate });
+  } catch {
+    return true;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* hast helpers (the shared ones are in `hastQuery.ts`)                */
 /* ------------------------------------------------------------------ */

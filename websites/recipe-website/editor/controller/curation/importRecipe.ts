@@ -102,6 +102,8 @@ import {
   type SuggestedChoice,
 } from "recipe-website-common/util/suggestChoices";
 import { withDescriptionRecipe } from "../descriptionRecipe";
+import { withLinkedLinks } from "./pageLinks";
+import type { LinkedMode, LinkedReport } from "./linkedImport";
 
 export interface ImportDryRunResult {
   /** The job that ran it (epic 37): `recipes jobs show <job>` has its steps. */
@@ -141,6 +143,11 @@ export interface ImportDryRunResult {
    * what the local model did, or why it was not used (epic 36).
    */
   warnings?: string[];
+  /**
+   * The recipes the page links to (50e): what each is (here already, would
+   * be imported), and the lines that would link them.
+   */
+  linked?: LinkedReport;
 }
 
 export interface ImportCreateResult extends RecipeWriteResult {
@@ -158,6 +165,11 @@ export interface ImportCreateResult extends RecipeWriteResult {
    * written without `choice`; recipe_update sets it if they are.
    */
   suggestedChoices?: SuggestedChoice[];
+  /**
+   * The recipes the page links to (50e): linked or imported first, each
+   * its own commit, and the lines of this one rewritten to link them.
+   */
+  linked?: LinkedReport;
 }
 
 /** One recipe of a several-recipe import (36e). */
@@ -355,10 +367,11 @@ export async function importPage(
   });
   /* 47j: the page's own notes — a card plugin's, else the site's learned
    * selector (one learned now when the page shows a "Notes" heading). */
-  return withPageNotes(applied, pageUrl, page.html, {
+  const noted = await withPageNotes(applied, pageUrl, page.html, {
     mode: notesModeFor(mode),
     job,
   });
+  return withLinkedLinks(noted, pageUrl, page.html);
 }
 
 /**
@@ -378,8 +391,9 @@ export function importedToInput(
     image,
   }: { tags?: string[]; slug?: string; name?: string; image?: string } = {},
 ): RecipeInput {
-  /* 45d: an empty line or step (a page's blank HowToStep) is no row. */
-  const imported = withoutBlankRows(reading);
+  /* 45d: an empty line or step (a page's blank HowToStep) is no row;
+   * 50e: every text composed (NFC), whoever read it. */
+  const imported = composed(withoutBlankRows(reading));
   const resolvedName = name ?? imported.name;
   if (!resolvedName) {
     throw new ValidationError(
@@ -411,6 +425,21 @@ export function importedToInput(
   return parseInput(RecipeInputSchema, noneForNull(raw));
 }
 
+/**
+ * Every string of `value` in NFC (50e): a page, a model or a paste can hand
+ * over "purée" decomposed, and the stored recipe should not care.
+ */
+export function composed<T>(value: T): T {
+  if (typeof value === "string") return value.normalize("NFC") as T;
+  if (Array.isArray(value)) return value.map(composed) as T;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, composed(entry)]),
+    ) as T;
+  }
+  return value;
+}
+
 /** What an import takes besides its URL or text: the same for both. */
 export interface ImportWriteOptions {
   tags?: string[];
@@ -435,6 +464,12 @@ export interface ImportWriteOptions {
    * dish the model would split into its parts.
    */
   asOne?: boolean;
+  /**
+   * The recipes the page links to (50e): `auto` (the default) follows them
+   * — links to one already here, imports the others — and links the lines
+   * they make; `off` imports this recipe alone.
+   */
+  linked?: LinkedMode;
 }
 
 export async function importAndCreate(
@@ -494,6 +529,7 @@ export async function importAndCreate(
       commitNote: usedModel(imported.llm)
         ? readerNote(imported.llm)
         : undefined,
+      ...(mode ? { mode } : {}),
     },
     run,
   );
@@ -663,7 +699,7 @@ function writeStep(
  */
 async function finishImport(
   ctx: CurationContext,
-  { recipe: imported, llm, warnings: llmWarnings }: UrlImport,
+  { recipe: read, llm, warnings: llmWarnings, linked: links }: UrlImport,
   {
     tags,
     slug,
@@ -678,9 +714,13 @@ async function finishImport(
     transcription,
     refusal,
     commitNote,
+    linked: linkedMode = "auto",
+    mode,
   }: ImportWriteOptions & {
     /** The page, or a pasted text's source URL. */
     url: string | undefined;
+    /** How the page was read: each linked page is read the same way (50e). */
+    mode?: LlmMode;
     pastedText?: boolean;
     /** A photo import (38e): how many photos, and — dry run — what they said. */
     photos?: number;
@@ -692,12 +732,46 @@ async function finishImport(
   run?: JobRun,
 ): Promise<ImportResult> {
   const job = jobContext(run);
-  const partial = imported.partial === true;
+  const partial = read.partial === true;
   if (partial && !dryRun && !allowPartial) {
     throw new ImportError(
       refusal(llmWarnings) +
         "Dry-run it to see them, or pass --allow-partial to create from them anyway.",
     );
+  }
+  /*
+   * 50e: the recipes the page links to, first — so the lines that make
+   * them can link to what is there. Not when this one's slug is taken (its
+   * create would fail, and leave the linked ones imported for nothing).
+   */
+  let imported = read;
+  let linked: LinkedReport | undefined;
+  if (links && linkedMode !== "off") {
+    const planned = importedToInput(read, { tags, slug, name, image });
+    const free =
+      dryRun ||
+      overwrite ||
+      !(await slugIsTaken(ctx, resolveCreateSlug(planned)));
+    if (free && links.candidates.length > 0) {
+      const { followLinked } = await import("./linkedImport");
+      const followed = await followLinked(
+        ctx,
+        {
+          recipe: read,
+          candidates: links.candidates,
+          skipped: links.skipped,
+          ...(url ? { source: url } : {}),
+          ...(mode ? { mode } : {}),
+          dryRun,
+          ...(tags ? { tags } : {}),
+        },
+        job,
+      );
+      imported = followed.recipe;
+      linked = followed.report;
+    } else if (links.skipped.length > 0) {
+      linked = { recipes: [], lines: [], skipped: links.skipped };
+    }
   }
   const input = importedToInput(imported, { tags, slug, name, image });
 
@@ -758,6 +832,7 @@ async function finishImport(
       ...(llmWarnings.length + warnings.length > 0
         ? { warnings: [...llmWarnings, ...warnings] }
         : {}),
+      ...(linked ? { linked } : {}),
     };
   }
 
@@ -790,6 +865,7 @@ async function finishImport(
     ...(llm ? { llm } : {}),
     ...(suggestedChoices.length ? { suggestedChoices } : {}),
     ...(allWarnings.length > 0 ? { warnings: allWarnings } : {}),
+    ...(linked ? { linked } : {}),
   };
 }
 

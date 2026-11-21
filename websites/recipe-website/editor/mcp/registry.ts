@@ -637,6 +637,16 @@ export function recipeToolDefinitions(
         "that reading. " +
         "A video whose description holds no recipe but links one recipe page imports " +
         "that page, the video kept as its video. " +
+        "The recipes a page links to (a link on an ingredient line, a card step or note " +
+        'naming a line, a post link that says "recipe"; at most 5, one level deep) are ' +
+        'followed unless `linked: "off"`: one already imported from that link is linked ' +
+        "to, the others are imported first (each its own commit; the import's `tags` only " +
+        "where their own page says so), and the lines they make are rewritten to link them " +
+        '("2 cups [pear puree](/recipe/poached-pears)") so the shopping list expands them — ' +
+        'or a "Uses:" note when no line does. The answer\'s `linked` lists each recipe ' +
+        "(`existing`, `imported`, `would-import`, `not-a-recipe`, `failed`), each rewritten " +
+        "line (from, to) and the links left alone with why; a dryRun fetches the linked " +
+        "pages and writes nothing. " +
         "Photos instead of `url` or `text`: `photos` (1–4 local image paths, read by this " +
         "server's process — a recipe card, a cookbook page, the pages in order) are " +
         "transcribed by the vision model, then read as pasted text is (a dryRun answers the " +

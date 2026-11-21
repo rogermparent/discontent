@@ -19,6 +19,7 @@
  */
 import { z } from "zod";
 import { LLM_MODES } from "../llm/mode";
+import { LINKED_MODES } from "./linkedMode";
 import { MAX_PHOTOS } from "../photoLimits";
 
 /**
@@ -86,6 +87,11 @@ export const ImportRequestFields = z.strictObject({
    * reading is kept.
    */
   fresh: z.boolean().optional(),
+  /*
+   * 50e: the recipes a page links to — `auto` (default) imports or links
+   * them and links the lines they make; `off` imports this one alone.
+   */
+  linked: z.enum(LINKED_MODES).optional(),
 });
 
 type ImportRequestInput = z.infer<typeof ImportRequestFields>;
@@ -135,6 +141,14 @@ export function checkImportRequest(
       code: "custom",
       path: ["asOne"],
       message: "`asOne` reads the text as one recipe: no `pick` or `all`",
+    });
+  }
+  if (data.linked && (data.text || data.photos)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["linked"],
+      message:
+        "`linked` is for a URL import: a pasted text or a photo links no pages",
     });
   }
   if (data.llm && (data.text || data.photos)) {

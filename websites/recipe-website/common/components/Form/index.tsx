@@ -1,5 +1,6 @@
 "use client";
 
+import type { LinkedLineMark } from "../../util/linkedLines";
 import { useEffect, useId } from "react";
 import {
   Tooltip,
@@ -219,9 +220,12 @@ function DrinkFirst({ from, errors }: { from?: string; errors?: string[] }) {
 function IngredientsWithSource({
   from,
   errors,
+  linked,
 }: {
   from?: string;
   errors?: string[];
+  /** Lines the import linked to a recipe its page links (50e), marked. */
+  linked?: readonly LinkedLineMark[];
 }) {
   const form = useRecipeForm();
   const url = useStore(form.store, (state) => state.values.source.url.trim());
@@ -230,6 +234,7 @@ function IngredientsWithSource({
       from={from}
       sourceUrl={/^https?:\/\//i.test(url) ? url : undefined}
       errors={errors}
+      linked={linked}
     />
   );
 }
@@ -458,6 +463,7 @@ export default function RecipeFields({
       <IngredientsWithSource
         from={filled("ingredients") ?? imported(recipe?.ingredients?.length)}
         errors={state?.errors?.ingredients}
+        linked={recipe?.linkedLines}
       />
       <FormSection
         id="steps"

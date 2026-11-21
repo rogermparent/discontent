@@ -111,6 +111,7 @@ export default function ImportProgress({
   unfollowed,
   doneNote,
   doneActions,
+  doneDetail,
   words = IMPORT_WORDS,
 }: {
   job: string;
@@ -128,6 +129,11 @@ export default function ImportProgress({
    */
   doneNote?: ReactNode;
   doneActions?: ReactNode;
+  /**
+   * Below the done line (50e): what else the job did — the recipes the
+   * page links to, imported or linked.
+   */
+  doneDetail?: ReactNode;
   /** What the job is called (45b's fill): an import by default. */
   words?: ProgressWords;
 }) {
@@ -253,6 +259,7 @@ export default function ImportProgress({
           {!live ? doneActions : null}
         </span>
       </div>
+      {!live && status === "done" ? doneDetail : null}
       {unfollowed && (
         <p
           className="mt-1 text-sm text-muted-foreground"

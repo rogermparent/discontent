@@ -51,6 +51,11 @@ import type {
   FillOptions,
   FillResult,
 } from "../../controller/curation/fillRecipe";
+import type {
+  LinkedScanOptions,
+  LinkedScanResult,
+} from "../../controller/curation/linkedImport";
+import type { LinkedMode } from "../../controller/curation/linkedMode";
 import type { JobContext } from "../../controller/jobs/context";
 import type { EditResult } from "../../controller/llm/askEdit";
 import type {
@@ -225,6 +230,11 @@ export interface ImportOptions {
   /** Read a video or paste as one recipe, never split (36e). */
   asOne?: boolean;
   /**
+   * The recipes the page links to (50e): `auto` (default) imports or links
+   * them and links the lines they make; `off` imports this one alone.
+   */
+  linked?: LinkedMode;
+  /**
    * Read it again (39a): skip the reading an earlier import of the same
    * source kept for half an hour (38c) — and a photo set's kept
    * transcription — and keep the new one.
@@ -350,6 +360,16 @@ export interface CuratorBackend {
     options?: Pick<FillOptions, "estimate" | "uses" | "usesAll">,
     run?: SeatRun,
   ): Promise<FillResult>;
+  /**
+   * `recipes linked --scan` (50e): recipes already here, their source pages
+   * read again for the recipes they link — imported or linked, the lines
+   * that make them rewritten, one commit per recipe (none with `dryRun`).
+   * Local only: the HTTP backend answers `usage`.
+   */
+  scanLinked(
+    options?: LinkedScanOptions,
+    run?: SeatRun,
+  ): Promise<LinkedScanResult>;
   /**
    * "Edit with AI" over the stored recipe (47i), written nowhere: the
    * request answered by the local model (or the Claude API, `claude`),

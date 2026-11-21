@@ -52,6 +52,7 @@
  * the model is about to run, not with this module, so the CLI and the MCP
  * server start as fast as they did (35q). `client.ts` is plain `fetch`.
  */
+import type { LinkedFind } from "recipe-website-common/util/linkedRecipes";
 import type {
   ImportedRecipe,
   ParsedRecipePage,
@@ -308,6 +309,12 @@ export interface ApplyLlmResult {
    * (38c review, `keptReading`).
    */
   followFailed?: boolean;
+  /**
+   * 50e: the page's links to other recipes this one may use
+   * (`findLinkedRecipes`), found when the page was read; followed — or
+   * not — by the import (`followLinked`).
+   */
+  linked?: LinkedFind;
 }
 
 /** The mapper found a recipe body: ingredients or steps to keep. */

@@ -114,6 +114,14 @@ export interface SubRecipeLink {
   called?: Amount;
   /** The amount as written, when it could not be read at all. */
   calledText?: string;
+  /**
+   * The line counts batches ("2 batches", "1 recipe"): it multiplies. A
+   * measure, a count, no amount or a range is one batch, and several such
+   * lines linking one sub-recipe share it (50e).
+   */
+  batches?: true;
+  /** The link's own words: "pear purée". */
+  text?: string;
 }
 
 /** The first `[text](/recipe/<slug>)` link, relative or on any host. */
@@ -198,12 +206,14 @@ export function subRecipeLink(markdown: string): SubRecipeLink | null {
   if (!firstNameKey(linkText) || !onlyAmount(prefix) || !onlyRemark(suffix)) {
     return null;
   }
-  if (!prefix) return { slug, factor: new Fraction(1) };
+  const text = linkText;
+  if (!prefix) return { slug, factor: new Fraction(1), text };
   if (RANGE_RE.test(prefix)) {
     return {
       slug,
       factor: new Fraction(1),
       calledText: prefix.replace(/\s*(?:-|—)\s*/g, "–"),
+      text,
     };
   }
   const amount = parseAmount(`${prefix} ${linkText}`);
@@ -212,7 +222,7 @@ export function subRecipeLink(markdown: string): SubRecipeLink | null {
     !amount ||
     amount.parts.some((part) => !Number.isFinite(part.qty) || part.qty <= 0)
   ) {
-    return { slug, factor: new Fraction(1), calledText: prefix };
+    return { slug, factor: new Fraction(1), calledText: prefix, text };
   }
   if (amount.parts.length === 1) {
     const [part] = amount.parts;
@@ -220,12 +230,20 @@ export function subRecipeLink(markdown: string): SubRecipeLink | null {
       part.family === "container" &&
       (part.unit === "batch" || part.unit === "recipe")
     ) {
-      return { slug, factor: new Fraction(part.qty) };
+      return { slug, factor: new Fraction(part.qty), batches: true, text };
     }
   }
   /* A pinch, a dash, "some": one batch, nothing to say. */
-  if (amount.parts.length === 0) return { slug, factor: new Fraction(1) };
-  return { slug, factor: new Fraction(1), called: amount };
+  if (amount.parts.length === 0) {
+    return { slug, factor: new Fraction(1), text };
+  }
+  return { slug, factor: new Fraction(1), called: amount, text };
+}
+
+/** "2 batches", "1 batch", "1/2 batch": a number of batches as a note says it. */
+function formatBatches(count: Fraction): string {
+  const text = count.toFraction(true);
+  return `${text} batch${count.equals(1) || count.compare(1) < 0 ? "" : "es"}`;
 }
 
 /** A line as it goes on the list: its sub-recipe path and its multiplier. */
@@ -299,6 +317,33 @@ export async function expandRecipeLines(
   ): Promise<ExpandedLine[]> => {
     const out: ExpandedLine[] = [];
     const lines = recipeLines(current, path.length === 0 ? picks : undefined);
+    /*
+     * Each line's sub-recipe, first. An `OR:` line right below offers
+     * another way to make a line: that line stays as written, so the list
+     * shows the two on one row, as Make counts them as one line.
+     */
+    const links = lines.map((line, index) => {
+      const next = lines[index + 1];
+      const orFollows =
+        next?.line === line.line + 1 && stripOrLabel(next.text) !== null;
+      return expand && !orFollows ? subRecipeLink(line.markdown) : null;
+    });
+    /*
+     * 50e: one sub-recipe linked from several lines of this recipe is one
+     * batch — the cake's purée and its poaching liquid are both one batch
+     * of poached pears — opened at its first line, noting every line it
+     * covers. Lines that count batches ("2 batches") still multiply: their
+     * batches add up, and cover the measured lines beside them.
+     */
+    const groups = new Map<string, number[]>();
+    /* A shared sub-recipe with no lines: each of its lines as written. */
+    const asWritten = new Set<string>();
+    links.forEach((link, index) => {
+      if (!link) return;
+      const at = groups.get(link.slug);
+      if (at) at.push(index);
+      else groups.set(link.slug, [index]);
+    });
     for (const [index, line] of lines.entries()) {
       const kept: ExpandedLine = {
         ...line,
@@ -306,53 +351,78 @@ export async function expandRecipeLines(
         factor,
         for: path,
       };
-      /*
-       * An `OR:` line right below offers another way to make it: the line
-       * stays as written, so the list shows the two on one row, as Make
-       * counts them as one line.
-       */
-      const next = lines[index + 1];
-      const orFollows =
-        next?.line === line.line + 1 && stripOrLabel(next.text) !== null;
-      const link = expand && !orFollows ? subRecipeLink(line.markdown) : null;
+      const link = links[index];
       if (!link) {
         out.push(kept);
         continue;
       }
+      const group = groups.get(link.slug)!;
       const as = `Kept "${line.text}" as written`;
-      if (ancestors.includes(link.slug)) {
-        warn(
-          `${as}: a sub-recipe cycle (${[...ancestors, link.slug].join(" → ")}).`,
-        );
+      const keepGroup = (why: string) => {
+        warn(`${as}: ${why}`);
         out.push(kept);
+      };
+      if (ancestors.includes(link.slug)) {
+        keepGroup(
+          `a sub-recipe cycle (${[...ancestors, link.slug].join(" → ")}).`,
+        );
         continue;
       }
       if (path.length >= maxDepth) {
-        warn(`${as}: sub-recipes nest more than ${maxDepth} deep.`);
-        out.push(kept);
+        keepGroup(`sub-recipes nest more than ${maxDepth} deep.`);
         continue;
       }
       const sub = await read(link.slug);
       if (!sub) {
-        warn(`${as}: there is no recipe "${link.slug}".`);
-        out.push(kept);
+        keepGroup(`there is no recipe "${link.slug}".`);
         continue;
       }
-      const called = link.called
-        ? formatAmount(scaleAmount(link.called, scale.mul(factor)))
-        : link.calledText;
+      /* A later line of a shared sub-recipe: its first line opened it. */
+      if (group[0] !== index) {
+        if (asWritten.has(link.slug)) out.push(kept);
+        continue;
+      }
+      const members = group.map((at) => ({
+        line: lines[at],
+        link: links[at]!,
+      }));
+      const shared = members.length > 1;
+      const calledOf = (member: (typeof members)[number]) =>
+        member.link.called
+          ? formatAmount(scaleAmount(member.link.called, scale.mul(factor)))
+          : member.link.calledText;
+      const batches = members.filter((member) => member.link.batches);
+      const subFactor = shared
+        ? batches.length > 0
+          ? batches.reduce(
+              (sum, member) => sum.add(member.link.factor),
+              new Fraction(0),
+            )
+          : new Fraction(1)
+        : link.factor;
+      const called = shared
+        ? members
+            .map((member) => {
+              const amount = member.link.batches
+                ? formatBatches(member.link.factor.mul(scale).mul(factor))
+                : calledOf(member);
+              return [amount, member.link.text].filter(Boolean).join(" ");
+            })
+            .join(" and ")
+        : calledOf(members[0]);
       const subLines = await walk(
         sub,
         [...ancestors, link.slug],
-        factor.mul(link.factor),
+        factor.mul(subFactor),
         [
           ...path,
           { slug: link.slug, name: sub.name, ...(called ? { called } : {}) },
         ],
-        kept.optional,
+        members.every((member) => member.line.optional) || optionalAbove,
       );
       if (subLines.length === 0) {
         warn(`${as}: ${sub.name} has no ingredient lines.`);
+        asWritten.add(link.slug);
         out.push(kept);
         continue;
       }
