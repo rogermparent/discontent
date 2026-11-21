@@ -495,6 +495,42 @@ findings, all taken in the second commit:
 5. A name in a merged decision with only one of its names on the list was
    sent to find and always dropped. Every merged decision's names stay out.
 
+**Gates** (2026-11-21, through the heavy slot on a machine at load 20–50
+from other sessions; Docker, production build unless said):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: clean (the first editor run found
+  Tb1).
+- `pnpm exec vitest run`: 196 files, 4,297 tests — **4,277 passed, 20
+  failed**: one real (`inventory.test.ts`'s boundary grep, Tb4, fixed) and
+  19 timing cases in files 49b does not touch (5 s / 20–90 s timeouts in
+  `editFormRoundTrip`, `stepUsesForm`, `editorAuthNext`, `queue`,
+  `urlGuard`'s source sweep, `makePatterns`' 200 ms bound, and `cliJson`
+  cases after a timed-out one). Those nine files again, alone: 225 of 228,
+  the three left the same timing cases (`urlGuard` 5.03 s, `makePatterns`
+  851 ms, one `editFormRoundTrip`). New: `shoppingAsk.test.ts` (19 cases:
+  `proposalForKeys`, the revise check — unknown items, an amount it can't
+  read, an empty name, "apart", a narrowed merge's `replaces` — the find
+  check's drops, the spec and both prompts with nothing decided sent, the
+  job with `fetch` stubbed, its label and resources) and two seat cases in
+  `shopping.test.ts` (`replaces` in one commit; a stale or made-up one
+  refused).
+- Playwright, `shopping-ask.spec` (new), `shopping-merge.spec`,
+  `shopping.spec`, `shopping-modes.spec`, `edit-with-ai.spec`,
+  `accessibility.spec`, `visual.spec`, e2e + mobile: **140/140**, first
+  run, none retried.
+- **Baselines: none moved, none new.** With the model pinned off (the
+  suite's T18) the page draws nothing 49b adds.
+- No dependency or Next-config change, so no main-checkout-shaped build.
+
+**What a real check should try** (no model was run here): on the
+workstation, a list with Buttermilk Pancakes and a crêpe recipe — a note
+"use grams" on the flour proposal, "these are different, one is salted"
+on a butter pair, "call it plain flour"; a merged row's "Ask the model
+about this"; and "Look for more" on a real week's list (20–40 names),
+judging each suggestion and timing qwen3:8b thinking. The same on the Pi
+(Claude), with its cost per ask.
+
 ### Traps
 
 - **Tb1 — narrowing needs flat unions.** The result type was first written
