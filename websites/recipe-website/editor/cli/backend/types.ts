@@ -82,11 +82,14 @@ import type {
 import type {
   ShoppingAddResult,
   ShoppingClearResult,
+  ShoppingLayerResult,
   ShoppingMergeResult,
   ShoppingPatchResult,
+  ShoppingRuleResult,
   ShoppingSettingsResult,
   ShoppingViewResult,
 } from "../../controller/curation/shopping";
+import type { ShoppingLayerListing } from "recipe-website-common/util/shoppingChanges";
 import type {
   RecipeDetail,
   RecipeDryRunResult,
@@ -172,8 +175,11 @@ export type {
   SearchResult,
   ShoppingAddResult,
   ShoppingClearResult,
+  ShoppingLayerResult,
+  ShoppingLayerListing,
   ShoppingMergeResult,
   ShoppingPatchResult,
+  ShoppingRuleResult,
   ShoppingSettingsResult,
   ShoppingViewResult,
   ShowResult,
@@ -507,7 +513,11 @@ export interface CuratorBackend {
    * stored items and settings with the view and its copy text; `store`
    * narrows to one store's list. Every write is one commit, or none.
    */
-  getShopping(options?: { store?: string }): Promise<ShoppingViewResult>;
+  getShopping(options?: {
+    store?: string;
+    /** 50a: the base rows — no merges, rules or layers. */
+    asWritten?: boolean;
+  }): Promise<ShoppingViewResult>;
   /** `{recipe, scale?} | {group, scale?} | {items}`. */
   addToShopping(raw: unknown): Promise<ShoppingAddResult>;
   /** `{check, uncheck, remove, need, unneed, names, uncheckNames, removeSource, set}`. */
@@ -523,6 +533,16 @@ export interface CuratorBackend {
   decideShoppingMerge(raw: unknown): Promise<ShoppingMergeResult>;
   /** 49a: Split — `{id}`: delete that decision. */
   splitShoppingMerge(raw: unknown): Promise<ShoppingMergeResult>;
+  /** 50a: this list's changes (layers), in the order they apply. */
+  listShoppingLayers(): Promise<{ layers: ShoppingLayerListing[] }>;
+  /** 50a: add a change — `{ops, reason?, note?, by?, on?, from?}`. */
+  addShoppingLayer(raw: unknown): Promise<ShoppingLayerResult>;
+  /** 50a: `{id, on}` — turn a change off (undo) or on. */
+  setShoppingLayer(raw: unknown): Promise<ShoppingLayerResult>;
+  /** 50a: `{id}` — remove a change. */
+  removeShoppingLayer(raw: unknown): Promise<ShoppingLayerResult>;
+  /** 50a: `{name, leaveOff, reason?}` — a leave-off rule for every list. */
+  setShoppingLeaveOff(raw: unknown): Promise<ShoppingRuleResult>;
   /**
    * 49b: ask the model about one proposal or merged row with a note, or
    * look for more merges — a `shopping-merge` job, written nowhere. Locally

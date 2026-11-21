@@ -9,6 +9,7 @@ import {
   type TickSyncStorage,
 } from "../../util/shoppingTickSync";
 import type { ShoppingMerge } from "../../util/shoppingMerges";
+import type { ShoppingLayer, ShoppingRule } from "../../util/shoppingLayers";
 import type { ShoppingItem, ShoppingSettings } from "../../util/shoppingTypes";
 
 export type { SyncStatus };
@@ -37,6 +38,21 @@ export interface ShoppingListState {
   plans?: Record<string, string>;
   /** 49a: the stored merge decisions (the page finds the proposals). */
   merges?: ShoppingMerge[];
+  /** 50a: this list's layers and the leave-off rules (the page composes). */
+  layers?: ShoppingLayer[];
+  rules?: ShoppingRule[];
+}
+
+/** 50a: what a layer write answers. */
+export interface ShoppingLayerAnswer {
+  layers: ShoppingLayer[];
+  changed: boolean;
+}
+
+/** 50a: what a leave-off rule write answers. */
+export interface ShoppingRuleAnswer {
+  rules: ShoppingRule[];
+  changed: boolean;
 }
 
 /** 49a: what a merge write answers. */
@@ -66,6 +82,8 @@ export interface ShoppingPageActions {
       removed?: string[];
       unmatched?: string[];
       unknown?: string[];
+      /** 50a: layers deleted with their last items. */
+      removedLayers?: string[];
     }>
   >;
   saveSettings(
@@ -80,6 +98,18 @@ export interface ShoppingPageActions {
   ): Promise<ShoppingActionResult<ShoppingMergeAnswer>>;
   /** 49a: Split a merged row: delete its decision. */
   splitMerge?(id: string): Promise<ShoppingActionResult<ShoppingMergeAnswer>>;
+  /**
+   * 50a: this list's changes — add one, turn one off (undo) or on, remove
+   * one. Without them the page shows no Changes panel.
+   */
+  addLayer?(input: unknown): Promise<ShoppingActionResult<ShoppingLayerAnswer>>;
+  setLayer?(
+    id: string,
+    on: boolean,
+  ): Promise<ShoppingActionResult<ShoppingLayerAnswer>>;
+  removeLayer?(id: string): Promise<ShoppingActionResult<ShoppingLayerAnswer>>;
+  /** 50a: leave a name off every list, or Restore it. */
+  leaveOff?(input: unknown): Promise<ShoppingActionResult<ShoppingRuleAnswer>>;
 }
 
 const STORAGE_KEY = "shopping-pending-ticks";
@@ -122,6 +152,8 @@ const heldTicks = browserTicks(() => window.localStorage, HELD_STORAGE_KEY);
 const NONE: string[] = [];
 const NO_PLANS: Record<string, string> = {};
 const NO_MERGES: ShoppingMerge[] = [];
+const NO_LAYERS: ShoppingLayer[] = [];
+const NO_RULES: ShoppingRule[] = [];
 
 /**
  * 42g, Done shopping in the store: how long the ticked lines stay hidden,
@@ -331,8 +363,27 @@ export function useShoppingList({
     return ticked.filter((item) => !hidden.has(item.id));
   }, [state.items, sync.pending, clearing]);
 
-  const setItems = (result: { items: ShoppingItem[] }) =>
-    setState((current) => ({ ...current, items: result.items }));
+  /* 50a: a removal that took a layer's last items took the layer too. */
+  const setItems = (result: {
+    items: ShoppingItem[];
+    removedLayers?: string[];
+  }) =>
+    setState((current) => {
+      const gone = new Set(result.removedLayers ?? []);
+      return {
+        ...current,
+        items: result.items,
+        ...(gone.size > 0 && current.layers
+          ? {
+              layers: current.layers.filter((layer) => !gone.has(layer.id)),
+            }
+          : {}),
+      };
+    });
+  const unavailable = () =>
+    Promise.resolve({ error: "Not available here", code: "usage" });
+  const setLayers = (answer: ShoppingLayerAnswer) =>
+    setState((current) => ({ ...current, layers: answer.layers }));
 
   /** Remove exactly these ids, one change; ticks waiting for them go too. */
   const removeIds = async (ids: string[]) => {
@@ -350,6 +401,16 @@ export function useShoppingList({
     merges: state.merges ?? NO_MERGES,
     /** 49a: this page can answer proposals (the editor passed the actions). */
     canMerge: Boolean(actions.decideMerge && actions.splitMerge),
+    /** 50a: this list's layers and the leave-off rules. */
+    layers: state.layers ?? NO_LAYERS,
+    rules: state.rules ?? NO_RULES,
+    /** 50a: this page can change its layers (the editor passed the actions). */
+    canLayer: Boolean(
+      actions.addLayer &&
+      actions.setLayer &&
+      actions.removeLayer &&
+      actions.leaveOff,
+    ),
     pendingCount: sync.pending.size,
     status: sync.status,
     error:
@@ -476,6 +537,31 @@ export function useShoppingList({
       if (!result) void reload();
       return result;
     },
+    /** 50a: add a change to this list, one commit. */
+    addLayer: (input: unknown) =>
+      run(
+        () => (actions.addLayer ? actions.addLayer(input) : unavailable()),
+        setLayers,
+      ),
+    /** 50a: turn a change off (undo) or on, one commit. */
+    setLayer: (id: string, on: boolean) =>
+      run(
+        () => (actions.setLayer ? actions.setLayer(id, on) : unavailable()),
+        setLayers,
+      ),
+    /** 50a: remove a change, one commit. */
+    removeLayer: (id: string) =>
+      run(
+        () => (actions.removeLayer ? actions.removeLayer(id) : unavailable()),
+        setLayers,
+      ),
+    /** 50a: leave a name off every list, or Restore it, one commit. */
+    leaveOff: (input: { name: string; leaveOff: boolean; reason?: string }) =>
+      run(
+        () => (actions.leaveOff ? actions.leaveOff(input) : unavailable()),
+        (answer) =>
+          setState((current) => ({ ...current, rules: answer.rules })),
+      ),
     /** 49a: Split a merged row back into its names, one change. */
     splitMerge: (id: string) =>
       run(

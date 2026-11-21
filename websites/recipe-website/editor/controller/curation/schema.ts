@@ -30,6 +30,7 @@ import { AISLES } from "recipe-website-common/util/aisles";
 import { SCALE_MESSAGE, isValidScale } from "recipe-website-common/util/scale";
 import { STORE_ID_PATTERN } from "recipe-website-common/util/shoppingTypes";
 import {
+  ASKABLE_UNITS,
   MERGE_ID_PATTERN,
   MERGE_LIMITS,
 } from "recipe-website-common/util/shoppingMerges";
@@ -39,6 +40,11 @@ import {
   choiceProblems,
   everySet,
 } from "recipe-website-common/util/choiceChecks";
+import {
+  LAYER_ID_PATTERN,
+  LAYER_ITEM_ID_PATTERN,
+  LAYER_LIMITS,
+} from "recipe-website-common/util/shoppingLayers";
 import {
   USES_MAX_NAMES,
   USES_MAX_NAME_LENGTH,
@@ -924,6 +930,116 @@ export const ShoppingSplitSchema = z.strictObject({
     .trim()
     .toLowerCase()
     .regex(MERGE_ID_PATTERN, "A merge id is 16 hex characters"),
+});
+
+// --- 50a: the list's layers and the rules for every list --------------------
+
+const oneLine = (max: number, what: string) =>
+  z
+    .string()
+    .trim()
+    .min(1)
+    .max(max)
+    .regex(/^[^\n\r\t]*$/, `${what} is one line`);
+
+const LayerIdsSchema = z
+  .array(
+    z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(LAYER_ITEM_ID_PATTERN, "An item id is the item's ULID"),
+  )
+  .min(1)
+  .max(LAYER_LIMITS.ids);
+
+/** One op of a layer (Da2): what it does to the rows its item ids reach. */
+export const ShoppingLayerOpSchema = z.discriminatedUnion("op", [
+  z.strictObject({
+    op: z.literal("merge"),
+    ids: LayerIdsSchema.min(2, "A merge names two or more items"),
+    name: oneLine(LAYER_LIMITS.name, "A name").optional(),
+    amount: oneLine(LAYER_LIMITS.amount, "An amount").optional(),
+  }),
+  z.strictObject({
+    op: z.literal("rename"),
+    ids: LayerIdsSchema,
+    name: oneLine(LAYER_LIMITS.name, "A name"),
+  }),
+  z.strictObject({
+    op: z.literal("drop"),
+    ids: LayerIdsSchema,
+    reason: oneLine(LAYER_LIMITS.reason, "A reason"),
+  }),
+  z
+    .strictObject({
+      op: z.literal("amount"),
+      ids: LayerIdsSchema,
+      amount: oneLine(LAYER_LIMITS.amount, "An amount").optional(),
+      unit: z.enum(ASKABLE_UNITS).optional(),
+    })
+    .refine(
+      (data) => (data.amount === undefined) !== (data.unit === undefined),
+      {
+        message: "An amount op names exactly one of `amount` or `unit`",
+        path: ["amount"],
+      },
+    ),
+  z.strictObject({
+    op: z.literal("note"),
+    ids: LayerIdsSchema,
+    text: oneLine(LAYER_LIMITS.text, "A note"),
+  }),
+  z.strictObject({
+    op: z.literal("aisle"),
+    ids: LayerIdsSchema,
+    aisle: z.enum(AISLES),
+  }),
+]);
+
+/**
+ * 50a: a new layer for this list — its ops, why, and who made it. The seat
+ * gives it its id and time; it starts on unless `on: false`.
+ */
+export const ShoppingLayerAddSchema = z.strictObject({
+  ops: z.array(ShoppingLayerOpSchema).min(1).max(LAYER_LIMITS.ops),
+  reason: oneLine(LAYER_LIMITS.reason, "A reason").optional(),
+  note: z.string().trim().min(1).max(LAYER_LIMITS.note).optional(),
+  by: z
+    .strictObject({
+      kind: z.enum(["you", "model"]),
+      model: oneLine(LAYER_LIMITS.model, "A model's name").optional(),
+    })
+    .optional(),
+  on: z.boolean().optional(),
+  from: oneLine(LAYER_LIMITS.from, "A suggestion id").optional(),
+});
+
+export type ShoppingLayerAddInput = z.infer<typeof ShoppingLayerAddSchema>;
+
+const LayerIdSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(LAYER_ID_PATTERN, "A change's id is a ULID");
+
+/** 50a: turn a layer on or off (undo, redo). */
+export const ShoppingLayerSetSchema = z.strictObject({
+  id: LayerIdSchema,
+  on: z.boolean(),
+});
+
+/** 50a: remove a layer (its file). */
+export const ShoppingLayerRemoveSchema = z.strictObject({ id: LayerIdSchema });
+
+/**
+ * 50a: a leave-off rule for every list, by name — `leaveOff: false` brings
+ * a name back (Restore), built-in water included.
+ */
+export const ShoppingLeaveOffSchema = z.strictObject({
+  name: oneLine(LAYER_LIMITS.name, "A name"),
+  leaveOff: z.boolean(),
+  reason: oneLine(LAYER_LIMITS.reason, "A reason").optional(),
 });
 
 /** `checked` (the default) clears what was bought; `all` empties the list. */

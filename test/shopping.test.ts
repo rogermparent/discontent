@@ -33,9 +33,18 @@ import { createRecipe } from "../websites/recipe-website/editor/controller/curat
 import { mergeIdOf } from "recipe-website-common/util/shoppingMerges";
 import {
   SHOPPING_ITEMS_DIRECTORY,
+  SHOPPING_LAYERS_DIRECTORY,
+  SHOPPING_LIST_PATHS,
   SHOPPING_MERGES_DIRECTORY,
+  SHOPPING_RULES_DIRECTORY,
   SHOPPING_SETTINGS_FILE,
   shoppingTestHooks,
+  addShoppingLayer,
+  readShoppingLayers,
+  readShoppingRules,
+  removeShoppingLayer,
+  setShoppingLayer,
+  setShoppingLeaveOff,
   addToShopping,
   clearShopping,
   decideShoppingMerge,
@@ -1380,6 +1389,196 @@ describe("merge decisions", () => {
  * `export/` names the items directory or imports the seat (D8). `common/`'s
  * `shoppingView.ts` and `shoppingTypes.ts` are pure and never touch a file.
  */
+describe("50a: this list's layers and the rules for every list", () => {
+  async function pearList() {
+    const { added } = await addToShopping(ctx, {
+      items: [
+        "1 1/2 cups strained pear poaching liquid",
+        "1/4 cup cold water",
+        "2 cups flour",
+      ],
+    });
+    return added;
+  }
+
+  it("adds a layer as one file in one commit, composes it, and turns it off and on", async () => {
+    const [liquid, , flour] = await pearList();
+    const before = await readShoppingView(ctx);
+    expect(before.text).toBe(
+      "Produce:\n1½ cups strained pear poaching liquid\n\nPantry:\n2 cups flour",
+    );
+    expect(before.view.leftOff.map((off) => off.reason)).toEqual(["tap water"]);
+
+    const added = await addShoppingLayer(ctx, {
+      ops: [
+        { op: "drop", ids: [liquid.id], reason: "the recipe makes it" },
+        { op: "note", ids: [flour.id], text: "the 5 lb bag" },
+      ],
+      reason: "the poaching makes it",
+    });
+    expect(added.changed).toBe(true);
+    const id = added.layer!.id;
+    expect(id).toMatch(/^[0-9a-hjkmnp-tv-z]{26}$/);
+    expect((await messages())[0]).toBe(
+      "Update shopping list: change: Leave off strained pear poaching liquid: the recipe makes it; Note on flour: the 5 lb bag (the poaching makes it)",
+    );
+    const [head] = (await git.log()).all;
+    expect(await filesIn(head.hash)).toEqual([`shopping/layers/${id}.json`]);
+    expect(SHOPPING_LIST_PATHS.layers).toBe(SHOPPING_LAYERS_DIRECTORY);
+    const file = JSON.parse(
+      await readFile(
+        join(contentDirectory, SHOPPING_LAYERS_DIRECTORY, `${id}.json`),
+        "utf8",
+      ),
+    );
+    expect(Object.keys(file)).toEqual([
+      "id",
+      "ops",
+      "reason",
+      "by",
+      "at",
+      "on",
+    ]);
+    expect(file.by).toEqual({ kind: "you" });
+
+    const composed = await readShoppingView(ctx);
+    expect(composed.layers.map((layer) => layer.id)).toEqual([id]);
+    expect(composed.text).toBe("Pantry:\n2 cups flour\n  · the 5 lb bag");
+    expect(
+      composed.view.leftOff.map((off) => [off.source, off.reason]),
+    ).toEqual([
+      ["built-in", "tap water"],
+      ["layer", "the recipe makes it"],
+    ]);
+    const asWritten = await readShoppingView(ctx, { asWritten: true });
+    expect(asWritten.asWritten).toBe(true);
+    expect(asWritten.view.leftOff).toEqual([]);
+    expect(asWritten.text).toContain("¼ cup water");
+
+    const off = await setShoppingLayer(ctx, { id, on: false });
+    expect(off.changed).toBe(true);
+    expect((await messages())[0]).toMatch(
+      /^Update shopping list: change off: /,
+    );
+    expect((await readShoppingView(ctx)).text).toBe(before.text);
+    /* The same again changes nothing and commits nothing. */
+    const count = (await messages()).length;
+    expect((await setShoppingLayer(ctx, { id, on: false })).changed).toBe(
+      false,
+    );
+    expect((await messages()).length).toBe(count);
+    await setShoppingLayer(ctx, { id, on: true });
+    expect((await readShoppingView(ctx)).text).toBe(composed.text);
+
+    const removed = await removeShoppingLayer(ctx, { id });
+    expect(removed).toMatchObject({ changed: true, removed: [id] });
+    expect(await readShoppingLayers(ctx)).toEqual([]);
+    expect((await removeShoppingLayer(ctx, { id })).changed).toBe(false);
+    expect((await git.status()).isClean()).toBe(true);
+  });
+
+  it("refuses an item not on the list, a merge of one item, and an unknown change", async () => {
+    const [liquid] = await pearList();
+    const count = (await messages()).length;
+    await expect(
+      addShoppingLayer(ctx, {
+        ops: [{ op: "drop", ids: ["01jzzzzzzzzzzzzzzzzzzzzzzz"], reason: "x" }],
+      }),
+    ).rejects.toMatchObject({ name: "ValidationError" });
+    await expect(
+      addShoppingLayer(ctx, {
+        ops: [{ op: "merge", ids: [liquid.id, liquid.id] }],
+      }),
+    ).rejects.toThrow(/two or more different items/);
+    await expect(
+      addShoppingLayer(ctx, {
+        ops: [{ op: "amount", ids: [liquid.id], amount: "1 cup", unit: "g" }],
+      }),
+    ).rejects.toMatchObject({ name: "ValidationError" });
+    await expect(
+      setShoppingLayer(ctx, { id: "01kaaaaaaaaaaaaaaaaaaaaaaa", on: false }),
+    ).rejects.toMatchObject({ name: "NotFoundError" });
+    expect((await messages()).length).toBe(count);
+  });
+
+  it("Restore of water writes a rule; leaving it off again deletes it; a person's leave-off restores to nothing", async () => {
+    await pearList();
+    const restored = await setShoppingLeaveOff(ctx, {
+      name: "cold water",
+      leaveOff: false,
+    });
+    expect(restored.changed).toBe(true);
+    expect(restored.rule).toMatchObject({ key: "water", leaveOff: false });
+    expect((await messages())[0]).toBe("Update shopping list: buy water again");
+    const [head] = (await git.log()).all;
+    expect(await filesIn(head.hash)).toEqual([
+      `shopping/rules/${restored.rule!.id}.json`,
+    ]);
+    expect((await readShoppingView(ctx)).text).toContain("¼ cup water");
+    expect(
+      (await setShoppingLeaveOff(ctx, { name: "water", leaveOff: false }))
+        .changed,
+    ).toBe(false);
+
+    const again = await setShoppingLeaveOff(ctx, {
+      name: "water",
+      leaveOff: true,
+    });
+    expect(again.changed).toBe(true);
+    expect(await readShoppingRules(ctx)).toEqual([]);
+    expect((await readShoppingView(ctx)).text).not.toContain("water");
+
+    await setShoppingLeaveOff(ctx, {
+      name: "flour",
+      leaveOff: true,
+      reason: "a sack in the pantry",
+    });
+    const view = await readShoppingView(ctx);
+    expect(view.view.leftOff.map((off) => off.reason)).toContain(
+      "a sack in the pantry",
+    );
+    expect(view.rules).toHaveLength(1);
+    await setShoppingLeaveOff(ctx, { name: "flour", leaveOff: false });
+    expect(await readShoppingRules(ctx)).toEqual([]);
+    expect(SHOPPING_RULES_DIRECTORY).toBe("shopping/rules");
+    expect((await git.status()).isClean()).toBe(true);
+  });
+
+  it("a removal that takes a layer's last items takes the layer in the same commit; clear all takes every layer", async () => {
+    const [liquid, water, flour] = await pearList();
+    const one = (
+      await addShoppingLayer(ctx, {
+        ops: [{ op: "drop", ids: [liquid.id], reason: "made" }],
+      })
+    ).layer!;
+    const both = (
+      await addShoppingLayer(ctx, {
+        ops: [{ op: "merge", ids: [water.id, flour.id], name: "batter" }],
+      })
+    ).layer!;
+    /* One of the merge's two lines goes: the layer stays. */
+    const partly = await patchShopping(ctx, { remove: [water.id] });
+    expect(partly.removedLayers).toBeUndefined();
+    expect((await readShoppingLayers(ctx)).map((layer) => layer.id)).toEqual([
+      one.id,
+      both.id,
+    ]);
+    const gone = await patchShopping(ctx, { remove: [liquid.id] });
+    expect(gone.removedLayers).toEqual([one.id]);
+    const [head] = (await git.log()).all;
+    expect((await filesIn(head.hash)).sort()).toEqual(
+      [
+        `shopping/items/${liquid.id}.json`,
+        `shopping/layers/${one.id}.json`,
+      ].sort(),
+    );
+    const cleared = await clearShopping(ctx, { scope: "all" });
+    expect(cleared.removedLayers).toEqual([both.id]);
+    expect(await readShoppingLayers(ctx)).toEqual([]);
+    expect((await git.status()).isClean()).toBe(true);
+  });
+});
+
 describe("the export never reads the shopping list", () => {
   const SITE = join(
     dirname(fileURLToPath(import.meta.url)),
@@ -1415,6 +1614,10 @@ describe("the export never reads the shopping list", () => {
       /* 49a: nor the merge decisions' directory. */
       if (/shopping\/merges/.test(source)) {
         violations.push(`${relative(SITE, file)} names shopping/merges`);
+      }
+      /* 50a: nor the layers' or the rules'. */
+      if (/shopping\/(?:layers|rules)/.test(source)) {
+        violations.push(`${relative(SITE, file)} names a 50a directory`);
       }
     }
     expect(violations).toEqual([]);

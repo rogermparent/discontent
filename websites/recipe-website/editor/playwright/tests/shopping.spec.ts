@@ -268,13 +268,14 @@ test.describe("Shopping list", () => {
     await page.goto("/shopping");
     await listReady(page);
     /* The syrup's sugar and water merge with the lemonade's own (a bare
-     * sugar is granulated, 46g). */
+     * sugar is granulated, 46g) — and water, from the tap, is left off the
+     * list (50a), there with its reason. */
     await expect(
       page.getByLabel("¾ cup granulated sugar", { exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByLabel("4½ cups water", { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByTestId("shopping-left-off-row")).toHaveText(
+      /^4½ cups water\s*tap water · always left off/,
+    );
     /* The linking line itself is no row (the notes name the syrup). */
     await expect(list(page)).not.toContainText("batch Simple Syrup");
     const sugar = rows(page).filter({ hasText: "¾ cup granulated sugar" });
@@ -312,9 +313,9 @@ test.describe("Shopping list", () => {
     await expect(
       page.getByLabel("¼ cup granulated sugar", { exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByLabel("4 cups water", { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByTestId("shopping-left-off-row")).toHaveText(
+      /^4 cups water\s*tap water/,
+    );
     await expect(page.getByTestId("shopping-row-note")).toHaveCount(0);
     await expect(subRecipes).toHaveCount(0);
     await expect

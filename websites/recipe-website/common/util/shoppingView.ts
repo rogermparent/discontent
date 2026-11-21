@@ -17,6 +17,13 @@
  * into one, with the merge switch on. The decisions are stored; the rows
  * they make are worked out here like every other row.
  *
+ * 50a: with a `compose`, the list is composed — base → rules → layers
+ * (`shoppingLayers.ts`): the leave-off rules (water) take rows off, then
+ * this list's layers, in order, merge, rename, drop, re-amount, note and
+ * re-aisle rows by item id. Each changed row carries its chain
+ * (`changes`) and the base labels it came from (`asWritten`); what was
+ * taken off is `leftOff`, with why and who said so.
+ *
  * Pure, and safe in the browser.
  */
 import Fraction from "fraction.js";
@@ -30,6 +37,7 @@ import {
   type Amount,
 } from "./ingredientAmount";
 import {
+  keepsItsForm,
   nameKey,
   nameLabel,
   parseIngredientLine,
@@ -44,12 +52,23 @@ import {
 import { formatScale, parseScale } from "./scale";
 import {
   activeMerges,
+  amountInUnit,
   consolidateAmounts,
   countsAs,
   equivalenceOf,
   gramsPerCupFor,
   type ShoppingMerge,
 } from "./shoppingMerges";
+import {
+  isStaleLayer,
+  leaveOffVerdicts,
+  sortLayers,
+  type ShoppingLayer,
+  type ShoppingLayerBy,
+  type ShoppingLayerOp,
+  type ShoppingLayerOpKind,
+  type ShoppingRule,
+} from "./shoppingLayers";
 import type {
   ShoppingFeatures,
   ShoppingItem,
@@ -114,6 +133,8 @@ export function isNamed(key: string): boolean {
 
 /** `egg` → `eggs`, `berry` → `berries`, `leaf` → `leaves`: enough for a list. */
 function pluralWord(word: string): string {
+  /* 50a: "sprinkles", "oats", "grits" are already the plural. */
+  if (keepsItsForm(word)) return word;
   if (/(?:s|x|z|ch|sh)$/.test(word)) return `${word}es`;
   if (/[^aeiou]y$/.test(word)) return `${word.slice(0, -1)}ies`;
   if (/(?:tomato|potato)$/.test(word)) return `${word}es`;
@@ -330,6 +351,61 @@ export interface ShoppingRow {
    * `merge:<id>`).
    */
   merge?: ShoppingRowMerge;
+  /**
+   * 50a: a volume and a weight of one name added through a density
+   * (`GRAMS_PER_CUP`), or an amount converted into another unit: the amount
+   * reads "≈".
+   */
+  estimated?: boolean;
+  /** 50a: a layer's notes, shown under the row ("or make from ~4 pears"). */
+  notes?: string[];
+  /**
+   * 50a (composed lists only): what changed the row since the items made
+   * it, in order — a rule's merge, then each layer's op, with who and why.
+   */
+  changes?: ShoppingChange[];
+  /** 50a: with `changes`, the base rows' labels it came from ("as written"). */
+  asWritten?: string[];
+}
+
+/** 50a: one step of a row's chain (Da5). */
+export interface ShoppingChange {
+  /** A layer of this list, or a rule for every list (49a's merge decisions). */
+  source: "layer" | "rule";
+  /** The layer's id, or the merge decision's. */
+  id: string;
+  op: ShoppingLayerOpKind;
+  /** A layer's maker. Absent for a rule. */
+  by?: ShoppingLayerBy;
+  /** The layer's reason. */
+  reason?: string;
+  /** What it did, as a person reads it: "renamed to vanilla". */
+  text: string;
+  /** It applied to nothing on this row, and why ("2 cans is a count…"). */
+  skipped?: string;
+}
+
+/** 50a: a row taken off the list, and who said so (Da5). */
+export interface ShoppingLeftOff {
+  /** The row as it would read. */
+  row: ShoppingRow;
+  reason: string;
+  /** Water (`built-in`), a leave-off rule, or one of this list's layers. */
+  source: "built-in" | "rule" | "layer";
+  /** A layer's maker. */
+  by?: ShoppingLayerBy;
+  /** The layer's id, or the rule's. */
+  id?: string;
+  /** The name key a rule (or a built-in) matched: what Restore restores. */
+  key?: string;
+}
+
+/** 50a: what composes the list over its base rows (Da4). */
+export interface ShoppingCompose {
+  /** This list's layers, any order (applied by id). */
+  layers?: readonly ShoppingLayer[];
+  /** The rules for every list: leave-off. */
+  rules?: readonly ShoppingRule[];
 }
 
 export interface ShoppingSection {
@@ -355,6 +431,11 @@ export interface ShoppingView {
   onHand: ShoppingRow[];
   /** Rows with every item ticked. */
   checked: ShoppingRow[];
+  /**
+   * 50a: rows taken off the list — a leave-off rule's (water) or a layer's
+   * drop. Empty without a `compose`.
+   */
+  leftOff: ShoppingLeftOff[];
   counts: {
     /** Stored items. */
     items: number;
@@ -364,6 +445,8 @@ export interface ShoppingView {
     remaining: number;
     checked: number;
     onHand: number;
+    /** 50a: rows left off (a composed list only). */
+    leftOff?: number;
   };
 }
 
@@ -459,10 +542,11 @@ function extrasOf(entries: Entry[]): string[] {
 /**
  * 49a: a merge decision applied to a row — the label, and how its names'
  * amounts add (a container for a counted name, a density for volume and
- * weight).
+ * weight). 50a: a layer's merge or rename too, with no `decision`.
  */
 interface MergeContext {
-  decision: ShoppingMerge;
+  /** 49a's decision; absent for a layer's merge or rename (50a). */
+  decision?: ShoppingMerge;
   /** The row's name: the person's, the curated set's, or the commonest. */
   label: string;
   /** `label` is the person's: shown as typed, never made plural. */
@@ -471,32 +555,37 @@ interface MergeContext {
   countUnits: Readonly<Record<string, string>>;
 }
 
+/**
+ * The density a row's sum uses: its merge's (49a), else — 50a, "4 cups +
+ * 10 g all purpose flour" — its own name's, so one name in cups and grams
+ * adds up too.
+ */
+function densityOf(entries: Entry[], merge?: MergeContext): number | undefined {
+  if (merge) return merge.gramsPerCup;
+  const key = entries[0]?.name.key;
+  return key && isNamed(key) ? gramsPerCupFor(key) : undefined;
+}
+
+function amountsOf(entries: Entry[], merge?: MergeContext): Amount[] {
+  return entries.flatMap((entry) =>
+    entry.amount && !entry.alternative
+      ? [
+          countsAs(
+            scaleAmount(entry.amount, entry.factor),
+            merge?.countUnits[entry.name.key],
+          ),
+        ]
+      : [],
+  );
+}
+
 function sumOf(
   entries: Entry[],
   merge?: MergeContext,
 ): { amount: Amount; estimated: boolean } {
-  if (!merge) {
-    return {
-      amount: addAmounts(
-        ...entries.flatMap((entry) =>
-          entry.amount ? [scaleAmount(entry.amount, entry.factor)] : [],
-        ),
-      ),
-      estimated: false,
-    };
-  }
   return consolidateAmounts(
-    entries.flatMap((entry) =>
-      entry.amount
-        ? [
-            countsAs(
-              scaleAmount(entry.amount, entry.factor),
-              merge.countUnits[entry.name.key],
-            ),
-          ]
-        : [],
-    ),
-    merge.gramsPerCup,
+    amountsOf(entries, merge),
+    densityOf(entries, merge),
   );
 }
 
@@ -541,7 +630,7 @@ function buildRow(
     manual: items.every((item) => item.manual),
   };
 
-  if (!features.merge) {
+  if (!features.merge && !merge) {
     /* One item: the line as written, its scale a badge. */
     const badge = scaleBadge(first.item);
     if (features.quantities) {
@@ -569,7 +658,7 @@ function buildRow(
       estimate ? `≈ ${text}` : text;
     row.name = displayName(base, total, texts, exact);
     row.label = row.name;
-    if (merge) {
+    if (merge?.decision) {
       row.merge = {
         id: merge.decision.id,
         keys: [...merge.decision.keys],
@@ -594,11 +683,14 @@ function buildRow(
           lineFor(base, total, texts, extras, exact),
           estimated,
         );
-        if (estimated && row.merge) row.merge.estimated = true;
+        if (estimated) {
+          row.estimated = true;
+          if (row.merge) row.merge.estimated = true;
+        }
       }
       const raw = entries.filter((entry) => entry.amount === null).map(rawLine);
       if (raw.length > 0) row.raw = raw;
-      const own = merge?.decision.amount;
+      const own = merge?.decision?.amount;
       if (own && row.merge) {
         /*
          * 49a (Da4): the person's amount holds while the row covers exactly
@@ -607,6 +699,7 @@ function buildRow(
         if (sameIds(own.ids, row.ids)) {
           row.merge.amountEdited = true;
           delete row.merge.estimated;
+          delete row.estimated;
           row.quantity = own.text;
           row.label = `${own.text} ${row.name}`;
         } else {
@@ -759,9 +852,232 @@ function routeStore(
   );
 }
 
+// --- composition (50a) -------------------------------------------------------
+
+/**
+ * One row on its way to the list (50a): its items, how it reads (a merge
+ * decision's or a layer's name), and what the layers set on it. `render`
+ * makes the row.
+ */
+interface Draft {
+  key: string;
+  entries: Entry[];
+  merge?: MergeContext;
+  /** The name it routes, ticks by name and is kept on hand by. */
+  routeName: ShoppingName;
+  /** A layer's amount: the person's own, or the sum in another unit. */
+  amount?: { text: string; estimated: boolean };
+  /** A layer's aisle. */
+  aisle?: Aisle;
+  notes: string[];
+  changes: ShoppingChange[];
+}
+
+function byItemId(a: Entry, b: Entry): number {
+  return a.item.id < b.item.id ? -1 : a.item.id > b.item.id ? 1 : 0;
+}
+
+/** The unique name keys of a draft's own lines (not its `OR:` lines). */
+function draftKeys(draft: Draft): string[] {
+  return [
+    ...new Set(
+      draft.entries
+        .filter((entry) => !entry.alternative)
+        .map((entry) => entry.name.key),
+    ),
+  ];
+}
+
+/** A draft's label context for a layer to change: its merge's, or its name's. */
+function ownContext(draft: Draft): MergeContext {
+  if (draft.merge) return draft.merge;
+  const first = draft.entries.find((entry) => !entry.alternative)!;
+  return {
+    label: first.name.label,
+    named: false,
+    gramsPerCup: isNamed(first.name.key)
+      ? gramsPerCupFor(first.name.key)
+      : undefined,
+    countUnits: {},
+  };
+}
+
+/** Why an amount would not convert, in the words 49c's panel uses. */
+function cannotConvert(
+  why: "count" | "density" | "none",
+  name: string,
+  part?: string,
+): string {
+  if (why === "count") {
+    return `${part ?? "it"} is a count, not a weight or a volume`;
+  }
+  if (why === "density") {
+    return `no weight for a cup of ${name} on file, so ${part ?? "it"} can't be converted`;
+  }
+  return "no amount to convert";
+}
+
+/**
+ * Apply one op of a layer to the drafts (Da4): the rows its ids reach,
+ * in list order. A merged row is reached by any of its ids; a row taken off
+ * is reached by none.
+ */
+function applyOp(
+  op: ShoppingLayerOp,
+  index: number,
+  layer: ShoppingLayer,
+  state: {
+    drafts: Draft[];
+    reach: Map<string, Draft>;
+    leftOff: { draft: Draft; reason: string; layer: ShoppingLayer }[];
+    features: ShoppingFeatures;
+  },
+): void {
+  const { drafts, reach, features } = state;
+  const reached = [
+    ...new Set(
+      op.ids.flatMap((id) => {
+        const draft = reach.get(id);
+        return draft ? [draft] : [];
+      }),
+    ),
+  ].sort((a, b) => drafts.indexOf(a) - drafts.indexOf(b));
+  if (reached.length === 0) return;
+  const change = (text: string, skipped?: string): ShoppingChange => ({
+    source: "layer",
+    id: layer.id,
+    op: op.op,
+    by: { ...layer.by },
+    ...(layer.reason ? { reason: layer.reason } : {}),
+    text,
+    ...(skipped ? { skipped } : {}),
+  });
+  const labelOf = (draft: Draft) =>
+    buildRow(draft.key, draft.entries, features, draft.merge).label;
+
+  switch (op.op) {
+    case "merge": {
+      if (reached.length < 2) {
+        reached[0].changes.push(
+          change("merge", "only one of its rows is on the list"),
+        );
+        return;
+      }
+      const [first] = reached;
+      const own = ownContext(first);
+      const label = op.name ?? own.label;
+      const entries = reached.flatMap((draft) => draft.entries).sort(byItemId);
+      const keys = [
+        ...new Set(
+          entries
+            .filter((entry) => !entry.alternative)
+            .map((entry) => entry.name.key),
+        ),
+      ];
+      const named = shoppingNameOf(label);
+      const merged: Draft = {
+        key: `layer:${layer.id}:${index}`,
+        entries,
+        merge: {
+          label,
+          named: op.name !== undefined || own.named,
+          gramsPerCup: gramsPerCupFor(
+            isNamed(named.key) ? named.key : "",
+            keys,
+          ),
+          countUnits: Object.assign(
+            {},
+            ...reached.map((draft) => draft.merge?.countUnits ?? {}),
+          ),
+        },
+        routeName: first.routeName,
+        ...(op.amount && features.quantities
+          ? { amount: { text: op.amount, estimated: false } }
+          : {}),
+        ...(first.aisle ? { aisle: first.aisle } : {}),
+        notes: reached.flatMap((draft) => draft.notes),
+        changes: [
+          ...reached.flatMap((draft) => draft.changes),
+          change(`merged ${reached.map(labelOf).join(" + ")}`),
+        ],
+      };
+      drafts.splice(drafts.indexOf(first), 1, merged);
+      for (const other of reached.slice(1)) {
+        drafts.splice(drafts.indexOf(other), 1);
+      }
+      for (const entry of entries) reach.set(entry.item.id, merged);
+      return;
+    }
+    case "rename":
+      for (const draft of reached) {
+        draft.merge = { ...ownContext(draft), label: op.name, named: true };
+        draft.changes.push(change(`renamed to ${op.name}`));
+      }
+      return;
+    case "drop":
+      for (const draft of reached) {
+        drafts.splice(drafts.indexOf(draft), 1);
+        for (const entry of draft.entries) reach.delete(entry.item.id);
+        state.leftOff.push({ draft, reason: op.reason, layer });
+      }
+      return;
+    case "amount":
+      for (const draft of reached) {
+        if (!features.quantities) {
+          draft.changes.push(change("amount", "amounts are switched off"));
+          continue;
+        }
+        if (op.amount) {
+          draft.amount = { text: op.amount, estimated: false };
+          draft.changes.push(change(`amount: ${op.amount}`));
+          continue;
+        }
+        const context = ownContext(draft);
+        const total = addAmounts(...amountsOf(draft.entries, draft.merge));
+        const converted = amountInUnit(total, op.unit!, context.gramsPerCup);
+        if (converted.ok) {
+          draft.amount = {
+            text: converted.text,
+            estimated: converted.estimated,
+          };
+          draft.changes.push(
+            change(
+              `in ${op.unit}: ${converted.estimated ? "≈ " : ""}${converted.text}`,
+            ),
+          );
+        } else {
+          draft.changes.push(
+            change(
+              `in ${op.unit}`,
+              cannotConvert(converted.why, context.label, converted.part),
+            ),
+          );
+        }
+      }
+      return;
+    case "note":
+      for (const draft of reached) {
+        draft.notes.push(op.text);
+        draft.changes.push(change(`note: ${op.text}`));
+      }
+      return;
+    case "aisle":
+      for (const draft of reached) {
+        draft.aisle = op.aisle;
+        draft.changes.push(change(`aisle: ${AISLE_LABELS[op.aisle]}`));
+      }
+      return;
+  }
+}
+
 /**
  * The list, from the stored items and settings, the shared inventory's
  * items and the staples (`DEFAULT_STAPLES`).
+ *
+ * 50a: with `compose`, the list is composed — the leave-off rules (water,
+ * built in; a person's own) take rows off, then this list's layers apply in
+ * id order, each op to the rows its item ids reach. Without it the view is
+ * the base and 49a's merges, as it always was.
  */
 export function buildShoppingView(
   items: ShoppingItem[],
@@ -770,6 +1086,8 @@ export function buildShoppingView(
   staples: string[] = DEFAULT_STAPLES,
   /** 49a: the stored merge decisions; only `merged` ones change the view. */
   merges: readonly ShoppingMerge[] = [],
+  /** 50a: the rules and this list's layers over the base rows. */
+  compose?: ShoppingCompose,
 ): ShoppingView {
   const features = settings.features;
   /* Insertion order: ids are ULIDs. */
@@ -803,20 +1121,34 @@ export function buildShoppingView(
       )
     : new Map<string, ShoppingMerge>();
   const groups = new Map<string, Entry[]>();
+  /* 50a: the base rows' groups (no decisions), for a changed row's "as written". */
+  const baseGroups = new Map<string, Entry[]>();
   /* Item id → the group its row is keyed by, for the `OR:` lines that follow. */
   const groupOf = new Map<string, string>();
+  const baseGroupOf = new Map<string, string>();
+  const push = (map: Map<string, Entry[]>, key: string, entry: Entry) => {
+    const group = map.get(key);
+    if (group) group.push(entry);
+    else map.set(key, [entry]);
+  };
   for (const item of sorted) {
     const parent = alternativeOf.get(item.id);
     const parentKey = parent === undefined ? undefined : groupOf.get(parent);
     if (parentKey !== undefined) {
-      groupOf.set(item.id, parentKey);
-      groups.get(parentKey)!.push({
+      const entry: Entry = {
         item,
         name: nameOf(item.text),
         factor: factorOf(item),
         amount: null,
         alternative: true,
-      });
+      };
+      groupOf.set(item.id, parentKey);
+      groups.get(parentKey)!.push(entry);
+      if (compose) {
+        const baseKey = baseGroupOf.get(parent!)!;
+        baseGroupOf.set(item.id, baseKey);
+        push(baseGroups, baseKey, entry);
+      }
       continue;
     }
     const name = nameOf(item.text);
@@ -827,52 +1159,160 @@ export function buildShoppingView(
       amount: features.quantities ? parseAmount(item.text) : null,
     };
     const decision = mergeOf.get(name.key);
-    const key = decision
-      ? `merge:${decision.id}`
-      : features.merge
-        ? `name:${name.key}`
-        : item.id;
+    const baseKey = features.merge ? `name:${name.key}` : item.id;
+    const key = decision ? `merge:${decision.id}` : baseKey;
     groupOf.set(item.id, key);
-    const group = groups.get(key);
-    if (group) group.push(entry);
-    else groups.set(key, [entry]);
+    push(groups, key, entry);
+    if (compose) {
+      baseGroupOf.set(item.id, baseKey);
+      push(baseGroups, baseKey, entry);
+    }
   }
 
-  const inventoryItems = features.onHand
-    ? inventory.map(parseInventoryItem)
-    : [];
-  const stapleItems = features.onHand ? staples.map(parseInventoryItem) : [];
-
-  const storeLists = new Map<string | undefined, ShoppingRow[]>();
-  const onHand: ShoppingRow[] = [];
-  const checked: ShoppingRow[] = [];
-  let rowCount = 0;
-
+  const drafts: Draft[] = [];
   for (const [key, entries] of groups) {
     const decision = key.startsWith("merge:")
       ? mergeOf.get(entries[0].name.key)
       : undefined;
     const merge = decision ? mergeContext(decision, entries) : undefined;
-    const row = buildRow(key, entries, features, merge);
-    rowCount += 1;
-    /*
-     * 49a (Da5): a merged row is routed, ticked by name and kept on hand by
-     * its merged name — "all-purpose flour" — so one aisle override covers
-     * it, whichever of its names a later list brings.
-     */
-    const routeName = merge ? shoppingNameOf(merge.label) : entries[0].name;
-    if (merge && isNamed(routeName.key)) row.nameKey = routeName.key;
+    drafts.push({
+      key,
+      entries,
+      merge,
+      /*
+       * 49a (Da5): a merged row is routed, ticked by name and kept on hand
+       * by its merged name — "all-purpose flour" — so one aisle override
+       * covers it, whichever of its names a later list brings.
+       */
+      routeName: merge ? shoppingNameOf(merge.label) : entries[0].name,
+      notes: [],
+      /* 50a: a rule's merge is the first step of a composed row's chain. */
+      changes:
+        compose && decision
+          ? [
+              {
+                source: "rule",
+                id: decision.id,
+                op: "merge",
+                text: `merged ${decision.keys.join(" + ")} (a rule for every list)`,
+              },
+            ]
+          : [],
+    });
+  }
+
+  const leftOffDrafts: {
+    draft: Draft;
+    reason: string;
+    source: ShoppingLeftOff["source"];
+    by?: ShoppingLayerBy;
+    id?: string;
+    key?: string;
+  }[] = [];
+  if (compose) {
+    /* Rules (Da3): a row every one of whose names is left off goes off. */
+    const verdicts = leaveOffVerdicts(compose.rules ?? []);
+    for (const draft of [...drafts]) {
+      const keys = draftKeys(draft);
+      if (keys.length === 0 || !keys.every((key) => verdicts.has(key))) {
+        continue;
+      }
+      const verdict = verdicts.get(keys[0])!;
+      drafts.splice(drafts.indexOf(draft), 1);
+      leftOffDrafts.push({
+        draft,
+        reason: verdict.reason,
+        source: verdict.builtIn ? "built-in" : "rule",
+        ...(verdict.rule ? { id: verdict.rule } : {}),
+        key: keys[0],
+      });
+    }
+
+    /* Layers (Da4), in id order: on, and naming an item still on the list. */
+    const present = new Set(items.map((item) => item.id));
+    const reach = new Map<string, Draft>();
+    for (const draft of drafts) {
+      for (const entry of draft.entries) reach.set(entry.item.id, draft);
+    }
+    const dropped: { draft: Draft; reason: string; layer: ShoppingLayer }[] =
+      [];
+    for (const layer of sortLayers(compose.layers ?? [])) {
+      if (!layer.on || isStaleLayer(layer, present)) continue;
+      layer.ops.forEach((op, index) =>
+        applyOp(op, index, layer, {
+          drafts,
+          reach,
+          leftOff: dropped,
+          features,
+        }),
+      );
+    }
+    for (const { draft, reason, layer } of dropped) {
+      leftOffDrafts.push({
+        draft,
+        reason,
+        source: "layer",
+        by: { ...layer.by },
+        id: layer.id,
+      });
+    }
+  }
+
+  /* 50a: item id → the base row's label it is part of ("as written"). */
+  let baseLabels: Map<string, string> | undefined;
+  const asWrittenOf = (entries: Entry[]): string[] => {
+    if (!baseLabels) {
+      baseLabels = new Map();
+      for (const [key, group] of baseGroups) {
+        const { label } = buildRow(key, group, features);
+        for (const entry of group) baseLabels.set(entry.item.id, label);
+      }
+    }
+    const labels = new Set<string>();
+    for (const entry of entries) {
+      if (entry.alternative) continue;
+      const label = baseLabels.get(entry.item.id);
+      if (label !== undefined) labels.add(label);
+    }
+    return [...labels];
+  };
+
+  const render = (draft: Draft): ShoppingRow => {
+    const { entries, merge, routeName } = draft;
+    const row = buildRow(draft.key, entries, features, merge);
+    if (merge?.decision && isNamed(routeName.key)) {
+      row.nameKey = routeName.key;
+    }
+    /* A layer's amount stands as the person's own does (49a, Da4). */
+    const named =
+      merge !== undefined || (features.merge && isNamed(entries[0].name.key));
+    if (draft.amount && features.quantities && named) {
+      const text = draft.amount.estimated
+        ? `≈ ${draft.amount.text}`
+        : draft.amount.text;
+      row.quantity = text;
+      row.label = `${text} ${row.name}`;
+      delete row.remaining;
+      if (draft.amount.estimated) row.estimated = true;
+      else delete row.estimated;
+      if (row.merge) {
+        delete row.merge.estimated;
+        delete row.merge.amountStale;
+      }
+    }
     /*
      * An override is keyed by `shoppingNameOf(...).key`, `text:` keys
      * included — which `aisleFor`'s own lookup (by words) never meets.
      */
     const override = settings.aisleOverrides[routeName.key];
-    const aisle = isAisle(override)
-      ? override
-      : aisleFor(
-          isNamed(routeName.key) ? routeName.key : routeName.label,
-          settings.aisleOverrides,
-        );
+    const aisle =
+      draft.aisle ??
+      (isAisle(override)
+        ? override
+        : aisleFor(
+            isNamed(routeName.key) ? routeName.key : routeName.label,
+            settings.aisleOverrides,
+          ));
     if (features.aisles) row.aisle = aisle;
     if (features.stores) {
       row.store = routeStore(entries, routeName.key, aisle, settings);
@@ -884,7 +1324,27 @@ export function buildShoppingView(
         row.storePinned = true;
       }
     }
+    if (draft.notes.length > 0) row.notes = [...draft.notes];
+    if (compose && draft.changes.length > 0) {
+      row.changes = draft.changes.map((step) => ({ ...step }));
+      row.asWritten = asWrittenOf(entries);
+    }
+    return row;
+  };
 
+  const inventoryItems = features.onHand
+    ? inventory.map(parseInventoryItem)
+    : [];
+  const stapleItems = features.onHand ? staples.map(parseInventoryItem) : [];
+
+  const storeLists = new Map<string | undefined, ShoppingRow[]>();
+  const onHand: ShoppingRow[] = [];
+  const checked: ShoppingRow[] = [];
+  let rowCount = 0;
+
+  for (const draft of drafts) {
+    const row = render(draft);
+    rowCount += 1;
     if (row.checked) {
       checked.push(row);
       continue;
@@ -892,8 +1352,8 @@ export function buildShoppingView(
     if (
       features.onHand &&
       !row.need &&
-      routeName.requirement &&
-      probablyOnHand(routeName.requirement, inventoryItems, stapleItems)
+      draft.routeName.requirement &&
+      probablyOnHand(draft.routeName.requirement, inventoryItems, stapleItems)
     ) {
       onHand.push(row);
       continue;
@@ -903,6 +1363,10 @@ export function buildShoppingView(
     if (list) list.push(row);
     else storeLists.set(listKey, [row]);
   }
+
+  const leftOff: ShoppingLeftOff[] = leftOffDrafts.map(
+    ({ draft, ...rest }) => ({ row: render(draft), ...rest }),
+  );
 
   const order = [
     ...settings.aisleOrder,
@@ -936,12 +1400,14 @@ export function buildShoppingView(
     stores,
     onHand,
     checked,
+    leftOff,
     counts: {
       items: items.length,
       rows: rowCount,
       remaining,
       checked: checked.length,
       onHand: onHand.length,
+      ...(compose ? { leftOff: leftOff.length } : {}),
     },
   };
 }
@@ -954,6 +1420,7 @@ export function viewForStore(view: ShoppingView, store: string): ShoppingView {
   const stores = view.stores.filter((list) => list.store?.id === store);
   const onHand = view.onHand.filter((row) => row.store === store);
   const checked = view.checked.filter((row) => row.store === store);
+  const leftOff = view.leftOff.filter((off) => off.row.store === store);
   const rows = [
     ...stores.flatMap((list) =>
       list.sections.flatMap((section) => section.rows),
@@ -966,12 +1433,14 @@ export function viewForStore(view: ShoppingView, store: string): ShoppingView {
     stores,
     onHand,
     checked,
+    leftOff,
     counts: {
       items: rows.reduce((sum, row) => sum + row.total, 0),
       rows: rows.length,
       remaining: stores.reduce((sum, list) => sum + list.count, 0),
       checked: checked.length,
       onHand: onHand.length,
+      ...(view.counts.leftOff !== undefined ? { leftOff: leftOff.length } : {}),
     },
   };
 }
@@ -990,6 +1459,8 @@ function rowLines(row: ShoppingRow): string[] {
     row.label,
     ...(row.raw ?? []).map((line) => `  · ${line}`),
     ...(row.alternatives ?? []).map((line) => `  · or ${line}`),
+    /* 50a: a layer's note reads under its row, as on the page. */
+    ...(row.notes ?? []).map((note) => `  · ${note}`),
   ];
 }
 

@@ -234,6 +234,11 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   shopping split <id>
   shopping ask <id> --note "<note>" [--claude] [--wait]
   shopping find-merges [--claude] [--wait]
+  shopping list --as-written
+  shopping changes
+  shopping change add (--file <json> | --stdin) | on <id> | off <id> | rm <id>
+  shopping leave-off <name…> [--reason <text>]
+  shopping restore <name…>
   git status [--fetch]
   git fetch [<remote>]
   git pull [<remote>]
@@ -431,6 +436,15 @@ reads — and printed with the merge it would make; nothing is written. A
 local run waits for the model; with --remote, --wait follows the job, and
 without it the job's id is printed. /shopping has the same in "Same thing,
 different names", with Accept.
+
+The shopping list is composed: its rows as written, then the rules for
+every list (merges; leave-off — water is left off built in, \`shopping
+restore water\` brings it back), then this list's changes. \`shopping
+changes\` lists the changes (layers of ops tied to item ids: merge, rename,
+drop, amount, note, aisle); \`shopping change add --file change.json\` adds
+one, \`change off <id>\` undoes it (the file stays), \`change on\` redoes it,
+\`change rm\` removes it. \`shopping list --as-written\` shows the rows before
+any of it. Clearing a change's last lines removes the change with them.
 
 A roundup ("40+ Thanksgiving Pies"): \`inspect-list <url>\` lists its recipes,
 \`existing\` marked; \`import-list <url> --pick 1,3 [--term <slug>]\` imports

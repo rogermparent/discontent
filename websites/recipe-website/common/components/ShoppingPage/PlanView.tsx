@@ -22,6 +22,7 @@ import type {
   ShoppingView,
 } from "../../util/shoppingView";
 import { MergeProposals } from "./MergeProposals";
+import { AsWrittenSwitch, ChangesPanel, LeftOffPanel } from "./Layers";
 import {
   AddBox,
   ClearChecked,
@@ -362,6 +363,8 @@ export function PlanView({
   storesOn,
   mode,
   setMode,
+  asWritten = false,
+  setAsWritten,
 }: {
   list: ShoppingList;
   fullView: ShoppingView;
@@ -380,6 +383,9 @@ export function PlanView({
   storesOn: boolean;
   mode: ShoppingMode;
   setMode(mode: ShoppingMode): void;
+  /** 50a: the list shows its base rows ("As written"). */
+  asWritten?: boolean;
+  setAsWritten?(on: boolean): void;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -455,6 +461,7 @@ export function PlanView({
             asker={asker}
             view={fullView}
           />
+          <ChangesPanel list={list} />
           {origins.length > 0 && (
             <Origins origins={origins} view={fullView} list={list} />
           )}
@@ -478,6 +485,11 @@ export function PlanView({
                 value={known ? store : "all"}
                 onChange={setStore}
               />
+            </div>
+          )}
+          {setAsWritten && list.canLayer && (
+            <div className={phoneHidden}>
+              <AsWrittenSwitch on={asWritten} onChange={setAsWritten} />
             </div>
           )}
           <div
@@ -539,6 +551,10 @@ export function PlanView({
           {list.settings.features.onHand && view.onHand.length > 0 && (
             <OnHandPanel rows={view.onHand} list={list} />
           )}
+
+          <div className={phoneHidden}>
+            <LeftOffPanel entries={view.leftOff} list={list} />
+          </div>
 
           {view.checked.length > 0 && (
             <details

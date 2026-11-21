@@ -220,7 +220,8 @@ describe("parseAmount — units", () => {
     ]);
     expect(shown("1/2 cup and 2 tablespoons sugar")).toBe("10 tbsp");
     expect(shown("1/2 cup plus 1 tablespoon water")).toBe("9 tbsp");
-    expect(shown("1T + 1t honey")).toBe("1⅓ tbsp");
+    /* 50a: never thirds of a tablespoon. */
+    expect(shown("1T + 1t honey")).toBe("1 tbsp + 1 tsp");
     /* A quantity without a unit is a second ingredient, not more of this one. */
     expect(parts("1 cup salt and 2 eggs")).toEqual([
       { qty: 1, unit: "cup", family: "us-volume" },
@@ -681,7 +682,9 @@ describe("formatAmount", () => {
 
   it("shows a parsed line", () => {
     expect(shown("1 cup plus 2 tablespoons milk")).toBe("1⅛ cups");
-    expect(shown("1 tablespoon plus 2 teaspoons butter")).toBe("1⅔ tbsp");
+    expect(shown("1 tablespoon plus 2 teaspoons butter")).toBe(
+      "1 tbsp + 2 tsp",
+    );
     expect(shown("1/2 cup (100g) sugar")).toBe("½ cup");
   });
 });

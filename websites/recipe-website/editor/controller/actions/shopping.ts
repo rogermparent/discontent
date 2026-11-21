@@ -5,20 +5,30 @@ import { curationContextFor } from "../apiContext";
 import { toErrorObject, type CurationErrorCode } from "../curation/errors";
 import { readInventory } from "../curation/inventory";
 import {
+  addShoppingLayer,
   addToShopping,
   clearShopping,
   decideShoppingMerge,
   patchShopping,
   readShopping,
   readShoppingPlanNames,
+  removeShoppingLayer,
+  setShoppingLayer,
+  setShoppingLeaveOff,
   splitShoppingMerge,
   updateShoppingSettings,
   type ShoppingAddResult,
   type ShoppingClearResult,
+  type ShoppingLayerResult,
   type ShoppingMergeResult,
   type ShoppingPatchResult,
+  type ShoppingRuleResult,
   type ShoppingSettingsResult,
 } from "../curation/shopping";
+import type {
+  ShoppingLayer,
+  ShoppingRule,
+} from "recipe-website-common/util/shoppingLayers";
 import type { ShoppingMerge } from "recipe-website-common/util/shoppingMerges";
 import type {
   ShoppingItem,
@@ -59,6 +69,9 @@ export interface ShoppingListState {
   plans?: Record<string, string>;
   /** 49a: the merge decisions; the browser finds the proposals itself. */
   merges?: ShoppingMerge[];
+  /** 50a: this list's layers and the leave-off rules; the browser composes. */
+  layers?: ShoppingLayer[];
+  rules?: ShoppingRule[];
 }
 
 /** The list read fresh — when the page becomes visible again, say. */
@@ -67,10 +80,10 @@ export async function loadShoppingList(): Promise<
 > {
   return signedIn(async (email) => {
     const ctx = curationContextFor(email);
-    const [{ items, settings, merges }, { items: inventory }] =
+    const [{ items, settings, merges, layers, rules }, { items: inventory }] =
       await Promise.all([readShopping(ctx), readInventory(ctx)]);
     const plans = await readShoppingPlanNames(ctx, items);
-    return { items, settings, inventory, plans, merges };
+    return { items, settings, inventory, plans, merges, layers, rules };
   });
 }
 
@@ -119,5 +132,42 @@ export async function splitShoppingListMerge(
 ): Promise<ShoppingActionResult<ShoppingMergeResult>> {
   return signedIn((email) =>
     splitShoppingMerge(curationContextFor(email), { id }),
+  );
+}
+
+/** 50a: a change for this list (a layer of ops) — one commit. */
+export async function addShoppingListLayer(
+  input: unknown,
+): Promise<ShoppingActionResult<ShoppingLayerResult>> {
+  return signedIn((email) =>
+    addShoppingLayer(curationContextFor(email), input),
+  );
+}
+
+/** 50a: turn a change off (undo) or on — one commit. */
+export async function setShoppingListLayer(
+  id: string,
+  on: boolean,
+): Promise<ShoppingActionResult<ShoppingLayerResult>> {
+  return signedIn((email) =>
+    setShoppingLayer(curationContextFor(email), { id, on }),
+  );
+}
+
+/** 50a: remove a change — one commit. */
+export async function removeShoppingListLayer(
+  id: string,
+): Promise<ShoppingActionResult<ShoppingLayerResult>> {
+  return signedIn((email) =>
+    removeShoppingLayer(curationContextFor(email), { id }),
+  );
+}
+
+/** 50a: leave a name off every list, or Restore it — one commit. */
+export async function setShoppingListLeaveOff(
+  input: unknown,
+): Promise<ShoppingActionResult<ShoppingRuleResult>> {
+  return signedIn((email) =>
+    setShoppingLeaveOff(curationContextFor(email), input),
   );
 }
