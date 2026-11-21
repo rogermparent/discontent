@@ -1261,11 +1261,40 @@ async function decideLocked(
   input: ShoppingMergeInput,
 ): Promise<ShoppingMergeResult> {
   await assertNoMergeInProgress(ctx.contentDirectory);
-  const [items, settings, merges] = await Promise.all([
+  const [items, settings, onDisk] = await Promise.all([
     readShoppingItems(ctx),
     readShoppingSettings(ctx),
     readShoppingMerges(ctx),
   ]);
+  /*
+   * 49b: the decision this answer replaces (a merged row the model split or
+   * kept apart) is gone before anything else is worked out — so it neither
+   * absorbs the new keys back nor carries its name — and its file goes in
+   * the same commit.
+   */
+  const replaced = input.replaces
+    ? onDisk.find((merge) => merge.id === input.replaces)
+    : undefined;
+  /*
+   * 49b review: a `replaces` that names no merged row sharing a name with
+   * this answer is stale (another device split or regrew it) or made up —
+   * refused, so it can neither delete an unrelated decision nor be absorbed
+   * back into a merge it did not see.
+   */
+  if (
+    input.replaces &&
+    (!replaced ||
+      replaced.status !== "merged" ||
+      (input.keys !== undefined &&
+        !overlaps(replaced.keys, normalizeMergeKeys(input.keys))))
+  ) {
+    throw new ValidationError(
+      "The merged row this answer replaces has changed since the model was asked: ask again.",
+    );
+  }
+  const merges = replaced
+    ? onDisk.filter((merge) => merge.id !== replaced.id)
+    : onDisk;
 
   let keys: string[];
   if (input.keys) {
@@ -1289,7 +1318,6 @@ async function decideLocked(
     }
   }
 
-  const removed = new Set<string>();
   if (input.status === "merged") {
     /* A merge sharing a name is part of this one now (Da4). */
     let grown = true;
@@ -1298,7 +1326,6 @@ async function decideLocked(
       for (const merge of merges) {
         if (
           merge.status === "merged" &&
-          !removed.has(merge.id) &&
           overlaps(merge.keys, keys) &&
           merge.keys.some((key) => !keys.includes(key))
         ) {
@@ -1309,7 +1336,12 @@ async function decideLocked(
     }
   }
   const id = mergeIdOf(keys);
-  const previous = merges.find((merge) => merge.id === id);
+  /* Replacing a decision with itself (the same names) is an update of it. */
+  const previous =
+    replaced?.id === id ? replaced : merges.find((merge) => merge.id === id);
+  const removed = new Set<string>(
+    replaced && replaced.id !== id ? [replaced.id] : [],
+  );
   for (const merge of merges) {
     if (merge.id === id) continue;
     /*
@@ -1325,7 +1357,7 @@ async function decideLocked(
       overlaps(merge.keys, keys);
     if (covered || absorbed) removed.add(merge.id);
   }
-  if (merges.length - removed.size + (previous ? 0 : 1) > MAX_SHOPPING_MERGES) {
+  if (onDisk.length - removed.size + (previous ? 0 : 1) > MAX_SHOPPING_MERGES) {
     throw new ValidationError(
       `The list holds at most ${MAX_SHOPPING_MERGES} merge decisions.`,
     );
@@ -1394,7 +1426,7 @@ async function decideLocked(
     mergeSubstance(previous) === mergeSubstance(decision) &&
     removed.size === 0;
   if (unchanged) {
-    return { merges, changed: false, decision: previous, removed: [] };
+    return { merges: onDisk, changed: false, decision: previous, removed: [] };
   }
   const verb =
     input.status === "merged"
@@ -1412,7 +1444,7 @@ async function decideLocked(
     `Update shopping list: ${verb}`,
   );
   return {
-    merges: changed ? await readShoppingMerges(ctx) : merges,
+    merges: changed ? await readShoppingMerges(ctx) : onDisk,
     changed,
     decision: canonicalShoppingMerge(decision),
     removed: [...removed],

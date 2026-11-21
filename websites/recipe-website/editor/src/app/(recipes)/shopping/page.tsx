@@ -1,6 +1,5 @@
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { auth, redirectToLogin } from "@/auth";
-import { ShoppingPage } from "recipe-website-common/components/ShoppingPage";
 import {
   PageMain,
   PageSection,
@@ -18,6 +17,9 @@ import {
   readShopping,
   readShoppingPlanNames,
 } from "recipe-editor/controller/curation/shopping";
+import { editModels } from "recipe-editor/controller/llm/askEdit";
+import { readerLabel } from "recipe-editor/controller/llm/readerLabel";
+import ShoppingWithModel from "./ShoppingWithModel";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +30,8 @@ export const metadata = { title: "Shopping list" };
  * list lives in the content repository and nothing else serves it. The page
  * reads the stored items, the settings and the on-hand list; the browser
  * builds the view (D3) and batches ticks to `PATCH /api/shopping` (D9).
+ * 49b: where this editor has a model (Edit with AI's), the page can ask it
+ * about the merges (`ShoppingWithModel`).
  */
 export default async function ShoppingListPage() {
   const session = await auth();
@@ -40,10 +44,11 @@ export default async function ShoppingListPage() {
     readInventory(ctx),
   ]);
   const plans = await readShoppingPlanNames(ctx, items);
+  const models = editModels();
   return (
     <PageMain>
       <PageSection maxWidth="none" grow className="print:p-0">
-        <ShoppingPage
+        <ShoppingWithModel
           initial={{
             items,
             settings,
@@ -60,6 +65,10 @@ export default async function ShoppingListPage() {
             splitMerge: splitShoppingListMerge,
           }}
           patchUrl="/api/shopping"
+          models={{
+            ...(models.local ? { local: readerLabel(models.local) } : {}),
+            ...(models.claude ? { claude: readerLabel(models.claude) } : {}),
+          }}
         />
       </PageSection>
     </PageMain>

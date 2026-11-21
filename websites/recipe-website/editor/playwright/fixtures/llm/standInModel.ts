@@ -19,6 +19,9 @@
  * - **What each step uses** (47g, `USES_SYSTEM_PROMPT`): `usesAnswer` —
  *   "everything" brings in every line, "the bowl" nothing, any other step
  *   is left out.
+ * - **A shopping list's note** (49b, `REVISE_SYSTEM_PROMPT`):
+ *   `shoppingReviseAnswer`, by the note's words; **look for more**
+ *   (`FIND_SYSTEM_PROMPT`): `shoppingFindAnswer`, a name inside another.
  * - **A photo** (38e, the vision model's `TRANSCRIBE_SYSTEM_PROMPT`): the
  *   transcript filed for each picture's bytes as **sent** (`transcripts`,
  *   keyed by `sentPhotoKey`), as text.
@@ -50,6 +53,76 @@ export interface StandInOptions {
   uses?: unknown;
   /** An "Edit with AI" answer (47i) in place of the stand-in's own. */
   edit?: unknown;
+  /** A shopping ask's answer (49b) in place of the stand-in's own. */
+  shopping?: unknown;
+}
+
+/**
+ * A note on the shopping list's rows (49b, `REVISE_SYSTEM_PROMPT`), by rule
+ * on its words: "apart", "different" or "separate" keeps them apart;
+ * "invent" names a row that was not asked about (which the check must
+ * refuse); "grams" answers 360 g; "call it X" names the row X. Every other
+ * note merges every row under the first row's name, with the list's total.
+ * Never a real model.
+ */
+export function shoppingReviseAnswer(user: string): Record<string, unknown> {
+  const rows = [...user.matchAll(/^(\d+)\. (.+?) — /gm)].map((match) => ({
+    number: Number(match[1]),
+    name: match[2],
+  }));
+  const note = /^Note: (.*)$/m.exec(user)?.[1] ?? "";
+  if (/\b(apart|different|separate)\b/i.test(note)) {
+    return {
+      verdict: "apart",
+      items: [],
+      name: "",
+      amount: "",
+      estimated: false,
+      reason: "The note says they are different.",
+    };
+  }
+  const called = /call it (.+?)(?:\.|$)/i.exec(note)?.[1]?.trim();
+  return {
+    verdict: "merge",
+    items: /\binvent/i.test(note) ? [1, 99] : rows.map((row) => row.number),
+    name: called ?? rows[0]?.name ?? "",
+    amount: /\bgrams?\b/i.test(note) ? "360 g" : "",
+    estimated: /\bgrams?\b/i.test(note),
+    reason: "Both go in one bag.",
+  };
+}
+
+/**
+ * Look for more (49b, `FIND_SYSTEM_PROMPT`): two names where one is the
+ * other with a word in front ("sea salt" and "salt") are one group, under
+ * the shorter name. Never a real model.
+ */
+export function shoppingFindAnswer(user: string): {
+  groups: { items: number[]; name: string; reason: string }[];
+} {
+  const names = [...user.matchAll(/^(\d+)\. (.+?)(?: — .*)?$/gm)].map(
+    (match) => ({ number: Number(match[1]), name: match[2] }),
+  );
+  const groups: { items: number[]; name: string; reason: string }[] = [];
+  const used = new Set<number>();
+  for (const short of names) {
+    if (used.has(short.number)) continue;
+    const long = names.find(
+      (other) =>
+        other.number !== short.number &&
+        !used.has(other.number) &&
+        other.name.endsWith(` ${short.name}`),
+    );
+    if (!long) continue;
+    used.add(short.number);
+    used.add(long.number);
+    groups.push({
+      items: [short.number, long.number],
+      name: short.name,
+      reason: `Both are ${short.name}.`,
+    });
+  }
+  return { groups };
 }
 
 /**
@@ -384,6 +457,30 @@ export function standInChat(
       done: true,
       prompt_eval_count: 700,
       eval_count: 90,
+    };
+  }
+  if (system.startsWith("You decide how lines on a shopping list")) {
+    return {
+      model: body.model ?? "qwen3:8b",
+      message: {
+        role: "assistant",
+        content: JSON.stringify(options.shopping ?? shoppingReviseAnswer(user)),
+      },
+      done: true,
+      prompt_eval_count: 260,
+      eval_count: 40,
+    };
+  }
+  if (system.startsWith("You find names on a shopping list")) {
+    return {
+      model: body.model ?? "qwen3:8b",
+      message: {
+        role: "assistant",
+        content: JSON.stringify(options.shopping ?? shoppingFindAnswer(user)),
+      },
+      done: true,
+      prompt_eval_count: 180,
+      eval_count: 30,
     };
   }
   if (system.startsWith("You find where a recipe web page keeps")) {

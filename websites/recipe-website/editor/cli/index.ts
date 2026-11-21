@@ -232,6 +232,8 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   shopping merge <id> [--name <name>] [--amount <amount>] [--note <text>]
   shopping keep-apart <id> [--note <text>]
   shopping split <id>
+  shopping ask <id> --note "<note>" [--claude] [--wait]
+  shopping find-merges [--claude] [--wait]
   git status [--fetch]
   git fetch [<remote>]
   git pull [<remote>]
@@ -418,6 +420,17 @@ alternatives or stored \`uses\` dropped unless the request is about them —
 and printed as each changed field's before → after with the patch. Nothing
 is written: \`update <slug> --file patch.json\` is the write (--out writes
 it). The edit page has the same as "Edit with AI", reviewed in the form.
+
+The shopping list's merges, asked of a model: \`shopping ask <id> --note "use
+grams"\` sends one proposal or merge (\`shopping merges\` lists their ids)
+and the note to the same model \`revise\` asks (--claude for the Claude API);
+\`shopping find-merges\` sends the list's names and asks which a shopper buys
+as one thing, leaving out what is merged, kept apart or proposed already.
+The answer is checked — only the lines asked about, a name, an amount that
+reads — and printed with the merge it would make; nothing is written. A
+local run waits for the model; with --remote, --wait follows the job, and
+without it the job's id is printed. /shopping has the same in "Same thing,
+different names", with Accept.
 
 A roundup ("40+ Thanksgiving Pies"): \`inspect-list <url>\` lists its recipes,
 \`existing\` marked; \`import-list <url> --pick 1,3 [--term <slug>]\` imports

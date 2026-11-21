@@ -848,6 +848,9 @@ export type ShoppingPatchInput = z.infer<typeof ShoppingPatchSchema>;
  * directly. `merged` takes an optional `name` (the row's label) and `amount`
  * (its own amount, held while the row covers the same items); `apart` takes
  * neither. `note` is stored for 49b's model and read by nothing in 49a.
+ * 49b: `replaces` names a stored decision this answer takes the place of,
+ * deleted in the same commit — a merged row the model splits ("merge only
+ * these two") or keeps apart, accepted.
  */
 export const ShoppingMergeSchema = z
   .strictObject({
@@ -878,6 +881,12 @@ export const ShoppingMergeSchema = z
       .regex(/^[^\n\r\t]*$/, "An amount is one line")
       .optional(),
     note: z.string().trim().min(1).max(MERGE_LIMITS.note).optional(),
+    replaces: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(MERGE_ID_PATTERN, "A merge id is 16 hex characters")
+      .optional(),
   })
   .refine((data) => (data.id === undefined) !== (data.keys === undefined), {
     message: "Name exactly one of `id` or `keys`",

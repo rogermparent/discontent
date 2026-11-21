@@ -42,6 +42,7 @@ import { FEATURE_TEXT, SettingsSheet } from "./SettingsSheet";
 import type { RowHandlers } from "./ShoppingRowView";
 import type { ShoppingMode } from "./shopState";
 import type { ShoppingList } from "./useShoppingList";
+import type { ShoppingAsker } from "./useShoppingAsk";
 
 /**
  * Hidden on a phone's screen only: Plan's list is Shop's there (the canvas),
@@ -354,6 +355,7 @@ export function PlanView({
   expired,
   subRecipes,
   proposals,
+  asker,
   handlers,
   store,
   setStore,
@@ -370,6 +372,8 @@ export function PlanView({
   subRecipes: ShoppingSubRecipeGroup[];
   /** 49a: open "same thing, different names" proposals. */
   proposals: ShoppingProposal[];
+  /** 49b: the model's asks, where the editor has a model. */
+  asker?: ShoppingAsker;
   handlers: RowHandlers;
   store: string;
   setStore(store: string): void;
@@ -445,7 +449,12 @@ export function PlanView({
               hint="Plans and recipes add from their own pages."
             />
           </section>
-          <MergeProposals proposals={proposals} list={list} />
+          <MergeProposals
+            proposals={proposals}
+            list={list}
+            asker={asker}
+            view={fullView}
+          />
           {origins.length > 0 && (
             <Origins origins={origins} view={fullView} list={list} />
           )}

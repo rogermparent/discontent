@@ -19,6 +19,8 @@ export interface RowHandlers {
   saveSettings(patch: unknown): void;
   /** 49a: Split a merged row (delete its decision); absent where unsupported. */
   split?(id: string): void;
+  /** 49b: a merged row's "Ask the model about this" (its decision's id). */
+  askAbout?(id: string): void;
 }
 
 /** 49a: "1 cup white flour (Pancakes) · 2 cups all-purpose flour (Bread)". */
@@ -238,6 +240,16 @@ function RowMenu({
             onClick={() => handlers.split?.(row.merge!.id)}
           >
             Split into its names
+          </Button>
+        )}
+        {row.merge && handlers.askAbout && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => handlers.askAbout?.(row.merge!.id)}
+          >
+            Ask the model about this
           </Button>
         )}
         <Button

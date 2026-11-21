@@ -30,6 +30,7 @@ import {
   CurationError,
   type CurationErrorCode,
   type CurationErrorDetails,
+  UsageError,
   jobOf,
   warningsOf,
   withJob,
@@ -81,6 +82,7 @@ import type {
   ReindexResult,
   SearchResult,
   ShoppingAddResult,
+  ShoppingAskResult,
   ShoppingClearResult,
   ShoppingMergeResult,
   ShoppingPatchResult,
@@ -687,6 +689,40 @@ export function createHttpBackend({
       return call<ShoppingMergeResult>("DELETE", "/api/shopping/merges", {
         query: { id },
       });
+    },
+    /*
+     * 49b: the editor runs the job (`POST /api/shopping/merges/ask`); with
+     * `wait` this follows `GET ?job=` once a second until it ends. A Ctrl-C
+     * ends the follow: the job goes on in the editor.
+     */
+    async askShopping(input, { wait = false } = {}) {
+      const started = await call<{ job: string; stored?: boolean }>(
+        "POST",
+        "/api/shopping/merges/ask",
+        { body: input },
+      );
+      if (!wait) return { ...started, status: "running" as const };
+      const { interruptibleSleep } = await import("../interrupt");
+      for (;;) {
+        const view = await call<{
+          job: string;
+          live: boolean;
+          status: string;
+          result?: ShoppingAskResult;
+          error?: { code?: string; message?: string };
+        }>("GET", "/api/shopping/merges/ask", {
+          query: { job: started.job },
+        });
+        if (!view.live) {
+          if (view.result) return { ...view.result, job: view.job };
+          throw new UsageError(
+            `Job ${view.job} ended ${view.status}${view.error?.message ? `: ${view.error.message}` : ""}.`,
+          );
+        }
+        if (!(await interruptibleSleep(1_000))) {
+          return { job: started.job, status: "running" as const };
+        }
+      }
     },
 
     /* The route answers `{tags}`; the seam's shape is the bare list. */
