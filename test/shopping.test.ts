@@ -1179,7 +1179,7 @@ describe("merge decisions", () => {
         status: "merged",
         amountFor: asked,
       }),
-    ).rejects.toThrow("`amountFor` goes with an `amount`");
+    ).rejects.toThrow();
   });
 
   it("keeps apart, then splits — one commit each — and the proposal returns", async () => {

@@ -896,9 +896,12 @@ export function knownDifferent(
  * cream.
  */
 export function knownSameKind(a: string, b: string): boolean {
+  /* Named members only: "*spice" holds every blend, not one product. */
+  const named = (entry: KnownDifferent, key: string) =>
+    entry.kinds.findIndex((kind) => kind.includes(key));
   return SHOPPING_KNOWN_DIFFERENT.some((entry) => {
-    const left = kindIndex(entry, a);
-    return left >= 0 && left === kindIndex(entry, b);
+    const left = named(entry, a);
+    return left >= 0 && left === named(entry, b);
   });
 }
 

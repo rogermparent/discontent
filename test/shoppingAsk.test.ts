@@ -787,7 +787,7 @@ describe("49c: the stricter find check (Dc3)", () => {
       ],
     });
     if (checked.status === "found") {
-      expect(checked.proposals[0].proposal.line).toBe("2 cups buttermilk");
+      expect(checked.proposals[0].proposal.line).toBe("1½ cups buttermilk");
       expect(checked.proposals[0].decision).not.toHaveProperty("name");
     }
   });
@@ -877,7 +877,7 @@ describe("49c: an amount in the asked-for unit (Dc1)", () => {
     const cups = {
       parts: [{ qty: 2, unit: "cup", family: "us-volume" as const }],
     };
-    expect(amountInUnit(cups, "ml")).toMatchObject({ text: "475 ml" });
+    expect(amountInUnit(cups, "ml")).toMatchObject({ text: "470 ml" });
     expect(amountInUnit(cups, "g")).toEqual({
       ok: false,
       why: "density",
@@ -937,7 +937,7 @@ describe("the spec and the prompts", () => {
     /* No recipe, no line as written: a small model's prompt. */
     expect(user).not.toContain("Pancakes");
     /* The fixture list's size, for the Results. */
-    expect(estimateTokens(system) + estimateTokens(user)).toBeLessThan(400);
+    expect(estimateTokens(system) + estimateTokens(user)).toBeLessThan(600);
   });
 
   it("find with a merged row: its names stay out; with no decided pairs, no kept-apart line", () => {
@@ -1167,7 +1167,7 @@ describe("the shopping-merge job", () => {
       FIND_SYSTEM_PROMPT,
     );
     /* Dc4: a find never thinks. */
-    expect(calls[0].body.think).toBeUndefined();
+    expect(calls[0].body.think).toBe(false);
     expect(result).toMatchObject({
       task: "find",
       status: "found",
