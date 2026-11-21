@@ -90,7 +90,6 @@ const NAME_FILLER = new Set([
   "favorite",
   "favourite",
   "homemade",
-  "simple",
   "all",
   "the",
   "baking",
@@ -169,7 +168,13 @@ export function namesRecipe(
   if (name.length === 0) return false;
   const head = name[name.length - 1];
   const own = lineStems(line);
-  if (!own.includes(head)) return false;
+  /* The line is the thing (its own last word is the head) or what a
+   * method leaves of it — not "bread cubes" for Homemade Bread, nor
+   * "roasted garlic mashed potatoes" for Roasted Garlic. */
+  const last = own[own.length - 1];
+  if (!own.includes(head) || !(last === head || PRODUCTS.has(last))) {
+    return false;
+  }
   const ownSet = new Set(own);
   const shared = name.filter((word) => ownSet.has(word)).length;
   const viaMethod =

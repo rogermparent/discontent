@@ -465,11 +465,8 @@ says "recipe"; "or [crème fraîche]" is an alternative and is left alone.
   holds that slug) is not linked: import it on its own with a `slug` and link
   the line with `recipe_update` if it belongs.
 
-Recipes already in the collection: the CLI's `pnpm --silent recipes linked
---scan --slug <s> --dry-run` reads a recipe's source page again and shows the
-same imports and line links without writing; drop `--dry-run` to write them
-(one commit per recipe). It is local-only and polite (one page per site at a
-time), so ask before scanning the whole collection.
+Recipes already in the collection: the CLI has a scan for them (see the
+fallback section); ask before scanning the whole collection.
 
 ## 6b. A roundup: "40+ Thanksgiving Pies"
 
@@ -814,6 +811,11 @@ wait and run the same command once more, as with the tool.
   `pnpm --silent recipes import-list <url> --pick 1,3,5-7 [--term <slug> --term-label "L"] [--dry-run] --json`.
   Each CLI run is a new process that forgets the last run's requests, so
   leave **15 s between runs** against one site;
+- `recipe_import {linked: "off"}` → `--linked off`; recipes already here
+  (no tool): `pnpm --silent recipes linked --scan --slug <s> --dry-run --json`
+  reads a recipe's source page again and shows the imports and line links it
+  would make; without `--dry-run` it writes them (one commit per recipe).
+  Local only, one page per site at a time;
 - `recipe_update {slug, patch}` → `pnpm --silent recipes update <slug> --file patch.json --json`;
 - `recipe_set_image` → `pnpm --silent recipes image <slug> --url <image-url> --json`
   (or `--file <path>`, or `--clear`); `term_set_image` →

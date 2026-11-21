@@ -121,18 +121,24 @@ describe("findLinkedRecipes", () => {
         '<li class="wprm-recipe-ingredient">2 cups jam <a href="https://b.test/jam/">jam recipe</a></li>',
       '<p>Make <a href="https://a.test/tart/">my tart</a> too.</p>' +
         '<p>See my <a href="https://a.test/scones/">scones</a>.</p>' +
+        '<p>Glaze it as <a href="https://a.test/glaze/">instructed here</a>.</p>' +
         '<p>I combined <a href="https://a.test/swedish-cream/">Swedish Cream</a> — see the recipe.</p>',
     );
     const found = findLinkedRecipes(html, "https://a.test/cake/", cakeLines);
     expect(found.candidates.map((c) => [c.url, c.where, c.line])).toEqual([
       ["https://b.test/jam/", "ingredient", 2],
-      ["https://a.test/scones/", "body", undefined],
+      ["https://a.test/glaze/", "body", undefined],
     ]);
     expect(found.skipped).toEqual([
       {
         url: "https://b.test/crust/",
         text: "my crust",
         reason: "another site, and nothing says it is a recipe",
+      },
+      {
+        url: "https://a.test/scones/",
+        text: "scones",
+        reason: "mentioned, not used by any line",
       },
       {
         url: "https://a.test/swedish-cream/",
@@ -187,6 +193,22 @@ describe("matching lines to a linked recipe", () => {
         name: "Chocolate Chip Cookies",
       }),
     ).toBe(false);
+    /* A one-word name claims only the thing itself (review). */
+    const no = (text: string, name: string) =>
+      expect(namesRecipe(line(text), { name }), `${text} ← ${name}`).toBe(
+        false,
+      );
+    no("2 tbsp maple syrup", "Simple Syrup");
+    no("1/4 cup corn syrup", "Simple Syrup");
+    no("2 cups bread cubes", "Homemade Bread");
+    no("1 cup caramel candies", "Easy Caramel");
+    no("2 cups roasted garlic mashed potatoes", "Roasted Garlic");
+    expect(
+      namesRecipe(line("1 oz simple syrup"), { name: "Simple Syrup" }),
+    ).toBe(true);
+    expect(namesRecipe(line("1 loaf bread"), { name: "Homemade Bread" })).toBe(
+      true,
+    );
   });
 
   it("matches the line the page linked, then the lines that name it, one recipe per line", () => {

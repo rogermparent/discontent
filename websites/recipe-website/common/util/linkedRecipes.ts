@@ -24,7 +24,9 @@
  *    posts, menus, sidebars) — only with a cue: the link's words or its
  *    paragraph say "recipe", "instructions", "how to make", "see my …".
  *    "I combined Swedish Cream with a poached pear puree" is prose, not a
- *    use.
+ *    use; and a cued link that names no line must say it is used ("as
+ *    instructed here", "made with my …"), not just mentioned ("see my
+ *    scones").
  *
  * A link whose words name one of the recipe's own ingredient headings
  * ("Swedish Cream" over the "Sour cream panna cotta (Swedish cream)"
@@ -123,6 +125,15 @@ const BLOCK_TAGS = new Set([
 ]);
 
 const SAYS_RECIPE = /\brecipes?\b/i;
+
+/**
+ * A step's, note's or paragraph's link that names no line must say it is
+ * *used* — "as instructed here", "how to make", "made with my", "use my" —
+ * not merely mentioned ("see my scones", "try my apple pie recipe"): a
+ * cross-promotion is not a recipe this one needs.
+ */
+const USE_CUE =
+  /\binstruct(?:ions?|ed)\b|\bhow to make\b|\b(?:made|make it|make them) (?:with|from|using) (?:my|this|our|the)\b|\b(?:use|using) (?:my|this|our)\b/i;
 
 /** A body link counts only with one of these in its words or its paragraph. */
 const BODY_CUE =
@@ -451,6 +462,14 @@ export function findLinkedRecipes(
       if (!cued && (named === null || entry.where === "body")) continue;
       if (namesSection(entry.text, headings)) {
         skip(entry, key, "names a section this recipe writes out itself");
+        continue;
+      }
+      if (
+        named === null &&
+        !USE_CUE.test(entry.text) &&
+        !USE_CUE.test(sentence)
+      ) {
+        skip(entry, key, "mentioned, not used by any line");
         continue;
       }
       if (!sameSite && !SAYS_RECIPE.test(`${entry.text} ${sentence}`)) {

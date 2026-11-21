@@ -553,6 +553,23 @@ export async function scanLinked(
     const { report } = followed;
     const changed = report.lines.length > 0 || (report.notes?.length ?? 0) > 0;
     if (changed && !dryRun) {
+      /* The pages took minutes: an edit made meanwhile is not overwritten. */
+      const now = await getRecipe(ctx, slug);
+      if (
+        JSON.stringify(now.recipe.ingredients ?? []) !==
+          JSON.stringify(stored.ingredients ?? []) ||
+        JSON.stringify(now.recipe.notes ?? []) !==
+          JSON.stringify(stored.notes ?? [])
+      ) {
+        recipes.push({
+          ...base,
+          status: "failed",
+          reason:
+            "it was edited while its page was read — nothing written; scan it again",
+          linked: report,
+        });
+        continue;
+      }
       await log.step("write", { slug }, async () =>
         updateRecipe(ctx, slug, {
           ingredients: followed.recipe.ingredients,
