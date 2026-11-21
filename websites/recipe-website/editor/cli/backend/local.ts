@@ -436,6 +436,14 @@ export function createLocalBackend({
       await guard();
       return shopping.updateShoppingSettings(ctx, raw);
     },
+    async decideShoppingMerge(raw) {
+      await guard();
+      return shopping.decideShoppingMerge(ctx, raw);
+    },
+    async splitShoppingMerge(raw) {
+      await guard();
+      return shopping.splitShoppingMerge(ctx, raw);
+    },
 
     gitStatus: (options) => git.gitStatus(ctx, options),
     gitLog: (options) => git.gitLog(ctx, options),

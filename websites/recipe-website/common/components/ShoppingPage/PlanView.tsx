@@ -15,11 +15,13 @@ import {
   SHOPPING_FEATURES,
   type ShoppingFeature,
 } from "../../util/shoppingTypes";
+import type { ShoppingProposal } from "../../util/shoppingConsolidate";
 import type {
   ShoppingRow,
   ShoppingSubRecipeGroup,
   ShoppingView,
 } from "../../util/shoppingView";
+import { MergeProposals } from "./MergeProposals";
 import {
   AddBox,
   ClearChecked,
@@ -351,6 +353,7 @@ export function PlanView({
   held,
   expired,
   subRecipes,
+  proposals,
   handlers,
   store,
   setStore,
@@ -365,6 +368,8 @@ export function PlanView({
   held: number;
   expired: number;
   subRecipes: ShoppingSubRecipeGroup[];
+  /** 49a: open "same thing, different names" proposals. */
+  proposals: ShoppingProposal[];
   handlers: RowHandlers;
   store: string;
   setStore(store: string): void;
@@ -440,6 +445,7 @@ export function PlanView({
               hint="Plans and recipes add from their own pages."
             />
           </section>
+          <MergeProposals proposals={proposals} list={list} />
           {origins.length > 0 && (
             <Origins origins={origins} view={fullView} list={list} />
           )}

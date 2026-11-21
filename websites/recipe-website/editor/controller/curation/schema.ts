@@ -29,6 +29,10 @@ import type {
 import { AISLES } from "recipe-website-common/util/aisles";
 import { SCALE_MESSAGE, isValidScale } from "recipe-website-common/util/scale";
 import { STORE_ID_PATTERN } from "recipe-website-common/util/shoppingTypes";
+import {
+  MERGE_ID_PATTERN,
+  MERGE_LIMITS,
+} from "recipe-website-common/util/shoppingMerges";
 import { featureKey } from "recipe-website-common/components/MakePage/kinds";
 import { patternError } from "recipe-website-common/util/matchers";
 import {
@@ -836,6 +840,69 @@ export const ShoppingPatchSchema = z
   );
 
 export type ShoppingPatchInput = z.infer<typeof ShoppingPatchSchema>;
+
+/**
+ * 49a (Da4): a person's answer to a "same thing, different names" proposal —
+ * or a change to a merge already made. `id` names a proposal on the list now
+ * or a stored decision; `keys` (two or more name keys) names the set
+ * directly. `merged` takes an optional `name` (the row's label) and `amount`
+ * (its own amount, held while the row covers the same items); `apart` takes
+ * neither. `note` is stored for 49b's model and read by nothing in 49a.
+ */
+export const ShoppingMergeSchema = z
+  .strictObject({
+    id: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(MERGE_ID_PATTERN, "A merge id is 16 hex characters")
+      .optional(),
+    keys: z
+      .array(z.string().trim().min(1).max(MERGE_LIMITS.key))
+      .min(2)
+      .max(MERGE_LIMITS.keys)
+      .optional(),
+    status: z.enum(["merged", "apart"]),
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MERGE_LIMITS.name)
+      .regex(/^[^\n\r\t]*$/, "A name is one line")
+      .optional(),
+    amount: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MERGE_LIMITS.amount)
+      .regex(/^[^\n\r\t]*$/, "An amount is one line")
+      .optional(),
+    note: z.string().trim().min(1).max(MERGE_LIMITS.note).optional(),
+  })
+  .refine((data) => (data.id === undefined) !== (data.keys === undefined), {
+    message: "Name exactly one of `id` or `keys`",
+    path: ["id"],
+  })
+  .refine(
+    (data) =>
+      data.status === "merged" ||
+      (data.name === undefined && data.amount === undefined),
+    {
+      message: "`name` and `amount` apply to a merge, not to keeping apart",
+      path: ["name"],
+    },
+  );
+
+export type ShoppingMergeInput = z.infer<typeof ShoppingMergeSchema>;
+
+/** 49a: Split — the decision to delete (merged or apart). */
+export const ShoppingSplitSchema = z.strictObject({
+  id: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(MERGE_ID_PATTERN, "A merge id is 16 hex characters"),
+});
 
 /** `checked` (the default) clears what was bought; `all` empties the list. */
 export const ShoppingClearSchema = z.strictObject({

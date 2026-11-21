@@ -28,6 +28,7 @@ import {
   lineCount,
   syncLabel,
 } from "./parts";
+import { ProposalsLine } from "./MergeProposals";
 import type { RowHandlers } from "./ShoppingRowView";
 import { useDoneAisles, type ShoppingMode } from "./shopState";
 import type { ShoppingList } from "./useShoppingList";
@@ -284,6 +285,7 @@ export function ShopView({
   view,
   held,
   expired,
+  proposals,
   handlers,
   store,
   setStore,
@@ -297,6 +299,8 @@ export function ShopView({
   view: ShoppingView;
   held: number;
   expired: number;
+  /** 49a: how many "same thing, different names" proposals are open. */
+  proposals: number;
   handlers: RowHandlers;
   /** The chosen store's id, or "all". */
   store: string;
@@ -557,6 +561,13 @@ export function ShopView({
 
       <ErrorBanner list={list} />
       <ExpiredTicks count={expired} dismiss={list.dismissExpired} />
+      <ProposalsLine
+        count={proposals}
+        openPlan={() => {
+          setMode("plan");
+          window.scrollTo({ top: 0 });
+        }}
+      />
 
       <div data-testid="shopping-list" className="flex flex-col">
         {total === 0 && (

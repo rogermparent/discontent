@@ -7,7 +7,9 @@ import {
 } from "recipe-website-common/components/PageLayout";
 import {
   addToShoppingList,
+  decideShoppingListMerge,
   loadShoppingList,
+  splitShoppingListMerge,
   updateShoppingList,
   updateShoppingListSettings,
 } from "recipe-editor/controller/actions/shopping";
@@ -33,7 +35,7 @@ export default async function ShoppingListPage() {
     return redirectToLogin("/shopping");
   }
   const ctx = { contentDirectory: getContentDirectory() };
-  const [{ items, settings }, inventory] = await Promise.all([
+  const [{ items, settings, merges }, inventory] = await Promise.all([
     readShopping(ctx),
     readInventory(ctx),
   ]);
@@ -42,12 +44,20 @@ export default async function ShoppingListPage() {
     <PageMain>
       <PageSection maxWidth="none" grow className="print:p-0">
         <ShoppingPage
-          initial={{ items, settings, inventory: inventory.items, plans }}
+          initial={{
+            items,
+            settings,
+            inventory: inventory.items,
+            plans,
+            merges,
+          }}
           actions={{
             load: loadShoppingList,
             add: addToShoppingList,
             update: updateShoppingList,
             saveSettings: updateShoppingListSettings,
+            decideMerge: decideShoppingListMerge,
+            splitMerge: splitShoppingListMerge,
           }}
           patchUrl="/api/shopping"
         />

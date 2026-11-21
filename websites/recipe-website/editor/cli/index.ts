@@ -228,6 +228,10 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   shopping remove <id…> | --recipe <slug> | --group <slug> | --for <slug>
   shopping clear [--all] [--yes]
   shopping settings [set <key> <value…>]
+  shopping merges
+  shopping merge <id> [--name <name>] [--amount <amount>] [--note <text>]
+  shopping keep-apart <id> [--note <text>]
+  shopping split <id>
   git status [--fetch]
   git fetch [<remote>]
   git pull [<remote>]

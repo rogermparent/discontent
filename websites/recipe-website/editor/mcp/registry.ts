@@ -1465,14 +1465,21 @@ export function recipeToolDefinitions(
         "`counts`. Rows merge one ingredient across recipes, amounts scaled and " +
         "added, as the list's settings switch on. A row's `ids` (item ids, not its `key`) are what " +
         "shopping_check and shopping_remove take. `store` (a store id such as `market-basket`) narrows " +
-        "to what is left at that store.",
+        "to what is left at that store. `proposals` are rows that look like one ingredient under " +
+        "two names (`1 cup white flour` and `2 cups all-purpose flour`), each " +
+        "{id, rows: [{key, name, amountText, sources}], name, amount, estimated, line, reason} — " +
+        "`line` what they would be as one row, `≈` when a volume and a weight were added by density; " +
+        "`merges` are the person's stored decisions {id, keys, status: merged|apart, name?, amount?}, " +
+        "and a merged row carries `merge` {id, keys, from}. Merging is the person's call, on the " +
+        "/shopping page or the CLI (`shopping merge <id>`); this tool only reads.",
       inputSchema: z.strictObject({ store: z.string().min(1).optional() }),
       annotations: READ_ONLY,
     },
     async ({ store }) =>
       read(async () => {
-        const { view, text, settings } = await backend.getShopping({ store });
-        return { text, view, settings };
+        const { view, text, settings, proposals, merges } =
+          await backend.getShopping({ store });
+        return { text, view, settings, proposals, merges };
       }),
   );
 

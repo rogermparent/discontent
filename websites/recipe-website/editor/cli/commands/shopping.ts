@@ -11,6 +11,10 @@
  *                                       --for: what a sub-recipe's expansion added (39c)
  *   shopping clear [--all] [--yes]      the ticked items (or everything)
  *   shopping settings [set <key> <value…>]
+ *   shopping merges                     "same thing, different names": proposals and decisions (49a)
+ *   shopping merge <id> [--name …] [--amount …] [--note …]
+ *   shopping keep-apart <id> [--note …]
+ *   shopping split <id>                 delete a decision (merged rows show apart again)
  *
  * Lines and names are positionals, one per argument — quote the ones with
  * spaces (`shopping add "2 lemons" "paper towels"`), as `inventory add` does.
@@ -30,6 +34,7 @@ import {
 import type {
   ShoppingAddResult,
   ShoppingClearResult,
+  ShoppingMergeResult,
   ShoppingPatchResult,
   ShoppingSettingsResult,
   ShoppingViewResult,
@@ -320,6 +325,136 @@ const settingsCommand: CommandDef<ShoppingSettingsResult> = {
   },
 };
 
+// --- merges (49a) ------------------------------------------------------------
+
+/** "1 cup white flour (Pancakes)": a line as written, with its recipe. */
+function lineWithRecipe(source: {
+  text: string;
+  recipe?: string;
+  recipeName?: string;
+  scale?: string;
+}): string {
+  const scaled = source.scale
+    ? `${source.text} (×${source.scale})`
+    : source.text;
+  const whose = source.recipeName ?? source.recipe;
+  return whose ? `${scaled} (${whose})` : scaled;
+}
+
+const mergesCommand: CommandDef<ShoppingViewResult> = {
+  name: "shopping merges",
+  usage:
+    "recipes shopping merges   the open proposals (same thing, different names) and the stored decisions",
+  options: {},
+  run: ({ backend }) => backend.getShopping(),
+  format({ proposals, merges }) {
+    const lines: string[] = [];
+    if (proposals.length === 0) lines.push("No open proposals.");
+    for (const proposal of proposals) {
+      lines.push(`${proposal.id}  → ${proposal.line}  (${proposal.reason})`);
+      for (const row of proposal.rows) {
+        for (const source of row.sources) {
+          lines.push(`    ${lineWithRecipe(source)}`);
+        }
+      }
+    }
+    if (merges.length > 0) {
+      lines.push("", "Decisions:");
+      for (const merge of merges) {
+        const what =
+          merge.status === "merged"
+            ? `merged${merge.name ? ` as ${merge.name}` : ""}${merge.amount ? ` (${merge.amount.text})` : ""}`
+            : "kept apart";
+        lines.push(`${merge.id}  ${what}: ${merge.keys.join(" + ")}`);
+      }
+    }
+    return lines.join("\n");
+  },
+};
+
+function formatMerge(result: ShoppingMergeResult): string {
+  if (!result.changed) return "No change.";
+  const lines: string[] = [];
+  const decision = result.decision;
+  if (decision) {
+    lines.push(
+      decision.status === "merged"
+        ? `Merged ${decision.keys.join(" + ")}${decision.name ? ` as ${decision.name}` : ""} (${decision.id})`
+        : `Kept apart ${decision.keys.join(" + ")} (${decision.id})`,
+    );
+  }
+  const replaced = result.removed.filter((id) => id !== decision?.id);
+  if (decision && replaced.length > 0) {
+    lines.push(`Replaced ${replaced.join(", ")}`);
+  }
+  if (!decision) lines.push(`Split ${result.removed.join(", ")}`);
+  return lines.join("\n");
+}
+
+/** The one positional a merge command takes: a proposal's or decision's id. */
+function mergeId(positionals: string[], verb: string): string {
+  const ids = positionals.map((value) => value.trim()).filter(Boolean);
+  if (ids.length !== 1) {
+    throw new UsageError(
+      `shopping ${verb} needs one id (from \`shopping merges\`).`,
+    );
+  }
+  return ids[0].toLowerCase();
+}
+
+const mergeCommand: CommandDef<ShoppingMergeResult> = {
+  name: "shopping merge",
+  usage:
+    'recipes shopping merge <id> [--name "all-purpose flour"] [--amount "3 cups"] [--note …]   a proposal\'s id, or a merge\'s to change it',
+  options: {
+    name: { type: "string" },
+    amount: { type: "string" },
+    note: { type: "string" },
+  },
+  run({ backend, positionals, options }) {
+    const id = mergeId(positionals, "merge");
+    const name = stringOption(options, "name");
+    const amount = stringOption(options, "amount");
+    const note = stringOption(options, "note");
+    return backend.decideShoppingMerge({
+      id,
+      status: "merged",
+      ...(name !== undefined ? { name } : {}),
+      ...(amount !== undefined ? { amount } : {}),
+      ...(note !== undefined ? { note } : {}),
+    });
+  },
+  format: formatMerge,
+};
+
+const keepApartCommand: CommandDef<ShoppingMergeResult> = {
+  name: "shopping keep-apart",
+  usage:
+    "recipes shopping keep-apart <id> [--note …]   the proposal never shows again",
+  options: { note: { type: "string" } },
+  run({ backend, positionals, options }) {
+    const id = mergeId(positionals, "keep-apart");
+    const note = stringOption(options, "note");
+    return backend.decideShoppingMerge({
+      id,
+      status: "apart",
+      ...(note !== undefined ? { note } : {}),
+    });
+  },
+  format: formatMerge,
+};
+
+const splitCommand: CommandDef<ShoppingMergeResult> = {
+  name: "shopping split",
+  usage:
+    "recipes shopping split <id>   delete a decision: merged rows show apart again",
+  options: {},
+  run({ backend, positionals }) {
+    return backend.splitShoppingMerge({ id: mergeId(positionals, "split") });
+  },
+  format: formatMerge,
+};
+
 export const shoppingCommands: Record<string, CommandDef<unknown>> = {
   list: listCommand,
   add: addCommand,
@@ -328,6 +463,10 @@ export const shoppingCommands: Record<string, CommandDef<unknown>> = {
   remove: removeCommand,
   clear: clearCommand,
   settings: settingsCommand,
+  merges: mergesCommand,
+  merge: mergeCommand,
+  "keep-apart": keepApartCommand,
+  split: splitCommand,
 };
 
 export default shoppingCommands;

@@ -12,6 +12,11 @@
  * Every feature off is a plain checklist of the lines as written, in the
  * order they were added (Roger's "only use features needed at the time").
  *
+ * 49a: a person's merge decisions (`shoppingMerges.ts`) join rows of
+ * different names — "1 cup white flour" and "2 cups all-purpose flour" —
+ * into one, with the merge switch on. The decisions are stored; the rows
+ * they make are worked out here like every other row.
+ *
  * Pure, and safe in the browser.
  */
 import Fraction from "fraction.js";
@@ -37,6 +42,14 @@ import {
   probablyOnHand,
 } from "./makeable";
 import { formatScale, parseScale } from "./scale";
+import {
+  activeMerges,
+  consolidateAmounts,
+  countsAs,
+  equivalenceOf,
+  gramsPerCupFor,
+  type ShoppingMerge,
+} from "./shoppingMerges";
 import type {
   ShoppingFeatures,
   ShoppingItem,
@@ -95,7 +108,7 @@ export function shoppingNameOf(text: string): ShoppingName {
   };
 }
 
-function isNamed(key: string): boolean {
+export function isNamed(key: string): boolean {
   return !key.startsWith("text:");
 }
 
@@ -116,7 +129,14 @@ function pluralWord(word: string): string {
  * line wrote it that way (`semi-sweet chocolate chips`) — but never for one
  * of a thing.
  */
-function displayName(name: string, amount: Amount, texts: string[]): string {
+function displayName(
+  name: string,
+  amount: Amount,
+  texts: string[],
+  exact = false,
+): string {
+  /* 49a: a name the person typed for a merged row reads as typed. */
+  if (exact) return name;
   /* `2 cans tomatoes`, not `2 cans canned tomatoes` (43n, Dn2): the key
    * keeps `canned`, the line says it once. */
   const label =
@@ -144,24 +164,25 @@ function displayName(name: string, amount: Amount, texts: string[]): string {
  * noun it counts (35d): `2 onions + 1 cup`, `1 carrot + 2 lb` — where
  * `formatAmount` alone would read `2 + 1 cup onion`.
  */
-function lineFor(
+export function lineFor(
   label: string,
   amount: Amount,
   texts: string[],
   extras: string[] = [],
+  exact = false,
 ): string {
   const counts = amount.parts.filter((part) => part.family === "count");
   const measures = amount.parts.filter((part) => part.family !== "count");
   const suffix = extras.map((extra) => ` + ${extra}`).join("");
   if (counts.length === 0 || measures.length === 0) {
-    return `${formatAmount(amount)} ${displayName(label, amount, texts)}${suffix}`;
+    return `${formatAmount(amount)} ${displayName(label, amount, texts, exact)}${suffix}`;
   }
   const counted: Amount = { parts: counts };
-  return `${formatAmount(counted)} ${displayName(label, counted, texts)} + ${formatAmount({ parts: measures })}${suffix}`;
+  return `${formatAmount(counted)} ${displayName(label, counted, texts, exact)} + ${formatAmount({ parts: measures })}${suffix}`;
 }
 
 /** A row's `quantity`, joined the way its line is: the count first. */
-function quantityFor(amount: Amount, extras: string[] = []): string {
+export function quantityFor(amount: Amount, extras: string[] = []): string {
   const counts = amount.parts.filter((part) => part.family === "count");
   const measures = amount.parts.filter((part) => part.family !== "count");
   const suffix = extras.map((extra) => ` + ${extra}`).join("");
@@ -205,6 +226,37 @@ export interface ShoppingRowSource {
   for?: ShoppingSubRecipe[];
   /** 38d: an `OR:` line folded into the row (its `text` keeps the label). */
   alternative?: boolean;
+}
+
+/** 49a: one item behind a merged row, for "merged from: …". */
+export interface ShoppingMergedLine {
+  id: string;
+  /** The line as written, with its scale when not 1×. */
+  text: string;
+  recipe?: string;
+  recipeName?: string;
+  manual?: boolean;
+}
+
+/** 49a: what a merge decision made of a row. */
+export interface ShoppingRowMerge {
+  /** The decision's id: Split deletes it. */
+  id: string;
+  /** The decision's name keys. */
+  keys: string[];
+  /** Each item the row merges (not its `OR:` lines), in the order added. */
+  from: ShoppingMergedLine[];
+  /** A volume and a weight added through a density: the amount reads "≈". */
+  estimated?: boolean;
+  /** The amount is the person's own (the decision's `amount`). */
+  amountEdited?: boolean;
+  /**
+   * The person's amount was for other items than the row holds now: the row
+   * shows the sum, and says so.
+   */
+  amountStale?: boolean;
+  /** The label is the name the person typed. */
+  named?: boolean;
 }
 
 /** One line on the list: one item, or (merge on) every item of one name. */
@@ -273,6 +325,11 @@ export interface ShoppingRow {
   manual: boolean;
   /** Sources on: where each item came from. */
   sources?: ShoppingRowSource[];
+  /**
+   * 49a: the row is a merge decision's — several names as one (`key` is
+   * `merge:<id>`).
+   */
+  merge?: ShoppingRowMerge;
 }
 
 export interface ShoppingSection {
@@ -320,7 +377,7 @@ interface Entry {
   alternative?: boolean;
 }
 
-function factorOf(item: ShoppingItem): number {
+export function factorOf(item: ShoppingItem): number {
   const scale = parseScale(item.scale);
   return scale ? Number(scale.valueOf()) : 1;
 }
@@ -330,7 +387,7 @@ function scaleBadge(item: ShoppingItem): string | undefined {
   return scale && !scale.equals(1) ? formatScale(scale) : undefined;
 }
 
-function sourceOf(item: ShoppingItem): ShoppingRowSource {
+export function sourceOf(item: ShoppingItem): ShoppingRowSource {
   const scale = parseScale(item.scale);
   return {
     id: item.id,
@@ -399,11 +456,47 @@ function extrasOf(entries: Entry[]): string[] {
   return AS_NEEDED_EXTRAS.filter((extra) => found.has(extra));
 }
 
-function sumOf(entries: Entry[]): Amount {
-  return addAmounts(
-    ...entries.flatMap((entry) =>
-      entry.amount ? [scaleAmount(entry.amount, entry.factor)] : [],
+/**
+ * 49a: a merge decision applied to a row — the label, and how its names'
+ * amounts add (a container for a counted name, a density for volume and
+ * weight).
+ */
+interface MergeContext {
+  decision: ShoppingMerge;
+  /** The row's name: the person's, the curated set's, or the commonest. */
+  label: string;
+  /** `label` is the person's: shown as typed, never made plural. */
+  named: boolean;
+  gramsPerCup?: number;
+  countUnits: Readonly<Record<string, string>>;
+}
+
+function sumOf(
+  entries: Entry[],
+  merge?: MergeContext,
+): { amount: Amount; estimated: boolean } {
+  if (!merge) {
+    return {
+      amount: addAmounts(
+        ...entries.flatMap((entry) =>
+          entry.amount ? [scaleAmount(entry.amount, entry.factor)] : [],
+        ),
+      ),
+      estimated: false,
+    };
+  }
+  return consolidateAmounts(
+    entries.flatMap((entry) =>
+      entry.amount
+        ? [
+            countsAs(
+              scaleAmount(entry.amount, entry.factor),
+              merge.countUnits[entry.name.key],
+            ),
+          ]
+        : [],
     ),
+    merge.gramsPerCup,
   );
 }
 
@@ -413,10 +506,17 @@ function rawLine(entry: Entry): string {
   return badge ? `${entry.item.text} (${badge})` : entry.item.text;
 }
 
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sorted = [...b].sort();
+  return [...a].sort().every((id, index) => id === sorted[index]);
+}
+
 function buildRow(
   key: string,
   group: Entry[],
   features: ShoppingFeatures,
+  merge?: MergeContext,
 ): ShoppingRow {
   /* `OR:` lines ride along (their ids tick with the row) but count for nothing. */
   const entries = group.filter((entry) => !entry.alternative);
@@ -453,7 +553,7 @@ function buildRow(
         row.label = `${first.item.text} (${badge})`;
       }
     }
-  } else if (!isNamed(first.name.key)) {
+  } else if (!merge && !isNamed(first.name.key)) {
     /* Identical unnamed lines: the line once, with how many lots. */
     const lots = entries.reduce((sum, entry) => sum + entry.factor, 0);
     if (features.quantities && Math.abs(lots - 1) > 1e-9) {
@@ -461,25 +561,73 @@ function buildRow(
     }
   } else {
     const texts = items.map((item) => item.text);
-    const total = sumOf(entries);
-    row.name = displayName(first.name.label, total, texts);
+    const base = merge?.label ?? first.name.label;
+    const exact = merge?.named ?? false;
+    const { amount: total, estimated } = sumOf(entries, merge);
+    /* 49a: a density's sum is an estimate, and reads as one. */
+    const approx = (text: string, estimate: boolean) =>
+      estimate ? `≈ ${text}` : text;
+    row.name = displayName(base, total, texts, exact);
     row.label = row.name;
+    if (merge) {
+      row.merge = {
+        id: merge.decision.id,
+        keys: [...merge.decision.keys],
+        from: entries.map((entry) => ({
+          id: entry.item.id,
+          text: rawLine(entry),
+          ...(entry.item.recipe ? { recipe: entry.item.recipe } : {}),
+          ...(entry.item.recipeName
+            ? { recipeName: entry.item.recipeName }
+            : {}),
+          ...(entry.item.manual ? { manual: true } : {}),
+        })),
+        ...(merge.named ? { named: true } : {}),
+      };
+    }
     if (features.quantities) {
       /* "pinch salt" beside "2 tsp salt": "2 tsp salt + a pinch" (38d). */
       const extras = extrasOf(entries);
       if (total.parts.length > 0) {
-        row.quantity = quantityFor(total, extras);
-        row.label = lineFor(first.name.label, total, texts, extras);
+        row.quantity = approx(quantityFor(total, extras), estimated);
+        row.label = approx(
+          lineFor(base, total, texts, extras, exact),
+          estimated,
+        );
+        if (estimated && row.merge) row.merge.estimated = true;
       }
       const raw = entries.filter((entry) => entry.amount === null).map(rawLine);
       if (raw.length > 0) row.raw = raw;
-      if (row.partial) {
+      const own = merge?.decision.amount;
+      if (own && row.merge) {
+        /*
+         * 49a (Da4): the person's amount holds while the row covers exactly
+         * the items it was given for; otherwise the sum, and a note.
+         */
+        if (sameIds(own.ids, row.ids)) {
+          row.merge.amountEdited = true;
+          delete row.merge.estimated;
+          row.quantity = own.text;
+          row.label = `${own.text} ${row.name}`;
+        } else {
+          row.merge.amountStale = true;
+        }
+      }
+      /* The person's own amount stands, partly ticked or not (49a review):
+       * its note still says how many lines are ticked. */
+      if (row.partial && !row.merge?.amountEdited) {
         const unticked = entries.filter((entry) => !entry.item.checked);
-        const left = sumOf(unticked);
-        if (left.parts.length > 0) {
+        const left = sumOf(unticked, merge);
+        if (left.amount.parts.length > 0) {
           const leftExtras = extrasOf(unticked);
-          row.remaining = quantityFor(left, leftExtras);
-          row.label = lineFor(first.name.label, left, texts, leftExtras);
+          row.remaining = approx(
+            quantityFor(left.amount, leftExtras),
+            left.estimated,
+          );
+          row.label = approx(
+            lineFor(base, left.amount, texts, leftExtras, exact),
+            left.estimated,
+          );
         }
       }
     }
@@ -555,6 +703,40 @@ export function orParents(
   return parents;
 }
 
+/**
+ * 49a: how a merged row reads and adds. Its name is the person's, else the
+ * curated set's when every name of the decision is in one set, else the
+ * label of the name with the most lines (the first of a tie).
+ */
+function mergeContext(decision: ShoppingMerge, entries: Entry[]): MergeContext {
+  const sets = new Set(decision.keys.map((key) => equivalenceOf(key)));
+  const set = sets.size === 1 ? [...sets][0] : undefined;
+  let label = set?.name;
+  if (!label) {
+    const counts = new Map<string, { label: string; count: number }>();
+    for (const entry of entries) {
+      if (entry.alternative) continue;
+      const seen = counts.get(entry.name.key);
+      if (seen) seen.count += 1;
+      else counts.set(entry.name.key, { label: entry.name.label, count: 1 });
+    }
+    let best: { label: string; count: number } | undefined;
+    for (const each of counts.values()) {
+      if (!best || each.count > best.count) best = each;
+    }
+    label = best?.label ?? entries[0].name.label;
+  }
+  const named = decision.name !== undefined;
+  const canonical = set?.key ?? shoppingNameOf(label).key;
+  return {
+    decision,
+    label: decision.name ?? label,
+    named,
+    gramsPerCup: gramsPerCupFor(canonical, decision.keys),
+    countUnits: set?.countUnits ?? {},
+  };
+}
+
 /** D2's store order: item → name override → aisle → default. */
 function routeStore(
   entries: Entry[],
@@ -586,6 +768,8 @@ export function buildShoppingView(
   settings: ShoppingSettings,
   inventory: string[] = [],
   staples: string[] = DEFAULT_STAPLES,
+  /** 49a: the stored merge decisions; only `merged` ones change the view. */
+  merges: readonly ShoppingMerge[] = [],
 ): ShoppingView {
   const features = settings.features;
   /* Insertion order: ids are ULIDs. */
@@ -604,6 +788,20 @@ export function buildShoppingView(
   };
 
   const alternativeOf = orParents(sorted, true);
+  /*
+   * 49a: merged decisions with two or more of their names on the list (an
+   * `OR:` line folds into its parent's row, so its own name is no row).
+   */
+  const mergeOf = features.merge
+    ? activeMerges(
+        merges,
+        new Set(
+          sorted
+            .filter((item) => !alternativeOf.has(item.id))
+            .map((item) => nameOf(item.text).key),
+        ),
+      )
+    : new Map<string, ShoppingMerge>();
   const groups = new Map<string, Entry[]>();
   /* Item id → the group its row is keyed by, for the `OR:` lines that follow. */
   const groupOf = new Map<string, string>();
@@ -628,7 +826,12 @@ export function buildShoppingView(
       factor: factorOf(item),
       amount: features.quantities ? parseAmount(item.text) : null,
     };
-    const key = features.merge ? `name:${name.key}` : item.id;
+    const decision = mergeOf.get(name.key);
+    const key = decision
+      ? `merge:${decision.id}`
+      : features.merge
+        ? `name:${name.key}`
+        : item.id;
     groupOf.set(item.id, key);
     const group = groups.get(key);
     if (group) group.push(entry);
@@ -646,9 +849,19 @@ export function buildShoppingView(
   let rowCount = 0;
 
   for (const [key, entries] of groups) {
-    const row = buildRow(key, entries, features);
+    const decision = key.startsWith("merge:")
+      ? mergeOf.get(entries[0].name.key)
+      : undefined;
+    const merge = decision ? mergeContext(decision, entries) : undefined;
+    const row = buildRow(key, entries, features, merge);
     rowCount += 1;
-    const routeName = entries[0].name;
+    /*
+     * 49a (Da5): a merged row is routed, ticked by name and kept on hand by
+     * its merged name — "all-purpose flour" — so one aisle override covers
+     * it, whichever of its names a later list brings.
+     */
+    const routeName = merge ? shoppingNameOf(merge.label) : entries[0].name;
+    if (merge && isNamed(routeName.key)) row.nameKey = routeName.key;
     /*
      * An override is keyed by `shoppingNameOf(...).key`, `text:` keys
      * included — which `aisleFor`'s own lookup (by words) never meets.

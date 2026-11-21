@@ -7,15 +7,19 @@ import { readInventory } from "../curation/inventory";
 import {
   addToShopping,
   clearShopping,
+  decideShoppingMerge,
   patchShopping,
   readShopping,
   readShoppingPlanNames,
+  splitShoppingMerge,
   updateShoppingSettings,
   type ShoppingAddResult,
   type ShoppingClearResult,
+  type ShoppingMergeResult,
   type ShoppingPatchResult,
   type ShoppingSettingsResult,
 } from "../curation/shopping";
+import type { ShoppingMerge } from "recipe-website-common/util/shoppingMerges";
 import type {
   ShoppingItem,
   ShoppingSettings,
@@ -53,6 +57,8 @@ export interface ShoppingListState {
   inventory: string[];
   /** 42g: plan slug → name, for the plans the lines came through. */
   plans?: Record<string, string>;
+  /** 49a: the merge decisions; the browser finds the proposals itself. */
+  merges?: ShoppingMerge[];
 }
 
 /** The list read fresh — when the page becomes visible again, say. */
@@ -61,12 +67,10 @@ export async function loadShoppingList(): Promise<
 > {
   return signedIn(async (email) => {
     const ctx = curationContextFor(email);
-    const [{ items, settings }, { items: inventory }] = await Promise.all([
-      readShopping(ctx),
-      readInventory(ctx),
-    ]);
+    const [{ items, settings, merges }, { items: inventory }] =
+      await Promise.all([readShopping(ctx), readInventory(ctx)]);
     const plans = await readShoppingPlanNames(ctx, items);
-    return { items, settings, inventory, plans };
+    return { items, settings, inventory, plans, merges };
   });
 }
 
@@ -97,5 +101,23 @@ export async function updateShoppingListSettings(
 ): Promise<ShoppingActionResult<ShoppingSettingsResult>> {
   return signedIn((email) =>
     updateShoppingSettings(curationContextFor(email), patch),
+  );
+}
+
+/** 49a: Merge, Edit then Merge, or Keep apart — one commit. */
+export async function decideShoppingListMerge(
+  input: unknown,
+): Promise<ShoppingActionResult<ShoppingMergeResult>> {
+  return signedIn((email) =>
+    decideShoppingMerge(curationContextFor(email), input),
+  );
+}
+
+/** 49a: Split a merged row (delete its decision) — one commit. */
+export async function splitShoppingListMerge(
+  id: string,
+): Promise<ShoppingActionResult<ShoppingMergeResult>> {
+  return signedIn((email) =>
+    splitShoppingMerge(curationContextFor(email), { id }),
   );
 }

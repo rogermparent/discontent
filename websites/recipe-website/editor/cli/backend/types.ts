@@ -78,6 +78,7 @@ import type {
 import type {
   ShoppingAddResult,
   ShoppingClearResult,
+  ShoppingMergeResult,
   ShoppingPatchResult,
   ShoppingSettingsResult,
   ShoppingViewResult,
@@ -165,6 +166,7 @@ export type {
   SearchResult,
   ShoppingAddResult,
   ShoppingClearResult,
+  ShoppingMergeResult,
   ShoppingPatchResult,
   ShoppingSettingsResult,
   ShoppingViewResult,
@@ -499,6 +501,13 @@ export interface CuratorBackend {
   clearShopping(raw?: unknown): Promise<ShoppingClearResult>;
   getShoppingSettings(): Promise<ShoppingSettingsResult>;
   updateShoppingSettings(raw: unknown): Promise<ShoppingSettingsResult>;
+  /**
+   * 49a: answer a "same thing, different names" proposal, or change a merge
+   * — `{id | keys, status: "merged" | "apart", name?, amount?, note?}`.
+   */
+  decideShoppingMerge(raw: unknown): Promise<ShoppingMergeResult>;
+  /** 49a: Split — `{id}`: delete that decision. */
+  splitShoppingMerge(raw: unknown): Promise<ShoppingMergeResult>;
 
   /* --- git (23d/D23) ----------------------------------------------------- */
 

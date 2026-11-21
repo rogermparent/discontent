@@ -17,6 +17,56 @@ export interface RowHandlers {
   tick(ids: readonly string[], checked: boolean): void;
   update(patch: unknown): void;
   saveSettings(patch: unknown): void;
+  /** 49a: Split a merged row (delete its decision); absent where unsupported. */
+  split?(id: string): void;
+}
+
+/** 49a: "1 cup white flour (Pancakes) · 2 cups all-purpose flour (Bread)". */
+function mergedFrom(row: ShoppingRow): string | undefined {
+  if (!row.merge) return undefined;
+  return row.merge.from
+    .map((line) => {
+      const whose = line.recipeName ?? line.recipe;
+      return whose ? `${line.text} (${whose})` : line.text;
+    })
+    .join(" · ");
+}
+
+/**
+ * 49a (Da5): a merged row says what it was made from, and Split puts its
+ * names back as their own rows. At home only; in the store the row is one
+ * line like any other (its menu still splits it).
+ */
+function MergedFrom({
+  row,
+  handlers,
+}: {
+  row: ShoppingRow;
+  handlers: RowHandlers;
+}) {
+  const from = mergedFrom(row);
+  if (!from || !row.merge) return null;
+  const { id } = row.merge;
+  return (
+    <p
+      className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground print:hidden"
+      data-testid="shopping-merged-from"
+    >
+      <span className="break-words">merged from: {from}</span>
+      {handlers.split && (
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="h-6 min-w-6 px-0 text-xs"
+          onClick={() => handlers.split?.(id)}
+          aria-label={`Split ${row.name} back into its lines`}
+        >
+          Split
+        </Button>
+      )}
+    </p>
+  );
 }
 
 /** "from Chili", "from 3 recipes" — or nothing for lines typed by hand. */
@@ -180,6 +230,16 @@ function RowMenu({
             Buy even if on hand
           </label>
         )}
+        {row.merge && handlers.split && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => handlers.split?.(row.merge!.id)}
+          >
+            Split into its names
+          </Button>
+        )}
         <Button
           type="button"
           variant="destructive"
@@ -272,7 +332,8 @@ export function ShoppingRowView({
           row.partlyOptional ||
           row.need ||
           row.partial ||
-          row.forNote) && (
+          row.forNote ||
+          row.merge?.amountStale) && (
           <p
             className="text-xs text-muted-foreground"
             data-testid="shopping-row-note"
@@ -282,6 +343,7 @@ export function ShoppingRowView({
               row.partial && `${row.checkedCount} of ${row.total} ticked`,
               row.optional ? "optional" : row.partlyOptional,
               row.need && "buy anyway",
+              row.merge?.amountStale && "your amount was for the old list",
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -304,6 +366,7 @@ export function ShoppingRowView({
             ))}
           </ul>
         )}
+        {!shop && <MergedFrom row={row} handlers={handlers} />}
         {settings.features.sources && <Sources row={row} />}
       </div>
       <RowMenu row={row} settings={settings} handlers={handlers} />

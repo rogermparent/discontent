@@ -30,13 +30,18 @@ import { toErrorObject } from "../websites/recipe-website/editor/controller/cura
 import { createGroup } from "../websites/recipe-website/editor/controller/curation/groups";
 import { patchInventory } from "../websites/recipe-website/editor/controller/curation/inventory";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
+import { mergeIdOf } from "recipe-website-common/util/shoppingMerges";
 import {
   SHOPPING_ITEMS_DIRECTORY,
+  SHOPPING_MERGES_DIRECTORY,
   SHOPPING_SETTINGS_FILE,
   shoppingTestHooks,
   addToShopping,
   clearShopping,
+  decideShoppingMerge,
   patchShopping,
+  readShoppingMerges,
+  splitShoppingMerge,
   readShopping,
   readShoppingView,
   updateShoppingSettings,
@@ -1076,6 +1081,210 @@ describe("review round (35c)", () => {
 });
 
 /**
+ * 49a: merge decisions — one file each under `shopping/merges/`, one commit
+ * per write, the view and the name ticks following them.
+ */
+describe("merge decisions", () => {
+  const FLOUR = mergeIdOf(["white flour", "all purpose flour"]);
+
+  async function flourList() {
+    return addToShopping(ctx, {
+      items: ["1 cup white flour", "2 cups AP flour"],
+    });
+  }
+
+  it("lists the open proposal on the read, and a merge writes one file in one commit", async () => {
+    await flourList();
+    const before = await readShoppingView(ctx);
+    expect(before.merges).toEqual([]);
+    expect(before.proposals).toHaveLength(1);
+    expect(before.proposals[0]).toMatchObject({
+      id: FLOUR,
+      line: "3 cups all-purpose flour",
+    });
+
+    const result = await decideShoppingMerge(ctx, {
+      id: FLOUR,
+      status: "merged",
+    });
+    expect(result.changed).toBe(true);
+    expect(result.decision).toMatchObject({
+      id: FLOUR,
+      keys: ["all purpose flour", "white flour"],
+      status: "merged",
+    });
+    expect((await messages())[0]).toBe(
+      "Update shopping list: merge all purpose flour + white flour",
+    );
+    const [head] = (await git.log()).all;
+    expect(await filesIn(head.hash)).toEqual([`shopping/merges/${FLOUR}.json`]);
+    expect((await git.status()).isClean()).toBe(true);
+    const file = JSON.parse(
+      await readFile(
+        join(contentDirectory, SHOPPING_MERGES_DIRECTORY, `${FLOUR}.json`),
+        "utf8",
+      ),
+    );
+    expect(Object.keys(file)).toEqual(["id", "keys", "status", "decidedAt"]);
+
+    const after = await readShoppingView(ctx);
+    expect(after.proposals).toEqual([]);
+    expect(after.merges.map((merge) => merge.id)).toEqual([FLOUR]);
+    expect(after.text).toBe("Pantry:\n3 cups all-purpose flour");
+  });
+
+  it("stores an edited name and amount for the items the row covers, and the same answer twice commits once", async () => {
+    const { items } = await flourList();
+    const result = await decideShoppingMerge(ctx, {
+      id: FLOUR,
+      status: "merged",
+      name: "flour",
+      amount: "1 bag",
+    });
+    expect(result.decision?.amount).toEqual({
+      text: "1 bag",
+      ids: items.map((item) => item.id).sort(),
+    });
+    expect((await messages())[0]).toBe(
+      "Update shopping list: merge all purpose flour + white flour → flour",
+    );
+    expect((await readShoppingView(ctx)).text).toBe("Pantry:\n1 bag flour");
+
+    const count = (await messages()).length;
+    const again = await decideShoppingMerge(ctx, {
+      keys: ["white flour", "all purpose flour"],
+      status: "merged",
+      name: "flour",
+    });
+    expect(again.changed).toBe(false);
+    expect((await messages()).length).toBe(count);
+  });
+
+  it("keeps apart, then splits — one commit each — and the proposal returns", async () => {
+    await flourList();
+    const apart = await decideShoppingMerge(ctx, {
+      id: FLOUR,
+      status: "apart",
+    });
+    expect(apart.decision?.status).toBe("apart");
+    expect((await messages())[0]).toBe(
+      "Update shopping list: keep apart all purpose flour + white flour",
+    );
+    expect((await readShoppingView(ctx)).proposals).toEqual([]);
+
+    const split = await splitShoppingMerge(ctx, { id: FLOUR });
+    expect(split).toMatchObject({ changed: true, removed: [FLOUR] });
+    expect((await messages())[0]).toBe(
+      "Update shopping list: ask again about all purpose flour + white flour",
+    );
+    expect(await readShoppingMerges(ctx)).toEqual([]);
+    expect((await readShoppingView(ctx)).proposals).toHaveLength(1);
+    const [head] = (await git.log()).all;
+    expect(await filesIn(head.hash)).toEqual([`shopping/merges/${FLOUR}.json`]);
+
+    const count = (await messages()).length;
+    expect((await splitShoppingMerge(ctx, { id: FLOUR })).changed).toBe(false);
+    expect((await messages()).length).toBe(count);
+  });
+
+  it("splits a merged row back into its names", async () => {
+    await flourList();
+    await decideShoppingMerge(ctx, { id: FLOUR, status: "merged" });
+    await splitShoppingMerge(ctx, { id: FLOUR });
+    expect((await messages())[0]).toBe(
+      "Update shopping list: split all purpose flour + white flour",
+    );
+    const { view } = await readShoppingView(ctx);
+    expect(view.counts.rows).toBe(2);
+  });
+
+  it("folds a merge a wider one covers into it, deleting the old file in the same commit", async () => {
+    await flourList();
+    await decideShoppingMerge(ctx, { id: FLOUR, status: "merged" });
+    await addToShopping(ctx, { items: ["1 cup unbleached flour"] });
+    const { proposals } = await readShoppingView(ctx);
+    expect(proposals).toHaveLength(1);
+    const wider = await decideShoppingMerge(ctx, {
+      id: proposals[0].id,
+      status: "merged",
+    });
+    expect(wider.removed).toEqual([FLOUR]);
+    expect(wider.merges.map((merge) => merge.keys)).toEqual([
+      ["all purpose flour", "unbleached flour", "white flour"],
+    ]);
+    const [head] = (await git.log()).all;
+    expect((await filesIn(head.hash)).sort()).toEqual(
+      [
+        `shopping/merges/${FLOUR}.json`,
+        `shopping/merges/${proposals[0].id}.json`,
+      ].sort(),
+    );
+    expect((await readShoppingView(ctx)).text).toBe(
+      "Pantry:\n4 cups all-purpose flour",
+    );
+  });
+
+  it("keeps the name and note of a merge that grows, and drops its amount", async () => {
+    await flourList();
+    await decideShoppingMerge(ctx, {
+      id: FLOUR,
+      status: "merged",
+      name: "King Arthur AP",
+      amount: "1 bag",
+      note: "the red bag",
+    });
+    await addToShopping(ctx, { items: ["1 cup unbleached flour"] });
+    const [proposal] = (await readShoppingView(ctx)).proposals;
+    expect(proposal.name).toBe("King Arthur AP");
+    expect(proposal.line).toBe("4 cups King Arthur AP");
+    const wider = await decideShoppingMerge(ctx, {
+      id: proposal.id,
+      status: "merged",
+    });
+    expect(wider.decision).toMatchObject({
+      name: "King Arthur AP",
+      note: "the red bag",
+    });
+    expect(wider.decision?.amount).toBeUndefined();
+  });
+
+  it("ticks a merged row by any of its names, or by its merged name", async () => {
+    await flourList();
+    await decideShoppingMerge(ctx, { id: FLOUR, status: "merged" });
+    const ticked = await patchShopping(ctx, { names: ["all-purpose flour"] });
+    expect(ticked.updated).toHaveLength(2);
+    const unticked = await patchShopping(ctx, {
+      uncheckNames: ["white flour"],
+    });
+    expect(unticked.updated).toHaveLength(2);
+  });
+
+  it("refuses an unknown id, an amount for names not on the list, and a name for keeping apart", async () => {
+    await expect(
+      decideShoppingMerge(ctx, { id: FLOUR, status: "merged" }),
+    ).rejects.toMatchObject({ code: "not_found" });
+    await expect(
+      decideShoppingMerge(ctx, {
+        keys: ["white flour", "all purpose flour"],
+        status: "merged",
+        amount: "1 bag",
+      }),
+    ).rejects.toMatchObject({ code: "validation" });
+    await expect(
+      decideShoppingMerge(ctx, {
+        keys: ["white flour", "all purpose flour"],
+        status: "apart",
+        name: "x",
+      }),
+    ).rejects.toMatchObject({ code: "validation" });
+    await expect(
+      splitShoppingMerge(ctx, { id: "../../etc/passwd" }),
+    ).rejects.toMatchObject({ code: "validation" });
+    expect(await messages()).toEqual(["Initial commit"]);
+  });
+});
+
+/**
  * The static export never reads the list: nothing under `common/` or
  * `export/` names the items directory or imports the seat (D8). `common/`'s
  * `shoppingView.ts` and `shoppingTypes.ts` are pure and never touch a file.
@@ -1097,7 +1306,7 @@ describe("the export never reads the shopping list", () => {
     return out;
   }
 
-  it("no common/ or export/ file imports curation/shopping or names shopping/items", async () => {
+  it("no common/ or export/ file imports curation/shopping or names shopping/items or shopping/merges", async () => {
     const files = [
       ...(await sourceFiles(join(SITE, "common"))),
       ...(await sourceFiles(join(SITE, "export"))),
@@ -1111,6 +1320,10 @@ describe("the export never reads the shopping list", () => {
       }
       if (/shopping\/items/.test(source)) {
         violations.push(`${relative(SITE, file)} names shopping/items`);
+      }
+      /* 49a: nor the merge decisions' directory. */
+      if (/shopping\/merges/.test(source)) {
+        violations.push(`${relative(SITE, file)} names shopping/merges`);
       }
     }
     expect(violations).toEqual([]);

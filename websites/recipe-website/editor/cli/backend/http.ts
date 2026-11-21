@@ -82,6 +82,7 @@ import type {
   SearchResult,
   ShoppingAddResult,
   ShoppingClearResult,
+  ShoppingMergeResult,
   ShoppingPatchResult,
   ShoppingSettingsResult,
   ShoppingViewResult,
@@ -674,6 +675,17 @@ export function createHttpBackend({
     updateShoppingSettings(raw) {
       return call<ShoppingSettingsResult>("PATCH", "/api/shopping/settings", {
         body: raw,
+      });
+    },
+    decideShoppingMerge(raw) {
+      return call<ShoppingMergeResult>("POST", "/api/shopping/merges", {
+        body: raw,
+      });
+    },
+    splitShoppingMerge(raw) {
+      const id = (raw as { id?: string } | undefined)?.id ?? "";
+      return call<ShoppingMergeResult>("DELETE", "/api/shopping/merges", {
+        query: { id },
       });
     },
 

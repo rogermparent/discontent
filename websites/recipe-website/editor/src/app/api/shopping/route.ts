@@ -5,8 +5,11 @@
  * list lives only in the content repository, the static export never reads
  * it, and an anonymous GET here would be the one route that published it.
  *
- * - `GET` → `{items, settings, view, text, path}`; `?format=text` answers the
- *   copy text alone as `text/plain`; `?store=<id>` narrows to one store.
+ * - `GET` → `{items, settings, merges, view, text, proposals, path}`;
+ *   `?format=text` answers the copy text alone as `text/plain`;
+ *   `?store=<id>` narrows to one store. 49a's `merges` are the stored
+ *   decisions, `proposals` the open "same thing, different names" ones
+ *   (answered at `/api/shopping/merges`).
  * - `POST` adds `{recipe, scale?} | {group, scale?} | {items}`.
  * - `PATCH` ticks, flags, moves or removes items (`patchShopping`'s body).
  * - `DELETE ?scope=checked|all` clears (checked by default).
