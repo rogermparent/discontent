@@ -579,3 +579,228 @@ judging each suggestion and timing qwen3:8b thinking. The same on the Pi
    "Split this row and keep its names apart", "Keep these apart", "Look for
    more with the model", "Left out by the check", "<Model> found nothing
    more to merge in N names", "Try with Claude".
+
+## 49c — Model answers worth trusting (M)
+
+49b's real check (the orchestrator, 2026-11-21, qwen3:8b 100 % on the
+workstation's GPU, a scratch clone of the content repo with six recipes and
+the pumpkin bars on its list) was not good enough to give Roger: "use grams"
+took 149 s and answered "≈ 990.75 g" (the model's own sum, wrong, and not
+marked estimated) after overflowing its 4,096-token context; "Look for more"
+timed out at 180 s thinking, and without thinking answered nonsense the
+check let through (baking powder + soda as "leavening agents", olive oil +
+butter as "oil", salt + kosher salt, salted + unsalted butter, groups of 6,
+8 and 14 unrelated names).
+
+### Decisions
+
+- **Dc1 — The model names the unit, the code does the arithmetic.** The
+  revise schema is `{verdict, items, name, unit, reason}`: `unit` is one of
+  `ASKABLE_UNITS` (g, kg, oz, lb, ml, l, cup, tbsp, tsp — an enum in the
+  JSON schema, so Ollama's grammar and Claude's structured output hold the
+  model to it) or `""` for the list's own; `name` may be `""` for the
+  list's own name (Db1-2's "empty name" refusal is gone). There is no
+  `amount` and no `estimated`.
+  - `mergedAmountInUnit` (`shoppingConsolidate.ts`) adds the names' lines
+    as the merged row does (scaled, a counted name's container), and
+    `amountInUnit` (`shoppingMerges.ts`) converts: US and metric of one kind
+    exactly, a volume and a weight through 49a's `GRAMS_PER_CUP` (the
+    curated set's density, else the row's name's, else one every name
+    shares). A density sets `estimated`, shown "≈".
+  - **Rounding** (`roundMetric`): whole grams or millilitres under 20, the
+    nearest 5 under 100, the nearest 10 under 1,000, then tenths of a kilo
+    or litre — "≈ 890 g", never "≈ 990.75 g". US units are written as
+    `formatAmount` writes them (eighths; under a pound, ounces — "lb" for
+    360 g reads "≈ 12¾ oz").
+  - The converted amount travels as Db1-4's `amount` (`decision.amount`, an
+    edited amount held while the row's lines are the same — Da4). A unit the
+    list says already ("cup" on rows in cups) is no amount of its own.
+  - **A number the model gives anyway is ignored and said in the job log**
+    (`ignored: …` info lines and the step's `ignored`): an `amount` field
+    (a non-strict answer), an amount in front of the name ("990 g
+    all-purpose flour" → "all-purpose flour"; "00 flour" has no unit after
+    its number and stays whole), or a number in the unit ("890 g" → g).
+  - **Can't convert, plainly** (`cannotConvert` on the refused result): a
+    count or a container asked into a weight or volume — "The list can't
+    give garlic in grams: 6 cloves is a count, not a weight or a volume" —
+    or a volume and a weight with no density on file ("…it has no weight
+    for a cup of walnut on file, so 1½ cups can't be converted"). The panel
+    and the CLI say the sentence alone, with no "answer was not used" and
+    no "Try with Claude" (no model would change it). An unknown unit
+    ("pinch") is an ordinary refusal.
+- **Dc2 — Context with thinking.** A revise's `num_ctx` is the smallest of
+  40a's steps holding its prompt, its answer (256) and
+  `SHOPPING_THINK_TOKENS` = 4,096 (was Edit's 2,048): 49b's real ask used
+  458 + 4,754 tokens. 40a's rules kept: the fixed steps (4,096 / 8,192 /
+  12,288), the 3-characters-a-token estimate, the 95 % warning. A revise now
+  asks 8,192 (6.2 GB, 100 % on the GPU in every run below; 40a measured the
+  same). `shoppingAskContext` is the one computation, and a unit test holds
+  the requested `num_ctx` to prompt + answer + thinking (and to the real
+  5,212).
+  - **Edit with AI has the same arithmetic** (`askEdit.ts`: prompt +
+    the recipe again + 256 + `EDIT_THINK_TOKENS` 2,048) **and is left as it
+    is.** 47i's ten real requests fit it: 11,668 tokens out thinking against
+    3,162 not, so ~850 of thinking a request, the longest (70 s at ~33
+    tokens/s) ~2,200 tokens with its answer, against a context that left
+    ≥ 2,048 for it. A larger budget would move recipes whose prompt and
+    answer are 4–6 k tokens from 8,192 to 12,288, which 40a measured
+    spilling 10 % to the CPU. The 40a warning still says it if one
+    overflows; a unit test now pins Edit's `num_ctx` to prompt + recipe +
+    256 + 2,048. `EDIT_TIMEOUT_MS` is unchanged (Roger to confirm 4).
+- **Dc3 — A stricter "Look for more".**
+  - **The prompt** asks for "the same product, one a shopper buys
+    interchangeably under either name", pairs or groups of at most 3, the
+    name one of the group's own; lists the NOT-same examples (baking powder
+    and soda, butter and an oil, salted and unsalted butter, kosher and
+    table or sea salt, brown and white sugar, powdered and coarse sugar, a
+    spice and a blend with it in, olive and extra virgin olive oil); and
+    forbids category names.
+  - **The check**, after 49b's drops, refuses a group: over 3 names
+    (`FIND_GROUP_MAX`); with a known-different pair; whose names share no
+    word — a shared word only counts when it is not one of 32j's
+    `CLOSE_HEAD_EXCLUDED` (pepper, salt, bean, seasoning…), and one name's
+    last word must be in the other ("jalapeno" and "jalapeno pepper",
+    "kosher salt" and "coarse kosher salt"; not "baking powder" and "baking
+    soda", nor "jalapeno pepper" and "red bell pepper") — unless 43n's
+    synonyms read the two as one name (they are one row by then, so this
+    never fires on a real list); named with a category word that none of its
+    rows has (`CATEGORY_WORDS`: spice, seasoning, ingredient, leavening,
+    agent, fat, herb, dish, recipe…); or named with no row's own name (the
+    name's key is a row's, or holds every word of one).
+  - **The known-different list** (`SHOPPING_KNOWN_DIFFERENT`, beside 49a's
+    table in `shoppingMerges.ts`): kinds of one thing, two names in
+    different kinds known different — leavening (baking powder · soda ·
+    yeast · cream of tartar), salted · unsalted butter, a fat · an oil
+    (`*oil`), salts (table · kosher · sea · seasoned), sugars (white ·
+    superfine · brown · powdered · coarse), olive · extra virgin olive oil,
+    oils (vegetable · canola · olive · coconut · sesame · avocado ·
+    peanut), a spice · a blend (`*spice`, `*seasoning`, garam masala…),
+    fresh · ground ginger, garlic · garlic powder, onion · onion powder. The
+    table's finder skips any set holding such a pair, and a unit test holds
+    every `SHOPPING_EQUIVALENTS` set free of one, so both read one list.
+- **Dc4 — Think or not, and the timeout.**
+  - **"Look for more" never thinks** (`shoppingAskThinks`), whatever
+    `RECIPE_LLM_EDIT_THINK` says: thinking over 54 names ran past 180 s,
+    and the stricter prompt and check do the work — 13 s, and every group
+    the model offered was a nonsense one the check left out.
+  - **It asks in chunks** of at most `FIND_CHUNK_NAMES` = 40 names, even
+    (54 → 27 + 27), the names sorted by their last word so "flour" and
+    "white flour" share a call. A chunk keeps the whole list's numbers, so
+    nothing is renumbered; a number a chunk was not shown is refused as
+    unknown. One step per call (`llm.shopping`, `call`/`of`/`names`), the
+    numbers added up.
+  - **An ask keeps thinking**, as Edit with AI (`RECIPE_LLM_EDIT_THINK=0`
+    turns both off). Both modes answered all four asks right; thinking cost
+    ~7 s more (15–19 s against 8–9 s, a cold load of ~7.7 s in each), and
+    with the arithmetic gone it thinks ~350 tokens, not 4,500. The one
+    long one (48 s, 1,471 tokens) was garlic "use grams", which it should
+    have said no to quickly; it still answered the right thing.
+  - `EDIT_TIMEOUT_MS` (180 s) is unchanged for both.
+
+### Results
+
+**What changed.**
+
+- `common/util/shoppingMerges.ts`: `ASKABLE_UNITS`, `amountInUnit`,
+  `roundMetric`; `SHOPPING_KNOWN_DIFFERENT`, `knownDifferent`,
+  `knownDifferentPair`.
+- `common/util/shoppingConsolidate.ts`: `mergedAmountInUnit`; the finder
+  skips a set with a known-different pair.
+- `common/util/shoppingAsk.ts`: the merge result's `amountFromModel` is now
+  `unit` (the unit the list converted into); a refused revise may carry
+  `cannotConvert`.
+- `editor/controller/llm/shoppingAskCheck.ts`: the revise schema and check
+  (Dc1); the find check's Dc3 rules (`FIND_GROUP_MAX`, `CATEGORY_WORDS`).
+- `editor/controller/llm/shoppingAsk.ts`: both prompts; `findChunks`,
+  `shoppingAskCalls`, `shoppingAskThinks`, `shoppingAskContext`,
+  `SHOPPING_THINK_TOKENS`, `FIND_CHUNK_NAMES`; `runShoppingAsk` with a call
+  per chunk and the ignored lines in the job log. Find's names are sorted
+  by last word.
+- `MergeProposals.tsx` and the CLI's `formatAsk`: the plain can't-convert
+  sentence.
+- The stand-in model answers a unit ("grams" → `g`), never an amount.
+- `askEdit.ts` is unchanged.
+
+**The real check** (qwen3:8b on the workstation's RX 6600, 100 % GPU,
+nothing else loaded: VRAM under 2 GB and no `parakeet-cli` before every
+run, the model unloaded after each, so every time includes a cold load of
+~7–8 s). The scratch clone's list (six recipes and the pumpkin bars, 54
+names for "Look for more"), `pnpm --silent recipes shopping ask <id>
+--note … --wait --json` and `shopping find-merges --wait --json` from the
+49c worktree; nothing was written. Before = main at `0511d913` (the first
+two rows are the orchestrator's runs; the others ran in this worktree before
+any change).
+
+| Ask                                                     | Before                                                                                                                                                                                                                                                                                                                                                                                                                | After, thinking (the default)                                                                                                                                                                                                                                                                                                                                                | After, `RECIPE_LLM_EDIT_THINK=0`        |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| "use grams" on 7¼ cups all-purpose flour + 3 tbsp flour | 149 s, 458 + 4,754 tokens of a **4,096** context (overflowed): "≈ 990.75 g all-purpose flour", `estimated: false` — **wrong**                                                                                                                                                                                                                                                                                         | 19.3 s, 479 + 398 tokens at 8,192: unit `g` → the list's **"≈ 900 g all-purpose flour"** (7½ cups at 120 g; the sources sum to 7 cups + 7½ tbsp), estimated — **right**                                                                                                                                                                                                      | 9.2 s, 485 + 53: the same — **right**   |
+| "call it plain flour"                                   | 39.6 s, 460 + 1,106: "7½ cups plain flour" — right                                                                                                                                                                                                                                                                                                                                                                    | 15.2 s, 481 + 340: "7½ cups plain flour" — **right**                                                                                                                                                                                                                                                                                                                         | 8.9 s, 487 + 44: the same — **right**   |
+| "these are different" on garlic + garlic cloves         | 18.0 s, 317 + 387: keep apart — right                                                                                                                                                                                                                                                                                                                                                                                 | 16.0 s, 338 + 324: keep apart — **right**                                                                                                                                                                                                                                                                                                                                    | 7.9 s, 344 + 33: keep apart — **right** |
+| "use grams" on garlic (6 cloves)                        | —                                                                                                                                                                                                                                                                                                                                                                                                                     | 48.2 s, 1,471 out: unit `g` → "The list can't give garlic in grams: 6 cloves is a count, not a weight or a volume" — **right**                                                                                                                                                                                                                                               | —                                       |
+| Look for more (54 names)                                | thinking: **timed out at 180 s**; not thinking: 26 s, 10 groups, **all 10 kept** — baking powder + soda "leavening agents", salt + kosher salt "salt", olive oil + butter "oil", cinnamon + pumpkin pie spice "spices", light brown + granulated sugar "sugar", unsalted + salted butter "butter", powdered + coarse sugar, 6 names "spices and seasonings", 8 "ingredients for dishes", 14 "ingredients for recipes" | never thinks: **13.0 s**, two calls of 27, 1,118 + 163 tokens; 3 groups, **all 3 left out by the check**: butter + salted + unsalted butter (salted and unsalted are different), apple + cilantro leaf + romaine lettuce (share no word), kosher salt + salt (different). "Found nothing more" — right: the list has no same-product pair the table does not already propose | (the same: find never thinks)           |
+
+A second "Look for more" gave the same three groups in 13.9 s
+(temperature 0).
+
+**Tests** (`test/shoppingAsk.test.ts`; never a real model):
+
+- The revise check: "use grams" → the list's ≈ 360 g, `unit: "g"`, ≈ and
+  estimated; "grams" read as g; pounds → "≈ 12¾ oz"; "cup" on cups converts
+  nothing; `""` keeps the list's name; a model's amount, an amount in the
+  name and a number in the unit each ignored and listed; "00 flour" kept;
+  garlic cloves and walnuts (no density) answered `cannotConvert` with the
+  sentence; an unknown unit refused; quantities off sets no unit.
+- The arithmetic: 7¼ cups + 3 tbsp flour in grams → "890 g", estimated;
+  `roundMetric` at 7, 43, 892.5 and 1,234; 2 lb → 910 g exactly; 2 cups →
+  475 ml; cups to grams with and without a density; a count; nothing.
+- The stricter find: every nonsense group of the real check, each with its
+  reason; groups of 6 and 8; names sharing no word; bell peppers sharing
+  only "pepper"; a category and a stranger for a name; buttermilk + low-fat
+  buttermilk, jalapeño + jalapeño pepper, bell + red bell pepper and fine +
+  flaky sea salt kept; scallions and green onions one row by 43n's
+  synonyms; no table set with a known-different pair.
+- `num_ctx`: a revise's holds prompt + answer + `SHOPPING_THINK_TOKENS`
+  (and 458 + 4,754); a find's holds its prompt and groups; a find never
+  thinks, a revise follows `RECIPE_LLM_EDIT_THINK`. Chunks: 46 names → two
+  calls of 23, numbered as the whole list, sorted by last word, and a
+  number from the other chunk refused. `test/editRequest.test.ts`: Edit
+  with AI's `num_ctx` holds prompt + recipe + 256 + `EDIT_THINK_TOKENS`.
+- Playwright `shopping-ask.spec`: the Crêpes gains "1/2 cup low-fat
+  buttermilk"; "use grams" still reads "≈ 360 g all-purpose flour", now
+  the list's sum of the stand-in's unit; "Look for more" keeps buttermilk +
+  low-fat buttermilk and shows salt + sea salt under "Left out by the check
+  (1)" as known different.
+
+### Traps
+
+- **Tc1 — `ollama stop` does not free VRAM at once.** The before-run check
+  read 6 GB for a moment after the model was stopped, and the 2-minute poll
+  then cost two minutes; the run script waits 8 s after the stop.
+- **Tc2 — a chunk's numbers are the whole list's.** A model answering a
+  chunk sees only that chunk's names, so a number from another chunk is
+  marked as text (`"30"`) before the check, which refuses it as unknown —
+  never as a name it was not shown.
+- **Tc3 — the stand-in's find rule pairs "salt" with "sea salt"**, which
+  are now known different: the spec's pair is buttermilk and low-fat
+  buttermilk, and the salts show the check's left-out line.
+
+### Roger to confirm
+
+1. **The model names a unit, the list converts** (Dc1): a converted amount
+   is stored as the merged row's edited amount, so a later list with other
+   lines shows the sum again and "your amount was for the old list" (as an
+   edited amount does). Storing the unit as a rule on the decision instead
+   would follow the list — a later phase, if you want it.
+2. **Rounding**: grams to the nearest 5 under 100 and 10 under 1,000; US
+   units as the list writes them (pounds under one pound read as ounces).
+3. **The known-different list** — say what to drop or add: vegetable and
+   canola oil are known different (49a left them a judgement call), as are
+   olive and extra virgin olive oil, kosher and plain salt, and every sugar
+   kind; light and dark brown sugar, plain and unsalted butter, and
+   "neutral oil" beside any oil stay the model's (and your) judgement.
+4. **Edit with AI's thinking budget stays 2,048** (Dc2): 47i's requests fit
+   it; raise it to 4,096 if you see the full-context warning on an edit.
+5. **Look for more never thinks**, and asks in chunks of up to 40 names;
+   an ask keeps thinking (both right, ~7 s slower).
+6. **A note asking for an impossible unit** says so in one sentence, with
+   no "Try with Claude".

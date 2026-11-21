@@ -24,7 +24,9 @@ import {
   CLAUDE_KEY_ENV,
   EDIT_MODEL_ENV,
   EDIT_SYSTEM_PROMPT,
+  EDIT_THINK_TOKENS,
   editModelFor,
+  editUserPrompt,
   editModels,
   runEdit,
   usesModelFor,
@@ -46,7 +48,10 @@ import {
   jobLabel,
   jobResources,
 } from "../websites/recipe-website/editor/controller/jobs/kinds";
-import { claudeSchema } from "../websites/recipe-website/editor/controller/llm/client";
+import {
+  claudeSchema,
+  estimateTokens,
+} from "../websites/recipe-website/editor/controller/llm/client";
 
 const WINGS: Recipe = {
   name: "Korean Fried Chicken Wings",
@@ -877,6 +882,21 @@ describe("the edit job", () => {
     request,
     recipe: values(),
     backend: "local" as const,
+  });
+
+  it("asks for a num_ctx that holds the prompt, the whole recipe again and the thinking (49c, Dc2)", async () => {
+    const calls = stubModel({ change: { name: "Wings" }, note: "Shorter." });
+    await runEdit(spec("Rename it to Wings"), { models: local });
+    const { num_ctx } = (calls[0].body as { options: { num_ctx: number } })
+      .options;
+    const recipe = values();
+    expect(num_ctx).toBeGreaterThanOrEqual(
+      estimateTokens(EDIT_SYSTEM_PROMPT) +
+        estimateTokens(editUserPrompt(recipe, "Rename it to Wings")) +
+        estimateTokens(JSON.stringify(editView(recipe))) +
+        256 +
+        EDIT_THINK_TOKENS,
+    );
   });
 
   it("asks once with the recipe and the request, a JSON schema, no tools", async () => {

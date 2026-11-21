@@ -20,15 +20,24 @@
  *
  * Pure, and safe in the browser.
  */
-import { parseAmount, scaleAmount, type Amount } from "./ingredientAmount";
+import {
+  addAmounts,
+  parseAmount,
+  scaleAmount,
+  type Amount,
+} from "./ingredientAmount";
 import {
   activeMerges,
+  amountInUnit,
   consolidateAmounts,
   countsAs,
   equivalenceOf,
   gramsPerCupFor,
+  knownDifferentPair,
   mergeIdOf,
   normalizeMergeKeys,
+  type AskableUnit,
+  type InUnit,
   type ShoppingEquivalence,
   type ShoppingMerge,
 } from "./shoppingMerges";
@@ -190,6 +199,8 @@ export function findShoppingProposals(
       keys.every((key) => decision.keys.includes(key)),
     );
     if (covered) continue;
+    /* 49c (Dc3): the list the model's check reads too — never in the table. */
+    if (knownDifferentPair(keys)) continue;
 
     const rows = keys
       .map((key) => groups.get(key)!)
@@ -350,4 +361,32 @@ function mergedNameOf(
     if (row.sources.length > best.sources.length) best = row;
   }
   return best.name;
+}
+
+/**
+ * 49c (Dc1): what these names come to, as one row, in the unit a note asked
+ * for — the code's arithmetic, never the model's. Every line of the names
+ * counts (scaled, a counted name's container as the view reads it, ticked
+ * ones too, as the merged row's whole amount does); the density is the
+ * curated set's, else `nameKey`'s (the name the row is called), else one
+ * every name shares (`gramsPerCupFor`).
+ */
+export function mergedAmountInUnit(
+  items: readonly ShoppingItem[],
+  keys: readonly string[],
+  unit: AskableUnit,
+  nameKey?: string,
+): InUnit {
+  const groups = nameGroups(items);
+  const sets = new Set(keys.map((key) => equivalenceOf(key)));
+  const set = sets.size === 1 ? [...sets][0] : undefined;
+  const amounts = keys.flatMap((key) => {
+    const group = groups.get(key);
+    return group ? amountOf(group.items, set?.countUnits?.[key]) : [];
+  });
+  return amountInUnit(
+    addAmounts(...amounts),
+    unit,
+    gramsPerCupFor(set?.key ?? nameKey ?? keys[0], keys),
+  );
 }

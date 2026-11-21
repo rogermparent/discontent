@@ -7,7 +7,8 @@
  *
  * - **revise** (Db1): one proposal, or one merged row, with a note from the
  *   person ("these are different, one is salted", "use grams"). The model
- *   answers a revised proposal in 49a's shape, or "keep these apart".
+ *   answers a revised proposal in 49a's shape, or "keep these apart". It
+ *   names a unit; the list does the arithmetic (49c, Dc1).
  * - **find** (Db2): "Look for more with the model" — the list's names, and
  *   groups a shopper buys as one thing, as proposals in the same shape.
  *
@@ -15,7 +16,11 @@
  * apart) sends to the seat's `decideShoppingMerge`, and only the person's
  * press sends it (the "AI changes need approval" rule).
  */
-import { MERGE_LIMITS, type ShoppingMerge } from "./shoppingMerges";
+import {
+  MERGE_LIMITS,
+  type AskableUnit,
+  type ShoppingMerge,
+} from "./shoppingMerges";
 import type {
   ShoppingProposal,
   ShoppingProposalRow,
@@ -97,8 +102,11 @@ interface ReviseBase extends ShoppingAskNumbers {
 export interface ShoppingReviseMerge extends ReviseBase {
   status: "merge";
   proposal: ShoppingProposal;
-  /** The model's amount, not the list's sum. */
-  amountFromModel: boolean;
+  /**
+   * 49c (Dc1): the unit the note asked for, when the list converted its sum
+   * into it — the amount is the list's arithmetic, never the model's.
+   */
+  unit?: AskableUnit;
   decision: ShoppingAskDecision;
 }
 
@@ -109,9 +117,14 @@ export interface ShoppingReviseApart extends ReviseBase {
   decision: ShoppingAskDecision;
 }
 
-/** The check refused the answer (`refused`), or nothing came back (`failed`). */
+/**
+ * The check refused the answer (`refused`), or nothing came back (`failed`).
+ * `cannotConvert` (49c, Dc1): the note asked for a unit the lines can't be
+ * given in — cloves in grams, or cups in grams with no density on file —
+ * which no other model would change.
+ */
 export type ShoppingReviseRefused =
-  | (ReviseBase & { status: "refused"; problem: string })
+  | (ReviseBase & { status: "refused"; problem: string; cannotConvert?: true })
   | (ReviseBase & { status: "failed"; problem: string });
 
 export interface ShoppingFindFound extends ShoppingAskNumbers {

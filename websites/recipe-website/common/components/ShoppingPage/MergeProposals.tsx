@@ -103,17 +103,22 @@ function Suggestion({
   answered(message: string): void;
 }) {
   const model = result.model ?? "the model";
+  /* 49c (Dc1): a unit the lines can't be given in — no model would change it. */
+  const cannotConvert = result.status === "refused" && !!result.cannotConvert;
   const tryClaude =
     result.claudeAvailable &&
     result.backend !== "claude" &&
+    !cannotConvert &&
     (result.status === "refused" || result.status === "failed");
   if (result.status === "refused" || result.status === "failed") {
     return (
       <div className="flex flex-col gap-2" data-testid="shopping-ask-result">
         <p className="border-l-2 border-destructive pl-2 text-sm">
-          {result.status === "refused"
-            ? `${capital(model)}'s answer was not used: ${result.problem}.`
-            : `Nothing was suggested: ${result.problem}.`}
+          {cannotConvert
+            ? `${capital(result.problem)}.`
+            : result.status === "refused"
+              ? `${capital(model)}'s answer was not used: ${result.problem}.`
+              : `Nothing was suggested: ${result.problem}.`}
         </p>
         <div className="flex flex-wrap gap-2">
           {tryClaude ? (

@@ -469,7 +469,15 @@ function formatAsk(answer: ShoppingAskAnswer): string {
   }
   const who = answer.model ?? "the model";
   const lines: string[] = [];
-  if (answer.status === "refused") {
+  if (
+    answer.status === "refused" &&
+    answer.task === "revise" &&
+    answer.cannotConvert
+  ) {
+    lines.push(
+      answer.problem.charAt(0).toUpperCase() + answer.problem.slice(1),
+    );
+  } else if (answer.status === "refused") {
     lines.push(`${who}'s answer was not used: ${answer.problem}`);
   } else if (answer.status === "failed") {
     lines.push(`nothing was suggested: ${answer.problem}`);

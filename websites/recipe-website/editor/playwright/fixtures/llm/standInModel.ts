@@ -61,9 +61,9 @@ export interface StandInOptions {
  * A note on the shopping list's rows (49b, `REVISE_SYSTEM_PROMPT`), by rule
  * on its words: "apart", "different" or "separate" keeps them apart;
  * "invent" names a row that was not asked about (which the check must
- * refuse); "grams" answers 360 g; "call it X" names the row X. Every other
- * note merges every row under the first row's name, with the list's total.
- * Never a real model.
+ * refuse); "grams" names the unit `g` — never an amount: the list does the
+ * sum (49c, Dc1); "call it X" names the row X. Every other note merges every
+ * row under the list's own name, with the list's total. Never a real model.
  */
 export function shoppingReviseAnswer(user: string): Record<string, unknown> {
   const rows = [...user.matchAll(/^(\d+)\. (.+?) — /gm)].map((match) => ({
@@ -76,8 +76,7 @@ export function shoppingReviseAnswer(user: string): Record<string, unknown> {
       verdict: "apart",
       items: [],
       name: "",
-      amount: "",
-      estimated: false,
+      unit: "",
       reason: "The note says they are different.",
     };
   }
@@ -85,9 +84,8 @@ export function shoppingReviseAnswer(user: string): Record<string, unknown> {
   return {
     verdict: "merge",
     items: /\binvent/i.test(note) ? [1, 99] : rows.map((row) => row.number),
-    name: called ?? rows[0]?.name ?? "",
-    amount: /\bgrams?\b/i.test(note) ? "360 g" : "",
-    estimated: /\bgrams?\b/i.test(note),
+    name: called ?? "",
+    unit: /\bgrams?\b/i.test(note) ? "g" : "",
     reason: "Both go in one bag.",
   };
 }
