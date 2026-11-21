@@ -306,7 +306,19 @@ findings, all taken in the second commit:
 6. `promptRowsOf` had no item ids, which layers are tied to: it has `ids`.
 7. A doc comment had slid above the wrong set (`NOUNLESS`).
 
-**Gates.** _(filled in below when run)_
+**Gates.** `recipe-editor` typecheck and `recipe-website` `tsc --noEmit`
+clean. Full vitest 4,345 tests with 4 failures (cliJson, shoppingLayers,
+editFormRoundTrip, shopping), all fixed in `ce3e6ab7`; the four files pass
+alone, 129/129 (editFormRoundTrip is the known 5 s timing case). Playwright
+in Docker, production build: `shopping-layers`, `shopping`, `shopping-modes`,
+`shopping-merge`, `shopping-ask` and `accessibility` 114 of 115 on the first
+run; the one failure, `shopping.spec` 38d, counted the sub-recipe's lines
+as 2 where the page now counts 1 (its water is left off); the spec follows,
+and `shopping.spec` passes 11/11. `shopping-layers.spec` also passes 6/6 in
+`next dev`. Baselines regenerated in Docker: new
+`shopping-layers-changes-e2e.png`; `shopping-plan-e2e.png` and
+`shopping-plan-mobile.png` moved (the lemonade's water is under "Left off the
+list (1)"); the in-store PNGs did not move.
 
 ### Roger to confirm
 

@@ -287,12 +287,12 @@ test.describe("Shopping list", () => {
       "1/2 cup sugar (for Simple Syrup)",
     );
 
-    /* 39c: undo the expansion — the syrup's two lines go, in one commit. */
+    /* 39c: undo the expansion — the syrup's two lines go, in one commit (the page counts one: its water is left off, 50a). */
     const subRecipes = page.getByTestId("shopping-subrecipes");
     await subRecipes.getByText("Sub-recipes (1)").click();
     const syrup = subRecipes.getByTestId("shopping-subrecipe");
     await expect(syrup).toContainText(
-      "for Simple Syrup · 2 lines · in Lemonade",
+      "for Simple Syrup · 1 line · in Lemonade",
     );
     const removeThese = syrup.getByRole("button", {
       name: "Remove these lines for Simple Syrup",
@@ -300,7 +300,7 @@ test.describe("Shopping list", () => {
     await removeThese.click();
     /* The question takes focus, and Cancel gives it back. */
     const question = syrup.getByRole("group", {
-      name: "Remove what Simple Syrup added to 2 lines?",
+      name: "Remove what Simple Syrup added to 1 line?",
     });
     await expect(
       question.getByRole("button", { name: "Cancel" }),
