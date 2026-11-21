@@ -8,6 +8,8 @@ import {
   useSyncExternalStore,
 } from "react";
 import { cn } from "@discontent/component-library/lib/utils";
+import { DEFAULT_STAPLES } from "../../util/makeable";
+import { findShoppingProposals } from "../../util/shoppingConsolidate";
 import { rowsHolding } from "../../util/shoppingPage";
 import {
   buildShoppingView,
@@ -129,8 +131,23 @@ export function ShoppingPage({
   }, [mode]);
 
   const fullView = useMemo(
-    () => buildShoppingView(list.items, list.settings, list.inventory),
-    [list.items, list.settings, list.inventory],
+    () =>
+      buildShoppingView(
+        list.items,
+        list.settings,
+        list.inventory,
+        DEFAULT_STAPLES,
+        list.merges,
+      ),
+    [list.items, list.settings, list.inventory, list.merges],
+  );
+  /* 49a: the open "same thing, different names" proposals (Da8). */
+  const proposals = useMemo(
+    () =>
+      list.canMerge
+        ? findShoppingProposals(list.items, list.settings, list.merges)
+        : [],
+    [list.canMerge, list.items, list.settings, list.merges],
   );
   const storesOn = list.settings.features.stores;
   const known = fullView.stores.some((each) => each.store?.id === store);
@@ -157,6 +174,9 @@ export function ShoppingPage({
     tick: list.tick,
     update: (patch) => void list.update(patch),
     saveSettings: (patch) => void list.saveSettings(patch),
+    ...(list.canMerge
+      ? { split: (id: string) => void list.splitMerge(id) }
+      : {}),
   };
 
   return (
@@ -178,6 +198,7 @@ export function ShoppingPage({
           held={held}
           expired={expired}
           subRecipes={subRecipes}
+          proposals={proposals}
           handlers={handlers}
           store={chosen}
           setStore={setStore}
@@ -192,6 +213,7 @@ export function ShoppingPage({
           view={view}
           held={held}
           expired={expired}
+          proposals={proposals.length}
           handlers={handlers}
           store={chosen}
           setStore={setStore}

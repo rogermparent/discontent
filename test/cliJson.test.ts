@@ -572,7 +572,9 @@ describe("the CLI as a process", () => {
       const parsed = JSON.parse(read.stdout);
       expect(Object.keys(parsed).sort()).toEqual([
         "items",
+        "merges",
         "path",
+        "proposals",
         "settings",
         "text",
         "view",
@@ -589,6 +591,99 @@ describe("the CLI as a process", () => {
     },
     /* Seven CLI processes, each a `tsx` start. */
     TIMEOUT * 2,
+  );
+
+  /*
+   * 49a. "Same thing, different names" from the CLI: `shopping merges`
+   * lists the open proposal, `merge <id>` answers it (with a name), `split`
+   * deletes the decision, `keep-apart` hides the proposal. Cleared at the
+   * end, so the cases around it see no list and no decision.
+   */
+  it(
+    "answers merge proposals: shopping merges, merge, split, keep-apart",
+    async () => {
+      const added = await run([
+        "shopping",
+        "add",
+        "1 cup white flour",
+        "2 cups AP flour",
+        "--json",
+      ]);
+      expect(added.exitCode, added.stdout).toBe(0);
+
+      const listed = await run(["shopping", "merges", "--json"]);
+      expect(listed.exitCode).toBe(0);
+      const { proposals, merges } = JSON.parse(listed.stdout);
+      expect(merges).toEqual([]);
+      expect(proposals).toHaveLength(1);
+      expect(proposals[0]).toMatchObject({
+        name: "all-purpose flour",
+        amount: "3 cups",
+        estimated: false,
+        line: "3 cups all-purpose flour",
+        reason: "Both are all-purpose flour",
+      });
+      expect(proposals[0].rows.map((row: { key: string }) => row.key)).toEqual([
+        "white flour",
+        "all purpose flour",
+      ]);
+      const id: string = proposals[0].id;
+      const text = await run(["shopping", "merges"]);
+      expect(text.stdout).toContain(`${id}  → 3 cups all-purpose flour`);
+      expect(text.stdout).toContain("    1 cup white flour");
+
+      const merged = await run([
+        "shopping",
+        "merge",
+        id,
+        "--name",
+        "flour",
+        "--json",
+      ]);
+      expect(merged.exitCode, merged.stdout).toBe(0);
+      expect(JSON.parse(merged.stdout)).toMatchObject({
+        changed: true,
+        decision: {
+          id,
+          keys: ["all purpose flour", "white flour"],
+          status: "merged",
+          name: "flour",
+        },
+      });
+      /* The aisles switch is as the case above left it: off. */
+      expect((await run(["shopping"])).stdout.trim()).toMatch(
+        /(?:^|\n)3 cups flour$/,
+      );
+
+      const split = await run(["shopping", "split", id, "--json"]);
+      expect(JSON.parse(split.stdout)).toMatchObject({
+        changed: true,
+        removed: [id],
+      });
+
+      const apart = await run(["shopping", "keep-apart", id]);
+      expect(apart.exitCode).toBe(0);
+      expect(apart.stdout).toContain(
+        `Kept apart all purpose flour + white flour (${id})`,
+      );
+      const none = await run(["shopping", "merges", "--json"]);
+      expect(JSON.parse(none.stdout).proposals).toEqual([]);
+
+      const unknown = await run([
+        "shopping",
+        "merge",
+        "0123456789abcdef",
+        "--json",
+      ]);
+      expect(unknown.exitCode).not.toBe(0);
+      expect(JSON.parse(unknown.stdout).error.code).toBe("not_found");
+
+      await run(["shopping", "split", id]);
+      const cleared = await run(["shopping", "clear", "--all", "--yes"]);
+      expect(cleared.exitCode).toBe(0);
+    },
+    /* Ten CLI processes, each a `tsx` start. */
+    TIMEOUT * 3,
   );
 
   /*

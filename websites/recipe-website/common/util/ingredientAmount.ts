@@ -653,6 +653,15 @@ function factor(unit: string): number {
 }
 
 /**
+ * A measurable unit's size in its family's smallest unit — tsp, ml, oz or g
+ * (`cup` is 48, `kg` 1000); 1 for anything else. 49a's density estimate
+ * (`shoppingMerges.ts`) reads it to turn a part into grams.
+ */
+export function unitSize(unit: string): number {
+  return factor(unit);
+}
+
+/**
  * The amounts together. Parts of one family add — in the smaller of their
  * two units, so nothing is rounded here — and parts of different families
  * stay side by side: `1 lb` and `2 cups` of butter are both on the list. An

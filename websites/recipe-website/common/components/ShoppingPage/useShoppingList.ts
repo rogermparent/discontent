@@ -8,6 +8,7 @@ import {
   type TickSyncSnapshot,
   type TickSyncStorage,
 } from "../../util/shoppingTickSync";
+import type { ShoppingMerge } from "../../util/shoppingMerges";
 import type { ShoppingItem, ShoppingSettings } from "../../util/shoppingTypes";
 
 export type { SyncStatus };
@@ -34,6 +35,14 @@ export interface ShoppingListState {
   inventory: string[];
   /** 42g: plan slug → name, for "What's on it" (the server reads them). */
   plans?: Record<string, string>;
+  /** 49a: the stored merge decisions (the page finds the proposals). */
+  merges?: ShoppingMerge[];
+}
+
+/** 49a: what a merge write answers. */
+export interface ShoppingMergeAnswer {
+  merges: ShoppingMerge[];
+  changed: boolean;
 }
 
 /**
@@ -62,6 +71,15 @@ export interface ShoppingPageActions {
   saveSettings(
     patch: unknown,
   ): Promise<ShoppingActionResult<{ settings: ShoppingSettings }>>;
+  /**
+   * 49a: Merge or Keep apart a proposal (`{id, status, name?, amount?}`).
+   * Without it the page shows no proposals.
+   */
+  decideMerge?(
+    input: unknown,
+  ): Promise<ShoppingActionResult<ShoppingMergeAnswer>>;
+  /** 49a: Split a merged row: delete its decision. */
+  splitMerge?(id: string): Promise<ShoppingActionResult<ShoppingMergeAnswer>>;
 }
 
 const STORAGE_KEY = "shopping-pending-ticks";
@@ -103,6 +121,7 @@ const heldTicks = browserTicks(() => window.localStorage, HELD_STORAGE_KEY);
 
 const NONE: string[] = [];
 const NO_PLANS: Record<string, string> = {};
+const NO_MERGES: ShoppingMerge[] = [];
 
 /**
  * 42g, Done shopping in the store: how long the ticked lines stay hidden,
@@ -327,6 +346,10 @@ export function useShoppingList({
     settings: state.settings,
     inventory: state.inventory,
     plans: state.plans ?? NO_PLANS,
+    /** 49a: the stored merge decisions. */
+    merges: state.merges ?? NO_MERGES,
+    /** 49a: this page can answer proposals (the editor passed the actions). */
+    canMerge: Boolean(actions.decideMerge && actions.splitMerge),
     pendingCount: sync.pending.size,
     status: sync.status,
     error:
@@ -423,6 +446,31 @@ export function useShoppingList({
         () => actions.saveSettings(patch),
         (result) =>
           setState((current) => ({ ...current, settings: result.settings })),
+      ),
+    /** 49a: Merge (with an edited name or amount) or Keep apart, one change. */
+    decideMerge: (input: {
+      id: string;
+      status: "merged" | "apart";
+      name?: string;
+      amount?: string;
+    }) =>
+      run(
+        () =>
+          actions.decideMerge
+            ? actions.decideMerge(input)
+            : Promise.resolve({ error: "Not available here", code: "usage" }),
+        (result) =>
+          setState((current) => ({ ...current, merges: result.merges })),
+      ),
+    /** 49a: Split a merged row back into its names, one change. */
+    splitMerge: (id: string) =>
+      run(
+        () =>
+          actions.splitMerge
+            ? actions.splitMerge(id)
+            : Promise.resolve({ error: "Not available here", code: "usage" }),
+        (result) =>
+          setState((current) => ({ ...current, merges: result.merges })),
       ),
   };
 }

@@ -10,6 +10,8 @@
  *
  * **Not a content type**, like the inventory (`inventory.ts`): no config, no
  * index, no registry entry, so no rebuild and no export build ever sees it.
+ * 49a adds `<content>/shopping/merges/<id>.json`: one file per merge
+ * decision ("same thing, different names"), on the same rules.
  * A boundary test pins that nothing under `common/` or `export/` names the
  * item directory. What the list *shows* — merged rows, amounts, aisles,
  * stores, the on-hand fold — is `common/util/shoppingView.ts`, computed on
@@ -55,6 +57,19 @@ import {
   type ShoppingSettings,
 } from "recipe-website-common/util/shoppingTypes";
 import {
+  findShoppingProposals,
+  type ShoppingProposal,
+} from "recipe-website-common/util/shoppingConsolidate";
+import {
+  MERGE_ID_PATTERN,
+  activeMerges,
+  canonicalShoppingMerge,
+  mergeIdOf,
+  normalizeMergeKeys,
+  parseShoppingMerge,
+  type ShoppingMerge,
+} from "recipe-website-common/util/shoppingMerges";
+import {
   buildShoppingView,
   formatShoppingText,
   itemsForSubRecipe,
@@ -65,6 +80,7 @@ import {
 } from "recipe-website-common/util/shoppingView";
 import type { CurationContext } from "./context";
 import {
+  NotFoundError,
   UnknownGroupError,
   UnknownRecipeError,
   ValidationError,
@@ -73,10 +89,13 @@ import { readInventory } from "./inventory";
 import {
   ShoppingAddSchema,
   ShoppingClearSchema,
+  ShoppingMergeSchema,
   ShoppingPatchSchema,
   ShoppingSettingsPatchSchema,
+  ShoppingSplitSchema,
   parseInput,
   type ShoppingAddInput,
+  type ShoppingMergeInput,
   type ShoppingPatchInput,
   type ShoppingSettingsPatch,
 } from "./schema";
@@ -88,6 +107,13 @@ export const SHOPPING_SETTINGS_FILE = path.join(
   SHOPPING_DIRECTORY,
   "settings.json",
 );
+/** 49a: one file per merge decision, `<id>.json`. */
+export const SHOPPING_MERGES_DIRECTORY = path.join(
+  SHOPPING_DIRECTORY,
+  "merges",
+);
+/** Decisions the list may hold: far more than a person ever makes. */
+export const MAX_SHOPPING_MERGES = 1000;
 
 /**
  * Caps (35c review). A plan walk counts repeats (D6), so a plan listing a
@@ -122,6 +148,8 @@ export interface ShoppingResult {
   /** In the order they were added (by id). */
   items: ShoppingItem[];
   settings: ShoppingSettings;
+  /** 49a: the merge decisions, by id. */
+  merges: ShoppingMerge[];
   /** Absolute path of the `shopping/` directory (which may not exist yet). */
   path: string;
 }
@@ -130,6 +158,18 @@ export interface ShoppingViewResult extends ShoppingResult {
   view: ShoppingView;
   /** `formatShoppingText(view)`: what a person copies. */
   text: string;
+  /** 49a: the open "same thing, different names" proposals (whole list). */
+  proposals: ShoppingProposal[];
+}
+
+/** 49a: a merge decision written or deleted. */
+export interface ShoppingMergeResult {
+  merges: ShoppingMerge[];
+  changed: boolean;
+  /** The decision written (absent for a split). */
+  decision?: ShoppingMerge;
+  /** Ids of decisions this call deleted: split, or replaced by a wider one. */
+  removed: string[];
 }
 
 export interface ShoppingAddResult {
@@ -178,6 +218,10 @@ function itemFile(id: string): string {
   return path.join(SHOPPING_ITEMS_DIRECTORY, `${id}.json`);
 }
 
+function mergeFile(id: string): string {
+  return path.join(SHOPPING_MERGES_DIRECTORY, `${id}.json`);
+}
+
 function absolute(ctx: CurationContext, relative: string): string {
   return path.join(ctx.contentDirectory, relative);
 }
@@ -222,6 +266,39 @@ export async function readShoppingItems(
   return items.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
+/**
+ * 49a: every merge decision, sorted by id. A file that does not parse is
+ * skipped, as an item's is; the file name is the decision's id.
+ */
+export async function readShoppingMerges(
+  ctx: CurationContext,
+): Promise<ShoppingMerge[]> {
+  let names: string[];
+  try {
+    names = await readdir(absolute(ctx, SHOPPING_MERGES_DIRECTORY));
+  } catch (error) {
+    if (isMissing(error)) return [];
+    throw error;
+  }
+  const merges: ShoppingMerge[] = [];
+  for (const name of names) {
+    const match = /^([0-9a-f]{16})\.json$/.exec(name);
+    if (!match) continue;
+    try {
+      const raw = JSON.parse(
+        await readFile(absolute(ctx, mergeFile(match[1])), "utf8"),
+      ) as unknown;
+      const merge = parseShoppingMerge(raw, match[1]);
+      if (merge) merges.push(merge);
+    } catch (error) {
+      if (isMissing(error)) continue;
+      if (error instanceof SyntaxError) continue;
+      throw error;
+    }
+  }
+  return merges.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
 /** The settings over the defaults; the defaults when there is no file. */
 export async function readShoppingSettings(
   ctx: CurationContext,
@@ -243,11 +320,12 @@ export async function readShoppingSettings(
 export async function readShopping(
   ctx: CurationContext,
 ): Promise<ShoppingResult> {
-  const [items, settings] = await Promise.all([
+  const [items, settings, merges] = await Promise.all([
     readShoppingItems(ctx),
     readShoppingSettings(ctx),
+    readShoppingMerges(ctx),
   ]);
-  return { items, settings, path: shoppingPath(ctx) };
+  return { items, settings, merges, path: shoppingPath(ctx) };
 }
 
 /**
@@ -287,7 +365,7 @@ export async function readShoppingView(
     readShopping(ctx),
     readInventory(ctx),
   ]);
-  const { items, settings } = shopping;
+  const { items, settings, merges } = shopping;
   let view: ShoppingView;
   if (store !== undefined) {
     if (!settings.stores.some((known) => known.id === store)) {
@@ -301,13 +379,25 @@ export async function readShoppingView(
         { ...settings, features: { ...settings.features, stores: true } },
         inventory.items,
         DEFAULT_STAPLES,
+        merges,
       ),
       store,
     );
   } else {
-    view = buildShoppingView(items, settings, inventory.items, DEFAULT_STAPLES);
+    view = buildShoppingView(
+      items,
+      settings,
+      inventory.items,
+      DEFAULT_STAPLES,
+      merges,
+    );
   }
-  return { ...shopping, view, text: formatShoppingText(view) };
+  return {
+    ...shopping,
+    view,
+    text: formatShoppingText(view),
+    proposals: findShoppingProposals(items, settings, merges),
+  };
 }
 
 // --- writes ----------------------------------------------------------------
@@ -355,6 +445,29 @@ async function applyItems(
   { write = [], remove = [] }: { write?: ShoppingItem[]; remove?: string[] },
   message: string,
 ): Promise<boolean> {
+  return applyFiles(
+    ctx,
+    [
+      ...write.map((item) => ({
+        relative: itemFile(item.id),
+        bytes: serializeItem(item),
+      })),
+      ...remove.map((id) => ({ relative: itemFile(id), bytes: null })),
+    ],
+    message,
+  );
+}
+
+/**
+ * `applyItems`' body, for any of the list's files: each step writes its
+ * bytes atomically, or deletes the file (`bytes: null`), in order; then one
+ * commit of exactly those paths. 49a's merge decisions go through it too.
+ */
+async function applyFiles(
+  ctx: CurationContext,
+  steps: { relative: string; bytes: string | null }[],
+  message: string,
+): Promise<boolean> {
   const done: string[] = [];
   const backups = new Map<string, string | null>();
   const commit = async (subject: string) => {
@@ -381,14 +494,13 @@ async function applyItems(
     done.push(relative);
   };
   try {
-    for (const item of write) {
+    for (const { relative, bytes } of steps) {
       /* Atomic (D8): a reader never sees half an item, a crash never leaves one. */
-      await step(itemFile(item.id), (file) =>
-        writeFileAtomic(file, serializeItem(item)),
+      await step(relative, (file) =>
+        bytes === null
+          ? rm(file, { force: true })
+          : writeFileAtomic(file, bytes),
       );
-    }
-    for (const id of remove) {
-      await step(itemFile(id), (file) => rm(file, { force: true }));
     }
   } catch (error) {
     if (done.length > 0) {
@@ -734,11 +846,18 @@ async function patchLocked(
   };
   /* 38d: an `OR:` item ticks with the line it folds into, as on the page. */
   const alternatives = orAlternatives(items);
+  /*
+   * 49a: a merged row ticks by any of its names, or by its merged name —
+   * "I bought flour" ticks the white flour beside the all-purpose — as a
+   * tap on the row does.
+   */
+  const mergedKeys = await mergedKeysFor(ctx, items, settings);
   const named = (names: string[] | undefined) =>
     (names ?? []).map((name) => {
       const key = shoppingNameOf(name).key;
-      const matches = items.filter(
-        (item) => shoppingNameOf(item.text).key === key,
+      const keys = mergedKeys.get(key) ?? new Set([key]);
+      const matches = items.filter((item) =>
+        keys.has(shoppingNameOf(item.text).key),
       );
       if (matches.length === 0) unmatched.push(name);
       const ids = new Set(matches.map((item) => item.id));
@@ -850,6 +969,52 @@ async function patchLocked(
     ...(unknown.length > 0 ? { unknown } : {}),
     ...(unmatched.length > 0 ? { unmatched } : {}),
   };
+}
+
+/**
+ * 49a: name key → every name key of the merged row it is in, for the merged
+ * decisions that apply to these items — keyed by each name and by the
+ * merged row's own name ("all-purpose flour").
+ */
+async function mergedKeysFor(
+  ctx: CurationContext,
+  items: readonly ShoppingItem[],
+  settings: ShoppingSettings,
+): Promise<Map<string, Set<string>>> {
+  const out = new Map<string, Set<string>>();
+  if (!settings.features.merge) return out;
+  const merges = await readShoppingMerges(ctx);
+  if (merges.length === 0) return out;
+  const parents = orParents(items);
+  const present = new Set(
+    items
+      .filter((item) => !parents.has(item.id))
+      .map((item) => shoppingNameOf(item.text).key),
+  );
+  const byKey = activeMerges(merges, present);
+  const rows = new Map<string, Set<string>>();
+  for (const [key, merge] of byKey) {
+    let keys = rows.get(merge.id);
+    if (!keys) {
+      keys = new Set();
+      rows.set(merge.id, keys);
+    }
+    keys.add(key);
+  }
+  for (const [key, merge] of byKey) out.set(key, rows.get(merge.id)!);
+  /* The merged row's own name, as the view labels it. */
+  const view = buildShoppingView([...items], settings, [], [], merges);
+  for (const row of [
+    ...view.stores.flatMap((list) =>
+      list.sections.flatMap((section) => section.rows),
+    ),
+    ...view.checked,
+  ]) {
+    if (row.merge && !out.has(row.nameKey)) {
+      out.set(row.nameKey, rows.get(row.merge.id) ?? new Set(row.merge.keys));
+    }
+  }
+  return out;
 }
 
 /** Clear what was bought (`checked`, the default) or everything — one commit. */
@@ -1039,5 +1204,233 @@ export async function updateShoppingSettings(
       throw error;
     }
     return { settings, path: file, changed: true };
+  });
+}
+
+// --- merge decisions (49a) ---------------------------------------------------
+
+function serializeMerge(merge: ShoppingMerge): string {
+  return `${JSON.stringify(canonicalShoppingMerge(merge), null, 2)}\n`;
+}
+
+/** A decision's bytes without its time: what "nothing changed" compares. */
+function mergeSubstance(merge: ShoppingMerge): string {
+  return serializeMerge({ ...merge, decidedAt: "" });
+}
+
+/** "white flour + all purpose flour", shortened to fit a commit subject. */
+function keysText(keys: readonly string[]): string {
+  return describe([keys.join(" + ")]);
+}
+
+function overlaps(a: readonly string[], b: readonly string[]): boolean {
+  return a.some((key) => b.includes(key));
+}
+
+/**
+ * Answer a "same thing, different names" proposal (49a, Da4) — or change a
+ * merge already made — as one commit.
+ *
+ * - `{id}` names an open proposal (`findShoppingProposals` over the list
+ *   now) or a stored decision; `{keys}` names the set directly.
+ * - **merged**: the rows show as one from now on. A merged decision that
+ *   shares a name with this one is folded in and its file deleted, and an
+ *   `apart` decision whose names this one covers goes too — the wider
+ *   answer replaces the narrower. `name` labels the row; `amount` is held
+ *   for exactly the items the merged row covers now (Da4: when they change,
+ *   the row falls back to the sum and says so). Fields left out keep what a
+ *   stored decision of the same id said.
+ * - **apart**: that proposal never shows again. An `apart` decision whose
+ *   names this one covers is replaced.
+ *
+ * Nothing changes — and nothing commits — when the stored decision already
+ * says the same.
+ */
+export async function decideShoppingMerge(
+  ctx: CurationContext,
+  raw: unknown,
+): Promise<ShoppingMergeResult> {
+  const input = parseInput(ShoppingMergeSchema, raw);
+  return withWriteLock(ctx.contentDirectory, "shopping: merge", () =>
+    decideLocked(ctx, input),
+  );
+}
+
+async function decideLocked(
+  ctx: CurationContext,
+  input: ShoppingMergeInput,
+): Promise<ShoppingMergeResult> {
+  await assertNoMergeInProgress(ctx.contentDirectory);
+  const [items, settings, merges] = await Promise.all([
+    readShoppingItems(ctx),
+    readShoppingSettings(ctx),
+    readShoppingMerges(ctx),
+  ]);
+
+  let keys: string[];
+  if (input.keys) {
+    keys = normalizeMergeKeys(input.keys);
+    if (keys.length < 2) {
+      throw new ValidationError("A merge needs two different names.");
+    }
+  } else {
+    const id = input.id!;
+    const stored = merges.find((merge) => merge.id === id);
+    const proposal = findShoppingProposals(items, settings, merges).find(
+      (each) => each.id === id,
+    );
+    if (stored) keys = stored.keys;
+    else if (proposal) {
+      keys = normalizeMergeKeys(proposal.rows.map((row) => row.key));
+    } else {
+      throw new NotFoundError(
+        `No proposal or merge "${id}" on the shopping list. \`shopping merges\` lists them.`,
+      );
+    }
+  }
+
+  const removed = new Set<string>();
+  if (input.status === "merged") {
+    /* A merge sharing a name is part of this one now (Da4). */
+    let grown = true;
+    while (grown) {
+      grown = false;
+      for (const merge of merges) {
+        if (
+          merge.status === "merged" &&
+          !removed.has(merge.id) &&
+          overlaps(merge.keys, keys) &&
+          merge.keys.some((key) => !keys.includes(key))
+        ) {
+          keys = normalizeMergeKeys([...keys, ...merge.keys]);
+          grown = true;
+        }
+      }
+    }
+  }
+  const id = mergeIdOf(keys);
+  const previous = merges.find((merge) => merge.id === id);
+  for (const merge of merges) {
+    if (merge.id === id) continue;
+    /*
+     * The wider answer replaces the narrower: an apart decision this one
+     * covers, and (merging) every merged one it absorbed. Keeping a wider
+     * set apart leaves a narrower merge as it is.
+     */
+    const covered =
+      merge.status === "apart" && merge.keys.every((key) => keys.includes(key));
+    const absorbed =
+      input.status === "merged" &&
+      merge.status === "merged" &&
+      overlaps(merge.keys, keys);
+    if (covered || absorbed) removed.add(merge.id);
+  }
+  if (merges.length - removed.size + (previous ? 0 : 1) > MAX_SHOPPING_MERGES) {
+    throw new ValidationError(
+      `The list holds at most ${MAX_SHOPPING_MERGES} merge decisions.`,
+    );
+  }
+
+  const carried = previous?.status === input.status ? previous : undefined;
+  const decision: ShoppingMerge = {
+    id,
+    keys,
+    status: input.status,
+    decidedAt: new Date().toISOString(),
+  };
+  if (input.status === "merged") {
+    const name = input.name ?? carried?.name;
+    if (name) decision.name = name;
+    if (input.amount !== undefined) {
+      /* The items the merged row covers once this decision applies. */
+      const others = merges.filter(
+        (merge) => merge.id !== id && !removed.has(merge.id),
+      );
+      const view = buildShoppingView(
+        items,
+        settings,
+        [],
+        [],
+        [...others, decision],
+      );
+      const row = [
+        ...view.stores.flatMap((list) =>
+          list.sections.flatMap((section) => section.rows),
+        ),
+        ...view.onHand,
+        ...view.checked,
+      ].find((each) => each.key === `merge:${id}`);
+      if (!row) {
+        throw new ValidationError(
+          "An amount needs two or more of these names on the list (with merge switched on).",
+        );
+      }
+      decision.amount = { text: input.amount, ids: [...row.ids].sort() };
+    } else if (carried?.amount) {
+      decision.amount = carried.amount;
+    }
+  }
+  const note = input.note ?? carried?.note;
+  if (note) decision.note = note;
+
+  const unchanged =
+    previous !== undefined &&
+    mergeSubstance(previous) === mergeSubstance(decision) &&
+    removed.size === 0;
+  if (unchanged) {
+    return { merges, changed: false, decision: previous, removed: [] };
+  }
+  const verb =
+    input.status === "merged"
+      ? `merge ${keysText(keys)}${decision.name ? ` → ${decision.name}` : ""}`
+      : `keep apart ${keysText(keys)}`;
+  const changed = await applyFiles(
+    ctx,
+    [
+      { relative: mergeFile(id), bytes: serializeMerge(decision) },
+      ...[...removed].map((gone) => ({
+        relative: mergeFile(gone),
+        bytes: null,
+      })),
+    ],
+    `Update shopping list: ${verb}`,
+  );
+  return {
+    merges: changed ? await readShoppingMerges(ctx) : merges,
+    changed,
+    decision: canonicalShoppingMerge(decision),
+    removed: [...removed],
+  };
+}
+
+/**
+ * Split (49a, Da5): delete a decision — a merged one shows its rows apart
+ * again (and the proposal comes back), an apart one lets the proposal show
+ * again. One commit; none when no such decision is stored.
+ */
+export async function splitShoppingMerge(
+  ctx: CurationContext,
+  raw: unknown,
+): Promise<ShoppingMergeResult> {
+  const { id } = parseInput(ShoppingSplitSchema, raw);
+  if (!MERGE_ID_PATTERN.test(id)) {
+    throw new ValidationError("A merge id is 16 hex characters.");
+  }
+  return withWriteLock(ctx.contentDirectory, "shopping: split", async () => {
+    await assertNoMergeInProgress(ctx.contentDirectory);
+    const merges = await readShoppingMerges(ctx);
+    const stored = merges.find((merge) => merge.id === id);
+    if (!stored) return { merges, changed: false, removed: [] };
+    const verb = stored.status === "merged" ? "split" : "ask again about";
+    const changed = await applyFiles(
+      ctx,
+      [{ relative: mergeFile(id), bytes: null }],
+      `Update shopping list: ${verb} ${stored.name ?? keysText(stored.keys)}`,
+    );
+    return {
+      merges: changed ? await readShoppingMerges(ctx) : merges,
+      changed,
+      removed: changed ? [id] : [],
+    };
   });
 }
