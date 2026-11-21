@@ -289,6 +289,54 @@ export function proposalRowsFor(
 }
 
 /**
+ * The row the list would show with these names merged (and `name`): every
+ * other merge as it is, but one that shares a name.
+ */
+function mergedRowOf(
+  items: readonly ShoppingItem[],
+  settings: ShoppingSettings,
+  merges: readonly ShoppingMerge[],
+  present: readonly string[],
+  name?: string,
+): ShoppingRow | undefined {
+  const id = mergeIdOf(present);
+  const decision: ShoppingMerge = {
+    id,
+    keys: [...present],
+    status: "merged",
+    ...(name ? { name } : {}),
+    decidedAt: "",
+  };
+  const others = merges.filter(
+    (merge) =>
+      merge.id !== id && !merge.keys.some((key) => present.includes(key)),
+  );
+  return rowsOf(
+    buildShoppingView([...items], settings, [], [], [...others, decision]),
+  ).find((each) => each.key === `merge:${id}`);
+}
+
+/**
+ * 49c review: the item ids a merged row of these names covers (`OR:` lines
+ * included, as the seat stamps an edited amount, Ta1) — what a converted
+ * amount was worked out for, so the row says "your amount was for the old
+ * list" when the list changed before Accept.
+ */
+export function mergedRowIds(
+  items: readonly ShoppingItem[],
+  settings: ShoppingSettings,
+  merges: readonly ShoppingMerge[],
+  keys: readonly string[],
+): string[] | undefined {
+  const present = normalizeMergeKeys(
+    proposalRowsFor(items, settings, keys).map((row) => row.key),
+  );
+  if (present.length < 2) return undefined;
+  const row = mergedRowOf(items, settings, merges, present);
+  return row ? [...row.ids].sort() : undefined;
+}
+
+/**
  * 49b: the proposal for exactly these names, in Da3's shape, as the list
  * would show them merged — the model's grouping and name, the list's own
  * sum and line (`buildShoppingView` with that decision), or the model's
@@ -307,21 +355,7 @@ export function proposalForKeys(
   if (rows.length < 2) return undefined;
   const present = normalizeMergeKeys(rows.map((row) => row.key));
   const id = mergeIdOf(present);
-  const decision: ShoppingMerge = {
-    id,
-    keys: present,
-    status: "merged",
-    ...(name ? { name } : {}),
-    decidedAt: "",
-  };
-  /* Every other merge stays as it is, but one that shares a name. */
-  const others = merges.filter(
-    (merge) =>
-      merge.id !== id && !merge.keys.some((key) => present.includes(key)),
-  );
-  const row = rowsOf(
-    buildShoppingView([...items], settings, [], [], [...others, decision]),
-  ).find((each) => each.key === `merge:${id}`);
+  const row = mergedRowOf(items, settings, merges, present, name);
   if (!row) return undefined;
   const own = settings.features.quantities ? amount?.trim() : undefined;
   const estimated = !own && row.merge?.estimated === true;

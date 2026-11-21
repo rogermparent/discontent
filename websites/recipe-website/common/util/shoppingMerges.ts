@@ -587,7 +587,9 @@ export function amountInUnit(
     if (kind === "other") {
       return { ok: false, why: "count", part: formatAmount({ parts: [part] }) };
     }
-    if (part.family !== target.family) unchanged = false;
+    if (part.family !== target.family || part.unit !== target.unit) {
+      unchanged = false;
+    }
     let value = part.qty * unitSize(part.unit) * metricPerBase(part.family);
     if (kind !== want) {
       if (!(gramsPerCup && gramsPerCup > 0)) {
@@ -611,17 +613,34 @@ export function amountInUnit(
       ? roundMetric(metric, "g", "kg")
       : target.family === "metric-volume"
         ? roundMetric(metric, "ml", "l")
-        : formatAmount({
-            parts: [
-              {
-                qty:
-                  metric / metricPerBase(target.family) / unitSize(target.unit),
-                unit: target.unit,
-                family: target.family,
-              },
-            ],
-          });
+        : inUsUnit(
+            metric / metricPerBase(target.family) / unitSize(target.unit),
+            target,
+          );
+  if (target.family.startsWith("metric")) {
+    /* g and kg are one family: the list writes whichever the size asks. */
+    unchanged = parts.every((part) => part.family === target.family);
+  }
   return { ok: true, text, estimated, unchanged };
+}
+
+/**
+ * A US amount in the very unit asked for ("32 oz", "¾ lb", "12 tbsp"), to
+ * the eighth as the list writes fractions; below an eighth of it, the list's
+ * own ladder (`formatAmount`), never "0 lb".
+ */
+function inUsUnit(
+  qty: number,
+  target: { unit: string; family: AmountPart["family"] },
+): string {
+  if (qty < 1 / 16) {
+    return formatAmount({
+      parts: [{ qty, unit: target.unit, family: target.family }],
+    });
+  }
+  const number = formatAmount({ parts: [{ qty, unit: "", family: "count" }] });
+  const plural = target.unit === "cup" && qty > 1 + 1 / 16;
+  return `${number} ${plural ? "cups" : target.unit}`;
 }
 // --- 49c: names that are never one thing to buy (Dc3) ---------------------
 
@@ -679,13 +698,9 @@ export const SHOPPING_KNOWN_DIFFERENT: readonly KnownDifferent[] = [
     kinds: [
       ["salt", "table salt", "iodized salt", "fine salt"],
       ["kosher salt", "coarse kosher salt"],
-      [
-        "sea salt",
-        "fine sea salt",
-        "flaky sea salt",
-        "coarse sea salt",
-        "flaky salt",
-      ],
+      ["sea salt", "fine sea salt", "coarse sea salt"],
+      /* A finishing salt, not one to bake with (the 49c review). */
+      ["flaky sea salt", "flaky salt", "maldon salt"],
       ["*seasoned salt", "garlic salt", "celery salt", "onion salt"],
     ],
   },
@@ -780,6 +795,70 @@ export const SHOPPING_KNOWN_DIFFERENT: readonly KnownDifferent[] = [
       ["onion powder", "onion salt"],
     ],
   },
+  {
+    /* 49a's own exclusions from the all-purpose set. */
+    what: "flour",
+    kinds: [
+      equivalenceOf("all purpose flour")?.members ?? ["all purpose flour"],
+      ["bread flour"],
+      ["cake flour", "pastry flour"],
+      ["wheat flour", "white wheat flour", "whole wheat pastry flour"],
+      ["almond flour", "almond meal"],
+      ["self rising flour"],
+      ["rye flour"],
+    ],
+  },
+  {
+    what: "oats",
+    kinds: [
+      equivalenceOf("rolled oats")?.members ?? ["rolled oats"],
+      ["quick oats", "quick cooking oats", "instant oats"],
+      ["steel cut oats"],
+    ],
+  },
+  {
+    what: "milk",
+    kinds: [
+      ["milk"],
+      ["buttermilk", "low fat buttermilk"],
+      ["coconut milk", "canned coconut milk"],
+      ["almond milk"],
+      ["oat milk"],
+      ["soy milk"],
+      ["evaporated milk", "canned evaporated milk"],
+      ["sweetened condensed milk", "canned sweetened condensed milk"],
+    ],
+  },
+  {
+    what: "cream",
+    kinds: [
+      ["cream", "heavy cream", "whipping cream"],
+      ["sour cream"],
+      ["cream cheese"],
+      ["ice cream"],
+      ["creme fraiche"],
+    ],
+  },
+  {
+    what: "broth",
+    kinds: [
+      ["chicken broth", "chicken stock"],
+      ["beef broth", "beef stock"],
+      ["vegetable broth", "vegetable stock"],
+    ],
+  },
+  {
+    what: "vinegar",
+    kinds: [
+      ["white vinegar", "distilled white vinegar"],
+      ["red wine vinegar"],
+      ["white wine vinegar"],
+      ["apple cider vinegar", "cider vinegar"],
+      ["balsamic vinegar"],
+      ["rice vinegar", "rice wine vinegar", "seasoned rice vinegar"],
+      ["sherry vinegar"],
+    ],
+  },
 ];
 
 function memberMatches(member: string, key: string): boolean {
@@ -808,6 +887,18 @@ export function knownDifferent(
     const left = kindIndex(entry, a);
     const right = kindIndex(entry, b);
     return left >= 0 && right >= 0 && left !== right;
+  });
+}
+
+/**
+ * Whether two name keys are kinds-alike in the list (49c review): one entry
+ * puts both in the same kind — salt and table salt, heavy and whipping
+ * cream.
+ */
+export function knownSameKind(a: string, b: string): boolean {
+  return SHOPPING_KNOWN_DIFFERENT.some((entry) => {
+    const left = kindIndex(entry, a);
+    return left >= 0 && left === kindIndex(entry, b);
   });
 }
 

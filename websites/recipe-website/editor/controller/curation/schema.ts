@@ -880,6 +880,15 @@ export const ShoppingMergeSchema = z
       .max(MERGE_LIMITS.amount)
       .regex(/^[^\n\r\t]*$/, "An amount is one line")
       .optional(),
+    /*
+     * 49c review: the item ids an `amount` was worked out for (a model ask's
+     * converted sum); without it the seat takes the row's ids now.
+     */
+    amountFor: z
+      .array(z.string().trim().min(1).max(64))
+      .min(1)
+      .max(MERGE_LIMITS.ids)
+      .optional(),
     note: z.string().trim().min(1).max(MERGE_LIMITS.note).optional(),
     replaces: z
       .string()
@@ -891,6 +900,10 @@ export const ShoppingMergeSchema = z
   .refine((data) => (data.id === undefined) !== (data.keys === undefined), {
     message: "Name exactly one of `id` or `keys`",
     path: ["id"],
+  })
+  .refine((data) => data.amountFor === undefined || data.amount !== undefined, {
+    message: "`amountFor` goes with an `amount`",
+    path: ["amountFor"],
   })
   .refine(
     (data) =>

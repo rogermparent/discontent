@@ -233,14 +233,22 @@ describe("the revise check (Db1)", () => {
       },
     });
     expect(checked).not.toHaveProperty("ignored");
-    /* "grams" reads as g; pounds through the same density, written as the
-     * list writes weight (under a pound, ounces). */
+    /* The lines the sum was for travel with it (the review's stale Accept). */
+    expect(checked).toMatchObject({
+      decision: {
+        amountFor: items
+          .filter((each) => /flour/.test(each.text))
+          .map((each) => each.id)
+          .sort(),
+      },
+    });
+    /* "grams" reads as g; pounds through the same density, in pounds. */
     expect(
       checkReviseAnswer(merge({ unit: "grams" }), target, ask, "x"),
     ).toMatchObject({ proposal: { amount: "≈ 360 g" } });
     expect(
       checkReviseAnswer(merge({ unit: "lb" }), target, ask, "x"),
-    ).toMatchObject({ proposal: { amount: "≈ 12¾ oz" } });
+    ).toMatchObject({ proposal: { amount: "≈ ¾ lb" } });
   });
 
   it("an amount the model works out anyway is ignored, and said for the job log", () => {
@@ -601,6 +609,28 @@ describe("49c: the stricter find check (Dc3)", () => {
     "1 bell pepper",
     "1 teaspoon fine sea salt",
     "1/2 teaspoon flaky sea salt",
+    "1/4 teaspoon table salt",
+    "1 cup bread flour",
+    "2 cups all-purpose flour",
+    "1 cup cake flour",
+    "1 cup flour",
+    "1 cup whole wheat flour",
+    "1 cup rolled oats",
+    "1 cup quick oats",
+    "1 cup heavy cream",
+    "1 cup sour cream",
+    "1 cup chicken broth",
+    "1 cup beef broth",
+    "1 cup milk",
+    "1 cup coconut milk",
+    "1 teaspoon coarse kosher salt",
+    "8 oz cream cheese",
+    "1 cup shredded cheddar",
+    "1 tbsp red wine vinegar",
+    "1 tbsp white wine vinegar",
+    "2 tomatoes",
+    "2 tbsp tomato paste",
+    "1 tsp apple pie spice",
   ];
   const items = lines.map((text) => item(text));
   const names = proposalRowsFor(
@@ -693,29 +723,73 @@ describe("49c: the stricter find check (Dc3)", () => {
     });
     expect(one(["taco sauce", "lemon zest"], "taco sauce")).toMatchObject({
       dropped: [
-        "group 1 (lemon zest + taco sauce): lemon zest and taco sauce share no word, so they are not one product",
+        "group 1 (lemon zest + taco sauce): neither lemon zest nor taco sauce is the other with words in front, so they are not one product",
       ],
     });
     /* Bell peppers share only "pepper", which names different things. */
     expect(one(["jalapeno pepper", "red bell pepper"], "pepper")).toMatchObject(
       {
         dropped: [
-          "group 1 (jalapeno pepper + red bell pepper): jalapeno pepper and red bell pepper share no word, so they are not one product",
+          "group 1 (jalapeno pepper + red bell pepper): neither jalapeno pepper nor red bell pepper is the other with words in front, so they are not one product",
         ],
       },
     );
     expect(
-      one(["fine sea salt", "flaky sea salt"], "sea salt seasoning"),
+      one(["bell pepper", "red bell pepper"], "pepper seasoning"),
     ).toMatchObject({
       dropped: [
-        "group 1 (fine sea salt + flaky sea salt): “sea salt seasoning” is a category, not the name of one of them",
+        "group 1 (bell pepper + red bell pepper): “pepper seasoning” is a category, not the name of one of them",
       ],
     });
-    expect(one(["fine sea salt", "flaky sea salt"], "sea salt")).toMatchObject({
+    expect(one(["bell pepper", "red bell pepper"], "peppers")).toMatchObject({
       dropped: [
-        "group 1 (fine sea salt + flaky sea salt): “sea salt” is not the name of one of them",
+        "group 1 (bell pepper + red bell pepper): “peppers” is not the name of one of them",
       ],
     });
+  });
+
+  it("the review's look-alikes: other flours and oats, creams, broths, milks, cheeses, vinegars, a tomato and its paste, two blends", () => {
+    for (const [group, name] of [
+      [["bread flour", "all purpose flour"], "all-purpose flour"],
+      [["cake flour", "flour"], "flour"],
+      [["wheat flour", "flour"], "flour"],
+      [["rolled oats", "quick oats"], "rolled oats"],
+      [["heavy cream", "sour cream"], "heavy cream"],
+      [["chicken broth", "beef broth"], "chicken broth"],
+      [["milk", "coconut milk"], "milk"],
+      [["cream cheese", "cheddar cheese"], "cream cheese"],
+      [["red wine vinegar", "white wine vinegar"], "red wine vinegar"],
+      [["tomato", "tomato paste"], "tomato"],
+      [["apple pie spice", "pumpkin pie spice"], "pumpkin pie spice"],
+      [["fine sea salt", "flaky sea salt"], "flaky sea salt"],
+    ] as [string[], string][]) {
+      const checked = one(group, name);
+      expect(checked, group.join(" + ")).toMatchObject({
+        status: "found",
+        proposals: [],
+      });
+      if (checked.status === "found") {
+        expect(checked.dropped, group.join(" + ")).toHaveLength(1);
+      }
+    }
+  });
+
+  it("a number in a found group's name is set aside and said", () => {
+    const checked = one(
+      ["buttermilk", "low fat buttermilk"],
+      "2 cups buttermilk",
+    );
+    expect(checked).toMatchObject({
+      status: "found",
+      dropped: [],
+      ignored: [
+        "group 1: the model put an amount in the name (“2 cups”); the list works amounts out itself",
+      ],
+    });
+    if (checked.status === "found") {
+      expect(checked.proposals[0].proposal.line).toBe("2 cups buttermilk");
+      expect(checked.proposals[0].decision).not.toHaveProperty("name");
+    }
   });
 
   it("keeps the same product under two names: a word in front, a kind of its head", () => {
@@ -723,7 +797,8 @@ describe("49c: the stricter find check (Dc3)", () => {
       [["buttermilk", "low fat buttermilk"], "buttermilk"],
       [["jalapeno", "jalapeno pepper"], "jalapeño"],
       [["bell pepper", "red bell pepper"], "red bell peppers"],
-      [["fine sea salt", "flaky sea salt"], "flaky sea salt"],
+      [["salt", "table salt"], "table salt"],
+      [["kosher salt", "coarse kosher salt"], "kosher salt"],
     ] as [string[], string][]) {
       const checked = one(group, name);
       expect(checked, group.join(" + ")).toMatchObject({
@@ -786,7 +861,19 @@ describe("49c: an amount in the asked-for unit (Dc1)", () => {
       estimated: false,
       unchanged: false,
     });
-    expect(amountInUnit(lb, "oz")).toMatchObject({ ok: true, unchanged: true });
+    /* Another unit of the family is honoured: "use ounces" on pounds. */
+    expect(amountInUnit(lb, "oz")).toEqual({
+      ok: true,
+      text: "32 oz",
+      estimated: false,
+      unchanged: false,
+    });
+    expect(amountInUnit(lb, "lb")).toMatchObject({ ok: true, unchanged: true });
+    const tbsp = {
+      parts: [{ qty: 0.75, unit: "cup", family: "us-volume" as const }],
+    };
+    expect(amountInUnit(tbsp, "tbsp")).toMatchObject({ text: "12 tbsp" });
+    expect(amountInUnit(tbsp, "cup")).toMatchObject({ unchanged: true });
     const cups = {
       parts: [{ qty: 2, unit: "cup", family: "us-volume" as const }],
     };

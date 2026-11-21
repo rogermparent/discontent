@@ -33,6 +33,7 @@ import {
   ASKABLE_UNITS,
   MERGE_LIMITS,
   knownDifferentPair,
+  knownSameKind,
   mergeIdOf,
   normalizeMergeKeys,
   type AskableUnit,
@@ -40,6 +41,7 @@ import {
 } from "recipe-website-common/util/shoppingMerges";
 import {
   mergedAmountInUnit,
+  mergedRowIds,
   proposalForKeys,
   type ShoppingProposalRow,
 } from "recipe-website-common/util/shoppingConsolidate";
@@ -377,6 +379,11 @@ export function checkReviseAnswer(
   if (amount && unit) {
     proposal.estimated = amount.startsWith("≈");
   }
+  /* The lines the sum was worked out for: a list changed before Accept
+   * shows the sum again, and says so (Da4), rather than this amount. */
+  const amountFor = amount
+    ? mergedRowIds(list.items, list.settings, merges, keys)
+    : undefined;
   return withIgnored({
     status: "merge" as const,
     proposal,
@@ -386,6 +393,7 @@ export function checkReviseAnswer(
       status: "merged" as const,
       ...(named ? { name } : {}),
       ...(amount ? { amount } : {}),
+      ...(amount && amountFor ? { amountFor } : {}),
       ...(note ? { note } : {}),
       ...replaces(keys),
     },
@@ -437,26 +445,46 @@ function bareWord(word: string): string {
   return lower;
 }
 
+/** A last word a name may carry or not: "jalapeno" and "jalapeno pepper". */
+const TRAILING_HEADS: ReadonlySet<string> = new Set(["pepper", "cheese"]);
+
+/** `words` ends with `tail`. */
+function endsWith(words: readonly string[], tail: readonly string[]): boolean {
+  return (
+    tail.length > 0 &&
+    tail.length <= words.length &&
+    tail.every(
+      (word, index) => words[words.length - tail.length + index] === word,
+    )
+  );
+}
+
 /**
- * Two names that may be one product (Dc3): they share a word — not only a
- * word that names different things in different names (32j's
- * `CLOSE_HEAD_EXCLUDED`: pepper, salt, bean, seasoning…) — and one's head
- * (its last word) is in the other: "jalapeno" and "jalapeno pepper", "kosher
- * salt" and "coarse kosher salt", not "baking powder" and "baking soda". Or
- * 43n's synonyms read them as one name (then the list has folded them into
- * one row already).
+ * Two names that may be one product (Dc3, tightened by the review): the
+ * shorter is the longer with words added in front — "buttermilk" and "low
+ * fat buttermilk", "kosher salt" and "coarse kosher salt", "bell pepper" and
+ * "red bell pepper" — or so once a trailing "pepper" or "cheese" is set
+ * aside ("jalapeno" and "jalapeno pepper"); never a bare word that names
+ * different things (32j's `CLOSE_HEAD_EXCLUDED`: "salt" and "sea salt",
+ * "bean" and "black bean"). Two names one kind of the known-different list
+ * holds together are alike too ("salt" and "table salt", heavy and whipping
+ * cream). Not "heavy cream" and "sour cream", "chicken broth" and "beef
+ * broth", "baking powder" and "baking soda".
  */
 function shareHead(a: ShoppingProposalRow, b: ShoppingProposalRow): boolean {
-  if (shoppingNameOf(a.name).key === shoppingNameOf(b.name).key) return true;
-  const left = wordsOf(a.key);
-  const right = wordsOf(b.key);
-  const shared = left.filter(
-    (word) => right.includes(word) && !CLOSE_HEAD_EXCLUDED.has(word),
-  );
-  if (shared.length === 0) return false;
+  if (knownSameKind(a.key, b.key)) return true;
+  let short = wordsOf(a.key);
+  let long = wordsOf(b.key);
+  if (short.length > long.length) [short, long] = [long, short];
+  if (short.length === long.length) return false;
+  if (endsWith(long, short)) {
+    return !(short.length === 1 && CLOSE_HEAD_EXCLUDED.has(short[0]));
+  }
+  const last = long[long.length - 1];
   return (
-    right.includes(left[left.length - 1]) ||
-    left.includes(right[right.length - 1])
+    TRAILING_HEADS.has(last) &&
+    short[short.length - 1] !== last &&
+    endsWith(long.slice(0, -1), short)
   );
 }
 
@@ -481,7 +509,7 @@ function notOneProduct(
   for (let i = 0; i < sorted.length; i++) {
     for (let j = i + 1; j < sorted.length; j++) {
       if (!shareHead(sorted[i], sorted[j])) {
-        return `${sorted[i].key} and ${sorted[j].key} share no word, so they are not one product`;
+        return `neither ${sorted[i].key} nor ${sorted[j].key} is the other with words in front, so they are not one product`;
       }
     }
   }
@@ -505,7 +533,13 @@ function notOneProduct(
 export type FindNames = readonly ShoppingProposalRow[];
 
 export type FindCheck =
-  | { status: "found"; proposals: ShoppingModelProposal[]; dropped: string[] }
+  | {
+      status: "found";
+      proposals: ShoppingModelProposal[];
+      dropped: string[];
+      /** What the check set aside (a number in a name): for the job log. */
+      ignored?: string[];
+    }
   | { status: "refused"; problem: string };
 
 /**
@@ -523,6 +557,7 @@ export function checkFindAnswer(
     return { status: "refused", problem: "the answer has no “groups” list" };
   }
   const dropped: string[] = [];
+  const ignored: string[] = [];
   const used = new Set<number>();
   const proposals: ShoppingModelProposal[] = [];
   const taken = new Set<string>();
@@ -552,7 +587,13 @@ export function checkFindAnswer(
       if (used.has(item) || numbers.includes(item)) continue;
       numbers.push(item);
     }
-    const name = oneLine(group.name).slice(0, MERGE_LIMITS.name);
+    const stripped = withoutAmount(oneLine(group.name));
+    if (stripped.amount) {
+      ignored.push(
+        `${label}: the model put an amount in the name (“${stripped.amount}”); the list works amounts out itself`,
+      );
+    }
+    const name = stripped.name.slice(0, MERGE_LIMITS.name);
     if (numbers.length < 2) {
       dropped.push(`${label}: fewer than two names`);
       continue;
@@ -626,5 +667,10 @@ export function checkFindAnswer(
       decision: { keys, status: "merged", ...(named ? { name } : {}) },
     });
   }
-  return { status: "found", proposals, dropped };
+  return {
+    status: "found",
+    proposals,
+    dropped,
+    ...(ignored.length > 0 ? { ignored } : {}),
+  };
 }

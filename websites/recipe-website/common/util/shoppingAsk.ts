@@ -52,6 +52,12 @@ export interface ShoppingAskDecision {
   status: "merged" | "apart";
   name?: string;
   amount?: string;
+  /**
+   * 49c review: the item ids a converted `amount` was worked out for — the
+   * seat holds the amount to these, so a list that changed before Accept
+   * shows its sum and "your amount was for the old list" (Da4).
+   */
+  amountFor?: string[];
   note?: string;
   replaces?: string;
 }

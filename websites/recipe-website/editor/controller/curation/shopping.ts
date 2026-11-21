@@ -1410,7 +1410,11 @@ async function decideLocked(
           "An amount needs two or more of these names on the list (with merge switched on).",
         );
       }
-      decision.amount = { text: input.amount, ids: [...row.ids].sort() };
+      /* 49c review: an ask's sum holds to the lines it was worked out for. */
+      decision.amount = {
+        text: input.amount,
+        ids: [...new Set(input.amountFor ?? row.ids)].sort(),
+      };
     } else if (carried?.amount) {
       decision.amount = carried.amount;
     }
