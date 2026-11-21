@@ -1832,14 +1832,19 @@ export async function setShoppingLeaveOff(
   raw: unknown,
 ): Promise<ShoppingRuleResult> {
   const input = parseInput(ShoppingLeaveOffSchema, raw);
-  const { key, label } = shoppingNameOf(input.name);
+  /* A name is keyed as the list keys rows; a `key` (Restore's) is taken as is. */
+  const named =
+    input.name !== undefined ? shoppingNameOf(input.name) : undefined;
+  const key = named?.key ?? input.key!;
+  const label = named?.label ?? key;
+  const typed = input.name ?? key;
   const id = ruleIdOf("leave-off", key);
   return withWriteLock(ctx.contentDirectory, "shopping: rule", async () => {
     await assertNoMergeInProgress(ctx.contentDirectory);
     const rules = await readShoppingRules(ctx);
     const stored = rules.find((rule) => rule.id === id);
     const builtIn = BUILT_IN_LEAVE_OFF.has(key);
-    const name = key.startsWith("text:") ? input.name.trim() : label;
+    const name = key.startsWith("text:") ? typed.trim() : label;
     const verb = input.leaveOff ? `leave off ${name}` : `buy ${name} again`;
     if (input.leaveOff === builtIn && !(input.leaveOff && input.reason)) {
       /* The built-in set says it already: no rule. */

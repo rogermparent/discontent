@@ -345,6 +345,49 @@ describe("the composition: base → rules → layers (Da4, Da5)", () => {
     expect(labels(view)).toEqual(["3 eggs"]);
   });
 
+  it("water with an alternative stays on the list (review)", () => {
+    const view = compose([item("2 cups water or chicken stock")]);
+    expect(view.leftOff).toEqual([]);
+    expect(labels(view)).toEqual(["2 cups water"]);
+  });
+
+  it("the chain says when an op did nothing (review)", () => {
+    const raw = item("5 lb potatoes");
+    const amount = layer([{ op: "amount", ids: [raw.id], amount: "10 lb" }]);
+    const [plain] = rows(compose([raw], [amount], [], { merge: false }));
+    expect(plain.label).toBe("5 lb potatoes");
+    expect(plain.changes?.[0].skipped).toBe(
+      "this line shows as written (merge is off)",
+    );
+
+    const a = item("2 cups flour");
+    const b = item("1 cup white flour");
+    const first = layer([
+      { op: "amount", ids: [a.id], unit: "g" },
+      { op: "aisle", ids: [b.id], aisle: "produce" },
+    ]);
+    const merge = layer([{ op: "merge", ids: [a.id, b.id] }]);
+    const [merged] = rows(compose([a, b], [first, merge]));
+    expect(merged.label).toBe("3 cups flour");
+    expect(merged.aisle).toBe("pantry");
+    expect(
+      merged.changes
+        ?.filter((step) => step.op !== "merge")
+        .map((step) => step.skipped),
+    ).toEqual([
+      "merged into another row later",
+      "merged into another row later",
+    ]);
+  });
+
+  it("a unit convert into tablespoons is never thirds (review)", () => {
+    const vanilla = item("4 tsp vanilla extract");
+    const asked = layer([{ op: "amount", ids: [vanilla.id], unit: "tbsp" }]);
+    expect(labels(compose([vanilla], [asked]))).toEqual([
+      "1 tbsp + 1 tsp vanilla extract",
+    ]);
+  });
+
   it("left-off rows follow a store's narrowing", () => {
     const water = item("2 cups water");
     const view = buildShoppingView(
@@ -496,6 +539,7 @@ describe("rows for the model (50b)", () => {
     expect(promptRowsOf(view)).toEqual([
       {
         key: "name:all purpose flour",
+        ids: [flour.id],
         label: "2 cups all purpose flour",
         name: "all purpose flour",
         amount: "2 cups",

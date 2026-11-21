@@ -556,7 +556,12 @@ export function useShoppingList({
         setLayers,
       ),
     /** 50a: leave a name off every list, or Restore it, one commit. */
-    leaveOff: (input: { name: string; leaveOff: boolean; reason?: string }) =>
+    leaveOff: (
+      input: ({ name: string } | { key: string }) & {
+        leaveOff: boolean;
+        reason?: string;
+      },
+    ) =>
       run(
         () => (actions.leaveOff ? actions.leaveOff(input) : unavailable()),
         (answer) =>

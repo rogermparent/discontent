@@ -774,6 +774,22 @@ function formatMetric(base: number, large: string, small: string): string {
   return `${Math.ceil(base / 100 - EPSILON) / 10} ${large}`;
 }
 
+/**
+ * 50a: tablespoons as a cook writes them — whole or a half, never "1⅓
+ * tbsp"; the rest in teaspoons to the quarter: 4 tsp is "1 tbsp + 1 tsp".
+ * For one tablespoon or more.
+ */
+export function tablespoons(exact: number): string {
+  const halves = roundTo(exact, 1 / 2);
+  if (Math.abs(halves - exact) * 3 < 1 / 8 + EPSILON) {
+    return `${shown(halves, 1 / 2).text} tbsp`;
+  }
+  const whole = Math.floor(exact + EPSILON);
+  const rest = roundTo((exact - whole) * 3, 1 / 4);
+  if (rest >= 3 - EPSILON) return `${whole + 1} tbsp`;
+  return `${whole} tbsp + ${shown(rest, 1 / 4).text} tsp`;
+}
+
 function formatPart(part: AmountPart): string {
   const ladder = LADDERS[part.family];
   if (part.family === "metric-weight" || part.family === "metric-volume") {
@@ -795,21 +811,7 @@ function formatPart(part: AmountPart): string {
      * otherwise the spoons: 5 tbsp, 6 tbsp, never ⅜ cup.
      */
     const asWritten = unit === "cup" && isCupFraction(exact);
-    if (unit === "tbsp" && value >= 1) {
-      /*
-       * 50a: a tablespoon comes whole or as a half — "1⅓ tbsp" is no
-       * measure. The rest goes in teaspoons, as a cook writes it: 4 tsp is
-       * "1 tbsp + 1 tsp".
-       */
-      const halves = roundTo(exact, 1 / 2);
-      if (Math.abs(halves - exact) * 3 < 1 / 8 + EPSILON) {
-        return `${shown(halves, 1 / 2).text} tbsp`;
-      }
-      const whole = Math.floor(exact + EPSILON);
-      const rest = roundTo((exact - whole) * 3, 1 / 4);
-      if (rest >= 3 - EPSILON) return `${whole + 1} tbsp`;
-      return `${whole} tbsp + ${shown(rest, 1 / 4).text} tsp`;
-    }
+    if (unit === "tbsp" && value >= 1) return tablespoons(exact);
     if (value >= 1 || asWritten || unit === ladder[ladder.length - 1]) {
       return `${text} ${unitLabel(unit, value, part.family)}`;
     }

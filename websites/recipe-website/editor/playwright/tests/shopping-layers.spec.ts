@@ -159,10 +159,17 @@ test.describe("Shopping list: layers", () => {
     await expect
       .poll(async () => (await getContentGitLog())[0], { timeout: 15_000 })
       .toMatch(/^Update shopping list: remove change: /);
-    await expect(changes(page)).toHaveCount(0);
+    /* The panel stays to say so, with focus on its heading. */
+    await expect(changes(page).getByRole("heading")).toHaveText("Changes (0)");
+    await expect(changes(page).getByRole("heading")).toBeFocused();
+    await expect(changes(page).getByRole("status")).toHaveText(
+      /^Removed: Rename lemon juice to Meyer lemon juice/,
+    );
     await expect(
       page.getByLabel("1 cup lemon juice", { exact: true }),
     ).toBeVisible();
+    await ready(page);
+    await expect(changes(page)).toHaveCount(0);
   });
 
   test("water is left off with its reason, and Restore brings it back for every list", async ({
@@ -190,6 +197,10 @@ test.describe("Shopping list: layers", () => {
       "Back on the list: 4½ cups water.",
     );
     await expect(panel.getByTestId("shopping-left-off-row")).toHaveCount(0);
+    /* The last one restored: focus is on the row now back on the list. */
+    await expect(
+      page.getByLabel("4½ cups water", { exact: true }),
+    ).toBeFocused();
     /* A rule: it holds after a reload. */
     await ready(page);
     await expect(

@@ -1073,10 +1073,6 @@ function splitAlternatives(text: string): string[] {
 }
 
 /**
- * Single words that name a whole ingredient, so they never borrow a tail:
- * "honey or maple syrup" is honey, not `honey syrup` (27c).
- */
-/**
  * 50a: a colour on its own names no ingredient — "red or yellow onions" is
  * red onions or onions, where the right part is one word (yellow onion is
  * `onion`, a synonym) and the usual lending (two words or more) never ran.
@@ -1092,6 +1088,10 @@ const NOUNLESS = new Set([
   "purple",
 ]);
 
+/**
+ * Single words that name a whole ingredient, so they never borrow a tail:
+ * "honey or maple syrup" is honey, not `honey syrup` (27c).
+ */
 const STANDALONE = new Set([
   "honey",
   "agave",

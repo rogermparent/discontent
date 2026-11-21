@@ -975,6 +975,19 @@ function applyOp(
         ),
       ];
       const named = shoppingNameOf(label);
+      /*
+       * 50a review: what an earlier layer set on a part — its amount, or
+       * another part's aisle — is the part's, not the merged row's: the
+       * chain says so.
+       */
+      const changesOf = (draft: Draft, isFirst: boolean) =>
+        draft.changes.map((step) =>
+          !step.skipped &&
+          step.source === "layer" &&
+          (step.op === "amount" || (step.op === "aisle" && !isFirst))
+            ? { ...step, skipped: "merged into another row later" }
+            : step,
+        );
       const merged: Draft = {
         key: `layer:${layer.id}:${index}`,
         entries,
@@ -997,7 +1010,7 @@ function applyOp(
         ...(first.aisle ? { aisle: first.aisle } : {}),
         notes: reached.flatMap((draft) => draft.notes),
         changes: [
-          ...reached.flatMap((draft) => draft.changes),
+          ...reached.flatMap((draft, at) => changesOf(draft, at === 0)),
           change(`merged ${reached.map(labelOf).join(" + ")}`),
         ],
       };
@@ -1025,6 +1038,16 @@ function applyOp(
       for (const draft of reached) {
         if (!features.quantities) {
           draft.changes.push(change("amount", "amounts are switched off"));
+          continue;
+        }
+        /* A raw line (merge off) shows as written: no amount of its own. */
+        if (
+          !draft.merge &&
+          !(features.merge && isNamed(draft.entries[0].name.key))
+        ) {
+          draft.changes.push(
+            change("amount", "this line shows as written (merge is off)"),
+          );
           continue;
         }
         if (op.amount) {
@@ -1210,13 +1233,24 @@ export function buildShoppingView(
     key?: string;
   }[] = [];
   if (compose) {
-    /* Rules (Da3): a row every one of whose names is left off goes off. */
+    /*
+     * Rules (Da3): a row every one of whose names is left off goes off —
+     * every alternative too: "2 cups water or chicken stock" stays.
+     */
     const verdicts = leaveOffVerdicts(compose.rules ?? []);
     for (const draft of [...drafts]) {
       const keys = draftKeys(draft);
       if (keys.length === 0 || !keys.every((key) => verdicts.has(key))) {
         continue;
       }
+      const alternatives = draft.entries.every(
+        (entry) =>
+          entry.alternative ||
+          (entry.name.requirement?.alternatives ?? []).every((name) =>
+            verdicts.has(nameKey(name)),
+          ),
+      );
+      if (!alternatives) continue;
       const verdict = verdicts.get(keys[0])!;
       drafts.splice(drafts.indexOf(draft), 1);
       leftOffDrafts.push({

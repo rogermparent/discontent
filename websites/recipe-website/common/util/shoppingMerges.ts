@@ -29,6 +29,7 @@ import {
   addAmounts,
   formatAmount,
   normalizeUnit,
+  tablespoons,
   unitSize,
   type Amount,
   type AmountPart,
@@ -655,6 +656,8 @@ function inUsUnit(
       parts: [{ qty, unit: target.unit, family: target.family }],
     });
   }
+  /* 50a: never thirds of a tablespoon, here either. */
+  if (target.unit === "tbsp" && qty >= 1 - 1 / 16) return tablespoons(qty);
   const number = formatAmount({ parts: [{ qty, unit: "", family: "count" }] });
   const plural = target.unit === "cup" && qty > 1 + 1 / 16;
   return `${number} ${plural ? "cups" : target.unit}`;

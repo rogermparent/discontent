@@ -1540,6 +1540,24 @@ describe("50a: this list's layers and the rules for every list", () => {
     expect(view.rules).toHaveLength(1);
     await setShoppingLeaveOff(ctx, { name: "flour", leaveOff: false });
     expect(await readShoppingRules(ctx)).toEqual([]);
+
+    /* Restore by the key a rule matched: a canned name's label drops "canned". */
+    await addToShopping(ctx, { items: ["2 (15 oz) cans diced tomatoes"] });
+    await setShoppingLeaveOff(ctx, {
+      name: "2 cans diced tomatoes",
+      leaveOff: true,
+    });
+    const canned = (await readShoppingView(ctx)).view.leftOff.find(
+      (off) => off.source === "rule",
+    )!;
+    expect(canned.key).toBe("canned tomato");
+    expect(canned.row.name).toBe("tomatoes");
+    const back = await setShoppingLeaveOff(ctx, {
+      key: canned.key,
+      leaveOff: false,
+    });
+    expect(back.changed).toBe(true);
+    expect(await readShoppingRules(ctx)).toEqual([]);
     expect(SHOPPING_RULES_DIRECTORY).toBe("shopping/rules");
     expect((await git.status()).isClean()).toBe(true);
   });

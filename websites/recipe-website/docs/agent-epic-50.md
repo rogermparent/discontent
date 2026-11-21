@@ -284,6 +284,28 @@ Restore; a drop's Restore turning its change off; As written; axe (WCAG
 Changes panel. `shopping.spec.ts`'s Lemonade case now finds its water in
 "Left off the list".
 
+**Review** (a read-only agent, before the gates; no blockers). Seven
+findings, all taken in the second commit:
+
+1. Restore of a person's leave-off sent the row's label, which the seat
+   keyed again: a canned name's label drops "canned" (`canned tomato` reads
+   "tomatoes"), so nothing matched and the panel still said "Back on the
+   list". Restore now sends the rule's `key` (`ShoppingLeaveOffSchema`
+   takes `name` or `key`), and says so only when something changed.
+2. The chain said an op applied when it did not: an amount on a raw line
+   (merge off), and an amount or another part's aisle on a row a later
+   layer merged. Those steps are now marked `skipped` ("this line shows as
+   written (merge is off)", "merged into another row later").
+3. A unit convert into `tbsp` (a layer's, or a 49c ask's) still wrote
+   "1⅓ tbsp": `amountInUnit` now writes tablespoons through the same rule
+   (`tablespoons`, exported from `ingredientAmount.ts`).
+4. Name keys that moved (purpose tails, `mashed`, the plural-only words)
+   leave stored overrides and 49a merges on the old keys unmatched — Ta3.
+5. "2 cups water or chicken stock" keyed as water and was left off: a row
+   is left off only when every alternative of every line is too.
+6. `promptRowsOf` had no item ids, which layers are tied to: it has `ids`.
+7. A doc comment had slid above the wrong set (`NOUNLESS`).
+
 **Gates.** _(filled in below when run)_
 
 ### Roger to confirm
@@ -291,8 +313,9 @@ Changes panel. `shopping.spec.ts`'s Lemonade case now finds its water in
 1. **Water is left off built in** (water, cold, warm, hot, boiling, tap,
    ice water), with Restore writing a rule for every list (Da3). Say if
    ice (bags of it) or anything else should join.
-2. **A row is left off only when every one of its names is** (a merged row
-   of water and stock stays).
+2. **A row is left off only when every one of its names — and every
+   alternative — is** (a merged row of water and stock stays; so does "2
+   cups water or chicken stock").
 3. **Restore of a row a change dropped turns that whole change off** (Da8):
    a change may carry other ops with the same reason.
 4. **49's Merge, Edit, Keep apart and Split stay rules for every list**
@@ -322,6 +345,12 @@ Changes panel. `shopping.spec.ts`'s Lemonade case now finds its water in
   ticks and a merge's amount ids all build views internally; giving them a
   compose would leave water out of a proposal or move a merged row's ids.
   Pass one only where a person reads the list.
+- **Ta3 — names that key differently now leave old name-keyed data
+  behind.** `powdered sugar for dusting` keys as `powdered sugar`, `mashed
+potato` as `potato`, `sprinkle` as `sprinkles`: an `aisleOverrides` or
+  `storeOverrides` entry, or a 49a merge, stored under the old key stops
+  matching (no migration; the search indexes never store these names, so no
+  reindex). Set the override again if one goes quiet.
 - **Ta2 — the boundary test greps `common/` for the list's directories.**
   `shoppingLayers.ts` and `shoppingChanges.ts` say "this list's layers",
   never the path (as 49b's Tb4).

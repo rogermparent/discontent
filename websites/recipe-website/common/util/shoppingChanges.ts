@@ -100,8 +100,10 @@ export function listLayers(
 
 /** One row as a prompt reads it: compact, and only what a judgement needs. */
 export interface ShoppingPromptRow {
-  /** The row's key: what a suggestion names it by. */
+  /** The row's key. */
   key: string;
+  /** Its item ids: what a layer's ops name (`OR:` lines included). */
+  ids: string[];
   /** As the list writes it: "≈ 2⅜ cups heavy cream". */
   label: string;
   name: string;
@@ -128,6 +130,7 @@ export function promptRowsOf(view: ShoppingView): ShoppingPromptRow[] {
   ];
   return rows.map((row) => ({
     key: row.key,
+    ids: [...row.ids],
     label: row.label,
     name: row.name,
     ...(row.quantity ? { amount: row.quantity } : {}),

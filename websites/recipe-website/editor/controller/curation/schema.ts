@@ -1036,11 +1036,18 @@ export const ShoppingLayerRemoveSchema = z.strictObject({ id: LayerIdSchema });
  * 50a: a leave-off rule for every list, by name — `leaveOff: false` brings
  * a name back (Restore), built-in water included.
  */
-export const ShoppingLeaveOffSchema = z.strictObject({
-  name: oneLine(LAYER_LIMITS.name, "A name"),
-  leaveOff: z.boolean(),
-  reason: oneLine(LAYER_LIMITS.reason, "A reason").optional(),
-});
+export const ShoppingLeaveOffSchema = z
+  .strictObject({
+    name: oneLine(LAYER_LIMITS.name, "A name").optional(),
+    /* The name key itself (a left-off row's `key`): what Restore sends. */
+    key: oneLine(160, "A name key").optional(),
+    leaveOff: z.boolean(),
+    reason: oneLine(LAYER_LIMITS.reason, "A reason").optional(),
+  })
+  .refine((data) => (data.name === undefined) !== (data.key === undefined), {
+    message: "Name exactly one of `name` or `key`",
+    path: ["name"],
+  });
 
 /** `checked` (the default) clears what was bought; `all` empties the list. */
 export const ShoppingClearSchema = z.strictObject({

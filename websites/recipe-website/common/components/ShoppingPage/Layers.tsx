@@ -38,14 +38,26 @@ export function LeftOffPanel({
   const summaryRef = useRef<HTMLElement>(null);
   if (entries.length === 0 && !status) return null;
   const restore = async (entry: ShoppingLeftOff) => {
+    /* A rule's row by the key it matched, never its label (49a, canned). */
     const done =
       entry.source === "layer" && entry.id
         ? await list.setLayer(entry.id, false)
-        : await list.leaveOff({ name: entry.row.name, leaveOff: false });
-    if (!done) return;
+        : await list.leaveOff({
+            ...(entry.key ? { key: entry.key } : { name: entry.row.name }),
+            leaveOff: false,
+          });
+    if (!done?.changed) return;
     setStatus(`Back on the list: ${entry.row.label}.`);
-    /* The button is gone with its row: focus stays in the panel. */
-    requestAnimationFrame(() => summaryRef.current?.focus());
+    /*
+     * The button is gone with its row: focus goes to the panel's summary,
+     * or — the last one restored — to the row now back on the list.
+     */
+    requestAnimationFrame(() => {
+      const row = document.querySelector<HTMLInputElement>(
+        `[data-testid="shopping-row"][data-key="${CSS.escape(entry.row.key)}"] input[type="checkbox"]`,
+      );
+      (summaryRef.current ?? row)?.focus();
+    });
   };
   return (
     <section
@@ -139,6 +151,11 @@ export function ChangesPanel({ list }: { list: ShoppingList }) {
       <p role="status" className="sr-only">
         {status}
       </p>
+      {listings.length === 0 && (
+        <p className="border-t border-border py-2 text-sm">
+          No changes on this list.
+        </p>
+      )}
       <ol className="flex flex-col divide-y divide-border border-t border-border">
         {listings.map(({ layer, text }) => (
           <li
