@@ -1160,6 +1160,28 @@ describe("merge decisions", () => {
     expect((await messages()).length).toBe(count);
   });
 
+  it("49c: an ask's amount holds to the lines it was worked out for; a changed list shows its sum and says so", async () => {
+    const { items } = await flourList();
+    const asked = [items[0].id];
+    const result = await decideShoppingMerge(ctx, {
+      id: FLOUR,
+      status: "merged",
+      amount: "≈ 360 g",
+      amountFor: asked,
+    });
+    expect(result.decision?.amount).toEqual({ text: "≈ 360 g", ids: asked });
+    /* The row covers both lines now, not the one the sum was for. */
+    const view = await readShoppingView(ctx);
+    expect(view.text).toBe("Pantry:\n3 cups all-purpose flour");
+    await expect(
+      decideShoppingMerge(ctx, {
+        id: FLOUR,
+        status: "merged",
+        amountFor: asked,
+      }),
+    ).rejects.toThrow();
+  });
+
   it("keeps apart, then splits — one commit each — and the proposal returns", async () => {
     await flourList();
     const apart = await decideShoppingMerge(ctx, {

@@ -20,15 +20,24 @@
  *
  * Pure, and safe in the browser.
  */
-import { parseAmount, scaleAmount, type Amount } from "./ingredientAmount";
+import {
+  addAmounts,
+  parseAmount,
+  scaleAmount,
+  type Amount,
+} from "./ingredientAmount";
 import {
   activeMerges,
+  amountInUnit,
   consolidateAmounts,
   countsAs,
   equivalenceOf,
   gramsPerCupFor,
+  knownDifferentPair,
   mergeIdOf,
   normalizeMergeKeys,
+  type AskableUnit,
+  type InUnit,
   type ShoppingEquivalence,
   type ShoppingMerge,
 } from "./shoppingMerges";
@@ -190,6 +199,8 @@ export function findShoppingProposals(
       keys.every((key) => decision.keys.includes(key)),
     );
     if (covered) continue;
+    /* 49c (Dc3): the list the model's check reads too — never in the table. */
+    if (knownDifferentPair(keys)) continue;
 
     const rows = keys
       .map((key) => groups.get(key)!)
@@ -278,6 +289,54 @@ export function proposalRowsFor(
 }
 
 /**
+ * The row the list would show with these names merged (and `name`): every
+ * other merge as it is, but one that shares a name.
+ */
+function mergedRowOf(
+  items: readonly ShoppingItem[],
+  settings: ShoppingSettings,
+  merges: readonly ShoppingMerge[],
+  present: readonly string[],
+  name?: string,
+): ShoppingRow | undefined {
+  const id = mergeIdOf(present);
+  const decision: ShoppingMerge = {
+    id,
+    keys: [...present],
+    status: "merged",
+    ...(name ? { name } : {}),
+    decidedAt: "",
+  };
+  const others = merges.filter(
+    (merge) =>
+      merge.id !== id && !merge.keys.some((key) => present.includes(key)),
+  );
+  return rowsOf(
+    buildShoppingView([...items], settings, [], [], [...others, decision]),
+  ).find((each) => each.key === `merge:${id}`);
+}
+
+/**
+ * 49c review: the item ids a merged row of these names covers (`OR:` lines
+ * included, as the seat stamps an edited amount, Ta1) — what a converted
+ * amount was worked out for, so the row says "your amount was for the old
+ * list" when the list changed before Accept.
+ */
+export function mergedRowIds(
+  items: readonly ShoppingItem[],
+  settings: ShoppingSettings,
+  merges: readonly ShoppingMerge[],
+  keys: readonly string[],
+): string[] | undefined {
+  const present = normalizeMergeKeys(
+    proposalRowsFor(items, settings, keys).map((row) => row.key),
+  );
+  if (present.length < 2) return undefined;
+  const row = mergedRowOf(items, settings, merges, present);
+  return row ? [...row.ids].sort() : undefined;
+}
+
+/**
  * 49b: the proposal for exactly these names, in Da3's shape, as the list
  * would show them merged — the model's grouping and name, the list's own
  * sum and line (`buildShoppingView` with that decision), or the model's
@@ -296,21 +355,7 @@ export function proposalForKeys(
   if (rows.length < 2) return undefined;
   const present = normalizeMergeKeys(rows.map((row) => row.key));
   const id = mergeIdOf(present);
-  const decision: ShoppingMerge = {
-    id,
-    keys: present,
-    status: "merged",
-    ...(name ? { name } : {}),
-    decidedAt: "",
-  };
-  /* Every other merge stays as it is, but one that shares a name. */
-  const others = merges.filter(
-    (merge) =>
-      merge.id !== id && !merge.keys.some((key) => present.includes(key)),
-  );
-  const row = rowsOf(
-    buildShoppingView([...items], settings, [], [], [...others, decision]),
-  ).find((each) => each.key === `merge:${id}`);
+  const row = mergedRowOf(items, settings, merges, present, name);
   if (!row) return undefined;
   const own = settings.features.quantities ? amount?.trim() : undefined;
   const estimated = !own && row.merge?.estimated === true;
@@ -350,4 +395,32 @@ function mergedNameOf(
     if (row.sources.length > best.sources.length) best = row;
   }
   return best.name;
+}
+
+/**
+ * 49c (Dc1): what these names come to, as one row, in the unit a note asked
+ * for — the code's arithmetic, never the model's. Every line of the names
+ * counts (scaled, a counted name's container as the view reads it, ticked
+ * ones too, as the merged row's whole amount does); the density is the
+ * curated set's, else `nameKey`'s (the name the row is called), else one
+ * every name shares (`gramsPerCupFor`).
+ */
+export function mergedAmountInUnit(
+  items: readonly ShoppingItem[],
+  keys: readonly string[],
+  unit: AskableUnit,
+  nameKey?: string,
+): InUnit {
+  const groups = nameGroups(items);
+  const sets = new Set(keys.map((key) => equivalenceOf(key)));
+  const set = sets.size === 1 ? [...sets][0] : undefined;
+  const amounts = keys.flatMap((key) => {
+    const group = groups.get(key);
+    return group ? amountOf(group.items, set?.countUnits?.[key]) : [];
+  });
+  return amountInUnit(
+    addAmounts(...amounts),
+    unit,
+    gramsPerCupFor(set?.key ?? nameKey ?? keys[0], keys),
+  );
 }
