@@ -83,7 +83,8 @@ test.describe("Shopping list: same thing, different names", () => {
       /^2 cups all-purpose flour · Buttermilk Pancakes$/,
       /^1 cup white flour · Crêpes$/,
     ]);
-    await expect(card).toContainText("→ 3 cups all-purpose flour");
+    /* "→" is shown; a screen reader hears "As one row:". */
+    await expect(card).toContainText("As one row: 3 cups all-purpose flour");
     await expect(card).toContainText("Both are all-purpose flour");
     await expect(flourRows(page)).toHaveCount(2);
 
