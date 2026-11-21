@@ -11,7 +11,11 @@
  * **Not a content type**, like the inventory (`inventory.ts`): no config, no
  * index, no registry entry, so no rebuild and no export build ever sees it.
  * 49a adds `<content>/shopping/merges/<id>.json`: one file per merge
- * decision ("same thing, different names"), on the same rules.
+ * decision ("same thing, different names"), on the same rules. 50a adds
+ * this list's layers (`layers/<ulid>.json`, one per change) and the rules
+ * for every list (`rules/<id>.json`, leave-off) — every path in
+ * `SHOPPING_LIST_PATHS` / `SHOPPING_RULE_PATHS` below, which 50d moves
+ * under a directory per list.
  * A boundary test pins that nothing under `common/` or `export/` names the
  * item directory. What the list *shows* — merged rows, amounts, aisles,
  * stores, the on-hand fold — is `common/util/shoppingView.ts`, computed on
@@ -70,6 +74,19 @@ import {
   type ShoppingMerge,
 } from "recipe-website-common/util/shoppingMerges";
 import {
+  canonicalShoppingLayer,
+  canonicalShoppingRule,
+  BUILT_IN_LEAVE_OFF,
+  MAX_SHOPPING_LAYERS,
+  isStaleLayer,
+  parseShoppingLayer,
+  parseShoppingRule,
+  ruleIdOf,
+  type ShoppingLayer,
+  type ShoppingRule,
+} from "recipe-website-common/util/shoppingLayers";
+import { listLayers } from "recipe-website-common/util/shoppingChanges";
+import {
   buildShoppingView,
   formatShoppingText,
   itemsForSubRecipe,
@@ -89,6 +106,10 @@ import { readInventory } from "./inventory";
 import {
   ShoppingAddSchema,
   ShoppingClearSchema,
+  ShoppingLayerAddSchema,
+  ShoppingLayerRemoveSchema,
+  ShoppingLayerSetSchema,
+  ShoppingLeaveOffSchema,
   ShoppingMergeSchema,
   ShoppingPatchSchema,
   ShoppingSettingsPatchSchema,
@@ -114,6 +135,29 @@ export const SHOPPING_MERGES_DIRECTORY = path.join(
 );
 /** Decisions the list may hold: far more than a person ever makes. */
 export const MAX_SHOPPING_MERGES = 1000;
+/** 50a: this list's layers, one file per change, `<ulid>.json`. */
+export const SHOPPING_LAYERS_DIRECTORY = path.join(
+  SHOPPING_DIRECTORY,
+  "layers",
+);
+/** 50a: the rules for every list (leave-off), one file per rule, `<id>.json`. */
+export const SHOPPING_RULES_DIRECTORY = path.join(SHOPPING_DIRECTORY, "rules");
+/**
+ * 50a (Da6): every path that belongs to **this** list — its items and its
+ * layers — in one place, so 50d's saved lists move them under a directory
+ * per list together. The rules, merges and settings are every list's.
+ */
+export const SHOPPING_LIST_PATHS = {
+  items: SHOPPING_ITEMS_DIRECTORY,
+  layers: SHOPPING_LAYERS_DIRECTORY,
+} as const;
+export const SHOPPING_RULE_PATHS = {
+  merges: SHOPPING_MERGES_DIRECTORY,
+  rules: SHOPPING_RULES_DIRECTORY,
+  settings: SHOPPING_SETTINGS_FILE,
+} as const;
+/** 50a: leave-off rules the list may hold. */
+export const MAX_SHOPPING_RULES = 1000;
 
 /**
  * Caps (35c review). A plan walk counts repeats (D6), so a plan listing a
@@ -150,6 +194,10 @@ export interface ShoppingResult {
   settings: ShoppingSettings;
   /** 49a: the merge decisions, by id. */
   merges: ShoppingMerge[];
+  /** 50a: this list's layers, in the order they apply (by id). */
+  layers: ShoppingLayer[];
+  /** 50a: the leave-off rules, by id. */
+  rules: ShoppingRule[];
   /** Absolute path of the `shopping/` directory (which may not exist yet). */
   path: string;
 }
@@ -160,6 +208,29 @@ export interface ShoppingViewResult extends ShoppingResult {
   text: string;
   /** 49a: the open "same thing, different names" proposals (whole list). */
   proposals: ShoppingProposal[];
+  /**
+   * 50a: the view is the base — no merges, rules or layers — as the page's
+   * "As written" shows it (`shopping list --as-written`).
+   */
+  asWritten?: boolean;
+}
+
+/** 50a: a layer written, switched or removed. */
+export interface ShoppingLayerResult {
+  layers: ShoppingLayer[];
+  changed: boolean;
+  /** The layer written (absent for a removal). */
+  layer?: ShoppingLayer;
+  /** Ids of layers this call deleted. */
+  removed: string[];
+}
+
+/** 50a: a leave-off rule written or deleted. */
+export interface ShoppingRuleResult {
+  rules: ShoppingRule[];
+  changed: boolean;
+  /** The rule as stored now (absent when the built-in set says it). */
+  rule?: ShoppingRule;
 }
 
 /** 49a: a merge decision written or deleted. */
@@ -196,12 +267,16 @@ export interface ShoppingPatchResult {
   unknown?: string[];
   /** Names that match no item on the list. */
   unmatched?: string[];
+  /** 50a: layers deleted with their last items (Da4). */
+  removedLayers?: string[];
 }
 
 export interface ShoppingClearResult {
   items: ShoppingItem[];
   changed: boolean;
   removed: string[];
+  /** 50a: layers deleted with their last items (Da4). */
+  removedLayers?: string[];
 }
 
 export interface ShoppingSettingsResult {
@@ -220,6 +295,14 @@ function itemFile(id: string): string {
 
 function mergeFile(id: string): string {
   return path.join(SHOPPING_MERGES_DIRECTORY, `${id}.json`);
+}
+
+function layerFile(id: string): string {
+  return path.join(SHOPPING_LIST_PATHS.layers, `${id}.json`);
+}
+
+function ruleFile(id: string): string {
+  return path.join(SHOPPING_RULE_PATHS.rules, `${id}.json`);
 }
 
 function absolute(ctx: CurationContext, relative: string): string {
@@ -299,6 +382,68 @@ export async function readShoppingMerges(
   return merges.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
+/**
+ * 50a: every file of one directory a parse reads, by its stem — a file that
+ * does not parse is skipped, as an item's is.
+ */
+async function readRecords<T>(
+  ctx: CurationContext,
+  directory: string,
+  stem: RegExp,
+  parse: (raw: unknown, id: string) => T | null,
+): Promise<T[]> {
+  let names: string[];
+  try {
+    names = await readdir(absolute(ctx, directory));
+  } catch (error) {
+    if (isMissing(error)) return [];
+    throw error;
+  }
+  const out: { id: string; record: T }[] = [];
+  for (const name of names) {
+    const match = stem.exec(name);
+    if (!match) continue;
+    try {
+      const raw = JSON.parse(
+        await readFile(absolute(ctx, path.join(directory, name)), "utf8"),
+      ) as unknown;
+      const record = parse(raw, match[1]);
+      if (record) out.push({ id: match[1], record });
+    } catch (error) {
+      if (isMissing(error)) continue;
+      if (error instanceof SyntaxError) continue;
+      throw error;
+    }
+  }
+  return out
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((entry) => entry.record);
+}
+
+/** 50a: this list's layers, in the order they apply (by id). */
+export function readShoppingLayers(
+  ctx: CurationContext,
+): Promise<ShoppingLayer[]> {
+  return readRecords(
+    ctx,
+    SHOPPING_LIST_PATHS.layers,
+    /^([0-9a-hjkmnp-tv-z]{26})\.json$/,
+    parseShoppingLayer,
+  );
+}
+
+/** 50a: the leave-off rules, by id. */
+export function readShoppingRules(
+  ctx: CurationContext,
+): Promise<ShoppingRule[]> {
+  return readRecords(
+    ctx,
+    SHOPPING_RULE_PATHS.rules,
+    /^([0-9a-f]{16})\.json$/,
+    parseShoppingRule,
+  );
+}
+
 /** The settings over the defaults; the defaults when there is no file. */
 export async function readShoppingSettings(
   ctx: CurationContext,
@@ -320,12 +465,14 @@ export async function readShoppingSettings(
 export async function readShopping(
   ctx: CurationContext,
 ): Promise<ShoppingResult> {
-  const [items, settings, merges] = await Promise.all([
+  const [items, settings, merges, layers, rules] = await Promise.all([
     readShoppingItems(ctx),
     readShoppingSettings(ctx),
     readShoppingMerges(ctx),
+    readShoppingLayers(ctx),
+    readShoppingRules(ctx),
   ]);
-  return { items, settings, merges, path: shoppingPath(ctx) };
+  return { items, settings, merges, layers, rules, path: shoppingPath(ctx) };
 }
 
 /**
@@ -356,16 +503,21 @@ export async function readShoppingPlanNames(
  * copy text. `store` narrows to one store's list — with stores switched on
  * for this answer, so "what's left at Market Basket" works whatever the
  * page's switch says.
+ *
+ * 50a: the view is composed — the merges, the leave-off rules and this
+ * list's layers over the base rows. `asWritten` answers the base instead.
  */
 export async function readShoppingView(
   ctx: CurationContext,
-  { store }: { store?: string } = {},
+  { store, asWritten = false }: { store?: string; asWritten?: boolean } = {},
 ): Promise<ShoppingViewResult> {
   const [shopping, inventory] = await Promise.all([
     readShopping(ctx),
     readInventory(ctx),
   ]);
-  const { items, settings, merges } = shopping;
+  const { items, settings, layers, rules } = shopping;
+  const merges = asWritten ? [] : shopping.merges;
+  const compose = asWritten ? undefined : { layers, rules };
   let view: ShoppingView;
   if (store !== undefined) {
     if (!settings.stores.some((known) => known.id === store)) {
@@ -380,6 +532,7 @@ export async function readShoppingView(
         inventory.items,
         DEFAULT_STAPLES,
         merges,
+        compose,
       ),
       store,
     );
@@ -390,13 +543,15 @@ export async function readShoppingView(
       inventory.items,
       DEFAULT_STAPLES,
       merges,
+      compose,
     );
   }
   return {
     ...shopping,
     view,
     text: formatShoppingText(view),
-    proposals: findShoppingProposals(items, settings, merges),
+    proposals: findShoppingProposals(items, settings, shopping.merges),
+    ...(asWritten ? { asWritten: true } : {}),
   };
 }
 
@@ -442,7 +597,11 @@ async function restore(
  */
 async function applyItems(
   ctx: CurationContext,
-  { write = [], remove = [] }: { write?: ShoppingItem[]; remove?: string[] },
+  {
+    write = [],
+    remove = [],
+    removeLayers = [],
+  }: { write?: ShoppingItem[]; remove?: string[]; removeLayers?: string[] },
   message: string,
 ): Promise<boolean> {
   return applyFiles(
@@ -453,9 +612,31 @@ async function applyItems(
         bytes: serializeItem(item),
       })),
       ...remove.map((id) => ({ relative: itemFile(id), bytes: null })),
+      /* 50a: a layer goes with its last items, in the same commit (Da4). */
+      ...removeLayers.map((id) => ({ relative: layerFile(id), bytes: null })),
     ],
     message,
   );
+}
+
+/**
+ * 50a (Da4): the layers none of whose items would be left once `removed`
+ * goes — "Done shopping" and Clear take this list's changes with its lines.
+ */
+async function layersGoingWith(
+  ctx: CurationContext,
+  items: readonly ShoppingItem[],
+  removed: ReadonlySet<string>,
+): Promise<string[]> {
+  if (removed.size === 0) return [];
+  const layers = await readShoppingLayers(ctx);
+  if (layers.length === 0) return [];
+  const left = new Set(
+    items.filter((item) => !removed.has(item.id)).map((item) => item.id),
+  );
+  return layers
+    .filter((layer) => isStaleLayer(layer, left))
+    .map((layer) => layer.id);
 }
 
 /**
@@ -952,9 +1133,10 @@ async function patchLocked(
       !removed.has(item.id) && serializeItem(item) !== stored.get(item.id),
   );
   const touched = new Set([...write.map((item) => item.id), ...removed]);
+  const removeLayers = await layersGoingWith(ctx, items, removed);
   const changed = await applyItems(
     ctx,
-    { write, remove: [...removed] },
+    { write, remove: [...removed], removeLayers },
     `Update shopping list: ${describe(
       parts
         .filter((part) => part.id === undefined || touched.has(part.id))
@@ -968,6 +1150,9 @@ async function patchLocked(
     removed: [...removed],
     ...(unknown.length > 0 ? { unknown } : {}),
     ...(unmatched.length > 0 ? { unmatched } : {}),
+    ...(changed && removeLayers.length > 0
+      ? { removedLayers: removeLayers }
+      : {}),
   };
 }
 
@@ -1041,15 +1226,19 @@ export async function clearShopping(
       scope === "all"
         ? `Clear shopping list: all ${count(gone.length)}`
         : `Clear shopping list: ${gone.length} checked`;
+    const removeLayers = await layersGoingWith(ctx, items, goneIds);
     const changed = await applyItems(
       ctx,
-      { remove: gone.map((item) => item.id) },
+      { remove: gone.map((item) => item.id), removeLayers },
       message,
     );
     return {
       items: changed ? await readShoppingItems(ctx) : items,
       changed,
       removed: gone.map((item) => item.id),
+      ...(changed && removeLayers.length > 0
+        ? { removedLayers: removeLayers }
+        : {}),
     };
   });
 }
@@ -1484,5 +1673,215 @@ export async function splitShoppingMerge(
       changed,
       removed: changed ? [id] : [],
     };
+  });
+}
+
+// --- this list's layers, and the rules for every list (50a) -------------------
+
+function serializeLayer(layer: ShoppingLayer): string {
+  return `${JSON.stringify(canonicalShoppingLayer(layer), null, 2)}\n`;
+}
+
+function serializeRule(rule: ShoppingRule): string {
+  return `${JSON.stringify(canonicalShoppingRule(rule), null, 2)}\n`;
+}
+
+/** A layer in a commit subject: its ops in words, shortened. */
+function layerText(
+  layer: ShoppingLayer,
+  items: readonly ShoppingItem[],
+): string {
+  return describe([listLayers([layer], items)[0].text]);
+}
+
+/**
+ * 50a (Da2): put a change on this list — one layer of ops tied to item ids,
+ * on from now (unless `on: false`) — one commit. Every id must be on the
+ * list now: a change is about the list as it is.
+ */
+export async function addShoppingLayer(
+  ctx: CurationContext,
+  raw: unknown,
+): Promise<ShoppingLayerResult> {
+  const input = parseInput(ShoppingLayerAddSchema, raw);
+  return withWriteLock(ctx.contentDirectory, "shopping: change", async () => {
+    await assertNoMergeInProgress(ctx.contentDirectory);
+    const [items, layers] = await Promise.all([
+      readShoppingItems(ctx),
+      readShoppingLayers(ctx),
+    ]);
+    const present = new Set(items.map((item) => item.id));
+    const unknown = [...new Set(input.ops.flatMap((op) => op.ids))].filter(
+      (id) => !present.has(id),
+    );
+    if (unknown.length > 0) {
+      throw new ValidationError(
+        `Not on the shopping list: ${unknown.slice(0, 5).join(", ")}${unknown.length > 5 ? ` (+${unknown.length - 5} more)` : ""}. A change names items on the list now (\`shopping list --json\` lists their ids).`,
+      );
+    }
+    if (layers.length >= MAX_SHOPPING_LAYERS) {
+      throw new ValidationError(
+        `The list holds at most ${MAX_SHOPPING_LAYERS} changes: remove some first.`,
+      );
+    }
+    const id = newId();
+    const layer = parseShoppingLayer(
+      {
+        id,
+        ops: input.ops,
+        reason: input.reason,
+        note: input.note,
+        by: input.by ?? { kind: "you" },
+        at: new Date().toISOString(),
+        on: input.on ?? true,
+        from: input.from,
+      },
+      id,
+    );
+    /* The stored form must read back as it was given (a merge of one id). */
+    if (!layer || layer.ops.length !== input.ops.length) {
+      throw new ValidationError(
+        "A merge names two or more different items; every op names at least one.",
+      );
+    }
+    await applyFiles(
+      ctx,
+      [{ relative: layerFile(id), bytes: serializeLayer(layer) }],
+      `Update shopping list: change: ${layerText(layer, items)}`,
+    );
+    return {
+      layers: await readShoppingLayers(ctx),
+      changed: true,
+      layer,
+      removed: [],
+    };
+  });
+}
+
+/** 50a: turn a change off (undo: the file stays) or on again — one commit. */
+export async function setShoppingLayer(
+  ctx: CurationContext,
+  raw: unknown,
+): Promise<ShoppingLayerResult> {
+  const { id, on } = parseInput(ShoppingLayerSetSchema, raw);
+  return withWriteLock(ctx.contentDirectory, "shopping: change", async () => {
+    await assertNoMergeInProgress(ctx.contentDirectory);
+    const [items, layers] = await Promise.all([
+      readShoppingItems(ctx),
+      readShoppingLayers(ctx),
+    ]);
+    const stored = layers.find((layer) => layer.id === id);
+    if (!stored) {
+      throw new NotFoundError(
+        `No change "${id}" on the shopping list. \`shopping changes\` lists them.`,
+      );
+    }
+    if (stored.on === on) {
+      return { layers, changed: false, layer: stored, removed: [] };
+    }
+    const layer = canonicalShoppingLayer({ ...stored, on });
+    await applyFiles(
+      ctx,
+      [{ relative: layerFile(id), bytes: serializeLayer(layer) }],
+      `Update shopping list: change ${on ? "on" : "off"}: ${layerText(layer, items)}`,
+    );
+    return {
+      layers: await readShoppingLayers(ctx),
+      changed: true,
+      layer,
+      removed: [],
+    };
+  });
+}
+
+/** 50a: remove a change (its file) — one commit; none when it is not stored. */
+export async function removeShoppingLayer(
+  ctx: CurationContext,
+  raw: unknown,
+): Promise<ShoppingLayerResult> {
+  const { id } = parseInput(ShoppingLayerRemoveSchema, raw);
+  return withWriteLock(ctx.contentDirectory, "shopping: change", async () => {
+    await assertNoMergeInProgress(ctx.contentDirectory);
+    const [items, layers] = await Promise.all([
+      readShoppingItems(ctx),
+      readShoppingLayers(ctx),
+    ]);
+    const stored = layers.find((layer) => layer.id === id);
+    if (!stored) return { layers, changed: false, removed: [] };
+    await applyFiles(
+      ctx,
+      [{ relative: layerFile(id), bytes: null }],
+      `Update shopping list: remove change: ${layerText(stored, items)}`,
+    );
+    return {
+      layers: await readShoppingLayers(ctx),
+      changed: true,
+      removed: [id],
+    };
+  });
+}
+
+/**
+ * 50a (Da3): leave a name off every list, or bring one back (Restore) — one
+ * commit, none when nothing changes. A built-in name (water) brought back is
+ * a rule saying so; a rule that would only repeat the built-in set (or a
+ * person's own leave-off restored) is deleted instead.
+ */
+export async function setShoppingLeaveOff(
+  ctx: CurationContext,
+  raw: unknown,
+): Promise<ShoppingRuleResult> {
+  const input = parseInput(ShoppingLeaveOffSchema, raw);
+  /* A name is keyed as the list keys rows; a `key` (Restore's) is taken as is. */
+  const named =
+    input.name !== undefined ? shoppingNameOf(input.name) : undefined;
+  const key = named?.key ?? input.key!;
+  const label = named?.label ?? key;
+  const typed = input.name ?? key;
+  const id = ruleIdOf("leave-off", key);
+  return withWriteLock(ctx.contentDirectory, "shopping: rule", async () => {
+    await assertNoMergeInProgress(ctx.contentDirectory);
+    const rules = await readShoppingRules(ctx);
+    const stored = rules.find((rule) => rule.id === id);
+    const builtIn = BUILT_IN_LEAVE_OFF.has(key);
+    const name = key.startsWith("text:") ? typed.trim() : label;
+    const verb = input.leaveOff ? `leave off ${name}` : `buy ${name} again`;
+    if (input.leaveOff === builtIn && !(input.leaveOff && input.reason)) {
+      /* The built-in set says it already: no rule. */
+      if (!stored) return { rules, changed: false };
+      await applyFiles(
+        ctx,
+        [{ relative: ruleFile(id), bytes: null }],
+        `Update shopping list: ${verb}`,
+      );
+      return { rules: await readShoppingRules(ctx), changed: true };
+    }
+    const rule = canonicalShoppingRule({
+      id,
+      kind: "leave-off",
+      key,
+      name,
+      leaveOff: input.leaveOff,
+      ...(input.reason ? { reason: input.reason } : {}),
+      decidedAt: new Date().toISOString(),
+    });
+    if (
+      stored &&
+      serializeRule({ ...stored, decidedAt: "" }) ===
+        serializeRule({ ...rule, decidedAt: "" })
+    ) {
+      return { rules, changed: false, rule: stored };
+    }
+    if (!stored && rules.length >= MAX_SHOPPING_RULES) {
+      throw new ValidationError(
+        `The list holds at most ${MAX_SHOPPING_RULES} rules.`,
+      );
+    }
+    await applyFiles(
+      ctx,
+      [{ relative: ruleFile(id), bytes: serializeRule(rule) }],
+      `Update shopping list: ${verb}`,
+    );
+    return { rules: await readShoppingRules(ctx), changed: true, rule };
   });
 }

@@ -373,6 +373,10 @@ export const DEFAULT_AISLE_WORDS: Readonly<Record<string, Aisle>> =
               "candy",
               "candy melt",
               "sprinkle",
+              /* 50a: kept plural by the name reader now. */
+              "sprinkles",
+              "nonpareils",
+              "jimmies",
               "food coloring",
               "marshmallow",
               "shortening",

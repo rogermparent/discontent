@@ -19,6 +19,12 @@
  *                                       49b: ask the model about a proposal or merge
  *   shopping find-merges [--claude] [--wait]
  *                                       49b: the model looks for more merges
+ *   shopping list --as-written          50a: the base rows, without merges, rules or changes
+ *   shopping changes                    50a: this list's changes (layers), in order
+ *   shopping change add --file <json>   50a: add one: {ops, reason?, note?, by?}
+ *   shopping change on|off|rm <id>      50a: turn one on or off (undo), or remove it
+ *   shopping leave-off <name…> [--reason …]   50a: never put a name on a list
+ *   shopping restore <name…>            50a: bring a left-off name back (water too)
  *
  * Lines and names are positionals, one per argument — quote the ones with
  * spaces (`shopping add "2 lemons" "paper towels"`), as `inventory add` does.
@@ -35,10 +41,14 @@ import {
   SHOPPING_FEATURES,
   type ShoppingFeature,
 } from "recipe-website-common/util/shoppingTypes";
+import { readJsonInput } from "../input";
 import type {
   ShoppingAddResult,
   ShoppingAskAnswer,
   ShoppingClearResult,
+  ShoppingLayerListing,
+  ShoppingLayerResult,
+  ShoppingRuleResult,
   ShoppingMergeResult,
   ShoppingPatchResult,
   ShoppingSettingsResult,
@@ -90,13 +100,37 @@ function formatPatch(result: ShoppingPatchResult): string {
   return lines.join("\n");
 }
 
+/** 50a: what was left off, under the list's text. */
+function leftOffLines(result: ShoppingViewResult): string[] {
+  const off = result.view.leftOff ?? [];
+  if (off.length === 0) return [];
+  return [
+    "",
+    "Left off the list:",
+    ...off.map((entry) => {
+      const who =
+        entry.source === "layer"
+          ? entry.by?.kind === "model"
+            ? ` (${entry.by.model ?? "the model"})`
+            : " (you)"
+          : entry.source === "built-in"
+            ? ""
+            : " (your rule)";
+      return `  ${entry.row.label} — ${entry.reason}${who}`;
+    }),
+  ];
+}
+
 const listCommand: CommandDef<ShoppingViewResult> = {
   name: "shopping list",
-  usage: "recipes shopping [list] [--store <id>]",
-  options: { store: { type: "string" } },
+  usage: "recipes shopping [list] [--store <id>] [--as-written]",
+  options: { store: { type: "string" }, "as-written": { type: "boolean" } },
   run: ({ backend, options }) =>
-    backend.getShopping({ store: stringOption(options, "store") }),
-  format: (result) => result.text,
+    backend.getShopping({
+      store: stringOption(options, "store"),
+      ...(booleanOption(options, "as-written") ? { asWritten: true } : {}),
+    }),
+  format: (result) => [result.text, ...leftOffLines(result)].join("\n"),
 };
 
 const addCommand: CommandDef<ShoppingAddResult> = {
@@ -586,6 +620,113 @@ const findMergesCommand: CommandDef<ShoppingAskAnswer> = {
   format: formatAsk,
 };
 
+// --- this list's changes, and leave-off (50a) -----------------------------------
+
+function formatListing(listing: ShoppingLayerListing): string {
+  const { layer } = listing;
+  const who =
+    layer.by.kind === "model" ? (layer.by.model ?? "the model") : "you";
+  const state = listing.stale ? "stale" : layer.on ? "on" : "off";
+  return `${layer.id}  [${state}]  ${listing.text}  — ${who}`;
+}
+
+const changesCommand: CommandDef<{ layers: ShoppingLayerListing[] }> = {
+  name: "shopping changes",
+  usage:
+    "recipes shopping changes   this list's changes in the order they apply (stale: none of its lines is left)",
+  options: {},
+  run({ backend, positionals }) {
+    if (positionals.length > 0) {
+      throw new UsageError("shopping changes takes no arguments.");
+    }
+    return backend.listShoppingLayers();
+  },
+  format: ({ layers }) =>
+    layers.length === 0
+      ? "No changes on this list."
+      : layers.map(formatListing).join("\n"),
+};
+
+function formatLayerResult(result: ShoppingLayerResult): string {
+  if (!result.changed) return "No change.";
+  if (result.layer) {
+    const state = result.layer.on ? "on" : "off";
+    return `Change ${result.layer.id} is ${state}.`;
+  }
+  return `Removed ${result.removed.join(", ")}.`;
+}
+
+const changeCommand: CommandDef<ShoppingLayerResult> = {
+  name: "shopping change",
+  usage:
+    "recipes shopping change add (--file change.json | --stdin) | on <id> | off <id> | rm <id>\n" +
+    '  change.json: {"ops": [{"op": "drop", "ids": ["<item id>"], "reason": "the recipe makes it"}], "reason": "…"}\n' +
+    "  ops: merge {ids, name?, amount?} · rename {ids, name} · drop {ids, reason} ·\n" +
+    "       amount {ids, amount | unit} · note {ids, text} · aisle {ids, aisle}",
+  options: { file: { type: "string" }, stdin: { type: "boolean" } },
+  async run({ backend, positionals, options }) {
+    const [verb, ...rest] = positionals.map((value) => value.trim());
+    if (verb === "add") {
+      if (rest.length > 0) {
+        throw new UsageError("shopping change add reads --file or --stdin.");
+      }
+      const raw = await readJsonInput({
+        file: stringOption(options, "file"),
+        stdin: booleanOption(options, "stdin"),
+      });
+      return backend.addShoppingLayer(raw);
+    }
+    if (verb === "on" || verb === "off" || verb === "rm") {
+      if (rest.length !== 1) {
+        throw new UsageError(
+          `shopping change ${verb} needs one id (from \`shopping changes\`).`,
+        );
+      }
+      const id = rest[0].toLowerCase();
+      return verb === "rm"
+        ? backend.removeShoppingLayer({ id })
+        : backend.setShoppingLayer({ id, on: verb === "on" });
+    }
+    throw new UsageError(
+      "shopping change takes add --file <json>, or on|off|rm <id>.",
+    );
+  },
+  format: formatLayerResult,
+};
+
+function leaveOffCommand(leaveOff: boolean): CommandDef<ShoppingRuleResult[]> {
+  const verb = leaveOff ? "leave-off" : "restore";
+  return {
+    name: `shopping ${verb}`,
+    usage: leaveOff
+      ? 'recipes shopping leave-off <name…> [--reason "from the tap"]   never put these on a list'
+      : "recipes shopping restore <name…>   put a left-off name back (water too)",
+    options: leaveOff ? { reason: { type: "string" } } : {},
+    async run({ backend, positionals, options }) {
+      const names = positionals.map((name) => name.trim()).filter(Boolean);
+      if (names.length === 0) {
+        throw new UsageError(`shopping ${verb} needs a name.`);
+      }
+      const reason = leaveOff ? stringOption(options, "reason") : undefined;
+      const out: ShoppingRuleResult[] = [];
+      for (const name of names) {
+        out.push(
+          await backend.setShoppingLeaveOff({
+            name,
+            leaveOff,
+            ...(reason ? { reason } : {}),
+          }),
+        );
+      }
+      return out;
+    },
+    format: (results) =>
+      results.some((result) => result.changed)
+        ? `${leaveOff ? "Left off" : "Restored"}: ${results.filter((result) => result.changed).length} of ${plural(results.length, "name")}.`
+        : "No change.",
+  };
+}
+
 export const shoppingCommands: Record<string, CommandDef<unknown>> = {
   list: listCommand,
   add: addCommand,
@@ -600,6 +741,10 @@ export const shoppingCommands: Record<string, CommandDef<unknown>> = {
   split: splitCommand,
   ask: askCommand,
   "find-merges": findMergesCommand,
+  changes: changesCommand,
+  change: changeCommand,
+  "leave-off": leaveOffCommand(true),
+  restore: leaveOffCommand(false),
 };
 
 export default shoppingCommands;

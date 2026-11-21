@@ -5,11 +5,14 @@
  * list lives only in the content repository, the static export never reads
  * it, and an anonymous GET here would be the one route that published it.
  *
- * - `GET` → `{items, settings, merges, view, text, proposals, path}`;
- *   `?format=text` answers the copy text alone as `text/plain`;
- *   `?store=<id>` narrows to one store. 49a's `merges` are the stored
- *   decisions, `proposals` the open "same thing, different names" ones
- *   (answered at `/api/shopping/merges`).
+ * - `GET` → `{items, settings, merges, layers, rules, view, text,
+ *   proposals, path}`; `?format=text` answers the copy text alone as
+ *   `text/plain`; `?store=<id>` narrows to one store. 49a's `merges` are
+ *   the stored decisions, `proposals` the open "same thing, different
+ *   names" ones (answered at `/api/shopping/merges`). 50a: the view is
+ *   composed — merges, leave-off rules and this list's `layers` (changed at
+ *   `/api/shopping/layers`) — with `view.leftOff`; `?as-written=1` answers
+ *   the base rows instead.
  * - `POST` adds `{recipe, scale?} | {group, scale?} | {items}`.
  * - `PATCH` ticks, flags, moves or removes items (`patchShopping`'s body).
  * - `DELETE ?scope=checked|all` clears (checked by default).
@@ -35,7 +38,10 @@ export async function GET(request: Request) {
     const ctx = await requireCurationContext(request, { need: "read" });
     const url = new URL(request.url);
     const store = url.searchParams.get("store") || undefined;
-    const result = await readShoppingView(ctx, { store });
+    const asWritten = ["1", "true"].includes(
+      url.searchParams.get("as-written") ?? "",
+    );
+    const result = await readShoppingView(ctx, { store, asWritten });
     if (url.searchParams.get("format") === "text") {
       return new Response(`${result.text}\n`, {
         headers: { "content-type": "text/plain; charset=utf-8" },

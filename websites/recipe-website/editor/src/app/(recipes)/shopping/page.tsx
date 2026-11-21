@@ -5,9 +5,13 @@ import {
   PageSection,
 } from "recipe-website-common/components/PageLayout";
 import {
+  addShoppingListLayer,
   addToShoppingList,
   decideShoppingListMerge,
   loadShoppingList,
+  removeShoppingListLayer,
+  setShoppingListLayer,
+  setShoppingListLeaveOff,
   splitShoppingListMerge,
   updateShoppingList,
   updateShoppingListSettings,
@@ -39,10 +43,8 @@ export default async function ShoppingListPage() {
     return redirectToLogin("/shopping");
   }
   const ctx = { contentDirectory: getContentDirectory() };
-  const [{ items, settings, merges }, inventory] = await Promise.all([
-    readShopping(ctx),
-    readInventory(ctx),
-  ]);
+  const [{ items, settings, merges, layers, rules }, inventory] =
+    await Promise.all([readShopping(ctx), readInventory(ctx)]);
   const plans = await readShoppingPlanNames(ctx, items);
   const models = editModels();
   return (
@@ -55,6 +57,8 @@ export default async function ShoppingListPage() {
             inventory: inventory.items,
             plans,
             merges,
+            layers,
+            rules,
           }}
           actions={{
             load: loadShoppingList,
@@ -63,6 +67,10 @@ export default async function ShoppingListPage() {
             saveSettings: updateShoppingListSettings,
             decideMerge: decideShoppingListMerge,
             splitMerge: splitShoppingListMerge,
+            addLayer: addShoppingListLayer,
+            setLayer: setShoppingListLayer,
+            removeLayer: removeShoppingListLayer,
+            leaveOff: setShoppingListLeaveOff,
           }}
           patchUrl="/api/shopping"
           models={{

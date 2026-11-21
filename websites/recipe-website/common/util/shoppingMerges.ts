@@ -29,6 +29,7 @@ import {
   addAmounts,
   formatAmount,
   normalizeUnit,
+  tablespoons,
   unitSize,
   type Amount,
   type AmountPart,
@@ -378,6 +379,23 @@ export const GRAMS_PER_CUP: Readonly<Record<string, number>> = {
   rice: 185,
   "rolled oats": 90,
   "semisweet chocolate chip": 170,
+  /*
+   * 50a: dairy and water, so "1¾ cups + 135 g heavy cream" adds up. King
+   * Arthur's chart gives a cup of each as 227 g (8 oz); water is its
+   * physical 237 g.
+   */
+  "heavy cream": 227,
+  "whipping cream": 227,
+  "light cream": 227,
+  "half and half": 227,
+  milk: 227,
+  "whole milk": 227,
+  buttermilk: 227,
+  "sour cream": 227,
+  "cream cheese": 227,
+  yogurt: 227,
+  "greek yogurt": 227,
+  water: 237,
 };
 
 /**
@@ -638,6 +656,8 @@ function inUsUnit(
       parts: [{ qty, unit: target.unit, family: target.family }],
     });
   }
+  /* 50a: never thirds of a tablespoon, here either. */
+  if (target.unit === "tbsp" && qty >= 1 - 1 / 16) return tablespoons(qty);
   const number = formatAmount({ parts: [{ qty, unit: "", family: "count" }] });
   const plural = target.unit === "cup" && qty > 1 + 1 / 16;
   return `${number} ${plural ? "cups" : target.unit}`;

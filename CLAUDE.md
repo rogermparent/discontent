@@ -264,6 +264,12 @@ survives a cleared context.
   2026-11-18; 30 "Roger to confirm" items and Roger's steps (sign in once per
   device, the optional `RECIPE_LLM_CLAUDE_API_KEY`, maybe pin Roast Turkey,
   try a token) are in the Close-out.
+- `websites/recipe-website/docs/agent-epic-50.md` — epic 50, the shopping
+  list as layers: base → rules (49a's merges, leave-off with water built
+  in) → this list's layers (merge, rename, drop, amount, note, aisle by
+  item id, on/off), the Changes and Left off panels and As written (50a);
+  then "Tidy with the model" (50b), the walkthrough (50c), saved lists
+  (50d).
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed

@@ -167,6 +167,11 @@ const DESCRIPTIVE = new Set([
   "seeded",
   "cored",
   "crumbled",
+  /*
+   * 50a: a preparation, not what is bought — "1 cup mashed russet or Yukon
+   * Gold potatoes" buys potatoes, as "1 mashed banana" buys a banana.
+   */
+  "mashed",
   "good",
   "quality",
   "best",
@@ -228,6 +233,11 @@ const COMPOUNDS = new Set([
   "garlic salt",
   "onion salt",
   "seasoned salt",
+  /*
+   * 50a: a potato's variety in two words, so "russet or Yukon Gold
+   * potatoes" lends the left `potato`, not `gold potato`.
+   */
+  "yukon gold",
 ]);
 
 /**
@@ -499,7 +509,19 @@ const INVARIABLE = new Set([
   "oats",
   "greens",
   "series",
+  /* 50a: one jar of sprinkles, never "sprinkle for decorating". */
+  "sprinkles",
+  "nonpareils",
+  "jimmies",
 ]);
+
+/**
+ * 50a: a word `singular` keeps as it is — "sprinkles", "oats", "grits" are
+ * already what a list writes, so the list never makes them plural again.
+ */
+export function keepsItsForm(word: string): boolean {
+  return INVARIABLE.has(word);
+}
 const IRREGULAR: Record<string, string> = {
   leaves: "leaf",
   halves: "half",
@@ -762,7 +784,7 @@ const BONE_AND_SKIN_RE =
  * `DESCRIPTIVE` drops the word).
  */
 const TRAILING_PREP_RE =
-  /(?<=[\p{L})])\s+(?:cut into|cut in|for serving|to serve|(?:or |adjust )?to taste|(?:plus|\+)\s*(?:more|extra)|divided|(?:at )?room temperature|softened|melted|(?:peeled|trimmed|grated|chopped|diced|sliced|minced|squeezed) and|(?:beaten|whisked|mixed) with|or (?:more|less)|(?:or |if |as )needed)\b.*$/iu;
+  /(?<=[\p{L})])\s+(?:cut into|cut in|for serving|for (?:decorat|garnish|dust|sprinkl|fry|frying|greas|brush|dipp|drizzl)\w*|to serve|(?:or |adjust )?to taste|(?:plus|\+)\s*(?:more|extra)|divided|(?:at )?room temperature|softened|melted|(?:peeled|trimmed|grated|chopped|diced|sliced|minced|squeezed) and|(?:beaten|whisked|mixed) with|or (?:more|less)|(?:or |if |as )needed)\b.*$/iu;
 
 /** `ghee or margarine or more butter`: the last choice is butter. */
 const OR_MORE_NAME_RE = /\bor more\s+(?=\p{L})(?!as\b|if\b|to\b|for\b)/giu;
@@ -1051,6 +1073,22 @@ function splitAlternatives(text: string): string[] {
 }
 
 /**
+ * 50a: a colour on its own names no ingredient — "red or yellow onions" is
+ * red onions or onions, where the right part is one word (yellow onion is
+ * `onion`, a synonym) and the usual lending (two words or more) never ran.
+ */
+const NOUNLESS = new Set([
+  "red",
+  "yellow",
+  "white",
+  "green",
+  "black",
+  "brown",
+  "golden",
+  "purple",
+]);
+
+/**
  * Single words that name a whole ingredient, so they never borrow a tail:
  * "honey or maple syrup" is honey, not `honey syrup` (27c).
  */
@@ -1093,6 +1131,17 @@ function inheritTails(names: IngredientName[]): IngredientName[] {
     const theirs =
       mine === out[i].words ? out[i + 1].words : own(out[i + 1].words);
     const [left] = mine;
+    /* 50a: a colour alone borrows a one-word noun whole ("red onion"). */
+    if (
+      mine.length === 1 &&
+      theirs.length === 1 &&
+      NOUNLESS.has(left) &&
+      !NOUNLESS.has(theirs[0])
+    ) {
+      out[i].words.push(theirs[0]);
+      lent.push(i);
+      continue;
+    }
     if (
       mine.length !== 1 ||
       theirs.length < 2 ||

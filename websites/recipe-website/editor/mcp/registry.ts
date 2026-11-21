@@ -39,6 +39,7 @@
  * ingredient lists nobody asked for. Rows are `{slug, name, date, tags,
  * totalTime, image?}` and `fields` opts back into the rest one name at a time.
  */
+import { listLayers } from "recipe-website-common/util/shoppingChanges";
 import {
   McpServer,
   type CallToolResult,
@@ -1471,15 +1472,26 @@ export function recipeToolDefinitions(
         "`line` what they would be as one row, `≈` when a volume and a weight were added by density; " +
         "`merges` are the person's stored decisions {id, keys, status: merged|apart, name?, amount?}, " +
         "and a merged row carries `merge` {id, keys, from}. Merging is the person's call, on the " +
-        "/shopping page or the CLI (`shopping merge <id>`); this tool only reads.",
+        "/shopping page or the CLI (`shopping merge <id>`); this tool only reads. The list is " +
+        "composed: `view.leftOff` [{row, reason, source: built-in|rule|layer}] is what is left " +
+        "off (water, `tap water`, built in), and `layers` [{layer, ops, text, stale}] are this " +
+        "list's own changes in order — a changed row carries `changes` (what changed it, who, why) " +
+        "and `asWritten`. Changes are the person's too, on /shopping or the CLI (`shopping changes`).",
       inputSchema: z.strictObject({ store: z.string().min(1).optional() }),
       annotations: READ_ONLY,
     },
     async ({ store }) =>
       read(async () => {
-        const { view, text, settings, proposals, merges } =
+        const { view, text, settings, proposals, merges, layers, items } =
           await backend.getShopping({ store });
-        return { text, view, settings, proposals, merges };
+        return {
+          text,
+          view,
+          settings,
+          proposals,
+          merges,
+          layers: listLayers(layers ?? [], items),
+        };
       }),
   );
 

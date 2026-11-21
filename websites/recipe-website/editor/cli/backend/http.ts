@@ -84,8 +84,11 @@ import type {
   ShoppingAddResult,
   ShoppingAskResult,
   ShoppingClearResult,
+  ShoppingLayerListing,
+  ShoppingLayerResult,
   ShoppingMergeResult,
   ShoppingPatchResult,
+  ShoppingRuleResult,
   ShoppingSettingsResult,
   ShoppingViewResult,
   ShowResult,
@@ -652,9 +655,9 @@ export function createHttpBackend({
       return { ...result, link: absoluteLink(result.link, root) };
     },
 
-    getShopping(options = {}) {
+    getShopping({ store, asWritten } = {}) {
       return call<ShoppingViewResult>("GET", "/api/shopping", {
-        query: options,
+        query: { store, ...(asWritten ? { "as-written": "1" } : {}) },
       });
     },
     addToShopping(raw) {
@@ -688,6 +691,33 @@ export function createHttpBackend({
       const id = (raw as { id?: string } | undefined)?.id ?? "";
       return call<ShoppingMergeResult>("DELETE", "/api/shopping/merges", {
         query: { id },
+      });
+    },
+    listShoppingLayers() {
+      return call<{ layers: ShoppingLayerListing[] }>(
+        "GET",
+        "/api/shopping/layers",
+      );
+    },
+    addShoppingLayer(raw) {
+      return call<ShoppingLayerResult>("POST", "/api/shopping/layers", {
+        body: raw,
+      });
+    },
+    setShoppingLayer(raw) {
+      return call<ShoppingLayerResult>("PATCH", "/api/shopping/layers", {
+        body: raw,
+      });
+    },
+    removeShoppingLayer(raw) {
+      const id = (raw as { id?: string } | undefined)?.id ?? "";
+      return call<ShoppingLayerResult>("DELETE", "/api/shopping/layers", {
+        query: { id },
+      });
+    },
+    setShoppingLeaveOff(raw) {
+      return call<ShoppingRuleResult>("POST", "/api/shopping/rules", {
+        body: raw,
       });
     },
     /*

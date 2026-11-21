@@ -140,13 +140,18 @@ function proposalRowOf(
   settings: ShoppingSettings,
   countUnit?: string,
 ): ShoppingProposalRow {
-  const { amount } = consolidateAmounts(
+  /* 50a: one name in cups and grams adds up by its density, as its row does. */
+  const { amount, estimated } = consolidateAmounts(
     settings.features.quantities ? amountOf(group.items, countUnit) : [],
+    gramsPerCupFor(group.key),
   );
   return {
     key: group.key,
     name: group.label,
-    amountText: amount.parts.length > 0 ? quantityFor(amount) : "as needed",
+    amountText:
+      amount.parts.length > 0
+        ? `${estimated ? "≈ " : ""}${quantityFor(amount)}`
+        : "as needed",
     sources: group.items.map(sourceOf),
   };
 }
