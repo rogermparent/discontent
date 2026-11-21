@@ -805,6 +805,23 @@ A second run of the first rule gave the same three groups in 13.9 s
   low-fat buttermilk and shows salt + sea salt under "Left out by the check
   (1)" as known different.
 
+**Gates** (2026-11-21, through the heavy slot — the editor typecheck
+waited 51 min behind another session's render; Docker, production build
+unless said):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: clean.
+- `pnpm exec vitest run`: 196 files, 4,312 tests — 4,311 passed, 1 timed
+  out (`editFormRoundTrip.test.tsx`'s typed-label case at 5 s, load ~10,
+  the same case 49a and 49b met); that file alone: 17/17.
+- Playwright `shopping-ask.spec`, `shopping-merge.spec`, `shopping.spec`
+  (e2e + mobile): 21 passed, 1 flaky — `shopping-ask`'s "Discard…" found
+  Ask disabled after its note was filled (Tc4), passed on retry; with the
+  fill retried until Ask is enabled, `shopping-ask.spec` again: 5/5, and in
+  dev mode (`next dev`, Docker): 5/5. `edit-with-ai.spec` not run:
+  `askEdit.ts` is unchanged.
+- **Baselines:** none moved, none new (the suite pins the model off).
+
 **Review** (a read-only agent, before the gates; no blockers). Seven
 findings, all taken in the second commit:
 
@@ -844,6 +861,13 @@ findings, all taken in the second commit:
   are now known different: the spec's pair is buttermilk and low-fat
   buttermilk, and the salts show the check's left-out line.
 
+- **Tc4 — a filled note can come back empty.** Once in the Docker run, the
+  flour proposal's "Note for the model" was filled and Ask stayed disabled
+  (its `!note.trim()`), so the field's state was reset between the fill and
+  the click — most likely a list read landing just after the page loaded.
+  The spec now fills until Ask is enabled (`fillNote`). If a person sees a
+  typed note vanish, this is it (Roger to confirm 7).
+
 ### Roger to confirm
 
 1. **The model names a unit, the list converts** (Dc1): a converted amount
@@ -867,3 +891,5 @@ findings, all taken in the second commit:
    an ask keeps thinking (both right, ~7 s slower).
 6. **A note asking for an impossible unit** says so in one sentence, with
    no "Try with Claude".
+7. **A typed note that vanished** (Tc4): seen once by the spec, never by a
+   person yet; say if it happens and it gets its own fix.

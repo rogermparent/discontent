@@ -1,7 +1,7 @@
 import { createServer, type Server } from "http";
 import type { AddressInfo } from "net";
 import AxeBuilder from "@axe-core/playwright";
-import type { APIRequestContext, Page } from "@playwright/test";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { test, expect } from "../support/test";
 import { fillSignInForm } from "../support/helpers";
 import { expectHydrated } from "../support/hydration";
@@ -114,13 +114,28 @@ async function openList(page: Page) {
   });
 }
 
+/**
+ * The note typed until Ask takes it (49c's Docker run): a list read that
+ * lands just after the fill can reset the field's state, leaving Ask
+ * disabled, so the fill is retried until the button is enabled.
+ */
+async function fillNote(card: Locator, note: string) {
+  const ask = card.getByRole("button", {
+    name: "Ask the model about all-purpose flour",
+  });
+  await expect(async () => {
+    await card.getByLabel("Note for the model", { exact: true }).fill(note);
+    await expect(ask).toBeEnabled({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
+}
+
 /** The flour proposal's Edit, a note, and Ask: the marked answer. */
 async function askAboutFlour(page: Page, note: string) {
   const card = tableProposal(page);
   const edit = card.getByRole("button", { name: /^Edit/ });
   await expectHydrated(edit);
   await edit.click();
-  await card.getByLabel("Note for the model", { exact: true }).fill(note);
+  await fillNote(card, note);
   await card
     .getByRole("button", { name: "Ask the model about all-purpose flour" })
     .click();
@@ -214,9 +229,7 @@ test.describe("Shopping list: ask the model (49b)", () => {
     await expect(flourRows(page)).toHaveCount(2);
 
     const card = tableProposal(page);
-    await card
-      .getByLabel("Note for the model", { exact: true })
-      .fill("invent a line");
+    await fillNote(card, "invent a line");
     await card
       .getByRole("button", { name: "Ask the model about all-purpose flour" })
       .click();
