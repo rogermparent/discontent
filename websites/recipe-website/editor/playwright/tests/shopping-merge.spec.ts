@@ -135,7 +135,7 @@ test.describe("Shopping list: same thing, different names", () => {
     );
     /* Focus goes to the first of the rows it became, not to the page. */
     await expect(
-      page.getByLabel("2 cups all-purpose flour", { exact: true }),
+      page.getByLabel("2 cups all purpose flour", { exact: true }),
     ).toBeFocused();
     await expect(proposal(page)).toHaveCount(1);
   });
