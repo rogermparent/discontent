@@ -54,6 +54,10 @@ import type {
 import type { JobContext } from "../../controller/jobs/context";
 import type { EditResult } from "../../controller/llm/askEdit";
 import type {
+  ShoppingAskResult,
+  ShoppingAskStart,
+} from "recipe-website-common/util/shoppingAsk";
+import type {
   AgentRunInput,
   AgentRunOutcome,
   AgentRunView,
@@ -116,6 +120,8 @@ import type {
 export type {
   DiffResult,
   EditResult,
+  ShoppingAskResult,
+  ShoppingAskStart,
   FillOptions,
   FillResult,
   HolidayGetResult,
@@ -183,6 +189,15 @@ export type {
   TermRenameResult,
   TermWriteResult,
 };
+
+/**
+ * 49b: what `shopping ask` and `shopping find-merges` answer — the job's
+ * result once it ended, or (`--remote` without `--wait`) the job's id
+ * while it runs on in the editor.
+ */
+export type ShoppingAskAnswer =
+  | (ShoppingAskResult & { job: string })
+  | { job: string; stored?: boolean; status: "running" };
 
 export interface DeleteResult {
   slug: string;
@@ -508,6 +523,17 @@ export interface CuratorBackend {
   decideShoppingMerge(raw: unknown): Promise<ShoppingMergeResult>;
   /** 49a: Split — `{id}`: delete that decision. */
   splitShoppingMerge(raw: unknown): Promise<ShoppingMergeResult>;
+  /**
+   * 49b: ask the model about one proposal or merged row with a note, or
+   * look for more merges — a `shopping-merge` job, written nowhere. Locally
+   * it runs in this process to its end; remotely `wait` follows it there,
+   * and without it the answer is the job's id.
+   */
+  askShopping(
+    input: ShoppingAskStart,
+    options?: { wait?: boolean },
+    run?: SeatRun,
+  ): Promise<ShoppingAskAnswer>;
 
   /* --- git (23d/D23) ----------------------------------------------------- */
 

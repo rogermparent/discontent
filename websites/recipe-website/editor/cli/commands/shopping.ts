@@ -15,6 +15,10 @@
  *   shopping merge <id> [--name …] [--amount …] [--note …]
  *   shopping keep-apart <id> [--note …]
  *   shopping split <id>                 delete a decision (merged rows show apart again)
+ *   shopping ask <id> --note "…" [--claude] [--wait]
+ *                                       49b: ask the model about a proposal or merge
+ *   shopping find-merges [--claude] [--wait]
+ *                                       49b: the model looks for more merges
  *
  * Lines and names are positionals, one per argument — quote the ones with
  * spaces (`shopping add "2 lemons" "paper towels"`), as `inventory add` does.
@@ -33,6 +37,7 @@ import {
 } from "recipe-website-common/util/shoppingTypes";
 import type {
   ShoppingAddResult,
+  ShoppingAskAnswer,
   ShoppingClearResult,
   ShoppingMergeResult,
   ShoppingPatchResult,
@@ -455,6 +460,124 @@ const splitCommand: CommandDef<ShoppingMergeResult> = {
   format: formatMerge,
 };
 
+// --- asks of the model (49b) ----------------------------------------------------
+
+/** The model's words, and what Accept would send, as `shopping merge` takes them. */
+function formatAsk(answer: ShoppingAskAnswer): string {
+  if (!("task" in answer)) {
+    return `Asking — job ${answer.job}. \`recipes jobs show ${answer.job}\` follows it (or run again with --wait).`;
+  }
+  const who = answer.model ?? "the model";
+  const lines: string[] = [];
+  if (answer.status === "refused") {
+    lines.push(`${who}'s answer was not used: ${answer.problem}`);
+  } else if (answer.status === "failed") {
+    lines.push(`nothing was suggested: ${answer.problem}`);
+  } else if (answer.task === "revise") {
+    lines.push(`${answer.target.line}  (${answer.target.id})`);
+    for (const row of answer.target.rows) {
+      for (const source of row.sources) {
+        lines.push(`    ${lineWithRecipe(source)}`);
+      }
+    }
+    lines.push(`note: ${answer.note}`);
+    if (answer.status === "merge") {
+      lines.push(
+        `suggested by ${who}: ${answer.target.line} → ${answer.proposal.line}${answer.proposal.reason ? ` (${answer.proposal.reason})` : ""}`,
+      );
+    } else {
+      lines.push(
+        `suggested by ${who}: keep apart${answer.reason ? ` (${answer.reason})` : ""}`,
+      );
+    }
+    lines.push(
+      "Nothing is written. To accept it, POST this to /api/shopping/merges (or press Accept on /shopping):",
+      JSON.stringify(answer.decision),
+    );
+  } else {
+    if (answer.proposals.length === 0) {
+      lines.push(
+        `${who} found nothing more to merge in ${answer.names} names.`,
+      );
+    }
+    for (const found of answer.proposals) {
+      lines.push(
+        `suggested by ${who}: → ${found.proposal.line}${found.proposal.reason ? `  (${found.proposal.reason})` : ""}`,
+      );
+      for (const row of found.proposal.rows) {
+        for (const source of row.sources) {
+          lines.push(`    ${lineWithRecipe(source)}`);
+        }
+      }
+      lines.push(`    merge: ${JSON.stringify(found.decision)}`);
+    }
+    for (const why of answer.dropped) lines.push(`left out: ${why}`);
+    if (answer.proposals.length > 0) {
+      lines.push(
+        "Nothing is written. Merge one on /shopping, or POST its merge line to /api/shopping/merges.",
+      );
+    }
+  }
+  if (answer.costEstimateUsd !== undefined) {
+    lines.push(`cost: about $${answer.costEstimateUsd.toFixed(4)}`);
+  }
+  lines.push(`job: ${answer.job}`);
+  return lines.join("\n");
+}
+
+const askCommand: CommandDef<ShoppingAskAnswer> = {
+  name: "shopping ask",
+  usage:
+    'recipes shopping ask <id> --note "use grams" [--claude] [--wait]   ask the model about a proposal or merge; writes nothing',
+  options: {
+    note: { type: "string" },
+    claude: { type: "boolean" },
+    wait: { type: "boolean" },
+  },
+  run({ backend, positionals, options }) {
+    const id = mergeId(positionals, "ask");
+    const note = stringOption(options, "note")?.trim();
+    if (!note) {
+      throw new UsageError(
+        'shopping ask needs a note: --note "these are different, one is salted".',
+      );
+    }
+    return backend.askShopping(
+      {
+        task: "revise",
+        id,
+        note,
+        ...(booleanOption(options, "claude") ? { claude: true } : {}),
+      },
+      { wait: booleanOption(options, "wait") },
+    );
+  },
+  format: formatAsk,
+};
+
+const findMergesCommand: CommandDef<ShoppingAskAnswer> = {
+  name: "shopping find-merges",
+  usage:
+    "recipes shopping find-merges [--claude] [--wait]   the model looks for more lines to merge; writes nothing",
+  options: {
+    claude: { type: "boolean" },
+    wait: { type: "boolean" },
+  },
+  run({ backend, positionals, options }) {
+    if (positionals.length > 0) {
+      throw new UsageError("shopping find-merges takes no arguments.");
+    }
+    return backend.askShopping(
+      {
+        task: "find",
+        ...(booleanOption(options, "claude") ? { claude: true } : {}),
+      },
+      { wait: booleanOption(options, "wait") },
+    );
+  },
+  format: formatAsk,
+};
+
 export const shoppingCommands: Record<string, CommandDef<unknown>> = {
   list: listCommand,
   add: addCommand,
@@ -467,6 +590,8 @@ export const shoppingCommands: Record<string, CommandDef<unknown>> = {
   merge: mergeCommand,
   "keep-apart": keepApartCommand,
   split: splitCommand,
+  ask: askCommand,
+  "find-merges": findMergesCommand,
 };
 
 export default shoppingCommands;

@@ -203,6 +203,11 @@ export function stepTitle(node: Pick<StepNode, "step" | "data">): string {
     /* 47i: "Edit with AI" — the model answers the person's request. */
     case "llm.edit":
       return "Model answers the request";
+    /* 49b: the shopping list's note, or "Look for more with the model". */
+    case "llm.shopping":
+      return data.task === "find"
+        ? "Model looks for more merges"
+        : "Model answers the note";
     case "llm.reload":
       return "Reload the model";
     case "llm.unload":

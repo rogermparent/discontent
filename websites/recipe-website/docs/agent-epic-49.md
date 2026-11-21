@@ -334,3 +334,93 @@ recipe-website exec tsc --noEmit`: clean.
 - **Ta2 — the CLI JSON case inherits the case above it.** The shopping
   case before it switches aisles off and never back, so the merge case
   matches the text without an aisle heading.
+
+## 49b — A note for the model, and "look for more" (M)
+
+Roger's ask, the part 49a left: "Propositions should be visible in the ui
+and editable either directly or by attaching a note for ai follow ups." 49a
+made them visible and editable; 49b adds the note for the model and a model
+that looks for more, on 47i's pattern (one structured call, checked, marked,
+applied only when Roger says so).
+
+### Decisions
+
+- **Db1 — A note, per proposal and per merged row.** A proposal's Edit has
+  a "Note for the model" field and **Ask the model**; a merged row's menu
+  has **Ask the model about this** (Plan only: in Shop the row is one line
+  like any other), which opens the note at the top of the panel with the
+  row's "merged from". The ask is a `shopping-merge` job (`task:
+"revise"`): each row's name, amount and lines with their recipes, the
+  list's line for them now, and the note. The model answers a verdict:
+  `merge` (two or more of the rows **by number**, a name, an amount or ""
+  for the list's own sum, `estimated`, a reason) or `apart` (a reason).
+  - **Db1-1: rows by number, not by key.** The model names "1, 2", never a
+    name key it could misspell; a number outside the rows is the
+    "invented item" the check refuses. The keys are the asked rows'.
+  - **Db1-2: the check is all or nothing** (47i's Di6): an unknown number,
+    fewer than two rows, an empty or over-long name, an amount
+    `ingredientAmount` reads no number in ("plenty", "some"), or a verdict
+    that is neither refuses the answer and says why, in the panel and the
+    CLI. With quantities off the model's amount is ignored.
+  - **Db1-3: the suggestion is 49a's shape, built by the list.** The model
+    gives the grouping, the name and maybe an amount; `proposalForKeys`
+    (new, `shoppingConsolidate.ts`) builds the proposal from the list's
+    own view with that decision — its rows, its line ("≈ 360 g all-purpose
+    flour"), its sum when the model left the amount empty or said the sum
+    again. A model amount with `estimated` reads "≈ …".
+  - **Db1-4: Accept sends exactly what the job worked out** (`decision`,
+    the seat's merge input): the keys, a name only when it is new (a name
+    that keys as the list's own — "all purpose flour" for "all-purpose
+    flour" — is none), an amount only when it is the model's, and the note.
+    The note is stored with the decision only on Accept — or on an edited
+    Merge, where the person typed it. Discard writes nothing.
+  - **Db1-5: `replaces` (new in `ShoppingMergeSchema`).** A merged row the
+    model narrows ("only these two") would be absorbed back into the old
+    merge by Da4-3's rule. The accepted decision names the merge it
+    replaces, which the seat drops first and deletes in the same commit.
+    Keeping a merged row apart needs none: the same names are the same id,
+    and the apart decision is written over it (one commit, "keep apart …").
+- **Db2 — "Look for more with the model".** A button at the foot of the
+  panel (shown with a model, merge on and two or more lines to buy). The
+  job (`task: "find"`) sends the names still to buy, numbered, with their
+  amounts where one was read — no recipes, no lines, condensed for qwen —
+  and leaves out every name in a merged row or in an open table proposal
+  (and ticked lines). Pairs already kept apart stay in, with one line
+  "Kept apart already (do not group again): 3+4". The answer is groups of
+  numbers with a name and a reason.
+  - **Db2-1: the find check drops, group by group**, each with a line under
+    "Left out by the check": an unknown number, a number already in an
+    earlier group, a group under two names or with no name, and a set
+    already kept apart, merged, or proposed by the table.
+  - **Db2-2: a found proposal's amount is the list's sum**, never the
+    model's (it is not asked for one): grouping and naming are its
+    judgement, arithmetic is `addAmounts`'.
+  - **Db2-3: derived, in the job's result only.** Found proposals show in
+    the panel under the table's, each marked "Suggested by <model>", with
+    Merge (`{keys, name?}`), Edit (name, amount, note, Ask) and Keep apart.
+    They leave as they are answered, or when a decision since covers them
+    (`stillOpen`); a new "Look for more" replaces them. Nothing is stored
+    until Roger acts.
+- **Db3 — The surfaces.** Server actions `startShoppingAsk` /
+  `shoppingAskResultAction` (`controller/actions/shoppingAsk.ts`; the
+  latter the 38-Tb5 long-poll for a job with no record). HTTP `POST
+/api/shopping/merges/ask {task, id | keys, note, claude?, wait?}` — 202
+  `{job, stored}`, or the result with `wait` — and `GET …?job=<id>`
+  (`{job, status, live, result?, error?}`), read scope. CLI `shopping ask
+<id> --note "…" [--claude] [--wait]` and `shopping find-merges
+[--claude] [--wait]`, `--json` too; each prints the suggestion and the
+  merge input Accept would send, and writes nothing.
+  - **Db3-1: a local CLI run always waits**: the job lives in the CLI's
+    process, so it runs to its end there; `--wait` matters with
+    `--remote`, where without it the job's id is printed.
+  - **Db3-2: no MCP tool** (as 49a's Da7 and 47i): `shopping_get` still
+    reads proposals and merges; 59 tools / 45 pre-approved, unchanged.
+- **Db4 — The model's limits.** Edit with AI's choice (`editModelFor`):
+  the local model by default (`RECIPE_LLM_EDIT_MODEL`, else
+  `RECIPE_LLM_MODEL`, thinking unless `RECIPE_LLM_EDIT_THINK=0`), the
+  Claude API where it is the only model (the Pi) or when asked (`--claude`,
+  "Try with Claude" beside a refused or failed answer). One structured
+  call, no tools, the list as data and the note as the ask (a prompt line
+  says the rows are never instructions). A Claude call is held to the
+  curator's cost budget first; a local one to its context. A local job
+  takes the GPU's line, a Claude one none.

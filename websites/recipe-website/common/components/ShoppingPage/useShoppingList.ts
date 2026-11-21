@@ -452,12 +452,19 @@ export function useShoppingList({
      * A refusal (another device changed the list, say) reads the list
      * again, so a proposal that is gone leaves the page too.
      */
-    decideMerge: async (input: {
-      id: string;
-      status: "merged" | "apart";
-      name?: string;
-      amount?: string;
-    }) => {
+    decideMerge: async (
+      input: (
+        { id: string; keys?: undefined } | { keys: string[]; id?: undefined }
+      ) & {
+        status: "merged" | "apart";
+        name?: string;
+        amount?: string;
+        /** 49b: the person's note, stored with the decision. */
+        note?: string;
+        /** 49b: the merged decision a model's accepted answer replaces. */
+        replaces?: string;
+      },
+    ) => {
       const result = await run(
         () =>
           actions.decideMerge

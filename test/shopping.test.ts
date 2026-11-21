@@ -1248,6 +1248,52 @@ describe("merge decisions", () => {
     expect(wider.decision?.amount).toBeUndefined();
   });
 
+  it("49b: an accepted answer that narrows a merge replaces it in one commit, not absorbed back", async () => {
+    await flourList();
+    await addToShopping(ctx, { items: ["1 cup unbleached flour"] });
+    const [three] = (await readShoppingView(ctx)).proposals;
+    await decideShoppingMerge(ctx, { id: three.id, status: "merged" });
+    const count = (await messages()).length;
+
+    const narrower = await decideShoppingMerge(ctx, {
+      keys: ["all purpose flour", "white flour"],
+      status: "merged",
+      note: "the unbleached is for bread",
+      replaces: three.id,
+    });
+    expect(narrower.removed).toEqual([three.id]);
+    expect(narrower.decision).toMatchObject({
+      id: FLOUR,
+      keys: ["all purpose flour", "white flour"],
+      note: "the unbleached is for bread",
+    });
+    expect((await messages()).length).toBe(count + 1);
+    const [head] = (await git.log()).all;
+    expect((await filesIn(head.hash)).sort()).toEqual(
+      [
+        `shopping/merges/${FLOUR}.json`,
+        `shopping/merges/${three.id}.json`,
+      ].sort(),
+    );
+    expect((await readShoppingMerges(ctx)).map((merge) => merge.id)).toEqual([
+      FLOUR,
+    ]);
+    expect((await readShoppingView(ctx)).view.counts.rows).toBe(2);
+
+    /* Kept apart in its place: the same names, so the same file, rewritten. */
+    const kept = await decideShoppingMerge(ctx, {
+      keys: ["all purpose flour", "white flour"],
+      status: "apart",
+      note: "different after all",
+      replaces: FLOUR,
+    });
+    expect(kept).toMatchObject({
+      changed: true,
+      removed: [],
+      decision: { id: FLOUR, status: "apart", note: "different after all" },
+    });
+  });
+
   it("ticks a merged row by any of its names, or by its merged name", async () => {
     await flourList();
     await decideShoppingMerge(ctx, { id: FLOUR, status: "merged" });

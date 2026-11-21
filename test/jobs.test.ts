@@ -555,6 +555,8 @@ describe("the registry", () => {
         "choices",
         /* 47i: "Edit with AI" — a request, or step uses. */
         "edit",
+        /* 49b: the shopping list's merges asked of a model. */
+        "shopping-merge",
       ].sort(),
     );
     const outline = [

@@ -444,6 +444,13 @@ export function createLocalBackend({
       await guard();
       return shopping.splitShoppingMerge(ctx, raw);
     },
+    /* 49b: reads the list, asks a model, writes nothing — no identity. A
+     * local job lives in this process, so it always runs to its end. */
+    async askShopping(input, _options, run) {
+      const { storedShoppingAskSpec } =
+        await import("../../controller/llm/shoppingAsk");
+      return runSeat(await storedShoppingAskSpec(ctx, input), run);
+    },
 
     gitStatus: (options) => git.gitStatus(ctx, options),
     gitLog: (options) => git.gitLog(ctx, options),

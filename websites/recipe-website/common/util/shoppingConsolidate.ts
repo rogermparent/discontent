@@ -28,17 +28,20 @@ import {
   equivalenceOf,
   gramsPerCupFor,
   mergeIdOf,
+  normalizeMergeKeys,
   type ShoppingEquivalence,
   type ShoppingMerge,
 } from "./shoppingMerges";
 import type { ShoppingItem, ShoppingSettings } from "./shoppingTypes";
 import {
+  buildShoppingView,
   factorOf,
   lineFor,
   orParents,
   quantityFor,
   shoppingNameOf,
   sourceOf,
+  type ShoppingRow,
   type ShoppingRowSource,
 } from "./shoppingView";
 
@@ -101,20 +104,14 @@ function reasonFor(set: ShoppingEquivalence, rows: number): string {
 }
 
 /**
- * The open proposals for a list: one per curated set with two or more of
- * the list's rows in it, unless a decision answered it. In the order their
- * first line was added.
+ * The list's items by name key, as the view groups them (in the order
+ * added): an `OR:` line rides on its parent's row, so it is no name of its
+ * own.
  */
-export function findShoppingProposals(
-  items: readonly ShoppingItem[],
-  settings: ShoppingSettings,
-  merges: readonly ShoppingMerge[] = [],
-): ShoppingProposal[] {
-  if (!settings.features.merge) return [];
+function nameGroups(items: readonly ShoppingItem[]): Map<string, KeyGroup> {
   const sorted = [...items].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
-  /* An `OR:` line rides on its parent's row: it is no name of its own. */
   const alternativeOf = orParents(sorted, true);
   const groups = new Map<string, KeyGroup>();
   for (const item of sorted) {
@@ -125,6 +122,38 @@ export function findShoppingProposals(
     else
       groups.set(name.key, { key: name.key, label: name.label, items: [item] });
   }
+  return groups;
+}
+
+/** One name's row as a proposal shows it: its lines and their amount. */
+function proposalRowOf(
+  group: KeyGroup,
+  settings: ShoppingSettings,
+  countUnit?: string,
+): ShoppingProposalRow {
+  const { amount } = consolidateAmounts(
+    settings.features.quantities ? amountOf(group.items, countUnit) : [],
+  );
+  return {
+    key: group.key,
+    name: group.label,
+    amountText: amount.parts.length > 0 ? quantityFor(amount) : "as needed",
+    sources: group.items.map(sourceOf),
+  };
+}
+
+/**
+ * The open proposals for a list: one per curated set with two or more of
+ * the list's rows in it, unless a decision answered it. In the order their
+ * first line was added.
+ */
+export function findShoppingProposals(
+  items: readonly ShoppingItem[],
+  settings: ShoppingSettings,
+  merges: readonly ShoppingMerge[] = [],
+): ShoppingProposal[] {
+  if (!settings.features.merge) return [];
+  const groups = nameGroups(items);
   /* Bought already: nothing to decide. */
   for (const [key, group] of groups) {
     if (group.items.every((item) => item.checked)) groups.delete(key);
@@ -181,15 +210,7 @@ export function findShoppingProposals(
     /* Quantities off: the list shows no amounts, nor does the proposal. */
     const counted = (items: readonly ShoppingItem[], unit?: string) =>
       settings.features.quantities ? amountOf(items, unit) : [];
-    const proposalRows: ShoppingProposalRow[] = rows.map((row) => {
-      const { amount } = consolidateAmounts(counted(row.items));
-      return {
-        key: row.key,
-        name: row.label,
-        amountText: amount.parts.length > 0 ? quantityFor(amount) : "as needed",
-        sources: row.items.map(sourceOf),
-      };
-    });
+    const proposalRows = rows.map((row) => proposalRowOf(row, settings));
     const { amount, estimated } = consolidateAmounts(
       rows.flatMap((row) => counted(row.items, countUnits[row.key])),
       gramsPerCupFor(set.key, keys),
@@ -215,4 +236,118 @@ export function findShoppingProposals(
   return proposals
     .sort((a, b) => (a.first < b.first ? -1 : a.first > b.first ? 1 : 0))
     .map((entry) => entry.proposal);
+}
+
+// --- 49b: a proposal for any names -------------------------------------------
+
+/** Every row of a view: the store lists', the on-hand fold's, the ticked. */
+function rowsOf(view: ReturnType<typeof buildShoppingView>): ShoppingRow[] {
+  return [
+    ...view.stores.flatMap((list) =>
+      list.sections.flatMap((section) => section.rows),
+    ),
+    ...view.onHand,
+    ...view.checked,
+  ];
+}
+
+/**
+ * 49b: the list's rows for these name keys, as a proposal lists them (in
+ * the order their first line was added) — what the model is asked about.
+ * Names not on the list are left out.
+ */
+export function proposalRowsFor(
+  items: readonly ShoppingItem[],
+  settings: ShoppingSettings,
+  keys: readonly string[],
+): ShoppingProposalRow[] {
+  const groups = nameGroups(items);
+  return normalizeMergeKeys(keys)
+    .flatMap((key) => {
+      const group = groups.get(key);
+      return group ? [group] : [];
+    })
+    .sort((a, b) =>
+      a.items[0].id < b.items[0].id
+        ? -1
+        : a.items[0].id > b.items[0].id
+          ? 1
+          : 0,
+    )
+    .map((group) => proposalRowOf(group, settings));
+}
+
+/**
+ * 49b: the proposal for exactly these names, in Da3's shape, as the list
+ * would show them merged — the model's grouping and name, the list's own
+ * sum and line (`buildShoppingView` with that decision), or the model's
+ * `amount` when one is given (an edited amount). `undefined` when fewer
+ * than two of the names are on the list, or merge is off.
+ */
+export function proposalForKeys(
+  items: readonly ShoppingItem[],
+  settings: ShoppingSettings,
+  merges: readonly ShoppingMerge[],
+  keys: readonly string[],
+  { name, amount, reason }: { name?: string; amount?: string; reason: string },
+): ShoppingProposal | undefined {
+  if (!settings.features.merge) return undefined;
+  const rows = proposalRowsFor(items, settings, keys);
+  if (rows.length < 2) return undefined;
+  const present = normalizeMergeKeys(rows.map((row) => row.key));
+  const id = mergeIdOf(present);
+  const decision: ShoppingMerge = {
+    id,
+    keys: present,
+    status: "merged",
+    ...(name ? { name } : {}),
+    decidedAt: "",
+  };
+  /* Every other merge stays as it is, but one that shares a name. */
+  const others = merges.filter(
+    (merge) =>
+      merge.id !== id && !merge.keys.some((key) => present.includes(key)),
+  );
+  const row = rowsOf(
+    buildShoppingView([...items], settings, [], [], [...others, decision]),
+  ).find((each) => each.key === `merge:${id}`);
+  if (!row) return undefined;
+  const own = settings.features.quantities ? amount?.trim() : undefined;
+  const estimated = !own && row.merge?.estimated === true;
+  const sum = row.quantity ?? "as needed";
+  /* A partly ticked row's label is what is left: the proposal says the whole. */
+  const line = own
+    ? `${own} ${row.name}`
+    : row.quantity
+      ? row.partial
+        ? `${row.quantity} ${row.name}`
+        : row.label
+      : row.name;
+  return {
+    id,
+    rows,
+    name: name ?? mergedNameOf(present, rows),
+    amount: own ?? sum,
+    estimated,
+    line,
+    reason,
+  };
+}
+
+/**
+ * The name a merge of these keys reads as with no name of its own — the
+ * curated set's, else the name with the most lines — as the view names it.
+ */
+function mergedNameOf(
+  keys: readonly string[],
+  rows: readonly ShoppingProposalRow[],
+): string {
+  const sets = new Set(keys.map((key) => equivalenceOf(key)));
+  const set = sets.size === 1 ? [...sets][0] : undefined;
+  if (set) return set.name;
+  let best = rows[0];
+  for (const row of rows) {
+    if (row.sources.length > best.sources.length) best = row;
+  }
+  return best.name;
 }

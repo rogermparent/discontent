@@ -27,8 +27,13 @@ import {
   type ShoppingListState,
   type ShoppingPageActions,
 } from "./useShoppingList";
+import { useShoppingAsk, type ShoppingAskSurface } from "./useShoppingAsk";
 
 export type { ShoppingPageActions, ShoppingListState };
+export type {
+  ShoppingAskProgressProps,
+  ShoppingAskSurface,
+} from "./useShoppingAsk";
 
 const STORE_KEY = "shopping-store";
 
@@ -99,13 +104,20 @@ export function ShoppingPage({
   initial,
   actions,
   patchUrl,
+  ask,
 }: {
   initial: ShoppingListState;
   actions: ShoppingPageActions;
   /** Where batched ticks go: `/api/shopping` (a fetch can be `keepalive`). */
   patchUrl: string;
+  /**
+   * 49b: the model, where the editor has one — a note on a proposal or a
+   * merged row, and "Look for more with the model". Absent: neither shows.
+   */
+  ask?: ShoppingAskSurface;
 }) {
   const list = useShoppingList({ initial, actions, patchUrl });
+  const asker = useShoppingAsk(list.canMerge ? ask : undefined);
   const [store, setStore] = useStoreChoice();
   const [mode, saveMode] = useShoppingMode();
   const hydrated = useHydrated();
@@ -202,6 +214,10 @@ export function ShoppingPage({
     update: (patch) => void list.update(patch),
     saveSettings: (patch) => void list.saveSettings(patch),
     ...(list.canMerge ? { split: (id: string) => void split(id) } : {}),
+    /* 49b: a merged row's "Ask the model about this", at home (Plan). */
+    ...(asker.available && mode === "plan"
+      ? { askAbout: (id: string) => asker.askAbout(id) }
+      : {}),
   };
 
   return (
@@ -227,6 +243,7 @@ export function ShoppingPage({
           expired={expired}
           subRecipes={subRecipes}
           proposals={proposals}
+          asker={asker}
           handlers={handlers}
           store={chosen}
           setStore={setStore}

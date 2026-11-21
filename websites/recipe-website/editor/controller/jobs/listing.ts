@@ -40,6 +40,8 @@ export const JOB_KIND_NAMES = [
   "choices",
   /* 47i: "Edit with AI" on the edit page (a request, or step uses). */
   "edit",
+  /* 49b: the shopping list's merges asked of a model (a note, or look for more). */
+  "shopping-merge",
 ] as const;
 
 /**
