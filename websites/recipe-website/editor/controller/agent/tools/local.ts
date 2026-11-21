@@ -70,6 +70,8 @@ export const LOCAL_TOOL_TEXT: Partial<Record<LocalToolName, LocalToolText>> = {
       "asOne",
       "fresh",
       "image",
+      /* 50e: the default (follow) is what a local run wants. */
+      "linked",
     ],
     /* `photos` is Ec10's refusal already, in the bridge. */
     refuse: [{ arg: "overwrite" }, { arg: "allowPartial" }],

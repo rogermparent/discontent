@@ -487,6 +487,21 @@ skipped?}` (each line `from` → `to`), and the job log has a `linked` info
   (`import-list`) do not follow: their items are one level already. Text and
   photo imports have no page to read links from.
 
+Review amendments:
+
+- **De11 — A one-word name claims only the thing** (amends De4): the line's
+  own name must end in the recipe's head, or in a method's product — "2 tbsp
+  maple syrup" is no Simple Syrup, "bread cubes" no Homemade Bread,
+  "roasted garlic mashed potatoes" no Roasted Garlic; "simple" is no filler.
+- **De12 — Mentioned is not used** (amends De1): a step's, note's or post
+  link that names no line must say it is used — "as instructed here", "how
+  to make", "made with my", "use my" — or it is left alone ("mentioned, not
+  used by any line"): "see my scones", "try my apple pie recipe" are
+  cross-promotions, not recipes this one needs.
+- **De13 — The scan keeps an edit made while it read** (`scanLinked`): the
+  recipe is read again before the write; changed since, it is `failed`
+  ("edited while its page was read — nothing written; scan it again").
+
 ### Results
 
 - New: `common/util/linkedRecipes.ts`, `common/util/linkedLines.ts`,
@@ -544,6 +559,13 @@ skipped?}` (each line `from` → `to`), and the job log has a `linked` info
    `-zoebakes` suffix).
 7. A name rule match like "1 tsp vanilla extract" ← a card note's "Homemade
    Vanilla Extract" would expand into its own lines on the list (De4).
-8. `linked --scan` on the whole collection reads every recipe's page once,
-   ≥ 15 s apart per site — hours for ~1,000 recipes; run it per slug or with
-   `--limit` first.
+8. Linked pages are read in the parent's `--llm` mode (the brief's rule):
+   under `auto` a linked page with no recipe data is read by the model, and
+   a trusted reading is imported. The review suggested `off` unless the
+   parent was `force`.
+9. Two bare-count lines linking one sub-recipe ("1 [pie dough]" for the
+   bottom, "1 [pie dough]" for the lattice) are now one batch (De8; Dd9
+   reads a bare count as pieces, not batches) — Sally's crust makes two.
+10. `linked --scan` on the whole collection reads every recipe's page once,
+    ≥ 15 s apart per site — hours for ~1,000 recipes; run it per slug or with
+    `--limit` first.
