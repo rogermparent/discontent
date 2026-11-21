@@ -1224,6 +1224,30 @@ describe("merge decisions", () => {
     );
   });
 
+  it("keeps the name and note of a merge that grows, and drops its amount", async () => {
+    await flourList();
+    await decideShoppingMerge(ctx, {
+      id: FLOUR,
+      status: "merged",
+      name: "King Arthur AP",
+      amount: "1 bag",
+      note: "the red bag",
+    });
+    await addToShopping(ctx, { items: ["1 cup unbleached flour"] });
+    const [proposal] = (await readShoppingView(ctx)).proposals;
+    expect(proposal.name).toBe("King Arthur AP");
+    expect(proposal.line).toBe("4 cups King Arthur AP");
+    const wider = await decideShoppingMerge(ctx, {
+      id: proposal.id,
+      status: "merged",
+    });
+    expect(wider.decision).toMatchObject({
+      name: "King Arthur AP",
+      note: "the red bag",
+    });
+    expect(wider.decision?.amount).toBeUndefined();
+  });
+
   it("ticks a merged row by any of its names, or by its merged name", async () => {
     await flourList();
     await decideShoppingMerge(ctx, { id: FLOUR, status: "merged" });

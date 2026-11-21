@@ -447,21 +447,28 @@ export function useShoppingList({
         (result) =>
           setState((current) => ({ ...current, settings: result.settings })),
       ),
-    /** 49a: Merge (with an edited name or amount) or Keep apart, one change. */
-    decideMerge: (input: {
+    /**
+     * 49a: Merge (with an edited name or amount) or Keep apart, one change.
+     * A refusal (another device changed the list, say) reads the list
+     * again, so a proposal that is gone leaves the page too.
+     */
+    decideMerge: async (input: {
       id: string;
       status: "merged" | "apart";
       name?: string;
       amount?: string;
-    }) =>
-      run(
+    }) => {
+      const result = await run(
         () =>
           actions.decideMerge
             ? actions.decideMerge(input)
             : Promise.resolve({ error: "Not available here", code: "usage" }),
-        (result) =>
-          setState((current) => ({ ...current, merges: result.merges })),
-      ),
+        (answer) =>
+          setState((current) => ({ ...current, merges: answer.merges })),
+      );
+      if (!result) void reload();
+      return result;
+    },
     /** 49a: Split a merged row back into its names, one change. */
     splitMerge: (id: string) =>
       run(

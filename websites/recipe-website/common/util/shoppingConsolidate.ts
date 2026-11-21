@@ -80,6 +80,8 @@ interface KeyGroup {
 /** One row of the list: a name, or a merged decision's names. */
 interface Unit {
   keys: string[];
+  /** A merged decision's own name, when the person gave one. */
+  name?: string;
 }
 
 function amountOf(
@@ -150,7 +152,7 @@ export function findShoppingProposals(
         ? decision.keys.filter((key) => groups.has(key))
         : [member.key];
       for (const key of keys) claimed.add(key);
-      units.push({ keys });
+      units.push({ keys, ...(decision?.name ? { name: decision.name } : {}) });
     }
     if (units.length < 2) continue;
 
@@ -170,8 +172,17 @@ export function findShoppingProposals(
             : 0,
       );
     const countUnits = set.countUnits ?? {};
+    /*
+     * A merged row's own name carries over (49a review): Merge keeps it, so
+     * the proposal says it. The set's name otherwise.
+     */
+    const ownName = units.find((unit) => unit.name)?.name;
+    const name = ownName ?? set.name;
+    /* Quantities off: the list shows no amounts, nor does the proposal. */
+    const counted = (items: readonly ShoppingItem[], unit?: string) =>
+      settings.features.quantities ? amountOf(items, unit) : [];
     const proposalRows: ShoppingProposalRow[] = rows.map((row) => {
-      const { amount } = consolidateAmounts(amountOf(row.items));
+      const { amount } = consolidateAmounts(counted(row.items));
       return {
         key: row.key,
         name: row.label,
@@ -180,7 +191,7 @@ export function findShoppingProposals(
       };
     });
     const { amount, estimated } = consolidateAmounts(
-      rows.flatMap((row) => amountOf(row.items, countUnits[row.key])),
+      rows.flatMap((row) => counted(row.items, countUnits[row.key])),
       gramsPerCupFor(set.key, keys),
     );
     const texts = rows.flatMap((row) => row.items.map((item) => item.text));
@@ -191,10 +202,12 @@ export function findShoppingProposals(
       proposal: {
         id: mergeIdOf(keys),
         rows: proposalRows,
-        name: set.name,
+        name,
         amount: hasAmount ? approx(quantityFor(amount)) : "as needed",
         estimated,
-        line: hasAmount ? approx(lineFor(set.name, amount, texts)) : set.name,
+        line: hasAmount
+          ? approx(lineFor(name, amount, texts, [], ownName !== undefined))
+          : name,
         reason: reasonFor(set, rows.length),
       },
     });

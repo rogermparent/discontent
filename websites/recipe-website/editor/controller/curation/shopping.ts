@@ -1332,6 +1332,16 @@ async function decideLocked(
   }
 
   const carried = previous?.status === input.status ? previous : undefined;
+  /*
+   * 49a review: a merge that grows (a third name joining) keeps what the
+   * person said of the merge it absorbs — its name and note; its amount was
+   * for the old items, so it goes.
+   */
+  const absorbedMerges = merges.filter(
+    (merge) => removed.has(merge.id) && merge.status === "merged",
+  );
+  const absorbedName = absorbedMerges.find((merge) => merge.name)?.name;
+  const absorbedNote = absorbedMerges.find((merge) => merge.note)?.note;
   const decision: ShoppingMerge = {
     id,
     keys,
@@ -1339,7 +1349,10 @@ async function decideLocked(
     decidedAt: new Date().toISOString(),
   };
   if (input.status === "merged") {
-    const name = input.name ?? carried?.name;
+    const name =
+      input.name ??
+      carried?.name ??
+      (input.status === "merged" ? absorbedName : undefined);
     if (name) decision.name = name;
     if (input.amount !== undefined) {
       /* The items the merged row covers once this decision applies. */
@@ -1370,7 +1383,10 @@ async function decideLocked(
       decision.amount = carried.amount;
     }
   }
-  const note = input.note ?? carried?.note;
+  const note =
+    input.note ??
+    carried?.note ??
+    (input.status === "merged" ? absorbedNote : undefined);
   if (note) decision.note = note;
 
   const unchanged =

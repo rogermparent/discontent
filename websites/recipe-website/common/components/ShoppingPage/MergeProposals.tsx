@@ -217,6 +217,7 @@ function Proposal({
             onClick={() => void keepApart()}
           >
             Keep apart
+            <span className="sr-only"> from {proposal.name}</span>
           </Button>
         </div>
       )}

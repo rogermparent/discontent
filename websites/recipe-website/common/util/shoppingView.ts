@@ -613,7 +613,9 @@ function buildRow(
           row.merge.amountStale = true;
         }
       }
-      if (row.partial) {
+      /* The person's own amount stands, partly ticked or not (49a review):
+       * its note still says how many lines are ticked. */
+      if (row.partial && !row.merge?.amountEdited) {
         const unticked = entries.filter((entry) => !entry.item.checked);
         const left = sumOf(unticked, merge);
         if (left.amount.parts.length > 0) {

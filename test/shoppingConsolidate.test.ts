@@ -359,6 +359,21 @@ describe("findShoppingProposals", () => {
     ).toEqual([]);
   });
 
+  it("shows no amounts with quantities off, as the list shows none", () => {
+    const [proposal] = findShoppingProposals(
+      rogersFlour(),
+      settings({ quantities: false }),
+    );
+    expect(proposal).toMatchObject({
+      amount: "as needed",
+      line: "all-purpose flour",
+    });
+    expect(proposal.rows.map((row) => row.amountText)).toEqual([
+      "as needed",
+      "as needed",
+    ]);
+  });
+
   it("orders proposals by when their first line was added", () => {
     const proposals = findShoppingProposals(
       [
@@ -491,6 +506,24 @@ describe("buildShoppingView with merge decisions", () => {
     );
     expect(partial.partial).toBe(true);
     expect(partial.label).toBe("120 g all-purpose flour");
+  });
+
+  it("keeps an edited amount on a partly ticked row: the note says how many are ticked", () => {
+    const items = rogersFlour();
+    const [proposal] = findShoppingProposals(items, settings());
+    const decision = merged(proposal, {
+      amount: { text: "1 bag", ids: items.map((each) => each.id).sort() },
+    });
+    const ticked = items.map((each, index) =>
+      index === 0 ? { ...each, checked: true } : each,
+    );
+    const [row] = rows(
+      buildShoppingView(ticked, settings(), [], [], [decision]),
+    );
+    expect(row.partial).toBe(true);
+    expect(row.label).toBe("1 bag all-purpose flour");
+    expect(row.quantity).toBe("1 bag");
+    expect(row.remaining).toBeUndefined();
   });
 
   it("routes by the merged name: one aisle override covers it", () => {

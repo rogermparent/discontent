@@ -76,7 +76,9 @@ test.describe("Shopping list: same thing, different names", () => {
     const card = proposal(page);
     await expect(card).toHaveCount(1);
     await expect(
-      card.getByRole("list", { name: "Lines for all-purpose flour" }),
+      card
+        .getByRole("list", { name: "Lines for all-purpose flour" })
+        .getByRole("listitem"),
     ).toHaveText([
       /^2 cups all-purpose flour · Buttermilk Pancakes$/,
       /^1 cup white flour · Crêpes$/,
@@ -127,6 +129,13 @@ test.describe("Shopping list: same thing, different names", () => {
     await expect(
       page.getByLabel("1 cup white flour", { exact: true }),
     ).toBeVisible();
+    await expect(page.getByTestId("shopping-split-status")).toHaveText(
+      "Split back into its own lines: all purpose flour, white flour.",
+    );
+    /* Focus goes to the first of the rows it became, not to the page. */
+    await expect(
+      page.getByLabel("2 cups all-purpose flour", { exact: true }),
+    ).toBeFocused();
     await expect(proposal(page)).toHaveCount(1);
   });
 
