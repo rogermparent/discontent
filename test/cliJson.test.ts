@@ -572,14 +572,48 @@ describe("the CLI as a process", () => {
       const parsed = JSON.parse(read.stdout);
       expect(Object.keys(parsed).sort()).toEqual([
         "items",
+        "layers",
         "merges",
         "path",
         "proposals",
+        "rules",
         "settings",
         "text",
         "view",
       ]);
       expect(parsed.text).toBe("paper towels");
+
+      /* 50a: a change through the CLI, listed, then cleared with the list. */
+      const ids = (parsed.items as { id: string; text: string }[])
+        .filter((each) => each.text === "paper towels")
+        .map((each) => each.id);
+      const changeFile = join(tmpdir(), `change-${process.pid}.json`);
+      await writeFile(
+        changeFile,
+        JSON.stringify({
+          ops: [{ op: "rename", ids, name: "kitchen roll" }],
+        }),
+      );
+      try {
+        const added = await run([
+          "shopping",
+          "change",
+          "add",
+          "--file",
+          changeFile,
+          "--json",
+        ]);
+        expect(added.exitCode).toBe(0);
+        expect(JSON.parse(added.stdout).layer.on).toBe(true);
+      } finally {
+        await rm(changeFile, { force: true });
+      }
+      const listed = await run(["shopping", "changes"]);
+      expect(listed.stdout).toMatch(
+        /\[on\]\s+Rename paper towels? to kitchen roll\s+— you/,
+      );
+      const asWritten = await run(["shopping", "list", "--as-written"]);
+      expect(asWritten.stdout.trim()).toBe("paper towels");
 
       const refused = await run(["shopping", "clear", "--all", "--json"]);
       expect(refused.exitCode).not.toBe(0);
@@ -589,8 +623,8 @@ describe("the CLI as a process", () => {
       expect(cleared.exitCode).toBe(0);
       expect(cleared.stdout.trim()).toBe("Cleared 2 items; 0 items left");
     },
-    /* Seven CLI processes, each a `tsx` start. */
-    TIMEOUT * 2,
+    /* Ten CLI processes, each a `tsx` start. */
+    TIMEOUT * 3,
   );
 
   /*

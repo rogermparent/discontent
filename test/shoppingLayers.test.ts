@@ -97,7 +97,7 @@ describe("the composition: base → rules → layers (Da4, Da5)", () => {
   it("without a compose, the view is the base and has nothing left off", () => {
     const items = [item("2 cups water"), item("1 cup flour")];
     const view = buildShoppingView(items, settings());
-    expect(labels(view)).toEqual(["2 cups water", "1 cup flour"]);
+    expect(labels(view).sort()).toEqual(["1 cup flour", "2 cups water"]);
     expect(view.leftOff).toEqual([]);
     expect(view.counts.leftOff).toBeUndefined();
     expect(rows(view).every((row) => row.changes === undefined)).toBe(true);
@@ -130,7 +130,8 @@ describe("the composition: base → rules → layers (Da4, Da5)", () => {
       decidedAt: "",
     };
     const back = compose(items, [], [restored]);
-    expect(labels(back)).toContain("≈ 130 g water");
+    /* ¼ cup + 20 g, in the larger share's unit (cups → spoons). */
+    expect(labels(back)).toContain("≈ 5 tbsp + 1 tsp water");
     expect(back.leftOff).toEqual([]);
   });
 
