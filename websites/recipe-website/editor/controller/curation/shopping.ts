@@ -1275,6 +1275,23 @@ async function decideLocked(
   const replaced = input.replaces
     ? onDisk.find((merge) => merge.id === input.replaces)
     : undefined;
+  /*
+   * 49b review: a `replaces` that names no merged row sharing a name with
+   * this answer is stale (another device split or regrew it) or made up —
+   * refused, so it can neither delete an unrelated decision nor be absorbed
+   * back into a merge it did not see.
+   */
+  if (
+    input.replaces &&
+    (!replaced ||
+      replaced.status !== "merged" ||
+      (input.keys !== undefined &&
+        !overlaps(replaced.keys, normalizeMergeKeys(input.keys))))
+  ) {
+    throw new ValidationError(
+      "The merged row this answer replaces has changed since the model was asked: ask again.",
+    );
+  }
   const merges = replaced
     ? onDisk.filter((merge) => merge.id !== replaced.id)
     : onDisk;

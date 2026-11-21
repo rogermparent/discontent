@@ -86,37 +86,54 @@ export interface ShoppingAskNumbers {
   claudeAvailable?: boolean;
 }
 
-export type ShoppingAskResult = ShoppingAskNumbers &
-  (
-    | ({ task: "revise"; target: ShoppingAskTarget; note: string } & (
-        | {
-            /** A revised proposal: merge these (some or all), so. */
-            status: "merge";
-            proposal: ShoppingProposal;
-            /** The model's amount, not the list's sum. */
-            amountFromModel: boolean;
-            decision: ShoppingAskDecision;
-          }
-        | {
-            /** Keep these apart, and why. */
-            status: "apart";
-            reason: string;
-            decision: ShoppingAskDecision;
-          }
-        | { status: "refused" | "failed"; problem: string }
-      ))
-    | ({ task: "find" } & (
-        | {
-            status: "found";
-            proposals: ShoppingModelProposal[];
-            /** Groups the check left out, and why ("item 9 is not on the list"). */
-            dropped: string[];
-            /** How many names were sent. */
-            names: number;
-          }
-        | { status: "refused" | "failed"; problem: string }
-      ))
-  );
+/** What a revise asked about, on every revise result. */
+interface ReviseBase extends ShoppingAskNumbers {
+  task: "revise";
+  target: ShoppingAskTarget;
+  note: string;
+}
+
+/** A revised proposal: merge these (some or all), so. */
+export interface ShoppingReviseMerge extends ReviseBase {
+  status: "merge";
+  proposal: ShoppingProposal;
+  /** The model's amount, not the list's sum. */
+  amountFromModel: boolean;
+  decision: ShoppingAskDecision;
+}
+
+/** Keep these apart, and why. */
+export interface ShoppingReviseApart extends ReviseBase {
+  status: "apart";
+  reason: string;
+  decision: ShoppingAskDecision;
+}
+
+/** The check refused the answer (`refused`), or nothing came back (`failed`). */
+export type ShoppingReviseRefused =
+  | (ReviseBase & { status: "refused"; problem: string })
+  | (ReviseBase & { status: "failed"; problem: string });
+
+export interface ShoppingFindFound extends ShoppingAskNumbers {
+  task: "find";
+  status: "found";
+  proposals: ShoppingModelProposal[];
+  /** Groups the check left out, and why ("item 9 is not one of the 5 names"). */
+  dropped: string[];
+  /** How many names were sent. */
+  names: number;
+}
+
+export type ShoppingFindRefused =
+  | (ShoppingAskNumbers & { task: "find"; status: "refused"; problem: string })
+  | (ShoppingAskNumbers & { task: "find"; status: "failed"; problem: string });
+
+export type ShoppingReviseResult =
+  ShoppingReviseMerge | ShoppingReviseApart | ShoppingReviseRefused;
+
+export type ShoppingFindResult = ShoppingFindFound | ShoppingFindRefused;
+
+export type ShoppingAskResult = ShoppingReviseResult | ShoppingFindResult;
 
 /** Whether `value` is a `shopping-merge` job's result. */
 export function isShoppingAskResult(
@@ -133,7 +150,8 @@ export function isShoppingAskResult(
 
 /**
  * A model-found proposal still worth showing (Db2): none of its names is in
- * a merged decision now, no apart decision covers them all, and the table
+ * a merged decision now, no apart decision covers them all or sits inside
+ * them (its Merge would undo a Keep apart), and the table
  * does not propose the same names — the list may have changed since the
  * model read it.
  */
@@ -149,6 +167,7 @@ export function stillOpen(
   return !merges.some((merge) =>
     merge.status === "merged"
       ? merge.keys.some((key) => keys.includes(key))
-      : keys.every((key) => merge.keys.includes(key)),
+      : keys.every((key) => merge.keys.includes(key)) ||
+        merge.keys.every((key) => keys.includes(key)),
   );
 }

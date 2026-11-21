@@ -117,14 +117,22 @@ export function useShoppingAsk(surface: ShoppingAskSurface | undefined) {
   const settle = useCallback(
     (
       job: string,
-      outcome: { result?: ShoppingAskResult; message?: string },
+      outcome: {
+        result?: ShoppingAskResult;
+        message?: string;
+        cancelled?: boolean;
+      },
     ) => {
       setSettledJob(job);
       const current = running?.job === job ? running : undefined;
       if (!current) return;
       const { result } = outcome;
       if (!result) {
-        if (outcome.message) setMessage(outcome.message);
+        setMessage(
+          outcome.cancelled
+            ? "The ask was cancelled; nothing changed."
+            : (outcome.message ?? "The ask did not finish."),
+        );
         return;
       }
       if (result.task !== current.task) {

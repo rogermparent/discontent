@@ -392,6 +392,24 @@ describe("the find check (Db2)", () => {
       proposals: [],
       dropped: ["group 1 (salt + sea salt): already proposed"],
     });
+    /* A kept-apart pair inside a bigger group: its Merge would undo it. */
+    expect(
+      checkFindAnswer(
+        {
+          groups: [
+            {
+              items: [at("buttermilk"), at("salt"), at("sea salt")],
+              name: "x",
+            },
+          ],
+        },
+        names,
+        { ...ask, merges: [apart(SALT)] },
+      ),
+    ).toMatchObject({
+      proposals: [],
+      dropped: ["group 1 (buttermilk + salt + sea salt): kept apart already"],
+    });
     expect(checkFindAnswer({ found: [] }, names, ask)).toMatchObject({
       status: "refused",
     });
@@ -669,7 +687,7 @@ describe("the shopping-merge job", () => {
   it("is listed with its note, and takes the GPU's line only for a local model", () => {
     const spec = revise();
     expect(jobLabel(spec)).toBe(
-      'ask about all-purpose flour + white flour: "use grams"',
+      'ask about all purpose flour + white flour: "use grams"',
     );
     expect(jobResources(spec)).toEqual(["gpu"]);
     expect(jobResources({ ...spec, backend: "claude" })).toEqual([]);

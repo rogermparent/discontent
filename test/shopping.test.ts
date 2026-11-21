@@ -1294,6 +1294,29 @@ describe("merge decisions", () => {
     });
   });
 
+  it("49b: refuses a `replaces` that names no merged row sharing a name, and writes nothing", async () => {
+    await flourList();
+    await addToShopping(ctx, { items: ["1 tsp salt", "1 pinch sea salt"] });
+    const salt = await decideShoppingMerge(ctx, {
+      keys: ["salt", "sea salt"],
+      status: "merged",
+    });
+    const count = (await messages()).length;
+    for (const replaces of [salt.decision!.id, "0123456789abcdef"]) {
+      await expect(
+        decideShoppingMerge(ctx, {
+          keys: ["all purpose flour", "white flour"],
+          status: "merged",
+          replaces,
+        }),
+      ).rejects.toMatchObject({ code: "validation" });
+    }
+    expect((await messages()).length).toBe(count);
+    expect((await readShoppingMerges(ctx)).map((merge) => merge.id)).toEqual([
+      salt.decision!.id,
+    ]);
+  });
+
   it("ticks a merged row by any of its names, or by its merged name", async () => {
     await flourList();
     await decideShoppingMerge(ctx, { id: FLOUR, status: "merged" });

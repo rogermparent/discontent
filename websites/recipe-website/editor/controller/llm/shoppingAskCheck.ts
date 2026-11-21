@@ -18,10 +18,6 @@
  */
 import { parseAmount } from "recipe-website-common/util/ingredientAmount";
 import {
-  isNamed,
-  shoppingNameOf,
-} from "recipe-website-common/util/shoppingView";
-import {
   MERGE_LIMITS,
   mergeIdOf,
   normalizeMergeKeys,
@@ -95,14 +91,15 @@ function oneLine(value: unknown): string {
 }
 
 /**
- * A name the list would read as the same: one name key ("all purpose flour"
- * for "all-purpose flour"), or the same words, case and spacing aside. The
- * model saying the list's own name again is no name of its own.
+ * The same name, as a person would type it again: case, spacing and
+ * hyphens aside ("all purpose flour" for "all-purpose flour"). Not by name
+ * key — "plain flour" keys as all-purpose flour, and a person who asks to
+ * call it that wants the label.
  */
 function sameName(a: string, b: string): boolean {
-  if (oneLine(a).toLowerCase() === oneLine(b).toLowerCase()) return true;
-  const key = shoppingNameOf(a).key;
-  return isNamed(key) && key === shoppingNameOf(b).key;
+  const plain = (text: string) =>
+    oneLine(text.replace(/[-‐‑]/g, " ")).toLowerCase();
+  return plain(a) === plain(b);
 }
 
 /** `≈`, `~` or "about" in front of an amount. */
@@ -338,10 +335,12 @@ export function checkFindAnswer(
       dropped.push(`${label} (${words}): already proposed`);
       continue;
     }
+    /* A merged name, or a kept-apart set inside the group or around it. */
     const decided = list.merges.find((merge) =>
       merge.status === "merged"
         ? merge.keys.some((key) => keys.includes(key))
-        : keys.every((key) => merge.keys.includes(key)),
+        : keys.every((key) => merge.keys.includes(key)) ||
+          merge.keys.every((key) => keys.includes(key)),
     );
     if (decided) {
       dropped.push(

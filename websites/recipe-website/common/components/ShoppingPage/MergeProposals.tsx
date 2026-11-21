@@ -10,8 +10,9 @@ import {
   SHOPPING_ASK_NOTE_MAX,
   stillOpen,
   type ShoppingAskDecision,
-  type ShoppingAskResult,
+  type ShoppingFindResult,
   type ShoppingModelProposal,
+  type ShoppingReviseResult,
 } from "../../util/shoppingAsk";
 import type {
   ShoppingRow,
@@ -95,7 +96,7 @@ function Suggestion({
   retry,
   answered,
 }: {
-  result: ShoppingAskResult & { task: "revise" };
+  result: ShoppingReviseResult;
   list: ShoppingList;
   asker: ShoppingAsker;
   retry(): void;
@@ -234,28 +235,15 @@ function AskOutcome({
   asker: ShoppingAsker;
   answered(message: string): void;
 }) {
-  const { running, revised, surface } = asker;
-  const mine =
-    running?.topic.kind === "revise" && running.topic.id === topic
-      ? running
-      : undefined;
+  const { revised } = asker;
   const result =
     revised?.topic.kind === "revise" &&
     revised.topic.id === topic &&
     revised.result.task === "revise"
-      ? (revised.result as ShoppingAskResult & { task: "revise" })
+      ? (revised.result as ShoppingReviseResult)
       : undefined;
   return (
     <>
-      {mine && surface && (mine.job !== asker.settledJob || result)
-        ? surface.progress({
-            job: mine.job,
-            stored: mine.stored,
-            task: "revise",
-            model: mine.model,
-            settled: (outcome) => asker.settle(mine.job, outcome),
-          })
-        : null}
       <div role="status" className="empty:hidden">
         {result ? (
           <Suggestion
@@ -653,11 +641,10 @@ function FindMore({
   proposals: ShoppingProposal[];
   answered(message: string): void;
 }) {
-  const { running, found, surface } = asker;
-  const mine = running?.topic.kind === "find" ? running : undefined;
+  const { found } = asker;
   const result =
     found?.result.task === "find"
-      ? (found.result as ShoppingAskResult & { task: "find" })
+      ? (found.result as ShoppingFindResult)
       : undefined;
   const model = result?.model ?? asker.model;
   const open: ShoppingModelProposal[] = (found?.open ?? []).filter((each) =>
@@ -685,15 +672,6 @@ function FindMore({
           {asker.model} reads the list’s names; nothing changes until you merge.
         </span>
       </div>
-      {mine && surface && (mine.job !== asker.settledJob || result)
-        ? surface.progress({
-            job: mine.job,
-            stored: mine.stored,
-            task: "find",
-            model: mine.model,
-            settled: (outcome) => asker.settle(mine.job, outcome),
-          })
-        : null}
       <div role="status" className="empty:hidden" data-testid="shopping-find">
         {result &&
         (result.status === "refused" || result.status === "failed") ? (
@@ -798,7 +776,10 @@ export function MergeProposals({
     list.settings.features.merge &&
     list.items.filter((item) => !item.checked).length >= 2;
   const about = asker?.available ? asker.about : undefined;
-  if (proposals.length === 0 && !message && !findable && !about) return null;
+  const pending = !!asker?.running && asker.running.job !== asker.settledJob;
+  if (proposals.length === 0 && !message && !findable && !about && !pending) {
+    return null;
+  }
   const answered = (text: string) => {
     setMessage(text);
     heading.current?.focus();
@@ -840,6 +821,21 @@ export function MergeProposals({
           {asker.message}
         </p>
       ) : null}
+      {/*
+        The running ask's live panel, once for the whole panel (49b review):
+        it settles the ask even when the card it was about has gone (merged,
+        kept apart, closed) — a panel inside that card would stop polling
+        with it and leave every Ask disabled.
+      */}
+      {asker?.running && asker.surface && asker.running.job !== asker.settledJob
+        ? asker.surface.progress({
+            job: asker.running.job,
+            stored: asker.running.stored,
+            task: asker.running.task,
+            model: asker.running.model,
+            settled: (outcome) => asker.settle(asker.running!.job, outcome),
+          })
+        : null}
       {about && asker && view ? (
         <AboutMerge
           key={about}

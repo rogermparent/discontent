@@ -54,7 +54,6 @@ import {
   type AskList,
 } from "./shoppingAskCheck";
 import {
-  activeMerges,
   mergeIdOf,
   normalizeMergeKeys,
   type ShoppingMerge,
@@ -262,8 +261,15 @@ export function shoppingAskSpecOf(
         isNamed,
       ),
     );
-    const present = new Set(groups.map((row) => row.key));
-    const merged = activeMerges(merges, present);
+    /*
+     * Every name of a merged decision stays out, active here or not: a
+     * group with it would be absorbed into that merge (Da4-3).
+     */
+    const merged = new Set(
+      merges
+        .filter((merge) => merge.status === "merged")
+        .flatMap((merge) => merge.keys),
+    );
     const inProposal = new Set(
       proposals.flatMap((proposal) => proposal.rows.map((row) => row.key)),
     );

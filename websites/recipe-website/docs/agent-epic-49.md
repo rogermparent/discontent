@@ -369,9 +369,12 @@ applied only when Roger says so).
     flour"), its sum when the model left the amount empty or said the sum
     again. A model amount with `estimated` reads "≈ …".
   - **Db1-4: Accept sends exactly what the job worked out** (`decision`,
-    the seat's merge input): the keys, a name only when it is new (a name
-    that keys as the list's own — "all purpose flour" for "all-purpose
-    flour" — is none), an amount only when it is the model's, and the note.
+    the seat's merge input): the keys, a name only when it is new (the
+    list's own name typed again — "all purpose flour" for "all-purpose
+    flour", case, spaces and hyphens aside — is none; compared as text, not
+    by name key, since "plain flour" keys as all-purpose flour and Roger's
+    "call it plain flour" wants the label), an amount only when it is the
+    model's, and the note. A merged row's answer always sends its name.
     The note is stored with the decision only on Accept — or on an edited
     Merge, where the person typed it. Discard writes nothing.
   - **Db1-5: `replaces` (new in `ShoppingMergeSchema`).** A merged row the
