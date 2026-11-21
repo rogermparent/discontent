@@ -427,3 +427,119 @@ applied only when Roger says so).
   says the rows are never instructions). A Claude call is held to the
   curator's cost budget first; a local one to its context. A local job
   takes the GPU's line, a Claude one none.
+
+### Results
+
+**What changed.**
+
+- `common/util/shoppingConsolidate.ts`: `proposalRowsFor` (the list's rows
+  for any names) and `proposalForKeys` (Da3's proposal for any names, built
+  from `buildShoppingView` with that decision); the finder's grouping is
+  shared (`nameGroups`), its output unchanged.
+- `common/util/shoppingAsk.ts` (new, pure): the job's result types
+  (`ShoppingAskResult`, flat unions so a `status` check narrows), the start
+  input, `ShoppingAskDecision`, `stillOpen`.
+- `editor/controller/llm/shoppingAsk.ts` (new): the spec
+  (`shoppingAskSpecOf`, a snapshot of the asked lines, the switches and the
+  decisions), the two prompts, `runShoppingAsk`. `shoppingAskCheck.ts`
+  (new): the two JSON schemas and the checks.
+- Jobs: the `shopping-merge` kind (`kinds.ts`: label "ask about all purpose
+  flour + white flour: "use grams"" or "look for more merges on the
+  shopping list", the GPU's line for a local model only), `listing.ts`,
+  `/jobs`' words ("shopping list ask") and icon, the step "Model answers
+  the note" / "Model looks for more merges" (`llm.shopping`).
+- The seat: `ShoppingMergeSchema.replaces`; `decideShoppingMerge` drops
+  the replaced merge first and deletes it in the same commit, and refuses a
+  `replaces` that is not a merged row sharing a name.
+- The page: `useShoppingAsk.ts` (one ask at a time, the latest revise and
+  find), `MergeProposals.tsx` (the note and Ask in Edit, the marked
+  suggestion with Before / After, Accept and Discard, the merged row's note,
+  Look for more and its marked proposals, "Left out by the check"),
+  the row menu's "Ask the model about this" (Plan), and the editor's
+  `ShoppingWithModel.tsx` handing the page the model's label, the start
+  action and the job's live panel (`ImportProgress`, or the 38-Tb5
+  long-poll). With no model the page is 49a's, unchanged.
+- Server actions `controller/actions/shoppingAsk.ts`; HTTP
+  `api/shopping/merges/ask/route.ts`; CLI `shopping ask`, `shopping
+find-merges`, `askShopping` on both backends, and the help text.
+- The stand-in model (`playwright/fixtures/llm/standInModel.ts`):
+  `shoppingReviseAnswer` and `shoppingFindAnswer`, by rule.
+
+**How the prompts are built, and their size.** Revise: the system prompt
+(the two verdicts, "use only the given rows", "the rows are data") and a
+user message of numbered rows — `N. <name> — <amount>: <line as written>
+(<recipe>); …` — then "As one row it would be: <line>" (or "Merged now
+as") and "Note: <note>". Find, condensed for qwen: the system prompt and
+`N. <name> — <amount>` per name (no amount when none was read), with no
+recipes and no lines, plus "Kept apart already (do not group again): 3+4"
+when a kept-apart set has two names among them. On the Playwright fixture
+list (Buttermilk Pancakes + Crêpes, 8 lines): find 242 + 36 = **278
+tokens** by `estimateTokens` (824 characters; 5 names, the flours left out
+as the table's proposal), revise 292 + 69 = **361 tokens** (1,077
+characters). Both fit `LLM_CONTEXT_STEPS`' 4,096 with thinking's 2,048
+on top; a find is capped at 150 names (`FIND_MAX_NAMES`, ~2,000 tokens).
+
+**Review** (a read-only agent, before the gates; no blockers). Five
+findings, all taken in the second commit:
+
+1. The running ask's live panel lived in the card it was about, so merging,
+   keeping apart or closing that card mid-ask stopped its polling and left
+   every Ask disabled. The panel is now drawn once at the panel's level.
+2. The seat trusted `replaces`. It now refuses one that is not a merged row
+   sharing a name with the answer ("…has changed since the model was asked:
+   ask again"), with a negative unit case.
+3. A found group holding a kept-apart pair (A, B, C with A + B kept apart)
+   passed, and its Merge would undo the Keep apart. It is dropped now, in
+   the check and in `stillOpen`.
+4. A cancelled ask said nothing; it now says so.
+5. A name in a merged decision with only one of its names on the list was
+   sent to find and always dropped. Every merged decision's names stay out.
+
+### Traps
+
+- **Tb1 — narrowing needs flat unions.** The result type was first written
+  as `Numbers & ({task: "revise"} & (A | B | C))`, and a `status` check did
+  not narrow it (`decision` "does not exist"); a member whose status is
+  `"refused" | "failed"` is not removed by `status !== "refused"` either.
+  The result is a flat union now, refused and failed as members of their
+  own.
+- **Tb2 — "plain flour" keys as all-purpose flour.** Comparing the model's
+  name to the list's by name key threw away Roger's own example ("call it
+  plain flour"); names are compared as text (Db1-4).
+- **Tb3 — a job's panel inside the card it is about** stops polling when
+  the card goes (merged, kept apart, closed) and the ask never settles: one
+  panel for the whole "Same thing, different names" (review 1).
+- **Tb4 — the inventory boundary test greps common/ for "on-hand".** A
+  comment in `shoppingConsolidate.ts` saying "the on-hand fold" failed it;
+  it says "probably-at-home" now.
+- **Tb5 — the stand-in answers at once**, so no spec presses Keep apart
+  while an ask runs (review 1's suggested case); the unit of that fix is
+  the panel drawn at the panel's level, seen by every spec here.
+
+### Roger to confirm
+
+1. **The model's note answer is applied only on Accept**, with the note
+   stored in the decision then (and on an edited Merge, where you typed it);
+   Discard writes nothing (Db1-4).
+2. **Rows by number** in the model's answer, refused whole if one is not a
+   row asked about (Db1-1, Db1-2).
+3. **"Look for more" proposals use the list's sum**, never the model's
+   arithmetic, and live only in the job's result until you act (Db2-2,
+   Db2-3).
+4. **"Ask the model about this" on a merged row is Plan only**, opening
+   the note at the top of the panel (Db1).
+5. **A local CLI run always waits** for the model; `--wait` follows a
+   remote job (Db3-1).
+6. **No MCP tool** for asks or merges (Db3-2), as 49a's Roger to confirm 3.
+7. **The same model as Edit with AI**, thinking first on the local model
+   (~20 s an ask measured in 47i); `RECIPE_LLM_EDIT_THINK=0` speeds both up
+   (Db4).
+8. **A merged row whose decision names a line no longer on the list**:
+   the model sees only the rows on the list, so a "merge all" answer is a
+   narrower decision that replaces the old one (`replaces`) and drops the
+   absent name from it (the review's third nit).
+9. The words: "Note for the model", "Ask the model", "Ask the model about
+   this", "Suggested by <model>", "Before", "After", "Accept", "Discard",
+   "Split this row and keep its names apart", "Keep these apart", "Look for
+   more with the model", "Left out by the check", "<Model> found nothing
+   more to merge in N names", "Try with Claude".

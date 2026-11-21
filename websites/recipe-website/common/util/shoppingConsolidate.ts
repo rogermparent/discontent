@@ -240,7 +240,7 @@ export function findShoppingProposals(
 
 // --- 49b: a proposal for any names -------------------------------------------
 
-/** Every row of a view: the store lists', the on-hand fold's, the ticked. */
+/** Every row of a view: the store lists', the probably-at-home fold's, the ticked. */
 function rowsOf(view: ReturnType<typeof buildShoppingView>): ShoppingRow[] {
   return [
     ...view.stores.flatMap((list) =>
