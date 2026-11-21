@@ -223,18 +223,20 @@ spec'd module; nothing is stored by name, so no reindex.
 
 **Tests.**
 
-- `test/shoppingConsolidate.test.ts` (new, 25): the table's keys and
+- `test/shoppingConsolidate.test.ts` (new, 27): the table's keys and
   exclusions; `mergeIdOf` and the lenient parse; `consolidateAmounts`; the
   finder — Roger's example, cups + grams → ≈, scale, bread flour never,
   one-name rows, garlic cloves, apart suppression and re-asking, a merged
   row plus a third name, ticked and merge-off, ordering; the view — one row
   with both rows' ids and sources, the rule on a later list, one name alone,
   an edited name, an edited amount held then stale, ≈ and a partly ticked
-  row, routing by the merged name, merge off and apart.
-- `test/shopping.test.ts`: seven seat cases (write, read and split, one
+  row, an edited amount on a partly ticked row, quantities off, routing
+  by the merged name, merge off and apart.
+- `test/shopping.test.ts`: eight seat cases (write, read and split, one
   commit each and the file shape; edited name and amount with server-side
   ids; the same answer twice commits once; keep apart then split; a wider
-  merge absorbing the old file in one commit; name ticks; refusals), and
+  merge absorbing the old file in one commit; a growing merge keeping its
+  name and note; name ticks; refusals), and
   the boundary extended.
 - `test/cliJson.test.ts`: `shopping --json` answers `merges` and
   `proposals`; a new case runs `shopping merges` (JSON and text), `merge
@@ -242,13 +244,50 @@ spec'd module; nothing is stored by name, so no reindex.
 - Playwright `shopping-merge.spec.ts` (new): the proposal with its lines
   and recipes, Merge → one row with "merged from" (commit, status line,
   focus on the heading, held after a reload), Split → two rows and the
-  proposal back; Edit → name and amount, then a third flour line → the sum
+  proposal back, with Split announced and focus on the first restored row;
+  Edit → name and amount, then a third flour line → the sum
   and "your amount was for the old list"; Keep apart hidden after a reload;
   axe (WCAG 2.2 AA) on the panel in Edit and on a merged row; a `@visual`
   baseline of the panel; `@mobile`: Shop's quiet line → Plan → Merge →
   Shop shows one row and no sideways scroll.
 
-**Gates.** _(filled in after the review fixes)_
+**Review** (a read-only agent, before the gates; no blockers). Six
+findings, all fixed in `fac198da`:
+
+1. A merge that grew (a third name joining) dropped the absorbed merge's
+   edited name and note. Merge now carries them, and the proposal shows that
+   name.
+2. A partly ticked row with an edited amount showed the computed remainder
+   in its label beside the override. The override now stands, and the note
+   says "1 of 2 ticked".
+3. Split unmounted the pressed button, so focus fell to `<body>`. Split now
+   says what it did in a status line and puts focus on the first restored
+   row.
+4. Every "Keep apart" had the same accessible name. It now names its
+   proposal.
+5. Proposals showed amounts with the `quantities` switch off. They now
+   follow the switch.
+6. A refused answer left a stale proposal. A refusal now reads the list
+   again.
+
+**Gates** (Docker, production build unless
+said):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: clean.
+- `pnpm exec vitest run`: 195 files, 4,276 tests. Two runs under a load
+  average of 17–24 each timed out one or two 5 s cases in files 49a does
+  not touch (`urlGuard.test.ts`'s source sweep, `editFormRoundTrip.test.tsx`'s
+  typed-label case); both files pass alone (43/43). Every shopping, CLI and
+  consolidation case passed in both runs.
+- Playwright, `shopping.spec`, `shopping-modes.spec`, `shopping-merge.spec`,
+  `accessibility.spec`, `visual.spec`: 131 passed and 1 failed (the new
+  split-focus assertion named the row "all-purpose" where the list says
+  "all purpose"). Fixed, then `shopping-merge.spec` again: 6/6. Dev mode
+  (`next dev`), `shopping-merge.spec`: 6/6.
+- **Baselines:** one new, `shopping-merge.spec.ts/shopping-merge-proposal-e2e.png`
+  (the panel with Roger's flour), drawn in Docker and opened. No existing
+  baseline moved: the fixture's lists hold no pair the table proposes.
 
 ### Roger to confirm
 
