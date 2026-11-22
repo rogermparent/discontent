@@ -6,6 +6,7 @@ import {
   Recipe,
   RecipeSource,
 } from "../controller/types";
+import type { LinkedLineMark } from "./linkedLines";
 import { createIngredient, normalizeIngredientText } from "./parseIngredients";
 import { dropBlankSteps } from "./blankRows";
 import { dropsBareYield, siteLabel } from "./siteNames";
@@ -182,6 +183,12 @@ export interface ImportedRecipe extends Recipe {
    * itself; a step stores a `uses` only when a person accepts it and saves.
    */
   suggestedUses?: SuggestedUses;
+  /**
+   * Lines the import rewrote to link a recipe the page links (50e,
+   * `followLinked`): the form marks each until it is kept or undone; the
+   * saved recipe carries no trace of it.
+   */
+  linkedLines?: LinkedLineMark[];
 }
 
 function createStep({

@@ -120,7 +120,13 @@ export function createIngredient(inputLine: string): Ingredient | undefined {
     );
 
     return {
-      ingredient: multiplyableIngredient,
+      /*
+       * 50e: stored composed (NFC). `normalizeIngredientText` decomposes
+       * (NFKD, for the fractions), which left "purée" as `e` + a combining
+       * accent in every imported and typed line. The readers decompose
+       * again themselves (`readableLine`), so only what is stored changes.
+       */
+      ingredient: multiplyableIngredient.normalize("NFC"),
       ...(isHeading && { type: "heading" }),
     };
   }

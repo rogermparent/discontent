@@ -42,6 +42,8 @@ export const JOB_KIND_NAMES = [
   "edit",
   /* 49b: the shopping list's merges asked of a model (a note, or look for more). */
   "shopping-merge",
+  /* 50e: recipes already here, read again for the recipes they link. */
+  "linked-scan",
 ] as const;
 
 /**

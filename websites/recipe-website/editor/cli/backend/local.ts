@@ -279,6 +279,22 @@ export function createLocalBackend({
         run,
       );
     },
+    /* 50e: a dry run reads pages and writes nothing — no identity then. */
+    async scanLinked(options = {}, run) {
+      if (!options.dryRun) await guard();
+      const { corpusOf } = await import("../../controller/jobs/kinds");
+      return runSeat(
+        {
+          kind: "linked-scan",
+          ...corpusOf(ctx),
+          ...(options.slugs?.length ? { slugs: options.slugs } : {}),
+          ...(options.limit !== undefined ? { limit: options.limit } : {}),
+          ...(options.dryRun ? { dryRun: true } : {}),
+          ...(options.llm ? { llm: options.llm } : {}),
+        },
+        run,
+      );
+    },
     /* 47i: reads the recipe, asks a model, writes nothing — no identity. */
     async reviseRecipe(slug, options, run) {
       const { storedEditSpec } = await import("../../controller/llm/askEdit");

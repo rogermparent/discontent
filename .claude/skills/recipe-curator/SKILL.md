@@ -435,6 +435,39 @@ these edits to the draft:
 - **Description:** one or two sentences in the site's voice; the full
   citation stays in `source`, never in the description.
 
+### Linked recipes: the crust, the sauce, the poached pears
+
+A recipe page often links another recipe it needs — "poach the pears as
+instructed here" on a cake's purée line, Sally's "Flaky Pie Crust" on a pie's
+crust line. `recipe_import` **follows those links by itself** (`linked`
+defaults to `"auto"`): one already imported from that link is linked to, the
+others are imported first as their own recipes (each its own commit), and the
+lines they make are rewritten to link them —
+`"2 cups (600g) [pear puree](/recipe/poached-pears)"` — so the shopping list
+expands them into their ingredients. One no line makes gets a
+`"Uses: [Poached Pears](/recipe/poached-pears)"` note. At most 5 per import,
+one level deep; a link counts when it sits on an ingredient line, a card step
+or note names a line, or a post link says "recipe"; another site only when it
+says "recipe"; "or [crème fraîche]" is an alternative and is left alone.
+
+- **Read the answer's `linked`** and report it: `recipes` (each `existing`,
+  `imported`, `would-import`, `not-a-recipe` or `failed`, with its slug),
+  `lines` (each rewritten line, `from` → `to`) and `skipped` (left alone, and
+  why). A dryRun fetches the linked pages too and writes nothing — say "it
+  would also import Poached Pears".
+- **Tags:** the import's `tags` reach a linked recipe only where its own page
+  says them (a "dessert" category, "pear" in its name). Tag it yourself after,
+  as you would any import.
+- **`linked: "off"`** imports the page's recipe alone — when the person asks
+  for just that one, or a linked page is a different recipe you will import
+  separately with its own name and slug.
+- A linked recipe that `failed` on a slug conflict (another source's recipe
+  holds that slug) is not linked: import it on its own with a `slug` and link
+  the line with `recipe_update` if it belongs.
+
+Recipes already in the collection: the CLI has a scan for them (see the
+fallback section); ask before scanning the whole collection.
+
 ## 6b. A roundup: "40+ Thanksgiving Pies"
 
 A roundup ("meta-list") is a page that lists other recipes — "Top Christmas
@@ -784,6 +817,11 @@ wait and run the same command once more, as with the tool.
   `pnpm --silent recipes import-list <url> --pick 1,3,5-7 [--term <slug> --term-label "L"] [--dry-run] --json`.
   Each CLI run is a new process that forgets the last run's requests, so
   leave **15 s between runs** against one site;
+- `recipe_import {linked: "off"}` → `--linked off`; recipes already here
+  (no tool): `pnpm --silent recipes linked --scan --slug <s> --dry-run --json`
+  reads a recipe's source page again and shows the imports and line links it
+  would make; without `--dry-run` it writes them (one commit per recipe).
+  Local only, one page per site at a time;
 - `recipe_update {slug, patch}` → `pnpm --silent recipes update <slug> --file patch.json --json`;
 - `recipe_set_image` → `pnpm --silent recipes image <slug> --url <image-url> --json`
   (or `--file <path>`, or `--clear`); `term_set_image` →

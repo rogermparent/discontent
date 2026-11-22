@@ -1,6 +1,12 @@
 "use server";
 
-import { startSpec, type JobSpec } from "recipe-editor/controller/jobs/kinds";
+import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
+import { curationContextFor } from "recipe-editor/controller/apiContext";
+import {
+  corpusOf,
+  startSpec,
+  type JobSpec,
+} from "recipe-editor/controller/jobs/kinds";
 import {
   keepUnstored,
   waitUnstored,
@@ -116,7 +122,8 @@ export async function importRecipeAction(
   formData: FormData,
 ): Promise<ImportStartState> {
   const at = Date.now();
-  if (!(await authenticateUser())) {
+  const email = await authenticateUser();
+  if (!email) {
     return { message: "Sign in to import.", at };
   }
   /*
@@ -171,5 +178,19 @@ export async function importRecipeAction(
   if (typeof url !== "string" || !url) {
     return { message: "No URL provided", at };
   }
-  return startFormImport({ kind: "form-url", url, llm: mode }, at);
+  /* 50e: "Follow linked recipes" (on unless unticked): the job may write
+   * the recipes the page links to, so it names the corpus and its author. */
+  const linked = formData.get("linked") === "off" ? "off" : "auto";
+  return startFormImport(
+    {
+      kind: "form-url",
+      url,
+      llm: mode,
+      linked,
+      ...(linked === "off"
+        ? {}
+        : corpusOf(curationContextFor(email, getContentDirectory()))),
+    },
+    at,
+  );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import type { LinkedLineMark } from "../../../util/linkedLines";
 import {
   Fragment,
   useId,
@@ -242,11 +243,18 @@ function IngredientRow({
   tieChoices = [],
   renamed,
   onTie,
+  linkMark,
+  onKeepLink,
+  onUndoLink,
 }: {
   index: number;
   count: number;
   line: Ingredient;
   sourceUrl?: string;
+  /** 50e: the import linked this line to a recipe its page links. */
+  linkMark?: LinkedLineMark;
+  onKeepLink?: (mark: LinkedLineMark) => void;
+  onUndoLink?: (mark: LinkedLineMark) => void;
   /** A heading's tie to an option of a set (45e2), when the recipe has sets. */
   tie?: HeadingTie;
   tieChoices?: TieOption[];
@@ -366,7 +374,7 @@ function IngredientRow({
       className={cn(
         "border-b border-border",
         heading ? "pt-3 pb-1.5" : "",
-        flags.length ? "pb-2.5" : "",
+        flags.length || linkMark ? "pb-2.5" : "",
       )}
       data-testid="ingredient-row"
       data-heading={heading ? "true" : undefined}
@@ -449,6 +457,49 @@ function IngredientRow({
           renamed={renamed}
           onTie={onTie}
         />
+      ) : null}
+      {linkMark ? (
+        <div
+          className="mt-1 flex flex-col gap-1.5 border-l-2 border-warning pl-2 text-sm sm:ml-[1.875rem]"
+          data-testid="linked-line-mark"
+        >
+          <p>
+            The import linked this line to{" "}
+            <a
+              href={`/recipe/${encodeURIComponent(linkMark.slug)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2"
+            >
+              {linkMark.name}
+            </a>{" "}
+            —{" "}
+            {linkMark.how === "link"
+              ? "the page links it here"
+              : "the line names what it makes"}
+            . It read “{plainLine(linkMark.before)}”.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="max-sm:h-11"
+              aria-label={`Keep the link on ingredient ${number}`}
+              onClick={() => onKeepLink?.(linkMark)}
+            >
+              Keep the link
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="max-sm:h-11"
+              aria-label={`Undo the link on ingredient ${number}`}
+              onClick={() => onUndoLink?.(linkMark)}
+            >
+              Undo
+            </Button>
+          </div>
+        </div>
       ) : null}
       {flags.includes("note-mark") ? (
         <p
@@ -638,6 +689,7 @@ export function IngredientsSection({
   from,
   sourceUrl,
   errors,
+  linked = [],
 }: {
   /** "from the page", after an import. */
   from?: string;
@@ -645,6 +697,12 @@ export function IngredientsSection({
   sourceUrl?: string;
   /** A refused save's problems with the list (45d). */
   errors?: string[];
+  /**
+   * 50e: lines the import rewrote to link a recipe its page links — each
+   * marked until it is kept or undone (an import's change is looked at
+   * before Save).
+   */
+  linked?: readonly LinkedLineMark[];
 }) {
   const form = useRecipeForm();
   const lines = useStore(form.store, (state) => state.values.ingredients);
@@ -687,6 +745,15 @@ export function IngredientsSection({
   const renamedNote = (index: number): string | undefined => {
     const from = renamedFrom(index);
     return from === undefined ? undefined : plainLine(from);
+  };
+  /* 50e: a linked line stays marked while it holds what the import wrote
+   * and nobody kept it; an edit, Keep or Undo takes the mark away. */
+  const [keptLinks, setKeptLinks] = useState<readonly string[]>([]);
+  const linkMarkOf = (index: number): LinkedLineMark | undefined => {
+    const stored = lines[index]?.ingredient;
+    return linked.find(
+      (mark) => mark.after === stored && !keptLinks.includes(mark.after),
+    );
   };
 
   const aside: ReactNode = (
@@ -778,6 +845,16 @@ export function IngredientsSection({
                     setLines(next);
                   }}
                   onRemove={() => setLines(lines.filter((_, i) => i !== index))}
+                  linkMark={linkMarkOf(index)}
+                  onKeepLink={(mark) =>
+                    setKeptLinks((old) => [...old, mark.after])
+                  }
+                  onUndoLink={(mark) =>
+                    setLine(index, (old) => ({
+                      ...old,
+                      ingredient: mark.before,
+                    }))
+                  }
                   tie={ties.get(index)}
                   tieChoices={tieChoices}
                   renamed={renamedNote(index)}
