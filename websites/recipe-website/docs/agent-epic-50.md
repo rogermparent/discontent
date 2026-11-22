@@ -640,6 +640,29 @@ findings, five taken in the second commit:
 6. The spec's salt assertion could pass on "sea salt" alone: it counts
    the two rows in the aisle.
 
+**Gates** (2026-11-21, through the heavy slot; Docker, production build
+unless said):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter
+recipe-website exec tsc --noEmit`: clean.
+- `pnpm exec vitest run`: 198 files, 4,361 tests — 4,355 passed, 6
+  failed: four this phase's (`aisles`, `jobs`, `shoppingView` following
+  the `check` aisle and the new kind; `urlGuard`'s fetch sweep finding
+  Ollama's model list outside `client.ts`), fixed in the second commit,
+  and two known 5 s timing cases (`urlGuard`'s source sweep,
+  `editFormRoundTrip`'s typed label, 49b/49c's). The nine touched files
+  again, alone: 266 of 268, the same two timing cases.
+- Playwright `shopping-tidy`, `shopping-ask`, `shopping`,
+  `shopping-layers`, `shopping-modes`, `shopping-merge`, `accessibility`
+  (e2e + mobile): **115/115**, first run. `shopping-tidy.spec` in `next
+dev` (Docker): **fails** — the run's job stays live past 30 s and the
+  panel keeps "Tidying…" (twice: with the action's long-poll, and with the
+  job store's `GET ?job=`), so the job itself does not end under `next
+dev`; not yet diagnosed (Tb4).
+- **Baselines: none moved, none new** (the suite pins the model off, so
+  the page draws no tidy panel).
+- No dependency or Next-config change, so no main-checkout-shaped build.
+
 ### Roger to confirm
 
 1. **qwen3:8b, not thinking, is the default** (Db8): 45 s a run, 3 of the
@@ -679,6 +702,12 @@ findings, five taken in the second commit:
 - **Tb2 — a count's added amount is not pluralised**: "+5" on "1 firm
   pear" reads "6 firm pear" (an amount set by a layer keeps the name as
   the row has it, as 49a's edited amounts do).
+- **Tb4 — open: under `next dev` a stand-in tidy run never ends** (both
+  spec cases, every retry), while the production build passes. Suspects
+  to check first: the streamed request (`TIDY_TIMEOUT_MS` > 240 s sets
+  `stream: true`, and the stand-in answers one JSON body), the dynamic
+  imports of the seat inside the job, or the GPU line in the job's
+  resources.
 - **Tb3 — the scorer's first merge rule counted a 23-row merge** as three
   golden cards; a golden merge is at most four rows now. Read the
   scorer's calls by eye.
