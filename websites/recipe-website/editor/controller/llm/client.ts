@@ -685,6 +685,49 @@ export function endpoint(config: LlmConfig): string {
  * A request as the server takes it. `schema` undefined is `chatText`'s
  * free answer (38e): no `format` / `response_format` at all.
  */
+/**
+ * 50b (Tb1): Node's `fetch` stops waiting for a response's headers after
+ * 300 s (undici's `headersTimeout`) and says only "fetch failed". A call
+ * allowed longer than this asks Ollama to stream, so the headers come at
+ * once; the chunks are put back together as one answer (`joinStream`).
+ */
+export const STREAM_AFTER_MS = 240_000;
+
+function streams(request: ChatRequest, config: LlmConfig): boolean {
+  return (
+    config.api === "ollama" &&
+    (request.timeoutMs ?? LLM_TIMEOUT_MS) > STREAM_AFTER_MS
+  );
+}
+
+/**
+ * Ollama's streamed chat (NDJSON) as the one body a non-streamed call
+ * answers: the last chunk's counts, and every chunk's content and
+ * thinking joined.
+ */
+export function joinStream(text: string): Record<string, unknown> {
+  let content = "";
+  let thinking = "";
+  let last: Record<string, unknown> = {};
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    const chunk = JSON.parse(line) as Record<string, unknown>;
+    const message = chunk.message as
+      { content?: unknown; thinking?: unknown } | undefined;
+    if (typeof message?.content === "string") content += message.content;
+    if (typeof message?.thinking === "string") thinking += message.thinking;
+    last = chunk;
+  }
+  return {
+    ...last,
+    message: {
+      role: "assistant",
+      content,
+      ...(thinking ? { thinking } : {}),
+    },
+  };
+}
+
 function requestBody(request: ChatRequest, config: LlmConfig) {
   const images = request.images ?? [];
   if (config.api === "ollama") {
@@ -701,7 +744,7 @@ function requestBody(request: ChatRequest, config: LlmConfig) {
         },
       ],
       ...(request.schema ? { format: request.schema } : {}),
-      stream: false,
+      stream: streams(request, config),
       think: request.think === true,
       keep_alive: LLM_KEEP_ALIVE,
       options: { num_ctx: sentNumCtx(request), temperature: 0 },
@@ -1183,7 +1226,11 @@ async function postLocalOnce(
       }
       throw failed;
     }
-    const parsed: unknown = await response.json();
+    const parsed: unknown = /ndjson/i.test(
+      response.headers.get("content-type") ?? "",
+    )
+      ? joinStream(await response.text())
+      : await response.json();
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new LlmError(
         "bad_json",

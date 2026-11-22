@@ -205,6 +205,14 @@ export function normalizeShoppingSettings(raw: unknown): ShoppingSettings {
     }
   }
   for (const aisle of AISLES) if (!order.includes(aisle)) order.push(aisle);
+  /* 50b (Db7): a stored order from before `check` keeps it first. */
+  if (
+    Array.isArray(source.aisleOrder) &&
+    !source.aisleOrder.includes("check")
+  ) {
+    order.splice(order.indexOf("check"), 1);
+    order.unshift("check");
+  }
 
   let stores: ShoppingStore[] = [];
   if (Array.isArray(source.stores)) {

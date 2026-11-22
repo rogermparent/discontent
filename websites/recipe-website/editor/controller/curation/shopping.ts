@@ -87,6 +87,16 @@ import {
 } from "recipe-website-common/util/shoppingLayers";
 import { listLayers } from "recipe-website-common/util/shoppingChanges";
 import {
+  TIDY_RUN_ID_PATTERN,
+  parseTidyRun,
+  runIdOfSuggestion,
+  serializeTidyRun,
+  sortTidyRuns,
+  tidyStatusOf,
+  type TidyRun,
+  type TidySuggestion,
+} from "recipe-website-common/util/shoppingTidy";
+import {
   buildShoppingView,
   formatShoppingText,
   itemsForSubRecipe,
@@ -140,6 +150,14 @@ export const SHOPPING_LAYERS_DIRECTORY = path.join(
   SHOPPING_DIRECTORY,
   "layers",
 );
+/**
+ * 50b (Db5): this list's "Tidy with the model" runs, one file per run,
+ * `<ulid>.json` — kept, newest first, so a later run never loses an
+ * earlier one.
+ */
+export const SHOPPING_TIDY_DIRECTORY = path.join(SHOPPING_DIRECTORY, "tidy");
+/** 50b: runs a list keeps; the oldest goes in the commit that adds one more. */
+export const MAX_TIDY_RUNS = 100;
 /** 50a: the rules for every list (leave-off), one file per rule, `<id>.json`. */
 export const SHOPPING_RULES_DIRECTORY = path.join(SHOPPING_DIRECTORY, "rules");
 /**
@@ -150,6 +168,7 @@ export const SHOPPING_RULES_DIRECTORY = path.join(SHOPPING_DIRECTORY, "rules");
 export const SHOPPING_LIST_PATHS = {
   items: SHOPPING_ITEMS_DIRECTORY,
   layers: SHOPPING_LAYERS_DIRECTORY,
+  tidy: SHOPPING_TIDY_DIRECTORY,
 } as const;
 export const SHOPPING_RULE_PATHS = {
   merges: SHOPPING_MERGES_DIRECTORY,
@@ -1883,5 +1902,234 @@ export async function setShoppingLeaveOff(
       `Update shopping list: ${verb}`,
     );
     return { rules: await readShoppingRules(ctx), changed: true, rule };
+  });
+}
+
+// --- 50b: tidy runs ----------------------------------------------------------
+
+function tidyFile(id: string): string {
+  return path.join(SHOPPING_LIST_PATHS.tidy, `${id}.json`);
+}
+
+/** 50b: this list's tidy runs, newest first. */
+export async function readTidyRuns(ctx: CurationContext): Promise<TidyRun[]> {
+  return sortTidyRuns(
+    await readRecords(
+      ctx,
+      SHOPPING_LIST_PATHS.tidy,
+      /^([0-9a-hjkmnp-tv-z]{26})\.json$/,
+      parseTidyRun,
+    ),
+  );
+}
+
+/** 50b: one run, or `not_found`. */
+export async function readTidyRun(
+  ctx: CurationContext,
+  id: string,
+): Promise<TidyRun> {
+  const runId = id.trim().toLowerCase();
+  const run = TIDY_RUN_ID_PATTERN.test(runId)
+    ? (await readTidyRuns(ctx)).find((each) => each.id === runId)
+    : undefined;
+  if (!run) {
+    throw new NotFoundError(
+      `No tidy run "${id}" on the shopping list. \`shopping suggestions\` lists the latest.`,
+    );
+  }
+  return run;
+}
+
+function tidyModelText(run: TidyRun): string {
+  return run.model;
+}
+
+/**
+ * 50b (Db5): keep a run — one commit, "Update shopping list: tidy with
+ * qwen3:8b: 7 suggestions". The oldest run goes in the same commit past
+ * `MAX_TIDY_RUNS`.
+ */
+export async function writeTidyRun(
+  ctx: CurationContext,
+  run: TidyRun,
+): Promise<TidyRun> {
+  if (!TIDY_RUN_ID_PATTERN.test(run.id)) {
+    throw new ValidationError(`A tidy run's id is a ULID, not "${run.id}".`);
+  }
+  return withWriteLock(ctx.contentDirectory, "shopping: tidy", async () => {
+    await assertNoMergeInProgress(ctx.contentDirectory);
+    const runs = await readTidyRuns(ctx);
+    const others = runs.filter((each) => each.id !== run.id);
+    const dropped = others.slice(MAX_TIDY_RUNS - 1);
+    const n = run.suggestions.length;
+    await applyFiles(
+      ctx,
+      [
+        { relative: tidyFile(run.id), bytes: serializeTidyRun(run) },
+        ...dropped.map((each) => ({
+          relative: tidyFile(each.id),
+          bytes: null,
+        })),
+      ],
+      `Update shopping list: tidy with ${tidyModelText(run)} (${run.on}): ${n === 1 ? "1 suggestion" : `${n} suggestions`}`,
+    );
+    return run;
+  });
+}
+
+/** The run and suggestion a suggestion id names, or `not_found`. */
+function findSuggestion(
+  runs: readonly TidyRun[],
+  id: string,
+): { run: TidyRun; suggestion: TidySuggestion } {
+  const wanted = id.trim().toLowerCase();
+  const runId = runIdOfSuggestion(wanted);
+  const run = runId ? runs.find((each) => each.id === runId) : undefined;
+  const suggestion = run?.suggestions.find((each) => each.id === wanted);
+  if (!run || !suggestion) {
+    throw new NotFoundError(
+      `No suggestion "${id}" on the shopping list. \`shopping suggestions\` lists them.`,
+    );
+  }
+  return { run, suggestion };
+}
+
+export interface TidyDecisionResult {
+  run: TidyRun;
+  suggestion: TidySuggestion;
+  changed: boolean;
+  /** Accept: the layer written. */
+  layer?: ShoppingLayer;
+}
+
+/**
+ * 50b (Db5): **Accept** writes the suggestion as one layer of this list
+ * (`from` its id, `by` the run's model, the title as its reason) and marks
+ * it accepted; **Skip** marks it skipped — each one commit. A suggestion
+ * already decided answers unchanged; a stale one (an item has left the
+ * list) is refused.
+ */
+export async function decideTidySuggestion(
+  ctx: CurationContext,
+  id: string,
+  action: "accept" | "skip",
+): Promise<TidyDecisionResult> {
+  return withWriteLock(ctx.contentDirectory, "shopping: tidy", async () => {
+    await assertNoMergeInProgress(ctx.contentDirectory);
+    const [runs, items, layers] = await Promise.all([
+      readTidyRuns(ctx),
+      readShoppingItems(ctx),
+      readShoppingLayers(ctx),
+    ]);
+    const { run, suggestion } = findSuggestion(runs, id);
+    const present = new Set(items.map((item) => item.id));
+    const status = tidyStatusOf(run, suggestion, present);
+    const wanted = action === "accept" ? "accepted" : "skipped";
+    if (status === wanted) return { run, suggestion, changed: false };
+    if (status === "accepted") {
+      throw new ValidationError(
+        `"${suggestion.title}" is accepted already: turn its change off or remove it in Changes.`,
+      );
+    }
+    if (status === "stale" && action === "accept") {
+      throw new ValidationError(
+        `"${suggestion.title}" names lines no longer on the list: run Tidy again.`,
+      );
+    }
+    const at = new Date().toISOString();
+    if (action === "skip") {
+      const next: TidyRun = {
+        ...run,
+        status: { ...run.status, [suggestion.id]: { status: "skipped", at } },
+      };
+      await applyFiles(
+        ctx,
+        [{ relative: tidyFile(run.id), bytes: serializeTidyRun(next) }],
+        `Update shopping list: skip: ${suggestion.title}`,
+      );
+      return { run: next, suggestion, changed: true };
+    }
+    if (layers.length >= MAX_SHOPPING_LAYERS) {
+      throw new ValidationError(
+        `The list holds at most ${MAX_SHOPPING_LAYERS} changes: remove some first.`,
+      );
+    }
+    /* The seat's own check on a layer, as a person's would be (Da2). */
+    const input = parseInput(ShoppingLayerAddSchema, {
+      ops: suggestion.ops,
+      reason: suggestion.title.slice(0, 300),
+      by: { kind: "model", model: run.model },
+      from: suggestion.id,
+    });
+    const layerId = newId();
+    const layer = parseShoppingLayer(
+      {
+        id: layerId,
+        ops: input.ops,
+        reason: input.reason,
+        by: input.by,
+        at,
+        on: true,
+        from: input.from,
+      },
+      layerId,
+    );
+    if (!layer || layer.ops.length !== input.ops.length) {
+      throw new ValidationError(
+        `"${suggestion.title}" does not read back as a change: skip it.`,
+      );
+    }
+    const next: TidyRun = {
+      ...run,
+      status: {
+        ...run.status,
+        [suggestion.id]: { status: "accepted", at, layer: layerId },
+      },
+    };
+    await applyFiles(
+      ctx,
+      [
+        { relative: layerFile(layerId), bytes: serializeLayer(layer) },
+        { relative: tidyFile(run.id), bytes: serializeTidyRun(next) },
+      ],
+      `Update shopping list: accept: ${suggestion.title} (${run.model})`,
+    );
+    return { run: next, suggestion, changed: true, layer };
+  });
+}
+
+/**
+ * 50b (Db6): a card asked again with a note — its answer takes the old
+ * suggestion's place (same id, `revised`), pending again; one commit.
+ * Refused once it is accepted.
+ */
+export async function reviseTidySuggestion(
+  ctx: CurationContext,
+  revised: TidySuggestion,
+): Promise<TidyRun> {
+  return withWriteLock(ctx.contentDirectory, "shopping: tidy", async () => {
+    await assertNoMergeInProgress(ctx.contentDirectory);
+    const runs = await readTidyRuns(ctx);
+    const { run, suggestion } = findSuggestion(runs, revised.id);
+    if (run.status[suggestion.id]?.status === "accepted") {
+      throw new ValidationError(
+        `"${suggestion.title}" was accepted while the model was asked: turn its change off first.`,
+      );
+    }
+    const { [suggestion.id]: _old, ...status } = run.status;
+    void _old;
+    const next: TidyRun = {
+      ...run,
+      suggestions: run.suggestions.map((each) =>
+        each.id === suggestion.id ? revised : each,
+      ),
+      status,
+    };
+    await applyFiles(
+      ctx,
+      [{ relative: tidyFile(run.id), bytes: serializeTidyRun(next) }],
+      `Update shopping list: revise: ${suggestion.title} → ${revised.title}`,
+    );
+    return next;
   });
 }

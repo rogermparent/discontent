@@ -16,8 +16,15 @@
 import { fold } from "../components/SearchForm/queryLanguage";
 import { singular } from "./ingredientNames";
 
-/** The aisles, in the order a list prints them. */
+/**
+ * The aisles, in the order a list prints them. 50b (Db7): `check` — "Check
+ * at home first" — is no aisle of a shop: nothing routes there by name, and
+ * only a layer's `aisle` op (the model's "you probably have these", or a
+ * person's move) puts a row in it, at the top so the cupboard comes before
+ * the store.
+ */
 export const AISLES = [
+  "check",
   "produce",
   "meat-fish",
   "dairy-eggs",
@@ -31,6 +38,7 @@ export const AISLES = [
 export type Aisle = (typeof AISLES)[number];
 
 export const AISLE_LABELS: Record<Aisle, string> = {
+  check: "Check at home first",
   produce: "Produce",
   "meat-fish": "Meat & fish",
   "dairy-eggs": "Dairy & eggs",

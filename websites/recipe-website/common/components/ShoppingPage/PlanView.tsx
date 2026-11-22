@@ -23,6 +23,7 @@ import type {
 } from "../../util/shoppingView";
 import { MergeProposals } from "./MergeProposals";
 import { AsWrittenSwitch, ChangesPanel, LeftOffPanel } from "./Layers";
+import { TidyPanel, type ShoppingTidySurface } from "./Tidy";
 import {
   AddBox,
   ClearChecked,
@@ -357,6 +358,7 @@ export function PlanView({
   subRecipes,
   proposals,
   asker,
+  tidy,
   handlers,
   store,
   setStore,
@@ -377,6 +379,8 @@ export function PlanView({
   proposals: ShoppingProposal[];
   /** 49b: the model's asks, where the editor has a model. */
   asker?: ShoppingAsker;
+  /** 50b: "Tidy with the model", where the editor has a model. */
+  tidy?: ShoppingTidySurface;
   handlers: RowHandlers;
   store: string;
   setStore(store: string): void;
@@ -461,6 +465,7 @@ export function PlanView({
             asker={asker}
             view={fullView}
           />
+          {tidy && list.canLayer && <TidyPanel tidy={tidy} list={list} />}
           <ChangesPanel list={list} />
           {origins.length > 0 && (
             <Origins origins={origins} view={fullView} list={list} />

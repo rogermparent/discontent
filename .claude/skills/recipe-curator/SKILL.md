@@ -721,6 +721,12 @@ shopping_remove {"recipe": "chili"}
   list (`{layer, ops, text, stale}`). A changed row carries `changes` (what
   changed it, who, why) and `asWritten`. Read them back when asked; changing
   them is Roger's, on `/shopping`.
+- **"Did the model suggest anything for the list?"** — `shopping_get`'s
+  `tidy` is the latest "Tidy with the model" run's pending suggestions
+  (`{id, kind, title, reason, text, warnings}`: leave off what a step makes,
+  fry in the oil already bought, store sizes, check at home first). Read
+  them back with their warnings; accepting or skipping one is Roger's, on
+  `/shopping` or with `pnpm recipes shopping accept <id>`.
 
 Never empty the list or change its settings: clearing what was bought and
 switching features are Roger's, on the `/shopping` page. Ticking is not

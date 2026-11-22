@@ -20,7 +20,10 @@ import { readInventory } from "recipe-editor/controller/curation/inventory";
 import {
   readShopping,
   readShoppingPlanNames,
+  readTidyRuns,
 } from "recipe-editor/controller/curation/shopping";
+import { readTidyModels } from "recipe-editor/controller/llm/shoppingTidy";
+import { tidyRunView } from "recipe-website-common/util/shoppingTidy";
 import { editModels } from "recipe-editor/controller/llm/askEdit";
 import { readerLabel } from "recipe-editor/controller/llm/readerLabel";
 import ShoppingWithModel from "./ShoppingWithModel";
@@ -45,7 +48,11 @@ export default async function ShoppingListPage() {
   const ctx = { contentDirectory: getContentDirectory() };
   const [{ items, settings, merges, layers, rules }, inventory] =
     await Promise.all([readShopping(ctx), readInventory(ctx)]);
-  const plans = await readShoppingPlanNames(ctx, items);
+  const [plans, tidyModels, tidyRuns] = await Promise.all([
+    readShoppingPlanNames(ctx, items),
+    readTidyModels(),
+    readTidyRuns(ctx),
+  ]);
   const models = editModels();
   return (
     <PageMain>
@@ -73,6 +80,8 @@ export default async function ShoppingListPage() {
             leaveOff: setShoppingListLeaveOff,
           }}
           patchUrl="/api/shopping"
+          tidyModels={tidyModels.choices}
+          {...(tidyRuns[0] ? { tidyRun: tidyRunView(tidyRuns[0], items) } : {})}
           models={{
             ...(models.local ? { local: readerLabel(models.local) } : {}),
             ...(models.claude ? { claude: readerLabel(models.claude) } : {}),

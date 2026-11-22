@@ -366,3 +366,296 @@ potato` as `potato`, `sprinkle` as `sprinkles`: an `aisleOverrides` or
 - **Ta2 — the boundary test greps `common/` for the list's directories.**
   `shoppingLayers.ts` and `shoppingChanges.ts` say "this list's layers",
   never the path (as 49b's Tb4).
+
+## 50b — "Tidy with the model": judgement calls, any model, kept runs (L)
+
+Roger's answers on the mock-up (all OK): one card at a time with Accept the
+rest (50c); built-in fixes apply without a card; store sizes wanted; "check
+at home first" is a section, not a drop; a change belongs to its list
+("Always do this" is 50c's rule); saved lists are 50d's; qwen3:8b by
+default, 14b measured, Claude on the Pi — "make it easily selectable … run
+3:14b or Claude against the original or iterate on these results".
+
+### Decisions
+
+- **Db1 — A run is a `shopping-tidy` job** (the 37 store, its step log,
+  `llm.tidy` "Model tidies the list"), its spec a snapshot (47i's Di2):
+  - **Rows**: 50a's `promptRowsOf` over the list composed `on` —
+    `current` (rules and this list's layers) or `original` (the items and
+    the rules only: 49a's merges, leave-off) — with sources on whatever the
+    page's switch says, numbered from 1. Each row is one line: `N. <label>
+[<aisle>, optional] ← <line> (<recipe>); …`.
+  - **Steps, trimmed**: every recipe behind the items, the sub-recipes
+    (38d's `for` slugs) too, split into sentences; a sentence is kept when
+    it bears on buying (`STEP_CUE`: reserve, poach, fry, deep / depth,
+    optional, if desired / if you want, garnish, decorate, dust, toss,
+    sprinkle, brush, liquid, store-bought / homemade, substitute, instead,
+    or use), at most 900 characters a recipe. On Roger's list: 8
+    sentences of 3 recipes (the poaching liquid twice, the frying depth,
+    the cinnamon-sugar toss, the flour for dusting).
+  - **Told**: on `current`, the titles of accepted suggestions whose layer
+    is on ("Done already"); on both, every suggestion a person skipped
+    that still names an item on the list, with its rows and ops ("do not
+    suggest these again", Db5).
+- **Db2 — The model is picked per run** (`tidyModels`, `GET
+/api/shopping/tidy/models`): `{models: [{id, words, name, api,
+default?}], unavailable: [{id, words, why}]}` — 48-close #12's shape.
+  Ids: the local default `RECIPE_LLM_MODEL` (qwen3:8b), each Ollama model
+  in `RECIPE_LLM_TIDY_MODELS` (comma or space separated; one Ollama's
+  `/api/tags` does not list is unavailable, "Not installed here: `ollama
+pull …` to offer it"), and `claude` when `RECIPE_LLM_CLAUDE_API_KEY` (or
+  `RECIPE_LLM_API=anthropic`) is set ("Not set up here: add
+  RECIPE_LLM_CLAUDE_API_KEY to this editor's editor/.env to offer it"
+  otherwise). The default is `RECIPE_LLM_TIDY_MODEL` when it names an
+  offered choice, else the first (the local default; Claude on the Pi).
+  Never a key or a URL. A run names its choice (`choice`), so "run it
+  again" and a card's note reuse it.
+- **Db3 — The model's ops, and the code's arithmetic.** The answer is
+  `{suggestions: [{kind, title, reason, ops: [{op, rows, text}],
+confidence}]}` (a JSON schema, so Ollama's grammar and Claude's
+  structured output hold it). `op` is one of `drop` (text: why) · `add`
+  (text: only the extra amount) · `merge` (text: a name or "") · `rename`
+  · `package` (one row; the store size, no name) · `check` · `note` ·
+  `unit` (one of 49c's `ASKABLE_UNITS`), turned into 50a's ops on item
+  ids: drop → `drop`, add → **`amount {add}`** (new in 50a's vocabulary),
+  merge → `merge`, rename → `rename`, package → `amount {amount}` plus a
+  `note` "≈ 2⅜ cups needed" the code writes from the row, check → `aisle
+check`, note → `note`, unit → `amount {unit}`.
+  - **`amount {add}`** is summed by the list on every read
+    (`amountPlus`): over an earlier layer's amount, else the lines' sum
+    through the name's density, written as the list writes amounts ("1
+    cup" + "2½ qt" → "11 cups"; "1½ tsp" + "1 tbsp" → "1½ tbsp"); a delta
+    it can't read is a skipped step that says so. So the frying oil
+    follows the list when the bars' cup changes.
+  - **Store sizes** are the one model-written label: the package is the
+    row's amount, the needed amount stays under the row as a note, and the
+    card says "Package size is the model's guess". A package that is the
+    amount the list says already ("8 oz" for 8 oz) is no change.
+- **Db4 — The check is structural** (`checkTidyAnswer`). A suggestion is
+  left out — a sentence under "Left out by the check" — only when it names
+  a row not on the list, changes a row an earlier op of the same
+  suggestion left off, has a malformed op (no rows, an op the list has no
+  word for, a merge of one row, an empty name or note, a package for
+  several rows), an amount, delta or package with no number the list
+  reads, a unit the list can't give, more than 20 ops, or a leave-off
+  without a reason. 49c's judgements are **warnings** on the card: a
+  known-different pair ("49's rules keep leavening apart (baking powder and
+  baking soda)"), more than three rows ("Merges 4 rows; 49's check took at
+  most 3"), two names neither of which is the other with words in front,
+  and a lone leave-off of a line a recipe needs ("Leaves off vegetable
+  oil, which a recipe needs, with nothing else on the list for it"). A
+  suggestion with the same ops as one skipped before, or made earlier in
+  the answer, is left out ("repeats a suggestion skipped or made
+  already").
+- **Db5 — Runs are kept**, one file per run, `shopping/tidy/<ulid>.json`
+  (`SHOPPING_LIST_PATHS.tidy`, so 50d moves them with the list): `{id,
+model, choice, on, at, think, durationMs, promptTokens, outputTokens,
+costEstimateUsd?, suggestions, status, leftOut, rows}` — `rows` the
+  numbered rows the model read, for the record and 50c's cards. A
+  suggestion's id is `<run id>-<n>`. One commit a run ("Update shopping
+  list: tidy with qwen3:8b (current): 7 suggestions"); the oldest goes past
+  100 runs, in the same commit.
+  - **Accept** writes the suggestion as one layer — its ops, its title as
+    the reason, `by: {kind: "model", model}`, `from: <suggestion id>` —
+    through the seat's own layer schema, and marks it `accepted` with the
+    layer's id, **in one commit** ("… accept: Make the cinnamon sugar
+    (qwen3:8b)"). **Skip** marks it `skipped` ("… skip: …"). Doing either
+    again changes nothing; Skip of an accepted one is refused (turn its change off in Changes).
+  - **Stale** is worked out on read, never stored: a pending suggestion
+    any of whose items has left the list; Accept refuses it ("run Tidy
+    again"). Runs stay through Clear all (their suggestions go stale).
+  - **Iterating**: a run `on: "current"` reads the accepted layers (they
+    are in the rows) and is told what was done and skipped; an `original`
+    run reads neither layers nor "done", only what was skipped.
+- **Db6 — A note on a card** (`POST …/suggestions/<id>/ask {note,
+model?}`, `shopping ask <suggestion-id> --note`): a `shopping-tidy` job
+  (`task: "revise"`) over the run's list now, on the run's choice or the
+  one named, with the earlier suggestion and the note; its first checked
+  suggestion takes the card's place with the same id, `revised: {note, at,
+model}`, pending again (one commit, "… revise: <old title> → <new
+  title>"). Refused once the card is accepted; a failed or empty answer
+  leaves the card as it was.
+- **Db7 — "Look for more" is replaced; the note ask stays.** The page's
+  "Look for more with the model" button and `shopping find-merges` are
+  gone (the command says what replaced it); the tidy run looks at the
+  whole list instead. 49b's note on a proposal or a merged row stays: it
+  answers a question about a **name rule for every list** (49a's merges),
+  where a tidy card's note answers a call on **this list** — not the same
+  thing twice. The API's `task: "find"` stays for an older CLI with
+  `--remote` (Roger to confirm 6).
+  - **`check` is an aisle**, "Check at home first", first in `AISLES`
+    and kept first in a stored order from before it; nothing routes to it
+    by name, only an `aisle` op (a tidy card's, or a person's move).
+- **Db8 — Context, thinking and time** (measured below):
+  `TIDY_TIMEOUT_MS` (10 min, the model's load included) is its own;
+  `num_ctx` is the smallest 40a step holding the prompt (3 characters a
+  token), `TIDY_ANSWER_TOKENS` and, thinking, `TIDY_THINK_TOKENS`
+  (`tidyContext`); a list too long for 12,288 is refused, not chunked —
+  one call sees the whole list, since the judgement needs it (the
+  cinnamon sugar uses the list's sugar). `RECIPE_LLM_TIDY_THINK=0` turns
+  thinking off.
+  - **Tb1's fix**: a call allowed past 240 s (`STREAM_AFTER_MS`) asks
+    Ollama to stream, and the chunks are joined into one answer
+    (`joinStream`) — Node's `fetch` gives up on headers at 300 s.
+- **Db9 — Surfaces.** HTTP: `GET /api/shopping/tidy/models`; `POST
+/api/shopping/tidy {model?, on?, dryRun?, wait?}` (202 `{job, stored}`,
+  or the result with `wait`) and `GET ?job=`; `GET
+/api/shopping/tidy/runs[?limit]` and `…/runs/<id>` (each suggestion's
+  status now, its ops in words, counts); `POST
+/api/shopping/tidy/suggestions/<id>/accept|skip|ask`. CLI: `shopping
+tidy [--model m] [--original] [--wait] [--dry-run]`, `shopping
+tidy-models`, `shopping suggestions [--run id] [--all]`, `shopping
+accept|skip <id>`, `shopping ask <suggestion-id> --note "…" [--model
+m]`. MCP: `shopping_get` answers `tidy` — the latest run's pending
+  suggestions `{run, model, on, suggestions: [{id, kind, title, reason,
+text, warnings}]}` — and no new tool (59 / 45); the skill's 8b says
+  so. The page (Plan, minimal — 50c replaces it): "Tidy with the model"
+  with a Model select (unavailable ones disabled, with why), "Read: the
+  current list / the original", the pending suggestions with Accept and
+  Skip, and "Left out by the check (N)". Accepted ones show in Changes.
+
+### Results
+
+**What changed.**
+
+- `common/util/shoppingTidy.ts` (new, pure): the kinds and their words,
+  the suggestion, run and model-choice types, `tidyStatusOf` (stale on
+  read), `tidyRunView`, `parseTidyRun` / `serializeTidyRun`,
+  `skippedSuggestions`, the job's result type.
+- `editor/controller/llm/shoppingTidy.ts` (new): `tidyModels` /
+  `readTidyModels` / `tidyConfigFor`, `trimSteps`, `tidyRowsOf`,
+  `storedTidySpec` / `storedTidyAskSpec`, the prompts, `tidyThinks`,
+  `tidyContext`, `runShoppingTidy`. `shoppingTidyCheck.ts` (new): the JSON
+  schema and `checkTidyAnswer`.
+- 50a's vocabulary: `amount {add}` (`shoppingLayers.ts`, the seat's
+  schema, `describeOp`, `shoppingView.ts`'s `amountPlus`); `promptRowsOf`
+  marks `optional`; the `check` aisle (`aisles.ts`, kept first by
+  `normalizeShoppingSettings`).
+- The seat: `SHOPPING_LIST_PATHS.tidy`, `readTidyRuns`, `readTidyRun`,
+  `writeTidyRun`, `decideTidySuggestion`, `reviseTidySuggestion`.
+- The client: `STREAM_AFTER_MS` and `joinStream` (Tb1).
+- Jobs: the `shopping-tidy` kind (label, the GPU's line for a local
+  model, `specWrites`, `/jobs`' words and icon, the `llm.tidy` step).
+- HTTP routes under `/api/shopping/tidy`, server actions
+  `controller/actions/shoppingTidy.ts`, the CLI commands and `--help`, the
+  MCP `shopping_get`'s `tidy`, the skill's 8b and `skillText.generated.ts`.
+- The page: `Tidy.tsx` (`TidyPanel`) in Plan; `MergeProposals.tsx` loses
+  "Look for more"; the editor's page reads the models and the latest run.
+- The stand-in model's `shoppingTidyAnswer`.
+
+**The measurement** (the acceptance test). Roger's real list, cloned
+(`tmp/50/real/content`: Pumpkin Bars, Pear Panna Cotta Cake, Maine Potato
+Doughnuts — 54 lines, 32 rows to buy, 8 step sentences); `pnpm recipes
+shopping tidy --model … [--original] --dry-run --json` from this worktree,
+one run at a time, VRAM under 2 GB and no `parakeet-cli` before each, the
+model stopped after. "Current" is a second clone with golden cards 1–3
+written as layers by hand (poach the pears: the liquid and the purée left
+off, +5 pears with a note; fry in the vegetable oil: the shortening left
+off, +2½ qt oil; the cinnamon sugar: left off, +1 tbsp cinnamon, +¼ cup
+sugar), so "current" asks for the other six. Scored by
+`tmp/50/50b/scripts/score.mjs` (each golden card by its ops: the right
+rows in the right op, a merge of at most four rows; harmful: a merge of
+baking powder and soda, butter and an oil or shortening, two sugars, more
+than four rows or two unrelated names, a leave-off with nothing in its
+place, an `add` with nothing left off — the list already counts every
+line), then read by eye: the scorer's calls stand, but for 14b's "Remove
+optional pear" (the firm pear is optional, a garnish) — a judgement, not
+harm.
+
+| Run | Model, on                         | Placement, `num_ctx`                    | Time                                                   | Tokens in + out | Kept / left out | Golden found                                                         | Harmful                                                                                                                                                                                    |
+| --- | --------------------------------- | --------------------------------------- | ------------------------------------------------------ | --------------- | --------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | qwen3:8b thinking, original       | 90 % GPU / 10 % CPU, 12,288             | **timed out at 600 s** (and at 300 s before Tb1's fix) | —               | —               | —                                                                    | —                                                                                                                                                                                          |
+| 2   | qwen3:8b, original (first prompt) | 100 % GPU, 8,192                        | 67 s                                                   | 2,211 + 1,478   | 15 / 0          | 1 poach, 7 check                                                     | 2: butter + shortening merged; the pear purée and firm pear left off                                                                                                                       |
+| 3   | qwen3:8b, original (final prompt) | 100 % GPU, 8,192                        | **45 s**                                               | 2,311 + 1,242   | 8 / 2           | **3**: 1 poach, 7 check, 9 sprinkles                                 | 1: baking powder + soda merged (warned "49's rules keep leavening apart")                                                                                                                  |
+| 4   | qwen3:8b, current (1–3 accepted)  | 100 % GPU, 8,192                        | **37 s**                                               | 2,172 + 1,100   | 10 / 0          | **2 of 6**: 7 check, 8 vanilla (a note: extract instead of the bean) | 6: the 6 pears left off (undoing card 1), granulated + powdered sugar merged, and four `add`s that count a recipe's lines twice (+3 eggs, +8 oz cream cheese, +3 tbsp butter, +2 cups oil) |
+| 5   | qwen3:14b, original               | **62 % GPU / 38 % CPU**, 8,192 (10 GB)  | 353 s                                                  | 2,311 + 998     | 10 / 0          | **2**: 1 poach, 9 sprinkles                                          | 2: butter + egg white merged; a 23-row "Combine flour rows" (warned)                                                                                                                       |
+| 6   | qwen3:14b, current                | 62 % / 38 %, 8,192                      | **timed out at 600 s**                                 | —               | —               | —                                                                    | —                                                                                                                                                                                          |
+| —   | Claude                            | not measured: no key on the workstation |                                                        |                 |                 |                                                                      |                                                                                                                                                                                            |
+
+Neither model found the frying oil, the cinnamon sugar (on the original),
+salt + table salt, the egg white or a useful store size; both offered
+"butterm" → "butter" (a rename the recipe's typo invited — Roger fixed the
+recipe in the mock-up, not in this clone). The first prompt's store sizes
+repeated the amount ("8 oz cream cheese" as 8 oz): the check now leaves a
+package equal to the row's amount out, and says a package smaller than
+the need ("1 quart" for 11 cups of oil) on the card; a lone `add` is
+warned too. Those warnings came after runs 3–5 and so are not in their
+cards.
+
+**The default: qwen3:8b, not thinking.** On these numbers 14b is no
+better (2 golden cards against 3, as harmful) and 8–16 times slower on
+the RX 6600, where it does not fit (10 GB at 8,192: 38 % on the CPU), and
+thinking did not finish on either. 8b's output is a starting point at
+best: most of the golden set is beyond it, and the current-list run's
+harm is the kind the structural check lets through by design (Db4) — the
+warnings say it, Roger decides. Claude on the Pi is the case to measure
+next (Roger to confirm 1).
+
+**Tests.** `test/shoppingTidy.test.ts` (new, 16): the check — a
+well-formed suggestion in 50a's ops; each refusal (a row not on the list,
+a row changed after its leave-off, an unknown op, no rows, a merge of one,
+an empty rename, an amount that does not read, a package with no size or
+for two rows, an unknown unit, a leave-off with no reason, no ops, an
+answer that is not a list); the warnings that were 49c's refusals (baking
+powder + soda, a merge of four, no shared head; salt + table salt none);
+a store size's note and warning; a package that is the amount already;
+check at home; a lone drop of a needed row; a repeat of a skipped
+suggestion. The delta in the view ("1 cup" + "2½ qt" → "11 cups", "1½
+tsp" + "1 tbsp" → "1½ tbsp", "2 cups" + "¼ cup", a delta that does not
+read). The models (8b default, 14b installed, a model not installed,
+Claude with and without a key, the Pi, `RECIPE_LLM_TIDY_MODEL`, never the
+key). `num_ctx` and thinking; streaming's `joinStream`; `trimSteps`. In a
+real git repository: a run kept in one commit, Accept writing one layer
+`from` the suggestion and the run in one commit, the oil then "11 cups",
+Accept again unchanged, Skip, the next spec told what was done and
+skipped, `original` without the layer, a stale suggestion refused, an
+unknown id `not_found`, and a stored run's lenient read. Playwright
+`shopping-tidy.spec.ts` (new): a run through the stand-in → two
+suggestions and one left out, the commit, axe; Accept → one change and the
+salts under "Check at home first"; Skip; a run on current that makes none
+again; the runs API's counts; the models API and the disabled Claude
+option; a run on the original after an Accept. `shopping-ask.spec.ts`
+loses its two "Look for more" cases.
+
+### Roger to confirm
+
+1. **qwen3:8b, not thinking, is the default** (Db8): 45 s a run, 3 of the
+   9 golden cards on the original list; 14b found 2 in 353 s and did not
+   finish on the current list. Run Claude when a key is set
+   (`RECIPE_LLM_CLAUDE_API_KEY` on the workstation, the Pi's own) and say
+   whether it should be the default where it exists.
+2. **Thinking is off** unless `RECIPE_LLM_TIDY_THINK=1`: 8b thinking did
+   not answer in 10 minutes.
+3. **`RECIPE_LLM_TIDY_MODELS=qwen3:14b`** is what offers 14b here; it is
+   not in `editor/.env` yet — add it if you want it in the picker.
+4. **The check refuses only structure** (Db4); a merge of baking powder
+   and soda reaches a card, warned. Say if any warning should be a
+   refusal again.
+5. **Store sizes** keep the needed amount as a note under the row
+   ("≈ 2⅜ cups needed") and always say "Package size is the model's
+   guess".
+6. **"Look for more" is gone** from the page and the CLI; the API's
+   `task: "find"` stays for an older CLI — delete it (and its check) in
+   50c?
+7. **Runs stay through Clear all** (their suggestions go stale), at most
+   100 kept.
+8. **An `add` is summed as the list writes amounts**: "1 cup" + "2½ qt"
+   reads "11 cups vegetable oil", not "2¾ qt".
+9. The words: "Tidy with the model", "Read: the current list (with your
+   changes) / the original (as written, with the rules)", "Suggestions
+   (N)", "Accept", "Skip", "Left out by the check (N)", "Check at home
+   first", the kinds (Leave off, Combine, Make it, Merge, Store sizes,
+   Check at home, Swap, Rename).
+
+### Traps
+
+- **Tb1 — Node's `fetch` waits 300 s for headers.** A non-streamed
+  Ollama call that takes longer fails as "fetch failed" (unreachable) at
+  300 s, whatever its own timeout says: undici's `headersTimeout`. A call
+  allowed past 240 s streams now (`STREAM_AFTER_MS`, `joinStream`).
+- **Tb2 — a count's added amount is not pluralised**: "+5" on "1 firm
+  pear" reads "6 firm pear" (an amount set by a layer keeps the name as
+  the row has it, as 49a's edited amounts do).
+- **Tb3 — the scorer's first merge rule counted a 23-row merge** as three
+  golden cards; a golden merge is at most four rows now. Read the
+  scorer's calls by eye.

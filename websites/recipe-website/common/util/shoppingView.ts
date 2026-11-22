@@ -32,6 +32,7 @@ import { AISLE_LABELS, AISLES, aisleFor, isAisle, type Aisle } from "./aisles";
 import {
   addAmounts,
   formatAmount,
+  isAsNeeded,
   parseAmount,
   scaleAmount,
   type Amount,
@@ -918,6 +919,31 @@ function cannotConvert(
 }
 
 /**
+ * 50b (Db3): a draft's amount with `add` on top — the code's sum, never the
+ * model's. Over an earlier layer's amount when one is set, else the lines'
+ * sum (through the name's density, as the row's own), written as the list
+ * writes every amount ("1 cup" + "2½ qt" → "11 cups"). `undefined` when
+ * `add` reads as no amount.
+ */
+function amountPlus(
+  draft: Draft,
+  add: string,
+): { text: string; estimated: boolean } | undefined {
+  const extra = parseAmount(add);
+  if (!extra || isAsNeeded(extra)) return undefined;
+  const own = draft.amount ? parseAmount(draft.amount.text) : null;
+  const base = own ? [own] : amountsOf(draft.entries, draft.merge);
+  const summed = consolidateAmounts(
+    [...base, extra],
+    ownContext(draft).gramsPerCup,
+  );
+  return {
+    text: formatAmount(summed.amount),
+    estimated: summed.estimated || (draft.amount?.estimated ?? false),
+  };
+}
+
+/**
  * Apply one op of a layer to the drafts (Da4): the rows its ids reach,
  * in list order. A merged row is reached by any of its ids; a row taken off
  * is reached by none.
@@ -1053,6 +1079,23 @@ function applyOp(
         if (op.amount) {
           draft.amount = { text: op.amount, estimated: false };
           draft.changes.push(change(`amount: ${op.amount}`));
+          continue;
+        }
+        if (op.add) {
+          const added = amountPlus(draft, op.add);
+          if (!added) {
+            draft.changes.push(
+              change(
+                `+${op.add}`,
+                `"${op.add}" is not an amount the list reads`,
+              ),
+            );
+            continue;
+          }
+          draft.amount = added;
+          draft.changes.push(
+            change(`+${op.add}: ${added.estimated ? "≈ " : ""}${added.text}`),
+          );
           continue;
         }
         const context = ownContext(draft);

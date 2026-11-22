@@ -208,6 +208,11 @@ export function stepTitle(node: Pick<StepNode, "step" | "data">): string {
       return data.task === "find"
         ? "Model looks for more merges"
         : "Model answers the note";
+    /* 50b: "Tidy with the model" — a whole-list pass, or one card asked again. */
+    case "llm.tidy":
+      return data.task === "revise"
+        ? "Model answers the note on a suggestion"
+        : "Model tidies the list";
     case "llm.reload":
       return "Reload the model";
     case "llm.unload":

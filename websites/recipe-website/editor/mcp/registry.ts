@@ -1476,7 +1476,12 @@ export function recipeToolDefinitions(
         "composed: `view.leftOff` [{row, reason, source: built-in|rule|layer}] is what is left " +
         "off (water, `tap water`, built in), and `layers` [{layer, ops, text, stale}] are this " +
         "list's own changes in order — a changed row carries `changes` (what changed it, who, why) " +
-        "and `asWritten`. Changes are the person's too, on /shopping or the CLI (`shopping changes`).",
+        "and `asWritten`. Changes are the person's too, on /shopping or the CLI (`shopping changes`). " +
+        '`tidy` is the latest "Tidy with the model" run\'s pending suggestions ' +
+        "{run, model, on, suggestions: [{id, kind, title, reason, text, warnings}]} — a model's " +
+        "judgement calls (leave off what a step makes, fry in the oil already on the list, store " +
+        "sizes); accepting or skipping one is the person's, on /shopping or the CLI " +
+        "(`shopping accept <id>`, `shopping skip <id>`).",
       inputSchema: z.strictObject({ store: z.string().min(1).optional() }),
       annotations: READ_ONLY,
     },
@@ -1484,6 +1489,11 @@ export function recipeToolDefinitions(
       read(async () => {
         const { view, text, settings, proposals, merges, layers, items } =
           await backend.getShopping({ store });
+        /* An editor from before 50b has no runs to read: none, then. */
+        const latest = await backend
+          .tidyRuns()
+          .then(({ runs }) => runs[0])
+          .catch(() => undefined);
         return {
           text,
           view,
@@ -1491,6 +1501,25 @@ export function recipeToolDefinitions(
           proposals,
           merges,
           layers: listLayers(layers ?? [], items),
+          ...(latest
+            ? {
+                tidy: {
+                  run: latest.id,
+                  model: latest.model,
+                  on: latest.on,
+                  suggestions: latest.suggestions
+                    .filter((each) => each.status === "pending")
+                    .map(({ id, kind, title, reason, text, warnings }) => ({
+                      id,
+                      kind,
+                      title,
+                      reason,
+                      text,
+                      warnings,
+                    })),
+                },
+              }
+            : {}),
         };
       }),
   );

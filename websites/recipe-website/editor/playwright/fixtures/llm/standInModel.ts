@@ -55,6 +55,8 @@ export interface StandInOptions {
   edit?: unknown;
   /** A shopping ask's answer (49b) in place of the stand-in's own. */
   shopping?: unknown;
+  /** A tidy run's answer (50b) in place of the stand-in's own. */
+  tidy?: unknown;
 }
 
 /**
@@ -398,6 +400,70 @@ export function notesSelectorAnswer(user: string): {
   };
 }
 
+/**
+ * "Tidy with the model" (50b, `TIDY_SYSTEM_PROMPT`), by rule on the rows:
+ * the salt rows to "check at home first", the first buttermilk row as a
+ * quart, and one suggestion naming a row that is not on the list (the
+ * check leaves it out). A suggestion whose title the prompt says was done
+ * or skipped already is not made again; a note on one card (the revise
+ * prompt) answers that card with a note op saying the note.
+ */
+export function shoppingTidyAnswer(user: string): {
+  suggestions: Record<string, unknown>[];
+} {
+  const rows = [...user.matchAll(/^(\d+)\. (.+)$/gm)].map((match) => ({
+    n: Number(match[1]),
+    text: match[2],
+  }));
+  const label = (row: { text: string }) => row.text.split(" ← ")[0];
+  const earlier = /^Earlier suggestion \([^,]+, rows ([\d, ]+)\)/m.exec(user);
+  const note = /^Note: (.+)$/m.exec(user)?.[1];
+  if (earlier && note) {
+    const numbers = earlier[1].split(",").map((each) => Number(each.trim()));
+    return {
+      suggestions: [
+        {
+          kind: "swap",
+          title: `As asked: ${note}`,
+          reason: "The person's note.",
+          ops: [{ op: "note", rows: numbers.slice(0, 1), text: note }],
+          confidence: 0.6,
+        },
+      ],
+    };
+  }
+  const said = (title: string) => user.includes(`"${title}"`);
+  const out: Record<string, unknown>[] = [];
+  const salts = rows.filter((row) => /\bsalt\b/i.test(label(row)));
+  if (salts.length > 0 && !said("Check the cupboard first")) {
+    out.push({
+      kind: "check",
+      title: "Check the cupboard first",
+      reason: "Salt is a staple most kitchens have.",
+      ops: [{ op: "check", rows: salts.map((row) => row.n), text: "" }],
+      confidence: 0.8,
+    });
+  }
+  const buttermilk = rows.find((row) => /buttermilk/i.test(label(row)));
+  if (buttermilk && !said("Buy a quart of buttermilk")) {
+    out.push({
+      kind: "store-size",
+      title: "Buy a quart of buttermilk",
+      reason: "Buttermilk is sold by the quart.",
+      ops: [{ op: "package", rows: [buttermilk.n], text: "1 quart" }],
+      confidence: 0.7,
+    });
+  }
+  out.push({
+    kind: "drop",
+    title: "Leave off the invented line",
+    reason: "A row the list does not have.",
+    ops: [{ op: "drop", rows: [99], text: "never on the list" }],
+    confidence: 0.1,
+  });
+  return { suggestions: out };
+}
+
 export function standInChat(
   body: {
     model?: string;
@@ -455,6 +521,18 @@ export function standInChat(
       done: true,
       prompt_eval_count: 700,
       eval_count: 90,
+    };
+  }
+  if (system.startsWith("You tidy a shopping list")) {
+    return {
+      model: body.model ?? "qwen3:8b",
+      message: {
+        role: "assistant",
+        content: JSON.stringify(options.tidy ?? shoppingTidyAnswer(user)),
+      },
+      done: true,
+      prompt_eval_count: 900,
+      eval_count: 180,
     };
   }
   if (system.startsWith("You decide how lines on a shopping list")) {

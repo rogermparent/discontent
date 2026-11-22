@@ -232,8 +232,12 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   shopping merge <id> [--name <name>] [--amount <amount>] [--note <text>]
   shopping keep-apart <id> [--note <text>]
   shopping split <id>
-  shopping ask <id> --note "<note>" [--claude] [--wait]
-  shopping find-merges [--claude] [--wait]
+  shopping ask <id> --note "<note>" [--claude] [--model <m>] [--wait]
+  shopping tidy [--model <m>] [--original] [--wait] [--dry-run]
+  shopping tidy-models
+  shopping suggestions [--run <id>] [--all]
+  shopping accept <suggestion-id>
+  shopping skip <suggestion-id>
   shopping list --as-written
   shopping changes
   shopping change add (--file <json> | --stdin) | on <id> | off <id> | rm <id>
@@ -429,13 +433,27 @@ it). The edit page has the same as "Edit with AI", reviewed in the form.
 The shopping list's merges, asked of a model: \`shopping ask <id> --note "use
 grams"\` sends one proposal or merge (\`shopping merges\` lists their ids)
 and the note to the same model \`revise\` asks (--claude for the Claude API);
-\`shopping find-merges\` sends the list's names and asks which a shopper buys
-as one thing, leaving out what is merged, kept apart or proposed already.
-The answer is checked — only the lines asked about, a name, an amount that
+the answer is checked — only the lines asked about, a name, an amount that
 reads — and printed with the merge it would make; nothing is written. A
 local run waits for the model; with --remote, --wait follows the job, and
 without it the job's id is printed. /shopping has the same in "Same thing,
 different names", with Accept.
+
+"Tidy with the model" (50b): \`shopping tidy\` sends the whole list — each
+row with its recipe lines — and the recipes' steps that bear on buying to a
+model, which suggests judgement calls: leave off what a step makes, fry in
+the oil already on the list, make the cinnamon sugar from its parts, store
+sizes, check the cupboard first. The model is picked per run (--model; \`shopping
+tidy-models\` lists RECIPE_LLM_MODEL, the RECIPE_LLM_TIDY_MODELS and Claude
+when RECIPE_LLM_CLAUDE_API_KEY is set, with why a model is not offered);
+--original reads the list as written plus the rules, not your accepted
+changes. The check is structural (rows on the list, ops that read, a reason
+for every leave-off); the run is kept (one commit) with every suggestion
+pending. \`shopping suggestions\` lists the latest run's, \`shopping accept
+<id>\` writes one as a change of this list (\`change off\` undoes it),
+\`shopping skip <id>\` tells later runs not to repeat it, and \`shopping ask
+<id> --note "…"\` asks again about that one card. (\`shopping find-merges\`
+is replaced by the tidy run.)
 
 The shopping list is composed: its rows as written, then the rules for
 every list (merges; leave-off — water is left off built in, \`shopping

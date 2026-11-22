@@ -7,7 +7,18 @@ import {
   type ShoppingAskSurface,
   type ShoppingListState,
   type ShoppingPageActions,
+  type ShoppingTidySurface,
 } from "recipe-website-common/components/ShoppingPage";
+import type {
+  TidyModels,
+  TidyRunView,
+} from "recipe-website-common/util/shoppingTidy";
+import {
+  decideShoppingTidy,
+  latestShoppingTidy,
+  shoppingTidyResultAction,
+  startShoppingTidy,
+} from "recipe-editor/controller/actions/shoppingTidy";
 import { isShoppingAskResult } from "recipe-website-common/util/shoppingAsk";
 import { UNSTORED_KEEP_MS } from "recipe-editor/controller/jobs/unstored";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
@@ -142,11 +153,17 @@ export default function ShoppingWithModel({
   actions,
   patchUrl,
   models,
+  tidyModels,
+  tidyRun,
 }: {
   initial: ShoppingListState;
   actions: ShoppingPageActions;
   patchUrl: string;
   models: ShoppingModelsShown;
+  /** 50b: the models a tidy run may pick (none: no "Tidy with the model"). */
+  tidyModels?: TidyModels;
+  /** 50b: the latest tidy run, as the list reads it now. */
+  tidyRun?: TidyRunView;
 }) {
   const model = models.local ?? models.claude;
   const ask = useMemo<ShoppingAskSurface | undefined>(
@@ -161,12 +178,27 @@ export default function ShoppingWithModel({
         : undefined,
     [model, models.local, models.claude],
   );
+  const tidy = useMemo<ShoppingTidySurface | undefined>(
+    () =>
+      tidyModels && tidyModels.models.length > 0
+        ? {
+            models: tidyModels,
+            ...(tidyRun ? { initial: tidyRun } : {}),
+            start: (input) => startShoppingTidy(input),
+            follow: (job) => shoppingTidyResultAction(job),
+            latest: () => latestShoppingTidy(),
+            decide: (id, action) => decideShoppingTidy(id, action),
+          }
+        : undefined,
+    [tidyModels, tidyRun],
+  );
   return (
     <ShoppingPage
       initial={initial}
       actions={actions}
       patchUrl={patchUrl}
       {...(ask ? { ask } : {})}
+      {...(tidy ? { tidy } : {})}
     />
   );
 }

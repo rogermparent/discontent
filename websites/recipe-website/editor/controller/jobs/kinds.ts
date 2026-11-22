@@ -41,6 +41,8 @@ import type { FillResult } from "../curation/fillRecipe";
 import type { DetectChoicesResult } from "../llm/detectChoices";
 import type { EditResult, EditSpec } from "../llm/askEdit";
 import type { ShoppingAskSpec } from "../llm/shoppingAsk";
+import type { ShoppingTidySpec } from "../llm/shoppingTidy";
+import type { ShoppingTidyResult } from "recipe-website-common/util/shoppingTidy";
 import type { ShoppingAskResult } from "recipe-website-common/util/shoppingAsk";
 import type { OutlineEntry } from "recipe-website-common/util/choiceOutline";
 import type { InspectResult } from "../curation/inspect";
@@ -235,7 +237,13 @@ export type JobSpec =
    * one call with no tools, nothing written: the page shows the checked
    * suggestion marked, and Accept is the write.
    */
-  | ShoppingAskSpec;
+  | ShoppingAskSpec
+  /**
+   * 50b: "Tidy with the model" — the list's rows and the recipes' steps as
+   * the spec holds them, one model call, the structural check, and the run
+   * kept (one commit); or one card asked again with a note.
+   */
+  | ShoppingTidySpec;
 
 /** Who asked for a rebuild — the label says it. */
 export type ReindexTrigger =
@@ -281,6 +289,7 @@ export interface JobResults {
   choices: DetectChoicesResult;
   edit: EditResult;
   "shopping-merge": ShoppingAskResult;
+  "shopping-tidy": ShoppingTidyResult;
 }
 
 /** What "Import N selected" answers: one row per pick. */
@@ -509,6 +518,10 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
     const { runShoppingAsk } = await import("../llm/shoppingAsk");
     return runShoppingAsk(spec, { job });
   },
+  async "shopping-tidy"(spec, { ctx, job }) {
+    const { runShoppingTidy } = await import("../llm/shoppingTidy");
+    return runShoppingTidy(spec, { job, ctx: contextFor(spec, ctx) });
+  },
   async agent(spec, { ctx, job, dir }) {
     const { runAgentJob } = await import("../agent/job");
     return runAgentJob(spec, {
@@ -695,6 +708,10 @@ export function jobLabel(spec: JobSpec): string {
       return spec.task === "find"
         ? `look for more merges on the shopping list${spec.backend === "claude" ? " (Claude)" : ""}`
         : `ask about ${(spec.target?.rows ?? []).map((row) => row.name).join(" + ")}: ${agentLabel(spec.note ?? "", false).replace(/^ask: /, "")}${spec.backend === "claude" ? " (Claude)" : ""}`;
+    case "shopping-tidy":
+      return spec.task === "revise"
+        ? `ask again about "${spec.revise?.suggestion.title ?? "a suggestion"}": ${agentLabel(spec.revise?.note ?? "", false).replace(/^ask: /, "")} (${spec.model})`
+        : `tidy the shopping list with ${spec.model} (${spec.on === "original" ? "the original" : "the current list"})`;
     default:
       return shortUrl(spec.url);
   }
@@ -762,6 +779,9 @@ export function jobResources(spec: JobSpec): string[] {
     /* 49b: the same, for the shopping list's asks. */
     case "shopping-merge":
       return spec.backend === "claude" ? [] : ["gpu"];
+    /* 50b: a local model's tidy takes the GPU's line; Claude none. */
+    case "shopping-tidy":
+      return spec.model === "claude" ? [] : ["gpu"];
     case "inspect-list":
     /* The picks' pictures: the readings are in hand. */
     case "form-batch":
@@ -908,6 +928,9 @@ export function specWrites(spec: JobSpec): boolean {
     /* 44c: the agent may write through its tools. */
     case "agent":
       return true;
+    /* 50b: a tidy run is kept, one commit (a revised card too). */
+    case "shopping-tidy":
+      return !spec.dryRun;
     default:
       return false;
   }
