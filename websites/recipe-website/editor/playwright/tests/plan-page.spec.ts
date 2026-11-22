@@ -887,7 +887,7 @@ test.describe("Meal plan: the run sheet", () => {
     await expect(docket.getByTestId("sheet-big-ones")).toContainText("butter");
     await expect(
       docket.getByRole("link", { name: "Open the list" }),
-    ).toHaveAttribute("href", "/shopping");
+    ).toHaveAttribute("href", "/shopping?list=main");
 
     await sheet.getByRole("button", { name: "Edit the sheet" }).click();
     await expect(
