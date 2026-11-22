@@ -530,7 +530,17 @@ Review amendments:
   clone (the page answered from the fixture, not fetched again): `unchanged`
   — Poached Pears here already, lines 12 and 22 link it already; the crème
   fraîche link left alone ("offered instead of this line").
-- Gates: see below.
+- Gates (after merging main `ffdd14b7`): editor typecheck ✓; export
+  `tsc --noEmit` ✓; vitest 4,365 tests in 199 files — 4,362 passed, 3 failed
+  only under load (5 s timeouts in `urlGuard` and `editFormRoundTrip`, both
+  passing alone, and `agentLocal`'s prompt budget, fixed by leaving `linked`
+  out of the local view and then passing). Playwright in Docker, production:
+  `import-linked`, `import-errors`, `import-roundup`, `import-ssrf`, every
+  `shopping*`, `edit-form-frame`, `recipe-notes` — **63 passed**;
+  `import-linked` once in dev mode — 2 passed. Baselines moved (Docker):
+  `visual.spec.ts/new-recipe-form-e2e.png` and
+  `new-recipe-form-overwrite-e2e.png` (the switch's line). No new dynamic fs
+  call in traced code, so no main-checkout-shaped build.
 
 ### Traps
 
