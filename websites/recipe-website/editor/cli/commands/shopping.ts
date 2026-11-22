@@ -17,8 +17,14 @@
  *   shopping split <id>                 delete a decision (merged rows show apart again)
  *   shopping ask <id> --note "…" [--claude] [--wait]
  *                                       49b: ask the model about a proposal or merge
- *   shopping find-merges [--claude] [--wait]
- *                                       49b: the model looks for more merges
+ *                                       (50b: a suggestion's id asks about that card)
+ *   shopping tidy [--model m] [--original] [--wait] [--dry-run]
+ *                                       50b: "Tidy with the model" — a kept run of suggestions
+ *   shopping tidy-models                50b: the models a run may pick, and why not others
+ *   shopping suggestions [--run <id>] [--all]
+ *                                       50b: the latest run's suggestions (pending; --all every one)
+ *   shopping accept|skip <suggestion-id>
+ *                                       50b: accept one (a change on this list) or skip it
  *   shopping list --as-written          50a: the base rows, without merges, rules or changes
  *   shopping changes                    50a: this list's changes (layers), in order
  *   shopping change add --file <json>   50a: add one: {ops, reason?, note?, by?}
@@ -42,9 +48,18 @@ import {
   type ShoppingFeature,
 } from "recipe-website-common/util/shoppingTypes";
 import { readJsonInput } from "../input";
+import {
+  TIDY_KIND_LABELS,
+  TIDY_SUGGESTION_ID_PATTERN,
+  type TidyRunView,
+  type TidySuggestionView,
+} from "recipe-website-common/util/shoppingTidy";
 import type {
   ShoppingAddResult,
   ShoppingAskAnswer,
+  ShoppingTidyAnswer,
+  TidyDecisionResult,
+  TidyModels,
   ShoppingClearResult,
   ShoppingLayerListing,
   ShoppingLayerResult,
@@ -567,23 +582,37 @@ function formatAsk(answer: ShoppingAskAnswer): string {
   return lines.join("\n");
 }
 
-const askCommand: CommandDef<ShoppingAskAnswer> = {
+const askCommand: CommandDef<ShoppingAskAnswer | ShoppingTidyAnswer> = {
   name: "shopping ask",
   usage:
-    'recipes shopping ask <id> --note "use grams" [--claude] [--wait]   ask the model about a proposal or merge; writes nothing',
+    'recipes shopping ask <id> --note "use grams" [--claude] [--model m] [--wait]   ask the model about a proposal, a merge, or (50b) one tidy suggestion',
   options: {
     note: { type: "string" },
     claude: { type: "boolean" },
+    model: { type: "string" },
     wait: { type: "boolean" },
   },
   run({ backend, positionals, options }) {
-    const id = mergeId(positionals, "ask");
     const note = stringOption(options, "note")?.trim();
     if (!note) {
       throw new UsageError(
         'shopping ask needs a note: --note "these are different, one is salted".',
       );
     }
+    /* 50b (Db6): a suggestion's id asks about that one card again. */
+    if (
+      positionals.length === 1 &&
+      TIDY_SUGGESTION_ID_PATTERN.test(positionals[0].trim().toLowerCase())
+    ) {
+      const model =
+        stringOption(options, "model") ??
+        (booleanOption(options, "claude") ? "claude" : undefined);
+      return backend.askTidySuggestion(
+        { suggestion: positionals[0], note, ...(model ? { model } : {}) },
+        { wait: booleanOption(options, "wait") },
+      );
+    }
+    const id = mergeId(positionals, "ask");
     return backend.askShopping(
       {
         task: "revise",
@@ -594,31 +623,201 @@ const askCommand: CommandDef<ShoppingAskAnswer> = {
       { wait: booleanOption(options, "wait") },
     );
   },
-  format: formatAsk,
+  format: (answer) =>
+    "task" in answer && (answer.task === "tidy" || answer.task === "revise")
+      ? formatTidy(answer as ShoppingTidyAnswer)
+      : formatAsk(answer as ShoppingAskAnswer),
 };
 
-const findMergesCommand: CommandDef<ShoppingAskAnswer> = {
+/* 50b (Db7): "Look for more" is replaced by the tidy run. */
+const findMergesCommand: CommandDef<never> = {
   name: "shopping find-merges",
   usage:
-    "recipes shopping find-merges [--claude] [--wait]   the model looks for more lines to merge; writes nothing",
+    "recipes shopping find-merges   replaced by `shopping tidy` (50b): the model looks at the whole list",
+  options: {},
+  run() {
+    throw new UsageError(
+      "shopping find-merges is replaced by `shopping tidy` (50b): the model looks at the whole list and its suggestions are kept (`shopping suggestions`).",
+    );
+  },
+  format: () => "",
+};
+
+// --- "Tidy with the model" (50b) --------------------------------------------------
+
+function formatSuggestion(suggestion: TidySuggestionView): string[] {
+  const lines = [
+    `${suggestion.id}  [${suggestion.status}]  ${TIDY_KIND_LABELS[suggestion.kind]}: ${suggestion.title}${suggestion.confidence !== undefined ? `  (${Math.round(suggestion.confidence * 100)}%)` : ""}`,
+  ];
+  if (suggestion.reason) lines.push(`    ${suggestion.reason}`);
+  for (const text of suggestion.text) lines.push(`    · ${text}`);
+  for (const warning of suggestion.warnings) lines.push(`    ! ${warning}`);
+  if (suggestion.revised) {
+    lines.push(`    (asked again: "${suggestion.revised.note}")`);
+  }
+  return lines;
+}
+
+function formatRun(
+  run: TidyRunView,
+  { all = true }: { all?: boolean } = {},
+): string[] {
+  const shown = all
+    ? run.suggestions
+    : run.suggestions.filter((each) => each.status === "pending");
+  const counts = Object.entries(run.counts)
+    .filter(([, n]) => n > 0)
+    .map(([status, n]) => `${n} ${status}`)
+    .join(", ");
+  const lines = [
+    `Run ${run.id} — ${run.model} on the ${run.on === "original" ? "original" : "current"} list, ${run.at}${run.durationMs !== undefined ? `, ${(run.durationMs / 1000).toFixed(1)} s` : ""}${counts ? ` (${counts})` : ""}`,
+  ];
+  if (shown.length === 0) {
+    lines.push(
+      all ? "  No suggestions." : "  Nothing pending (--all shows every one).",
+    );
+  }
+  for (const suggestion of shown) lines.push(...formatSuggestion(suggestion));
+  for (const why of run.leftOut) lines.push(`left out by the check: ${why}`);
+  return lines;
+}
+
+function formatTidy(answer: ShoppingTidyAnswer): string {
+  if (!("task" in answer)) {
+    return `Tidying — job ${answer.job}. \`recipes jobs show ${answer.job}\` follows it (or run again with --wait).`;
+  }
+  const lines: string[] = [];
+  if (answer.status === "failed") {
+    lines.push(`Nothing was suggested: ${answer.problem}`);
+    for (const why of answer.leftOut ?? []) {
+      lines.push(`left out by the check: ${why}`);
+    }
+  } else if (answer.task === "revise") {
+    lines.push(
+      `${answer.model ?? "The model"} answered the note:`,
+      ...formatSuggestion({
+        ...answer.suggestion,
+        status: "pending",
+        text: answer.suggestion.ops.map(
+          (op) => `${op.op} ${op.ids.length} line(s)`,
+        ),
+      }),
+    );
+  } else {
+    const { run } = answer;
+    lines.push(
+      `${run.model} made ${run.suggestions.length === 1 ? "1 suggestion" : `${run.suggestions.length} suggestions`} (run ${run.id}). \`recipes shopping suggestions\` lists them; accept or skip each by its id.`,
+    );
+    for (const suggestion of run.suggestions) {
+      lines.push(
+        `${suggestion.id}  ${TIDY_KIND_LABELS[suggestion.kind]}: ${suggestion.title}`,
+      );
+    }
+    for (const why of run.leftOut) lines.push(`left out by the check: ${why}`);
+  }
+  if (answer.durationMs !== undefined) {
+    lines.push(
+      `${(answer.durationMs / 1000).toFixed(1)} s${answer.promptTokens !== undefined ? `, ${answer.promptTokens} + ${answer.outputTokens ?? 0} tokens` : ""}${answer.numCtx ? ` at ${answer.numCtx}` : ""}${answer.think ? ", thinking" : ""}`,
+    );
+  }
+  if (answer.costEstimateUsd !== undefined) {
+    lines.push(`cost: about $${answer.costEstimateUsd.toFixed(4)}`);
+  }
+  lines.push(`job: ${answer.job}`);
+  return lines.join("\n");
+}
+
+const tidyCommand: CommandDef<ShoppingTidyAnswer> = {
+  name: "shopping tidy",
+  usage:
+    "recipes shopping tidy [--model qwen3:14b|claude] [--original] [--wait] [--dry-run]   the model suggests judgement calls over the whole list; the run is kept",
   options: {
-    claude: { type: "boolean" },
+    model: { type: "string" },
+    original: { type: "boolean" },
     wait: { type: "boolean" },
+    "dry-run": { type: "boolean" },
   },
   run({ backend, positionals, options }) {
     if (positionals.length > 0) {
-      throw new UsageError("shopping find-merges takes no arguments.");
+      throw new UsageError(
+        "shopping tidy takes no arguments: --model, --original.",
+      );
     }
-    return backend.askShopping(
+    const model = stringOption(options, "model");
+    return backend.tidyShopping(
       {
-        task: "find",
-        ...(booleanOption(options, "claude") ? { claude: true } : {}),
+        ...(model ? { model } : {}),
+        on: booleanOption(options, "original") ? "original" : "current",
+        ...(booleanOption(options, "dry-run") ? { dryRun: true } : {}),
       },
       { wait: booleanOption(options, "wait") },
     );
   },
-  format: formatAsk,
+  format: formatTidy,
 };
+
+const tidyModelsCommand: CommandDef<TidyModels> = {
+  name: "shopping tidy-models",
+  usage: "recipes shopping tidy-models   the models a tidy run may pick",
+  options: {},
+  run({ backend }) {
+    return backend.tidyModels();
+  },
+  format: (models) =>
+    [
+      ...models.models.map(
+        (each) =>
+          `${each.id}  ${each.words}${each.default ? "  (default)" : ""}`,
+      ),
+      ...models.unavailable.map(
+        (each) => `${each.id}  ${each.words} — not offered: ${each.why}`,
+      ),
+    ].join("\n") || "No model is set up here.",
+};
+
+const suggestionsCommand: CommandDef<{ runs: TidyRunView[]; all: boolean }> = {
+  name: "shopping suggestions",
+  usage:
+    "recipes shopping suggestions [--run <id>] [--all]   the latest tidy run's pending suggestions",
+  options: {
+    run: { type: "string" },
+    all: { type: "boolean" },
+  },
+  async run({ backend, options }) {
+    const run = stringOption(options, "run");
+    const { runs } = await backend.tidyRuns(run ? { run } : {});
+    return { runs: runs.slice(0, 1), all: booleanOption(options, "all") };
+  },
+  format: ({ runs, all }) =>
+    runs.length === 0
+      ? "No tidy runs yet: `recipes shopping tidy`."
+      : formatRun(runs[0], { all }).join("\n"),
+};
+
+function decideCommand(
+  action: "accept" | "skip",
+): CommandDef<TidyDecisionResult> {
+  return {
+    name: `shopping ${action}`,
+    usage: `recipes shopping ${action} <suggestion-id>   ${action === "accept" ? "put one suggestion on the list as a change" : "skip one suggestion (a later run is told)"}`,
+    options: {},
+    run({ backend, positionals }) {
+      const [id, ...rest] = positionals;
+      if (!id || rest.length > 0) {
+        throw new UsageError(
+          `shopping ${action} takes one suggestion id (\`shopping suggestions\` lists them).`,
+        );
+      }
+      return backend.decideTidySuggestion(id, action);
+    },
+    format: (result) =>
+      !result.changed
+        ? `No change: "${result.suggestion.title}" was ${action === "accept" ? "accepted" : "skipped"} already.`
+        : action === "accept"
+          ? `Accepted "${result.suggestion.title}" as change ${result.layer?.id ?? ""} (\`shopping change off <id>\` undoes it).`
+          : `Skipped "${result.suggestion.title}".`,
+  };
+}
 
 // --- this list's changes, and leave-off (50a) -----------------------------------
 
@@ -740,7 +939,12 @@ export const shoppingCommands: Record<string, CommandDef<unknown>> = {
   "keep-apart": keepApartCommand,
   split: splitCommand,
   ask: askCommand,
-  "find-merges": findMergesCommand,
+  "find-merges": findMergesCommand as CommandDef<unknown>,
+  tidy: tidyCommand,
+  "tidy-models": tidyModelsCommand,
+  suggestions: suggestionsCommand,
+  accept: decideCommand("accept"),
+  skip: decideCommand("skip"),
   changes: changesCommand,
   change: changeCommand,
   "leave-off": leaveOffCommand(true),

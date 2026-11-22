@@ -26,6 +26,7 @@
  * `exitCodeFor` answering 2 for a remote slug conflict, and it is why
  * `"unauthenticated"` had to join `CurationErrorCode`.
  */
+import type { ShoppingTidyResult } from "recipe-website-common/util/shoppingTidy";
 import {
   CurationError,
   type CurationErrorCode,
@@ -85,6 +86,10 @@ import type {
   ShoppingAskResult,
   ShoppingClearResult,
   ShoppingLayerListing,
+  ShoppingTidyAnswer,
+  TidyDecisionResult,
+  TidyModels,
+  TidyRunView,
   ShoppingLayerResult,
   ShoppingMergeResult,
   ShoppingPatchResult,
@@ -348,6 +353,29 @@ export function createHttpBackend({
         );
       }
       throw error;
+    }
+  }
+
+  /** 50b: follow a tidy job once a second until it ends (Ctrl-C stops following). */
+  async function followTidy(job: string): Promise<ShoppingTidyAnswer> {
+    const { interruptibleSleep } = await import("../interrupt");
+    for (;;) {
+      const view = await call<{
+        job: string;
+        live: boolean;
+        status: string;
+        result?: ShoppingTidyResult;
+        error?: { code?: string; message?: string };
+      }>("GET", "/api/shopping/tidy", { query: { job } });
+      if (!view.live) {
+        if (view.result) return { ...view.result, job: view.job };
+        throw new UsageError(
+          `Job ${view.job} ended ${view.status}${view.error?.message ? `: ${view.error.message}` : ""}.`,
+        );
+      }
+      if (!(await interruptibleSleep(1_000))) {
+        return { job, status: "running" as const };
+      }
     }
   }
 
@@ -760,6 +788,53 @@ export function createHttpBackend({
           return { job: started.job, status: "running" as const };
         }
       }
+    },
+
+    /* 50b: "Tidy with the model", run and followed in the editor. */
+    tidyModels() {
+      return call<TidyModels>("GET", "/api/shopping/tidy/models");
+    },
+    async tidyShopping(input, { wait = false } = {}) {
+      const started = await call<{ job: string; stored?: boolean }>(
+        "POST",
+        "/api/shopping/tidy",
+        { body: input },
+      );
+      return wait
+        ? followTidy(started.job)
+        : { ...started, status: "running" as const };
+    },
+    async tidyRuns(options = {}) {
+      if (options.run) {
+        const one = await call<TidyRunView>(
+          "GET",
+          `/api/shopping/tidy/runs/${encodeURIComponent(options.run)}`,
+        );
+        return { runs: [one] };
+      }
+      return call<{ runs: TidyRunView[] }>("GET", "/api/shopping/tidy/runs");
+    },
+    decideTidySuggestion(id, action) {
+      return call<TidyDecisionResult>(
+        "POST",
+        `/api/shopping/tidy/suggestions/${encodeURIComponent(id)}/${action}`,
+        { body: {} },
+      );
+    },
+    async askTidySuggestion(input, { wait = false } = {}) {
+      const started = await call<{ job: string; stored?: boolean }>(
+        "POST",
+        `/api/shopping/tidy/suggestions/${encodeURIComponent(input.suggestion)}/ask`,
+        {
+          body: {
+            note: input.note,
+            ...(input.model ? { model: input.model } : {}),
+          },
+        },
+      );
+      return wait
+        ? followTidy(started.job)
+        : { ...started, status: "running" as const };
     },
 
     /* The route answers `{tags}`; the seam's shape is the bare list. */

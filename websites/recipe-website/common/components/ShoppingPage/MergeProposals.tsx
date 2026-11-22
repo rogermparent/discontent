@@ -8,10 +8,7 @@ import { cn } from "@discontent/component-library/lib/utils";
 import type { ShoppingProposal } from "../../util/shoppingConsolidate";
 import {
   SHOPPING_ASK_NOTE_MAX,
-  stillOpen,
   type ShoppingAskDecision,
-  type ShoppingFindResult,
-  type ShoppingModelProposal,
   type ShoppingReviseResult,
 } from "../../util/shoppingAsk";
 import type {
@@ -630,124 +627,6 @@ function AboutMerge({
 }
 
 /**
- * 49b (Db2): "Look for more with the model" — the list's names, what a
- * shopper buys as one thing — and what it found, each marked as its
- * suggestion with the usual Merge / Edit / Keep apart. Derived: they live
- * in the job's result until answered, never in the list.
- */
-function FindMore({
-  list,
-  asker,
-  proposals,
-  answered,
-}: {
-  list: ShoppingList;
-  asker: ShoppingAsker;
-  proposals: ShoppingProposal[];
-  answered(message: string): void;
-}) {
-  const { found } = asker;
-  const result =
-    found?.result.task === "find"
-      ? (found.result as ShoppingFindResult)
-      : undefined;
-  const model = result?.model ?? asker.model;
-  const open: ShoppingModelProposal[] = (found?.open ?? []).filter((each) =>
-    stillOpen(each, list.merges, proposals),
-  );
-  const tryClaude =
-    result &&
-    result.claudeAvailable &&
-    result.backend !== "claude" &&
-    (result.status === "refused" || result.status === "failed");
-  return (
-    <div className="flex flex-col gap-2 border-t border-border pt-3">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-9"
-          disabled={asker.busy}
-          onClick={() => void asker.ask({ task: "find" }, { kind: "find" })}
-        >
-          Look for more with the model
-        </Button>
-        <span className="text-xs text-muted-foreground">
-          {asker.model} reads the list’s names; nothing changes until you merge.
-        </span>
-      </div>
-      <div role="status" className="empty:hidden" data-testid="shopping-find">
-        {result &&
-        (result.status === "refused" || result.status === "failed") ? (
-          <p className="border-l-2 border-destructive pl-2 text-sm">
-            {result.status === "refused"
-              ? `${capital(model)}'s answer was not used: ${result.problem}.`
-              : `Nothing was suggested: ${result.problem}.`}
-          </p>
-        ) : null}
-        {result?.status === "found" && result.proposals.length === 0 ? (
-          <p className="text-sm">
-            {capital(model)} found nothing more to merge in {result.names}{" "}
-            names.
-          </p>
-        ) : null}
-        {result?.status === "found" &&
-        result.proposals.length > 0 &&
-        open.length === 0 ? (
-          <p className="text-sm">Every suggestion from {model} is answered.</p>
-        ) : null}
-      </div>
-      {tryClaude ? (
-        <div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-9"
-            disabled={asker.busy}
-            onClick={() =>
-              void asker.ask({ task: "find", claude: true }, { kind: "find" })
-            }
-          >
-            Try with Claude
-          </Button>
-        </div>
-      ) : null}
-      {open.length > 0 ? (
-        <ul className="flex flex-col" aria-label={`Suggested by ${model}`}>
-          {open.map((each) => (
-            <Proposal
-              key={each.proposal.id}
-              proposal={each.proposal}
-              list={list}
-              asker={asker}
-              found={{ model, decision: each.decision }}
-              answered={(text) => {
-                asker.answeredFound(each.proposal.id);
-                answered(text);
-              }}
-            />
-          ))}
-        </ul>
-      ) : null}
-      {result?.status === "found" && result.dropped.length > 0 ? (
-        <details className="text-xs text-muted-foreground">
-          <summary className="cursor-pointer py-1">
-            Left out by the check ({result.dropped.length})
-          </summary>
-          <ul className="ml-3 flex flex-col gap-0.5">
-            {result.dropped.map((why) => (
-              <li key={why}>{why}</li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
-    </div>
-  );
-}
-
-/**
  * "Same thing, different names" (49a, Da6), at home: each open proposal —
  * rows the curated table says are one ingredient — with Merge, Edit and Keep
  * apart. Answered proposals leave the panel; what was done is said in a
@@ -755,8 +634,9 @@ function FindMore({
  * the button.
  *
  * 49b: with a model here (`asker`), a note and "Ask the model" in each
- * Edit, a merged row's note (from its menu), and "Look for more with the
- * model" — every answer marked, and written only by Accept or Merge.
+ * Edit and a merged row's note (from its menu) — every answer marked, and
+ * written only by Accept or Merge. 49's "Look for more with the model" is
+ * replaced by 50b's "Tidy with the model" (its own panel).
  */
 export function MergeProposals({
   proposals,
@@ -775,14 +655,9 @@ export function MergeProposals({
   const headingId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const [message, setMessage] = useState<string | undefined>();
-  /* 49b: the model may look when two or more lines are still to buy. */
-  const findable =
-    !!asker?.available &&
-    list.settings.features.merge &&
-    list.items.filter((item) => !item.checked).length >= 2;
   const about = asker?.available ? asker.about : undefined;
   const pending = !!asker?.running && asker.running.job !== asker.settledJob;
-  if (proposals.length === 0 && !message && !findable && !about && !pending) {
+  if (proposals.length === 0 && !message && !about && !pending) {
     return null;
   }
   const answered = (text: string) => {
@@ -864,14 +739,6 @@ export function MergeProposals({
           ))}
         </ul>
       )}
-      {findable && asker ? (
-        <FindMore
-          list={list}
-          asker={asker}
-          proposals={proposals}
-          answered={answered}
-        />
-      ) : null}
     </section>
   );
 }

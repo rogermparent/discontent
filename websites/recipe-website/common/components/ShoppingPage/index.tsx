@@ -28,12 +28,14 @@ import {
   type ShoppingPageActions,
 } from "./useShoppingList";
 import { useShoppingAsk, type ShoppingAskSurface } from "./useShoppingAsk";
+import type { ShoppingTidySurface } from "./Tidy";
 
 export type { ShoppingPageActions, ShoppingListState };
 export type {
   ShoppingAskProgressProps,
   ShoppingAskSurface,
 } from "./useShoppingAsk";
+export type { ShoppingTidySurface } from "./Tidy";
 
 const STORE_KEY = "shopping-store";
 
@@ -105,6 +107,7 @@ export function ShoppingPage({
   actions,
   patchUrl,
   ask,
+  tidy,
 }: {
   initial: ShoppingListState;
   actions: ShoppingPageActions;
@@ -115,6 +118,8 @@ export function ShoppingPage({
    * merged row, and "Look for more with the model". Absent: neither shows.
    */
   ask?: ShoppingAskSurface;
+  /** 50b: "Tidy with the model" (Plan), where the editor has a model. */
+  tidy?: ShoppingTidySurface;
 }) {
   const list = useShoppingList({ initial, actions, patchUrl });
   const asker = useShoppingAsk(list.canMerge ? ask : undefined);
@@ -267,6 +272,7 @@ export function ShoppingPage({
           subRecipes={subRecipes}
           proposals={proposals}
           asker={asker}
+          {...(tidy ? { tidy } : {})}
           handlers={handlers}
           asWritten={asWritten}
           setAsWritten={setAsWritten}

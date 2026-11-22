@@ -977,11 +977,16 @@ export const ShoppingLayerOpSchema = z.discriminatedUnion("op", [
       ids: LayerIdsSchema,
       amount: oneLine(LAYER_LIMITS.amount, "An amount").optional(),
       unit: z.enum(ASKABLE_UNITS).optional(),
+      /* 50b (Db3): more on top of the list's sum, added by the code. */
+      add: oneLine(LAYER_LIMITS.amount, "An amount to add").optional(),
     })
     .refine(
-      (data) => (data.amount === undefined) !== (data.unit === undefined),
+      (data) =>
+        [data.amount, data.unit, data.add].filter(
+          (value) => value !== undefined,
+        ).length === 1,
       {
-        message: "An amount op names exactly one of `amount` or `unit`",
+        message: "An amount op names exactly one of `amount`, `unit` or `add`",
         path: ["amount"],
       },
     ),

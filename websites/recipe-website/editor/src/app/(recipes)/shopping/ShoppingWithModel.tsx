@@ -7,7 +7,19 @@ import {
   type ShoppingAskSurface,
   type ShoppingListState,
   type ShoppingPageActions,
+  type ShoppingTidySurface,
 } from "recipe-website-common/components/ShoppingPage";
+import {
+  isShoppingTidyResult,
+  type TidyModels,
+  type TidyRunView,
+} from "recipe-website-common/util/shoppingTidy";
+import {
+  decideShoppingTidy,
+  latestShoppingTidy,
+  shoppingTidyResultAction,
+  startShoppingTidy,
+} from "recipe-editor/controller/actions/shoppingTidy";
 import { isShoppingAskResult } from "recipe-website-common/util/shoppingAsk";
 import { UNSTORED_KEEP_MS } from "recipe-editor/controller/jobs/unstored";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
@@ -132,6 +144,38 @@ function AskProgress({
 }
 
 /**
+ * 50b: a tidy run's outcome — the job store's view (`GET
+ * /api/shopping/tidy?job=`) once a second and a half while it is live; a
+ * job with no record (38-Tb5), by the action's bounded long-poll.
+ */
+async function followTidy(
+  job: string,
+): ReturnType<ShoppingTidySurface["follow"]> {
+  const response = await fetch(
+    `/api/shopping/tidy?job=${encodeURIComponent(job)}`,
+    { cache: "no-store" },
+  ).catch(() => undefined);
+  if (!response?.ok) return shoppingTidyResultAction(job);
+  const view = (await response.json()) as {
+    live?: boolean;
+    status?: string;
+    result?: unknown;
+    error?: { message?: string };
+  };
+  if (view.live) {
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    return { pending: true };
+  }
+  return isShoppingTidyResult(view.result)
+    ? { result: view.result }
+    : {
+        message:
+          view.error?.message ??
+          `The run ended ${view.status ?? "without an answer"}.`,
+      };
+}
+
+/**
  * `/shopping` with the editor's model (49b): the shared page, and — where
  * this editor has a model (Edit with AI's: the local one, else the Claude
  * API) — the asks: a note on a proposal or merged row, and "Look for more
@@ -142,11 +186,17 @@ export default function ShoppingWithModel({
   actions,
   patchUrl,
   models,
+  tidyModels,
+  tidyRun,
 }: {
   initial: ShoppingListState;
   actions: ShoppingPageActions;
   patchUrl: string;
   models: ShoppingModelsShown;
+  /** 50b: the models a tidy run may pick (none: no "Tidy with the model"). */
+  tidyModels?: TidyModels;
+  /** 50b: the latest tidy run, as the list reads it now. */
+  tidyRun?: TidyRunView;
 }) {
   const model = models.local ?? models.claude;
   const ask = useMemo<ShoppingAskSurface | undefined>(
@@ -161,12 +211,27 @@ export default function ShoppingWithModel({
         : undefined,
     [model, models.local, models.claude],
   );
+  const tidy = useMemo<ShoppingTidySurface | undefined>(
+    () =>
+      tidyModels && tidyModels.models.length > 0
+        ? {
+            models: tidyModels,
+            ...(tidyRun ? { initial: tidyRun } : {}),
+            start: (input) => startShoppingTidy(input),
+            follow: (job) => followTidy(job),
+            latest: () => latestShoppingTidy(),
+            decide: (id, action) => decideShoppingTidy(id, action),
+          }
+        : undefined,
+    [tidyModels, tidyRun],
+  );
   return (
     <ShoppingPage
       initial={initial}
       actions={actions}
       patchUrl={patchUrl}
       {...(ask ? { ask } : {})}
+      {...(tidy ? { tidy } : {})}
     />
   );
 }

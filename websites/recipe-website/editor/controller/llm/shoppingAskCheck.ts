@@ -198,7 +198,7 @@ function withoutAmount(name: string): { name: string; amount?: string } {
  * alike. A number in front ("890 g") is set aside; `null` for a unit the
  * list can't use.
  */
-function askedUnit(raw: string): {
+export function askedUnit(raw: string): {
   unit?: AskableUnit;
   number?: string;
   unknown?: string;
@@ -471,7 +471,10 @@ function endsWith(words: readonly string[], tail: readonly string[]): boolean {
  * cream). Not "heavy cream" and "sour cream", "chicken broth" and "beef
  * broth", "baking powder" and "baking soda".
  */
-function shareHead(a: ShoppingProposalRow, b: ShoppingProposalRow): boolean {
+export function shareHead(
+  a: Pick<ShoppingProposalRow, "key">,
+  b: Pick<ShoppingProposalRow, "key">,
+): boolean {
   if (knownSameKind(a.key, b.key)) return true;
   let short = wordsOf(a.key);
   let long = wordsOf(b.key);

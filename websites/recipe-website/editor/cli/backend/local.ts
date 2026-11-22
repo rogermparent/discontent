@@ -489,6 +489,39 @@ export function createLocalBackend({
         await import("../../controller/llm/shoppingAsk");
       return runSeat(await storedShoppingAskSpec(ctx, input), run);
     },
+    /* 50b: a tidy run is kept (one commit), so it preflights the identity. */
+    async tidyModels() {
+      const { readTidyModels } =
+        await import("../../controller/llm/shoppingTidy");
+      return (await readTidyModels()).choices;
+    },
+    async tidyShopping(input, _options, run) {
+      await guard();
+      const { storedTidySpec } =
+        await import("../../controller/llm/shoppingTidy");
+      return runSeat(await storedTidySpec(ctx, input), run);
+    },
+    async tidyRuns(options = {}) {
+      const { tidyRunView } =
+        await import("recipe-website-common/util/shoppingTidy");
+      const [runs, items] = await Promise.all([
+        options.run
+          ? shopping.readTidyRun(ctx, options.run).then((one) => [one])
+          : shopping.readTidyRuns(ctx),
+        shopping.readShoppingItems(ctx),
+      ]);
+      return { runs: runs.map((each) => tidyRunView(each, items)) };
+    },
+    async decideTidySuggestion(id, action) {
+      await guard();
+      return shopping.decideTidySuggestion(ctx, id, action);
+    },
+    async askTidySuggestion(input, _options, run) {
+      await guard();
+      const { storedTidyAskSpec } =
+        await import("../../controller/llm/shoppingTidy");
+      return runSeat(await storedTidyAskSpec(ctx, input), run);
+    },
 
     gitStatus: (options) => git.gitStatus(ctx, options),
     gitLog: (options) => git.gitLog(ctx, options),

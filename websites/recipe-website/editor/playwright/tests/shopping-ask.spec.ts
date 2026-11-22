@@ -14,10 +14,9 @@ import { standInChat } from "../fixtures/llm/standInModel";
  * one) answers by rule: a note with "grams" names the unit g and the list
  * works out ≈ 360 g itself (49c, Dc1), "call it X" names it, "apart" keeps
  * them apart, "invent" names a line that was not asked about (which the
- * check refuses); "Look for more" groups a name with a longer one ending
- * in it — "buttermilk" with "low fat buttermilk", which the check keeps,
- * and "salt" with "sea salt", which it leaves out as known different (Dc3).
- * Every answer arrives marked; only Accept or Merge writes. The suite pins
+ * check refuses). 49b's "Look for more" is replaced by 50b's "Tidy with the
+ * model" (`shopping-tidy.spec.ts`), and its two cases with it. Every
+ * answer arrives marked; only Accept or Merge writes. The suite pins
  * the model off (T18); this spec turns it on through the TEST_MODE-only
  * `/settings/test-llm`, off again after each.
  *
@@ -71,12 +70,8 @@ const page$ = (page: Page) => page.getByTestId("shopping-page");
 const panel = (page: Page) => page.getByTestId("shopping-proposals");
 const tableProposal = (page: Page) =>
   page.locator('[data-testid="shopping-proposal"][data-source="table"]');
-const modelProposal = (page: Page) =>
-  page.locator('[data-testid="shopping-proposal"][data-source="model"]');
 const rows = (page: Page) => page.getByTestId("shopping-row");
 const flourRows = (page: Page) => rows(page).filter({ hasText: /flour/ });
-const buttermilkRows = (page: Page) =>
-  rows(page).filter({ hasText: /buttermilk/ });
 
 async function makeCrepes(request: APIRequestContext, token: string) {
   const created = await request.post("/api/recipes", {
@@ -245,46 +240,6 @@ test.describe("Shopping list: ask the model (49b)", () => {
     await axeClean(page);
   });
 
-  test("Look for more finds a pair the table leaves alone, marked; the check leaves a known-different pair out; Merge makes one row", async ({
-    page,
-    getContentGitLog,
-  }) => {
-    test.slow();
-    await openList(page);
-    await expect(buttermilkRows(page)).toHaveCount(2);
-    const look = panel(page).getByRole("button", {
-      name: "Look for more with the model",
-    });
-    await expectHydrated(look);
-    await look.click();
-    const found = modelProposal(page);
-    await expect(found).toHaveCount(1, { timeout: 30_000 });
-    await expect(found).toContainText("Suggested by local model qwen3:8b");
-    await expect(found).toContainText(
-      "1 1/2 cups buttermilk · Buttermilk Pancakes",
-    );
-    await expect(found).toContainText("1/2 cup low-fat buttermilk · Crêpes");
-    await expect(found).toContainText("Both are buttermilk.");
-    /* Salt and sea salt are known different (Dc3): left out, and said. */
-    await expect(panel(page)).toContainText("Left out by the check (1)");
-    await expect(panel(page)).toContainText(
-      "salt and sea salt are different things to buy (salt)",
-    );
-    /* The table's flour is still its own proposal, not the model's. */
-    await expect(tableProposal(page)).toHaveCount(1);
-    await axeClean(page);
-
-    await found.getByRole("button", { name: /^Merge into/ }).click();
-    await expect
-      .poll(async () => (await getContentGitLog())[0], { timeout: 15_000 })
-      .toBe("Update shopping list: merge buttermilk + low fat buttermilk");
-    await expect(modelProposal(page)).toHaveCount(0);
-    await expect(buttermilkRows(page)).toHaveCount(1);
-    await expect(
-      buttermilkRows(page).getByTestId("shopping-merged-from"),
-    ).toContainText("1 1/2 cups buttermilk (Buttermilk Pancakes)");
-  });
-
   test("a merged row's menu asks about it; keep apart, accepted, splits it", async ({
     page,
     getContentGitLog,
@@ -321,54 +276,5 @@ test.describe("Shopping list: ask the model (49b)", () => {
       .toBe("Update shopping list: keep apart all purpose flour + white flour");
     await expect(flourRows(page)).toHaveCount(2);
     await expect(tableProposal(page)).toHaveCount(0);
-  });
-});
-
-test.describe("Shopping list: ask the model (49b) @mobile", () => {
-  test.beforeEach(
-    async ({ resetData, initializeContentGit, request, createApiToken }) => {
-      await resetData("shopping");
-      await initializeContentGit();
-      await makeCrepes(request, await createApiToken());
-      await useModel(request, modelUrl);
-    },
-  );
-
-  test.afterEach(async ({ request }) => {
-    await useModel(request);
-  });
-
-  test("on a phone, Plan looks for more and merges; nothing scrolls sideways", async ({
-    page,
-    getContentGitLog,
-  }) => {
-    test.slow();
-    await openList(page);
-    await expect(page$(page)).toHaveAttribute("data-mode", "shop");
-    const plan = page
-      .getByRole("group", { name: "Mode" })
-      .getByRole("button", { name: "Plan" });
-    await expectHydrated(plan);
-    await plan.click();
-    await expect(page$(page)).toHaveAttribute("data-mode", "plan");
-    await panel(page)
-      .getByRole("button", { name: "Look for more with the model" })
-      .click();
-    const found = modelProposal(page);
-    await expect(found).toHaveCount(1, { timeout: 30_000 });
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth - window.innerWidth,
-      ),
-    ).toBeLessThanOrEqual(0);
-    await found.getByRole("button", { name: /^Merge into/ }).click();
-    await expect
-      .poll(async () => (await getContentGitLog())[0], { timeout: 15_000 })
-      .toBe("Update shopping list: merge buttermilk + low fat buttermilk");
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth - window.innerWidth,
-      ),
-    ).toBeLessThanOrEqual(0);
   });
 });

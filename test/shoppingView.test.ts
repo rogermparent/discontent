@@ -692,8 +692,9 @@ describe("normalizeShoppingSettings", () => {
       ...DEFAULT_SHOPPING_SETTINGS.features,
       stores: true,
     });
-    expect(read.aisleOrder.slice(0, 2)).toEqual(["frozen", "produce"]);
-    expect(read.aisleOrder).toHaveLength(8);
+    /* 50b (Db7): an order from before `check` keeps it first. */
+    expect(read.aisleOrder.slice(0, 3)).toEqual(["check", "frozen", "produce"]);
+    expect(read.aisleOrder).toHaveLength(9);
     expect(read.stores).toEqual([{ id: "hannaford", name: "Hannaford" }]);
     expect(read.defaultStore).toBe("hannaford");
     expect(read.storeByAisle).toEqual({ frozen: "hannaford" });

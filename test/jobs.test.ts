@@ -538,6 +538,8 @@ describe("the registry", () => {
         "form-url",
         /* 38e: photos, from the form and from the CLI / API / MCP. */
         "form-photo",
+        /* 50b: "Tidy with the model". */
+        "shopping-tidy",
         "import-photo",
         "import-list",
         "import-text",

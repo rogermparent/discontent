@@ -55,6 +55,7 @@ const KIND_WORDS: Record<string, [string, string]> = {
   choices: ["look for alternatives", "looks for alternatives"],
   edit: ["edit with AI", "edits with AI"],
   "shopping-merge": ["shopping list ask", "shopping list asks"],
+  "shopping-tidy": ["shopping list tidy", "shopping list tidies"],
   "linked-scan": ["linked-recipe scan", "linked-recipe scans"],
 };
 
@@ -82,7 +83,8 @@ export function kindGroup(kind: string): Exclude<KindFilter, "all"> {
     kind === "fill" ||
     kind === "choices" ||
     kind === "edit" ||
-    kind === "shopping-merge"
+    kind === "shopping-merge" ||
+    kind === "shopping-tidy"
   ) {
     return "curator";
   }

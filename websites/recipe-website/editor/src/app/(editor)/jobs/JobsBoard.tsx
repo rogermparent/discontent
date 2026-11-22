@@ -123,7 +123,8 @@ function KindIcon({ kind, className }: { kind: string; className?: string }) {
     kind === "fill" ||
     kind === "choices" ||
     kind === "edit" ||
-    kind === "shopping-merge"
+    kind === "shopping-merge" ||
+    kind === "shopping-tidy"
   ) {
     return <Sparkles {...props} />;
   }

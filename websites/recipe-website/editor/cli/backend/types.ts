@@ -96,6 +96,14 @@ import type {
 } from "../../controller/curation/shopping";
 import type { ShoppingLayerListing } from "recipe-website-common/util/shoppingChanges";
 import type {
+  ShoppingTidyResult,
+  TidyAskStart,
+  TidyModels,
+  TidyRunView,
+  TidyStart,
+} from "recipe-website-common/util/shoppingTidy";
+import type { TidyDecisionResult } from "../../controller/curation/shopping";
+import type {
   RecipeDetail,
   RecipeDryRunResult,
   RecipeListResult,
@@ -209,6 +217,16 @@ export type {
 export type ShoppingAskAnswer =
   | (ShoppingAskResult & { job: string })
   | { job: string; stored?: boolean; status: "running" };
+
+/**
+ * 50b: what `shopping tidy` and a tidy `shopping ask` answer — the job's
+ * result once it ended, or (`--remote` without `--wait`) its id.
+ */
+export type ShoppingTidyAnswer =
+  | (ShoppingTidyResult & { job: string })
+  | { job: string; stored?: boolean; status: "running" };
+
+export type { TidyDecisionResult, TidyModels, TidyRunView };
 
 export interface DeleteResult {
   slug: string;
@@ -574,6 +592,31 @@ export interface CuratorBackend {
     options?: { wait?: boolean },
     run?: SeatRun,
   ): Promise<ShoppingAskAnswer>;
+  /** 50b: the models a tidy run may pick, and those it can't, with why. */
+  tidyModels(): Promise<TidyModels>;
+  /**
+   * 50b: "Tidy with the model" — a `shopping-tidy` job that keeps its run
+   * (one commit). Locally it runs here to its end; remotely `wait` follows
+   * it, and without it the answer is the job's id.
+   */
+  tidyShopping(
+    input: TidyStart,
+    options?: { wait?: boolean },
+    run?: SeatRun,
+  ): Promise<ShoppingTidyAnswer>;
+  /** 50b: the tidy runs, newest first (`run`: that one only). */
+  tidyRuns(options?: { run?: string }): Promise<{ runs: TidyRunView[] }>;
+  /** 50b: Accept (one layer) or Skip one suggestion — one commit. */
+  decideTidySuggestion(
+    id: string,
+    action: "accept" | "skip",
+  ): Promise<TidyDecisionResult>;
+  /** 50b: a note on one card, asked again (Db6). */
+  askTidySuggestion(
+    input: TidyAskStart,
+    options?: { wait?: boolean },
+    run?: SeatRun,
+  ): Promise<ShoppingTidyAnswer>;
 
   /* --- git (23d/D23) ----------------------------------------------------- */
 

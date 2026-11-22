@@ -59,14 +59,18 @@ export interface ShoppingDropOp {
 }
 
 /**
- * The rows' amount: the person's own (`amount`), or the list's sum in
- * another unit (`unit`, converted by the code — 49c's `amountInUnit`).
+ * The rows' amount: the person's own (`amount`), the list's sum in another
+ * unit (`unit`, converted by the code — 49c's `amountInUnit`), or (50b,
+ * Db3) the list's sum **plus** `add` — "1 tbsp" more cinnamon for the
+ * cinnamon sugar, "2½ qt" more oil for frying — added by the code on every
+ * read, so it follows the list. Exactly one of the three.
  */
 export interface ShoppingAmountOp {
   op: "amount";
   ids: string[];
   amount?: string;
   unit?: AskableUnit;
+  add?: string;
 }
 
 /** A line under the row: "or make from ~4 pears". */
@@ -206,10 +210,13 @@ export function parseShoppingLayerOp(raw: unknown): ShoppingLayerOp | null {
       const unit = (ASKABLE_UNITS as readonly unknown[]).includes(raw.unit)
         ? (raw.unit as AskableUnit)
         : undefined;
-      /* Exactly one: an amount of the person's, or a unit to convert into. */
-      if (amount && !unit) return { op: "amount", ids, amount };
-      if (unit && !amount) return { op: "amount", ids, unit };
-      return null;
+      const add = boundedText(raw.add, LAYER_LIMITS.amount);
+      /* Exactly one: the person's amount, a unit to convert into, or more. */
+      const given = [amount, unit, add].filter(Boolean).length;
+      if (given !== 1) return null;
+      if (amount) return { op: "amount", ids, amount };
+      if (unit) return { op: "amount", ids, unit };
+      return { op: "amount", ids, add: add! };
     }
     case "note": {
       const text = boundedText(raw.text, LAYER_LIMITS.text);

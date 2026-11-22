@@ -66,7 +66,11 @@ export function describeOp(
     case "drop":
       return `Leave off ${names}: ${op.reason}`;
     case "amount":
-      return op.amount ? `${names}: ${op.amount}` : `${names} in ${op.unit}`;
+      return op.amount
+        ? `${names}: ${op.amount}`
+        : op.add
+          ? `${names}: +${op.add}`
+          : `${names} in ${op.unit}`;
     case "note":
       return `Note on ${names}: ${op.text}`;
     case "aisle":
@@ -110,6 +114,8 @@ export interface ShoppingPromptRow {
   /** The row's amount, when one was read. */
   amount?: string;
   aisle?: string;
+  /** 50b: every line behind it is optional in its recipe. */
+  optional?: true;
   /** The lines behind it, as written, each with its recipe's name. */
   lines: { text: string; recipe?: string }[];
 }
@@ -135,6 +141,7 @@ export function promptRowsOf(view: ShoppingView): ShoppingPromptRow[] {
     name: row.name,
     ...(row.quantity ? { amount: row.quantity } : {}),
     ...(row.aisle ? { aisle: AISLE_LABELS[row.aisle] } : {}),
+    ...(row.optional ? { optional: true as const } : {}),
     lines: (row.sources ?? [])
       .filter((source) => !source.alternative)
       .map((source) => ({
