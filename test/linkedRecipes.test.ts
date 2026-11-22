@@ -281,6 +281,23 @@ describe("one batch for a sub-recipe several lines share", () => {
       "1 batch [Poached Pears](/recipe/poached-pears)",
       "1 batch [Poached Pears](/recipe/poached-pears)",
     ]),
+    "pie-crust": recipe("All-Butter Pie Crust", [
+      "2 1/2 cups flour",
+      "1 cup butter",
+    ]),
+    "double-crust": recipe("Double-Crust Pie", [
+      '<Multiplyable baseNumber="1" /> [All-Butter Pie Crust](/recipe/pie-crust), for the bottom',
+      "6 cups apples",
+      '<Multiplyable baseNumber="1" /> [All-Butter Pie Crust](/recipe/pie-crust), for the top',
+    ]),
+    "half-and-measure": recipe("Half and a Measure", [
+      "1/2 batch [Poached Pears](/recipe/poached-pears)",
+      "1 cup [pear purée](/recipe/poached-pears)",
+    ]),
+    "bare-twice": recipe("Bare Twice", [
+      "[Poached Pears](/recipe/poached-pears)",
+      "[Poached Pears](/recipe/poached-pears)",
+    ]),
   };
   const expand = (slug: string, scale = new Fraction(1)) =>
     expandRecipeLines(slug, corpus[slug], {
@@ -303,6 +320,32 @@ describe("one batch for a sub-recipe several lines share", () => {
       name: "Poached Pears",
       called: "2 cups poached pear purée and 1½ cups pear poaching liquid",
     });
+  });
+
+  it("sums counted lines: a double-crust pie buys two crusts", async () => {
+    const { lines: out, warnings } = await expand("double-crust");
+    expect(warnings).toEqual([]);
+    expect(
+      out.map((line) => [line.text, line.factor.toFraction(), line.for.length]),
+    ).toEqual([
+      ["2 1/2 cups flour", "2", 1],
+      ["1 cup butter", "2", 1],
+      ["6 cups apples", "1", 0],
+    ]);
+    expect(out[0].for[0].called).toBe(
+      "1 All-Butter Pie Crust and 1 All-Butter Pie Crust",
+    );
+    /* No amount is ×1 each, as alone. */
+    const bare = await expand("bare-twice");
+    expect(bare.lines.map((line) => line.factor.toFraction())).toEqual([
+      "2",
+      "2",
+    ]);
+  });
+
+  it("gives a half batch beside a measure one whole batch (De14)", async () => {
+    const { lines: out } = await expand("half-and-measure");
+    expect(out.map((line) => line.factor.toFraction())).toEqual(["1", "1"]);
   });
 
   it("still multiplies counted batches, which cover the measured line beside them", async () => {

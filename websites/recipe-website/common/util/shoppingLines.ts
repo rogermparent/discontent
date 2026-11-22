@@ -240,6 +240,18 @@ export function subRecipeLink(markdown: string): SubRecipeLink | null {
   return { slug, factor: new Fraction(1), called: amount, text };
 }
 
+/**
+ * A link whose amount measures what the sub-recipe makes ("2 cups", "¾
+ * oz", "1 can"), not a count of it or of its batches.
+ */
+function isMeasure(link: SubRecipeLink): boolean {
+  return (
+    !link.batches &&
+    !!link.called &&
+    link.called.parts.some((part) => part.family !== "count")
+  );
+}
+
 /** "2 batches", "1 batch", "1/2 batch": a number of batches as a note says it. */
 function formatBatches(count: Fraction): string {
   const text = count.toFraction(true);
@@ -329,11 +341,10 @@ export async function expandRecipeLines(
       return expand && !orFollows ? subRecipeLink(line.markdown) : null;
     });
     /*
-     * 50e: one sub-recipe linked from several lines of this recipe is one
-     * batch — the cake's purée and its poaching liquid are both one batch
-     * of poached pears — opened at its first line, noting every line it
-     * covers. Lines that count batches ("2 batches") still multiply: their
-     * batches add up, and cover the measured lines beside them.
+     * 50e: one sub-recipe linked from several lines of this recipe opens
+     * once, at its first line, noting every line it covers. Measured lines
+     * share one batch — the cake's purée and its poaching liquid are both
+     * one batch of poached pears — and counted lines add up (De8, De14).
      */
     const groups = new Map<string, number[]>();
     /* A shared sub-recipe with no lines: each of its lines as written. */
@@ -391,15 +402,25 @@ export async function expandRecipeLines(
         member.link.called
           ? formatAmount(scaleAmount(member.link.called, scale.mul(factor)))
           : member.link.calledText;
-      const batches = members.filter((member) => member.link.batches);
-      const subFactor = shared
-        ? batches.length > 0
-          ? batches.reduce(
-              (sum, member) => sum.add(member.link.factor),
-              new Fraction(0),
-            )
-          : new Fraction(1)
-        : link.factor;
+      /*
+       * 50e (De14): lines that count — "1 [crust]", "2 batches", "half
+       * batch", no amount — sum their factors, as each did alone: a
+       * double-crust pie's bottom and top are two crusts. Lines that
+       * measure what the sub-recipe makes — "2 cups purée", "¾ oz syrup" —
+       * share one batch, however many of them; next to counts they add
+       * nothing once the counts make at least one batch.
+       */
+      const counted = members.filter((member) => !isMeasure(member.link));
+      const countSum = counted.reduce(
+        (sum, member) => sum.add(member.link.factor),
+        new Fraction(0),
+      );
+      const measured = counted.length < members.length;
+      const subFactor = !shared
+        ? link.factor
+        : measured && countSum.compare(1) < 0
+          ? new Fraction(1)
+          : countSum;
       const called = shared
         ? members
             .map((member) => {

@@ -462,9 +462,7 @@ skipped?}` (each line `from` → `to`), and the job log has a `linked` info
   (`expandRecipeLines`): within one recipe's own lines, the lines linking one
   sub-recipe open it **once**, at the first, noting every line it covers
   ("for Poached Pears (2 cups poached pear purée and 1½ cups pear poaching
-  liquid called for)"). Lines that count batches ("2 batches", "1 recipe";
-  `SubRecipeLink.batches`) still multiply — their batches add, and cover the
-  measured lines beside them; "1 batch" twice is two. The plan's or recipe's
+  liquid called for)"). Lines that count still add (De14). The plan's or recipe's
   scale multiplies as before. Dd3 is untouched: the expanded lines merge with
   the recipe's own of the same name in the view. One line alone is exactly as
   before.
@@ -498,6 +496,19 @@ Review amendments:
   to make", "made with my", "use my" — or it is left alone ("mentioned, not
   used by any line"): "see my scones", "try my apple pie recipe" are
   cross-promotions, not recipes this one needs.
+- **De14 — Counts add, measures share one batch** (amends De8; the
+  coordinator's rule after review). Among one recipe's lines linking one
+  sub-recipe, a line that **counts** — a bare count ("1 [All-Butter Pie
+  Crust]"), batches ("2 batches", "half batch"), no amount (×1), a range or
+  an unreadable amount (×1, as alone) — adds its factor: a double-crust pie's
+  bottom and top are two crusts. A line that **measures** what the
+  sub-recipe makes ("2 cups purée", "¾ oz simple syrup", "1 can") is covered
+  by one batch, however many measured lines there are: the cake's purée and
+  poaching liquid are one batch of pears (16 → 8). Mixed: the counts' sum,
+  raised to one batch when it is under one and a measured line is there
+  ("half batch" + "1 cup purée" → one batch); measures never add a second.
+  The note names every line, counts and measures alike. One line alone is
+  exactly as before (Dd2/Dd9).
 - **De13 — The scan keeps an edit made while it read** (`scanLinked`): the
   recipe is read again before the write; changed since, it is `failed`
   ("edited while its page was read — nothing written; scan it again").
@@ -573,9 +584,6 @@ Review amendments:
    under `auto` a linked page with no recipe data is read by the model, and
    a trusted reading is imported. The review suggested `off` unless the
    parent was `force`.
-9. Two bare-count lines linking one sub-recipe ("1 [pie dough]" for the
-   bottom, "1 [pie dough]" for the lattice) are now one batch (De8; Dd9
-   reads a bare count as pieces, not batches) — Sally's crust makes two.
-10. `linked --scan` on the whole collection reads every recipe's page once,
-    ≥ 15 s apart per site — hours for ~1,000 recipes; run it per slug or with
-    `--limit` first.
+9. `linked --scan` on the whole collection reads every recipe's page once,
+   ≥ 15 s apart per site — hours for ~1,000 recipes; run it per slug or with
+   `--limit` first.
