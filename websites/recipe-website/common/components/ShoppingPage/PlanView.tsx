@@ -461,7 +461,10 @@ export function PlanView({
           {/* 50c: the cards first — on a phone too, above the panels. */}
           {(list.canMerge || (tidy && list.canLayer)) && (
             <Walkthrough
-              /* 50c (Dc11): a list's cards are its own — another list starts over. */
+              /*
+               * 50c (Dc11): a list's cards are its own. The page is keyed by
+               * the list already; this keeps the cards so if that ever moves.
+               */
               key={list.listId}
               list={list}
               proposals={proposals}

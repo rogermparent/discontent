@@ -2219,15 +2219,17 @@ export interface ShoppingRulesResult {
   changed: boolean;
 }
 
+/** 50d: `scope` is the list whose layers the answer carries back. */
 async function rulesState(
   ctx: CurationContext,
   changed: boolean,
+  scope: ShoppingListScope,
 ): Promise<ShoppingRulesResult> {
   const [rules, merges, settings, layers] = await Promise.all([
     readShoppingRules(ctx),
     readShoppingMerges(ctx),
     readShoppingSettings(ctx),
-    readShoppingLayers(ctx),
+    layersOf(ctx, scope),
   ]);
   return { rules, merges, settings, layers, changed };
 }
@@ -2252,6 +2254,8 @@ export async function setShoppingRuleOn(
   raw: unknown,
 ): Promise<ShoppingRulesResult> {
   const input = parseInput(ShoppingRuleSetSchema, raw);
+  /* 50d: resolved first, so a list that isn't there writes nothing. */
+  const scope = await resolveShoppingList(ctx);
   return withWriteLock(ctx.contentDirectory, "shopping: rule", async () => {
     await assertNoMergeInProgress(ctx.contentDirectory);
     if (input.kind === "merge") {
@@ -2262,7 +2266,8 @@ export async function setShoppingRuleOn(
           `No merge rule "${input.id}". \`shopping merges\` lists them.`,
         );
       }
-      if ((stored.on !== false) === input.on) return rulesState(ctx, false);
+      if ((stored.on !== false) === input.on)
+        return rulesState(ctx, false, scope);
       const { on: _on, ...rest } = stored;
       void _on;
       const next = canonicalShoppingMerge(
@@ -2273,7 +2278,7 @@ export async function setShoppingRuleOn(
         [{ relative: mergeFile(input.id), bytes: serializeMerge(next) }],
         `Update shopping list: rule ${input.on ? "on" : "off"}: ${stored.status === "merged" ? "merge" : "keep apart"} ${keysText(stored.keys)}`,
       );
-      return rulesState(ctx, true);
+      return rulesState(ctx, true, scope);
     }
     const rules = await readShoppingRules(ctx);
     const stored = rules.find((rule) => rule.id === input.id);
@@ -2282,7 +2287,8 @@ export async function setShoppingRuleOn(
         `No rule "${input.id}" for the shopping list. \`shopping rules\` lists them.`,
       );
     }
-    if ((stored.on !== false) === input.on) return rulesState(ctx, false);
+    if ((stored.on !== false) === input.on)
+      return rulesState(ctx, false, scope);
     const { on: _on, ...rest } = stored;
     void _on;
     const next = canonicalShoppingRule(
@@ -2293,7 +2299,7 @@ export async function setShoppingRuleOn(
       [{ relative: ruleFile(input.id), bytes: serializeRule(next) }],
       `Update shopping list: rule ${input.on ? "on" : "off"}: ${ruleText(stored)}`,
     );
-    return rulesState(ctx, true);
+    return rulesState(ctx, true, scope);
   });
 }
 
@@ -2307,12 +2313,13 @@ export async function removeShoppingRule(
   raw: unknown,
 ): Promise<ShoppingRulesResult> {
   const input = parseInput(ShoppingRuleRemoveSchema, raw);
+  const scope = await resolveShoppingList(ctx);
   return withWriteLock(ctx.contentDirectory, "shopping: rule", async () => {
     await assertNoMergeInProgress(ctx.contentDirectory);
     if (input.kind === "aisle") {
       const settings = await readShoppingSettings(ctx);
       if (!(input.key in settings.aisleOverrides)) {
-        return rulesState(ctx, false);
+        return rulesState(ctx, false, scope);
       }
       const next = structuredClone(settings);
       delete next.aisleOverrides[input.key];
@@ -2326,17 +2333,17 @@ export async function removeShoppingRule(
         ],
         `Update shopping list: remove rule: ${input.key} in its own aisle`,
       );
-      return rulesState(ctx, true);
+      return rulesState(ctx, true, scope);
     }
     const rules = await readShoppingRules(ctx);
     const stored = rules.find((rule) => rule.id === input.id);
-    if (!stored) return rulesState(ctx, false);
+    if (!stored) return rulesState(ctx, false, scope);
     await applyFiles(
       ctx,
       [{ relative: ruleFile(stored.id), bytes: null }],
       `Update shopping list: remove rule: ${ruleText(stored)}`,
     );
-    return rulesState(ctx, true);
+    return rulesState(ctx, true, scope);
   });
 }
 
@@ -2471,7 +2478,7 @@ export async function promoteShoppingLayer(
         `Update shopping list: always: ${layerText(layer, items)}`,
       ),
     );
-    return rulesState(ctx, true);
+    return rulesState(ctx, true, scope);
   });
 }
 

@@ -18,6 +18,7 @@ import {
   addToShopping,
   createShoppingList,
   decideShoppingMerge,
+  editShoppingList,
   decideTidySuggestion,
   promoteShoppingLayer,
   readShopping,
@@ -736,6 +737,32 @@ describe("the seat (50c)", () => {
     expect(await latest()).toBe(
       "Update shopping list: rule off: call butter unsalted butter",
     );
+
+    /* A deleted list takes no change; an unknown one writes no rule. */
+    const { layer: rename } = await addShoppingLayer(on, {
+      ops: [
+        {
+          op: "rename",
+          ids: [id("1 cup buttermilk")],
+          name: "cultured buttermilk",
+        },
+      ],
+    });
+    await editShoppingList(ctx, { id: party, archived: true });
+    await expect(
+      promoteShoppingLayer(on, { id: rename!.id }),
+    ).rejects.toMatchObject({
+      code: "validation",
+      message: expect.stringContaining("is deleted"),
+    });
+    const before = await latest();
+    await expect(
+      setShoppingRuleOn(
+        { ...ctx, shoppingList: "no such list" },
+        { kind: "rule", id: ruleIdOf("rename", "butter"), on: true },
+      ),
+    ).rejects.toMatchObject({ code: "not_found" });
+    expect(await latest()).toBe(before);
   });
 
   it("refuses a merge whose names a rule merges with others already", async () => {
