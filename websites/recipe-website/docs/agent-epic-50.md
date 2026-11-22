@@ -1108,3 +1108,47 @@ taken in the second commit:
    item that opened the mode.
 5. Not taken: list counts read every item file of every list (Td2).
 6. A list made from the add picker joins it even when the add then fails.
+
+**Gates.** `recipe-editor typecheck` and `recipe-website exec tsc --noEmit` clean;
+`pnpm exec vitest run` 202 files, 4399 tests, all passed. Docker production
+run on the first commit: 117 passed, 4 failed (the picker spec, the menu
+baseline's first write, and the two at-home baselines). After the fixes and
+regenerated baselines: `shopping-modes.spec.ts` updated run 15 passed;
+`shopping-lists.spec.ts` + `shopping-modes.spec.ts` production, 21 passed (e2e
+and mobile); `shopping-lists.spec.ts` once in dev mode, 6 passed.
+
+**Baselines.** Moved, regenerated in Docker (production mode), each opened:
+`shopping-modes.spec.ts/shopping-plan-e2e.png` and `shopping-plan-mobile.png`
+(the list switcher, "Main list", now sits beside the "Shopping list" title in
+the Plan header, so the page is 8 px taller on desktop; both looked right).
+New: `shopping-lists.spec.ts/shopping-lists-menu-e2e.png` (the switcher's
+menu: Main list and a ticked "Thanksgiving · 5 items", New list, New from a
+meal plan…, Rename, Delete in red; looked right).
+
+**The picker failure the first Docker run found.** The add picker's "New
+list…" option used `"\u0000new"` as its value. A NUL in an option value does
+not survive the HTML parser, so selecting that option by label never set the
+picked state and the name field never appeared. The sentinel is now
+`"__new-list__"` (list ids are ULIDs, so it can't clash).
+
+### Traps
+
+- **Td1 — A group renamed later doesn't update a list's `plan` slug.** A list
+  made from a plan records the group's slug; rename the group and the record
+  still names the old one, so the plan page no longer finds "its" list and
+  the switcher shows the old slug's name. Rename follow-through for list
+  records is not built.
+- **Td2 — List counts read every item file.** The switcher's counts and the
+  `lists` summary read every item file of every list on each load. Fine at
+  a handful of lists; an index per list is the fix if it ever shows.
+
+### Roger to confirm
+
+- **Delete is archive** (Dd4): the files stay and a deleted list can be
+  restored from its address.
+- **The main list can't be renamed** or deleted.
+- **The Shop store choice is per browser,** not per list (Dd3).
+- **"New from a meal plan…"** offers every group, newest first, up to 100.
+- **Picking a list in the add picker makes it current** (Dd8).
+- **Agents can't make lists:** no new MCP tool (59 / 45); they add to,
+  check, remove from and clear an existing list through `list`.

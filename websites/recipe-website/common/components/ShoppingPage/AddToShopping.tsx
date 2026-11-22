@@ -50,7 +50,7 @@ function useHydrated(): boolean {
   );
 }
 
-const NEW_LIST = "\u0000new";
+const NEW_LIST = "__new-list__";
 
 /**
  * 50d (Dd8): the list an add goes to — the one this browser used last (the
