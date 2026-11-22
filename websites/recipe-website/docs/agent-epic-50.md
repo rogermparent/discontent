@@ -1049,3 +1049,62 @@ left}`); **no new tool** (59 / 45), so an agent cannot make, rename or
   delete a list. The skill's 8b says so (and `skillText.generated.ts`); the
   curator's held proposals name a saved list ("Add to the shopping list
   “Thanksgiving”").
+
+### Results
+
+**What changed.**
+
+- `common/util/shoppingLists.ts` (new, pure): the record (`MAIN_SHOPPING_LIST`,
+  `parseShoppingListRecord`, `canonicalShoppingListRecord`), the summary
+  and its words (`sortListSummaries`, `listSummaryText`,
+  `shoppingListHref`), the browser's current list (`readCurrentShoppingList`,
+  `saveCurrentShoppingList`, `subscribeCurrentShoppingList`) and
+  `listStorageKey`.
+- The seat (`curation/shopping.ts`): `shoppingListPaths`,
+  `SHOPPING_LISTS_DIRECTORY`, `resolveShoppingList`, `onList`, a list scope
+  through every read and write (items, layers, tidy runs; `listSubject`,
+  `assertListWritable`), `collectAdd` split out of the add, and
+  `readShoppingLists`, `readShoppingListRecords`, `createShoppingList`,
+  `editShoppingList`, `deleteShoppingList`, `shoppingListsForPlan`;
+  `readShopping` answers `list`. `CurationContext.shoppingList`; schemas
+  `ShoppingListRefSchema` (`list` on add, patch, clear),
+  `ShoppingListCreateSchema`, `ShoppingListEditSchema`,
+  `ShoppingListIdSchema`.
+- Transports: `requireShoppingContext` and `?list=` on the per-list routes,
+  `/api/shopping/lists` (new); list-first server actions plus
+  `loadShoppingLists`, `createSavedShoppingList`, `editSavedShoppingList`;
+  the tidy and ask actions and routes take `list`; the tidy spec's `list`.
+  CLI `shopping lists …` and `--list` on every shopping command
+  (`onAList`), backends' `forShoppingList`, `listShoppingLists`,
+  `createShoppingList`, `editShoppingList`. MCP `list` on the five
+  shopping tools, `shopping_get`'s `list` and `lists`; the curator's held
+  proposals name a saved list; the skill's 8b and CLI fallback, and
+  `skillText.generated.ts`.
+- The page: `ListSwitcher.tsx` (new), `/shopping?list=`, the page keyed and
+  its actions bound per list, per-list tick storage, the current list
+  remembered and reopened, Shop's "List: <name>"; `AddToShopping.tsx`'s
+  picker and "New list…"; the plan page's own list, "Make a shopping list",
+  a summary over the list holding the plan's lines and links that name
+  that list (`PlanRail`, `RunSheet`, `CookList`).
+
+**Review** (a read-only agent, before the gates). Six findings; five
+taken in the second commit:
+
+1. **Blocker:** `shopping_clear {list}` through `RECIPE_API_URL` cleared
+   the **main** list — the HTTP backend's DELETE sent only `?scope=`. The
+   registry now scopes the backend (as check and remove did) and the HTTP
+   backend sends a raw `list` as the query; a test pins the URLs.
+2. The plan page's "Open list", the run sheet's docket and the cook view
+   linked a bare `/shopping`, which Dd5 sends to the browser's last list:
+   they name the summary's list (`?list=main` for the main list).
+3. With no list of its own, the plan's summary read only the main list
+   while its add went to the current list: an add to "Party" read back as
+   "Not on your shopping list" and offered the add again. The summary now
+   reads the first list holding the plan's lines — its own, the main list,
+   then the others newest first — and **Take it off the list** takes them
+   off that one.
+4. Focus fell to `<body>` when a switcher mode swapped the popover's
+   content: it now moves into the form (or onto Keep it) and back to the
+   item that opened the mode.
+5. Not taken: list counts read every item file of every list (Td2).
+6. A list made from the add picker joins it even when the add then fails.
