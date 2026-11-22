@@ -110,6 +110,25 @@ export interface ShoppingPageActions {
   removeLayer?(id: string): Promise<ShoppingActionResult<ShoppingLayerAnswer>>;
   /** 50a: leave a name off every list, or Restore it. */
   leaveOff?(input: unknown): Promise<ShoppingActionResult<ShoppingRuleAnswer>>;
+  /**
+   * 50c: Changes' Rules tier — switch a rule (`{kind, id, on}`), remove one
+   * (`{kind: "rule", id} | {kind: "aisle", key}`), and "Always do this" on
+   * one of this list's changes. Without them the tier lists, read only.
+   */
+  setRule?(input: unknown): Promise<ShoppingActionResult<ShoppingRulesAnswer>>;
+  removeRule?(
+    input: unknown,
+  ): Promise<ShoppingActionResult<ShoppingRulesAnswer>>;
+  promoteLayer?(id: string): Promise<ShoppingActionResult<ShoppingRulesAnswer>>;
+}
+
+/** 50c: what a rules-tier write answers: everything a rule can touch. */
+export interface ShoppingRulesAnswer {
+  rules: ShoppingRule[];
+  merges: ShoppingMerge[];
+  settings: ShoppingSettings;
+  layers: ShoppingLayer[];
+  changed: boolean;
 }
 
 const STORAGE_KEY = "shopping-pending-ticks";
@@ -384,6 +403,14 @@ export function useShoppingList({
     Promise.resolve({ error: "Not available here", code: "usage" });
   const setLayers = (answer: ShoppingLayerAnswer) =>
     setState((current) => ({ ...current, layers: answer.layers }));
+  const setRules = (answer: ShoppingRulesAnswer) =>
+    setState((current) => ({
+      ...current,
+      rules: answer.rules,
+      merges: answer.merges,
+      settings: answer.settings,
+      layers: answer.layers,
+    }));
 
   /** Remove exactly these ids, one change; ticks waiting for them go too. */
   const removeIds = async (ids: string[]) => {
@@ -566,6 +593,30 @@ export function useShoppingList({
         () => (actions.leaveOff ? actions.leaveOff(input) : unavailable()),
         (answer) =>
           setState((current) => ({ ...current, rules: answer.rules })),
+      ),
+    /** 50c: the Rules tier can write (the editor passed the actions). */
+    canRule: Boolean(
+      actions.setRule && actions.removeRule && actions.promoteLayer,
+    ),
+    /** 50c: switch a rule for every list off or on, one commit. */
+    setRule: (input: { kind: "rule" | "merge"; id: string; on: boolean }) =>
+      run(
+        () => (actions.setRule ? actions.setRule(input) : unavailable()),
+        setRules,
+      ),
+    /** 50c: remove a rule for every list (or an aisle by name), one commit. */
+    removeRule: (
+      input: { kind: "rule"; id: string } | { kind: "aisle"; key: string },
+    ) =>
+      run(
+        () => (actions.removeRule ? actions.removeRule(input) : unavailable()),
+        setRules,
+      ),
+    /** 50c: "Always do this": a change of this list made rules, one commit. */
+    promoteLayer: (id: string) =>
+      run(
+        () => (actions.promoteLayer ? actions.promoteLayer(id) : unavailable()),
+        setRules,
       ),
     /** 49a: Split a merged row back into its names, one change. */
     splitMerge: (id: string) =>

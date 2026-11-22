@@ -108,7 +108,9 @@ test.describe("Shopping list: layers", () => {
     ]);
 
     /* The Changes panel: off is undo, and the change stays to turn back on. */
-    await expect(changes(page).getByRole("heading")).toHaveText("Changes (1)");
+    await expect(changes(page).getByRole("heading", { level: 2 })).toHaveText(
+      "Changes (1)",
+    );
     const change = changes(page).getByTestId("shopping-change");
     await expect(change).toContainText(
       "Rename lemon juice to Meyer lemon juice; Note on lemon juice: or 6 lemons (the good ones)",
@@ -160,8 +162,12 @@ test.describe("Shopping list: layers", () => {
       .poll(async () => (await getContentGitLog())[0], { timeout: 15_000 })
       .toMatch(/^Update shopping list: remove change: /);
     /* The panel stays to say so, with focus on its heading. */
-    await expect(changes(page).getByRole("heading")).toHaveText("Changes (0)");
-    await expect(changes(page).getByRole("heading")).toBeFocused();
+    await expect(changes(page).getByRole("heading", { level: 2 })).toHaveText(
+      "Changes (0)",
+    );
+    await expect(
+      changes(page).getByRole("heading", { level: 2 }),
+    ).toBeFocused();
     await expect(changes(page).getByRole("status")).toHaveText(
       /^Removed: Rename lemon juice to Meyer lemon juice/,
     );
@@ -169,7 +175,11 @@ test.describe("Shopping list: layers", () => {
       page.getByLabel("1 cup lemon juice", { exact: true }),
     ).toBeVisible();
     await ready(page);
-    await expect(changes(page)).toHaveCount(0);
+    /* 50c: the panel stays, for its rules tier; this list has none. */
+    await expect(changes(page).getByTestId("shopping-change")).toHaveCount(0);
+    await expect(changes(page).getByRole("heading", { level: 2 })).toHaveText(
+      "Changes (0)",
+    );
   });
 
   test("water is left off with its reason, and Restore brings it back for every list", async ({

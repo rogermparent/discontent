@@ -15,9 +15,10 @@ import {
   type TidyRunView,
 } from "recipe-website-common/util/shoppingTidy";
 import {
+  askShoppingTidy,
   decideShoppingTidy,
-  latestShoppingTidy,
   shoppingTidyResultAction,
+  shoppingTidyRuns,
   startShoppingTidy,
 } from "recipe-editor/controller/actions/shoppingTidy";
 import { isShoppingAskResult } from "recipe-website-common/util/shoppingAsk";
@@ -187,7 +188,7 @@ export default function ShoppingWithModel({
   patchUrl,
   models,
   tidyModels,
-  tidyRun,
+  tidyRuns,
 }: {
   initial: ShoppingListState;
   actions: ShoppingPageActions;
@@ -195,8 +196,8 @@ export default function ShoppingWithModel({
   models: ShoppingModelsShown;
   /** 50b: the models a tidy run may pick (none: no "Tidy with the model"). */
   tidyModels?: TidyModels;
-  /** 50b: the latest tidy run, as the list reads it now. */
-  tidyRun?: TidyRunView;
+  /** 50c: the kept tidy runs, newest first, as the list reads them now. */
+  tidyRuns?: TidyRunView[];
 }) {
   const model = models.local ?? models.claude;
   const ask = useMemo<ShoppingAskSurface | undefined>(
@@ -216,14 +217,15 @@ export default function ShoppingWithModel({
       tidyModels && tidyModels.models.length > 0
         ? {
             models: tidyModels,
-            ...(tidyRun ? { initial: tidyRun } : {}),
+            ...(tidyRuns ? { runs: tidyRuns } : {}),
             start: (input) => startShoppingTidy(input),
             follow: (job) => followTidy(job),
-            latest: () => latestShoppingTidy(),
-            decide: (id, action) => decideShoppingTidy(id, action),
+            runsNow: () => shoppingTidyRuns(),
+            decide: (id, action, ops) => decideShoppingTidy(id, action, ops),
+            ask: (input) => askShoppingTidy(input),
           }
         : undefined,
-    [tidyModels, tidyRun],
+    [tidyModels, tidyRuns],
   );
   return (
     <ShoppingPage

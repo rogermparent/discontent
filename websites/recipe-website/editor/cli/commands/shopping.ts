@@ -29,6 +29,9 @@
  *   shopping changes                    50a: this list's changes (layers), in order
  *   shopping change add --file <json>   50a: add one: {ops, reason?, note?, by?}
  *   shopping change on|off|rm <id>      50a: turn one on or off (undo), or remove it
+ *   shopping change always <id>         50c: make it rules for every list, by names
+ *   shopping rule on|off rule|merge <id>   50c: switch a rule for every list
+ *   shopping rule rm rule <id> | rm aisle <name key>   50c: remove one
  *   shopping leave-off <name…> [--reason …]   50a: never put a name on a list
  *   shopping restore <name…>            50a: bring a left-off name back (water too)
  *
@@ -64,6 +67,7 @@ import type {
   ShoppingLayerListing,
   ShoppingLayerResult,
   ShoppingRuleResult,
+  ShoppingRulesResult,
   ShoppingMergeResult,
   ShoppingPatchResult,
   ShoppingSettingsResult,
@@ -855,10 +859,10 @@ function formatLayerResult(result: ShoppingLayerResult): string {
   return `Removed ${result.removed.join(", ")}.`;
 }
 
-const changeCommand: CommandDef<ShoppingLayerResult> = {
+const changeCommand: CommandDef<ShoppingLayerResult | ShoppingRulesResult> = {
   name: "shopping change",
   usage:
-    "recipes shopping change add (--file change.json | --stdin) | on <id> | off <id> | rm <id>\n" +
+    "recipes shopping change add (--file change.json | --stdin) | on <id> | off <id> | rm <id> | always <id>\n" +
     '  change.json: {"ops": [{"op": "drop", "ids": ["<item id>"], "reason": "the recipe makes it"}], "reason": "…"}\n' +
     "  ops: merge {ids, name?, amount?} · rename {ids, name} · drop {ids, reason} ·\n" +
     "       amount {ids, amount | unit} · note {ids, text} · aisle {ids, aisle}",
@@ -875,6 +879,14 @@ const changeCommand: CommandDef<ShoppingLayerResult> = {
       });
       return backend.addShoppingLayer(raw);
     }
+    if (verb === "always") {
+      if (rest.length !== 1) {
+        throw new UsageError(
+          "shopping change always needs one id (from `shopping changes`).",
+        );
+      }
+      return backend.promoteShoppingLayer({ id: rest[0].toLowerCase() });
+    }
     if (verb === "on" || verb === "off" || verb === "rm") {
       if (rest.length !== 1) {
         throw new UsageError(
@@ -887,10 +899,48 @@ const changeCommand: CommandDef<ShoppingLayerResult> = {
         : backend.setShoppingLayer({ id, on: verb === "on" });
     }
     throw new UsageError(
-      "shopping change takes add --file <json>, or on|off|rm <id>.",
+      "shopping change takes add --file <json>, or on|off|rm|always <id>.",
     );
   },
-  format: formatLayerResult,
+  format: (result) =>
+    "layer" in result || "removed" in result
+      ? formatLayerResult(result as ShoppingLayerResult)
+      : result.changed
+        ? "Now rules for every list; the change is gone from this list."
+        : "No change.",
+};
+
+/** 50c: the rules for every list — switch one, or remove one. */
+const ruleCommand: CommandDef<ShoppingRulesResult> = {
+  name: "shopping rule",
+  usage:
+    "recipes shopping rule on|off rule|merge <id> | rm rule <id> | rm aisle <name key>\n" +
+    "  ids: `shopping list --json` answers `rules`; `shopping merges` lists the merge decisions",
+  options: {},
+  run({ backend, positionals }) {
+    const [verb, kind, id, ...rest] = positionals.map((value) => value.trim());
+    if (!id || rest.length > 0) {
+      throw new UsageError(
+        "shopping rule takes on|off rule|merge <id>, or rm rule <id> | rm aisle <key>.",
+      );
+    }
+    if (
+      (verb === "on" || verb === "off") &&
+      (kind === "rule" || kind === "merge")
+    ) {
+      return backend.setShoppingRule({ kind, id, on: verb === "on" });
+    }
+    if (verb === "rm" && kind === "rule") {
+      return backend.removeShoppingRule({ kind, id });
+    }
+    if (verb === "rm" && kind === "aisle") {
+      return backend.removeShoppingRule({ kind, key: id });
+    }
+    throw new UsageError(
+      "shopping rule takes on|off rule|merge <id>, or rm rule <id> | rm aisle <key> (a merge's removal is `shopping split`).",
+    );
+  },
+  format: (result) => (result.changed ? "Done." : "No change."),
 };
 
 function leaveOffCommand(leaveOff: boolean): CommandDef<ShoppingRuleResult[]> {
@@ -946,7 +996,8 @@ export const shoppingCommands: Record<string, CommandDef<unknown>> = {
   accept: decideCommand("accept"),
   skip: decideCommand("skip"),
   changes: changesCommand,
-  change: changeCommand,
+  change: changeCommand as CommandDef<unknown>,
+  rule: ruleCommand as CommandDef<unknown>,
   "leave-off": leaveOffCommand(true),
   restore: leaveOffCommand(false),
 };

@@ -67,7 +67,8 @@ async function useModel(request: APIRequestContext, url?: string) {
 }
 
 const page$ = (page: Page) => page.getByTestId("shopping-page");
-const panel = (page: Page) => page.getByTestId("shopping-proposals");
+/* 50c: the proposals are the walkthrough's built-in cards now. */
+const panel = (page: Page) => page.getByTestId("shopping-walkthrough");
 const tableProposal = (page: Page) =>
   page.locator('[data-testid="shopping-proposal"][data-source="table"]');
 const rows = (page: Page) => page.getByTestId("shopping-row");
@@ -124,12 +125,12 @@ async function fillNote(card: Locator, note: string) {
   }).toPass({ timeout: 15_000 });
 }
 
-/** The flour proposal's Edit, a note, and Ask: the marked answer. */
+/** The flour card's "Tell the model…", a note, and Ask: the marked answer. */
 async function askAboutFlour(page: Page, note: string) {
   const card = tableProposal(page);
-  const edit = card.getByRole("button", { name: /^Edit/ });
-  await expectHydrated(edit);
-  await edit.click();
+  const tell = card.getByRole("button", { name: "Tell the model…" });
+  await expectHydrated(tell);
+  await tell.click();
   await fillNote(card, note);
   await card
     .getByRole("button", { name: "Ask the model about all-purpose flour" })
@@ -141,7 +142,7 @@ async function askAboutFlour(page: Page, note: string) {
 
 async function axeClean(page: Page) {
   const results = await new AxeBuilder({ page })
-    .include('[data-testid="shopping-proposals"]')
+    .include('[data-testid="shopping-walkthrough"]')
     .withTags(WCAG_TAGS)
     .analyze();
   expect(results.violations).toEqual([]);
@@ -184,11 +185,10 @@ test.describe("Shopping list: ask the model (49b)", () => {
       .poll(async () => (await getContentGitLog())[0], { timeout: 15_000 })
       .toBe("Update shopping list: merge all purpose flour + white flour");
     await expect(
-      panel(page).getByTestId("shopping-proposals-status"),
-    ).toHaveText(
+      panel(page).getByTestId("shopping-walkthrough-status"),
+    ).toContainText(
       "Accepted local model qwen3:8b's suggestion: ≈ 360 g all-purpose flour.",
     );
-    await expect(panel(page).getByRole("heading").first()).toBeFocused();
     await expect(flourRows(page)).toHaveCount(1);
     await expect(
       page.getByLabel("≈ 360 g all-purpose flour", { exact: true }),
@@ -216,8 +216,8 @@ test.describe("Shopping list: ask the model (49b)", () => {
     await expect(result).toContainText("After3 cups plain flour");
     await result.getByRole("button", { name: "Discard" }).click();
     await expect(
-      panel(page).getByTestId("shopping-proposals-status"),
-    ).toHaveText(
+      panel(page).getByTestId("shopping-walkthrough-status"),
+    ).toContainText(
       "Discarded local model qwen3:8b's suggestion; nothing changed.",
     );
     await expect(tableProposal(page)).toHaveCount(1);
@@ -247,7 +247,7 @@ test.describe("Shopping list: ask the model (49b)", () => {
     test.slow();
     await openList(page);
     const merge = tableProposal(page).getByRole("button", {
-      name: "Merge into 3 cups all-purpose flour",
+      name: "Accept: merge into 3 cups all-purpose flour",
     });
     await expectHydrated(merge);
     await merge.click();

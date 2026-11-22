@@ -31,7 +31,10 @@ export interface ShoppingLayerListing {
 }
 
 /** The names an op's items are, as the list labels them, in order, once each. */
-function namesOf(op: ShoppingLayerOp, byId: Map<string, ShoppingItem>): string {
+export function namesOf(
+  op: Pick<ShoppingLayerOp, "ids">,
+  byId: Map<string, ShoppingItem>,
+): string {
   const names = [
     ...new Set(
       op.ids.flatMap((id) => {

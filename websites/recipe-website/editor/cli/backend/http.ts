@@ -94,6 +94,7 @@ import type {
   ShoppingMergeResult,
   ShoppingPatchResult,
   ShoppingRuleResult,
+  ShoppingRulesResult,
   ShoppingSettingsResult,
   ShoppingViewResult,
   ShowResult,
@@ -752,6 +753,21 @@ export function createHttpBackend({
     },
     setShoppingLeaveOff(raw) {
       return call<ShoppingRuleResult>("POST", "/api/shopping/rules", {
+        body: raw,
+      });
+    },
+    setShoppingRule(raw) {
+      return call<ShoppingRulesResult>("PATCH", "/api/shopping/rules", {
+        body: raw,
+      });
+    },
+    removeShoppingRule(raw) {
+      return call<ShoppingRulesResult>("DELETE", "/api/shopping/rules", {
+        body: raw,
+      });
+    },
+    promoteShoppingLayer(raw) {
+      return call<ShoppingRulesResult>("POST", "/api/shopping/layers/always", {
         body: raw,
       });
     },

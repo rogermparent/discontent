@@ -80,8 +80,11 @@ async function makeCrepes(request: APIRequestContext, token: string) {
 }
 
 const panel = (page: Page) => page.getByTestId("shopping-tidy");
-const suggestions = (page: Page) =>
-  page.getByTestId("shopping-tidy-suggestion");
+/* 50c: the cards are the walkthrough's, one at a time. */
+const walk = (page: Page) => page.getByTestId("shopping-walkthrough");
+const title = (page: Page) => walk(page).getByTestId("shopping-card-title");
+const status = (page: Page) =>
+  walk(page).getByTestId("shopping-walkthrough-status");
 
 /** Signed in, both recipes on the list, on `/shopping` and hydrated. */
 async function openList(page: Page) {
@@ -104,16 +107,21 @@ async function openList(page: Page) {
   );
 }
 
-async function tidy(page: Page) {
+async function tidy(page: Page, made = /made \d+ suggestions?/) {
   const button = panel(page).getByRole("button", {
     name: "Tidy with the model",
   });
   await expectHydrated(button);
   await button.click();
-  await expect(panel(page).getByTestId("shopping-tidy-status")).toContainText(
-    /made \d+ suggestions?/,
-    { timeout: 30_000 },
-  );
+  await expect(status(page)).toContainText(made, { timeout: 30_000 });
+}
+
+/** 50c: the flours' built-in card comes first; skip it (this page only). */
+async function skipFlour(page: Page) {
+  await walk(page)
+    .getByRole("button", { name: "Skip: all-purpose flour" })
+    .click();
+  await expect(title(page)).toHaveText("Check the cupboard first");
 }
 
 test.describe("Shopping list: tidy with the model (50b)", () => {
@@ -137,31 +145,25 @@ test.describe("Shopping list: tidy with the model (50b)", () => {
     test.slow();
     await openList(page);
     await expect(
-      panel(page).getByRole("combobox", { name: "Model" }),
-    ).toHaveValue("qwen3:8b");
+      panel(page).getByRole("radio", { name: /qwen3:8b/ }),
+    ).toBeChecked();
     await expect(
       panel(page).getByRole("radio", { name: /the current list/ }),
     ).toBeChecked();
-    await tidy(page);
-    await expect(suggestions(page)).toHaveCount(2);
-    await expect(suggestions(page).first()).toContainText(
-      "Check the cupboard first",
-    );
-    await expect(suggestions(page).nth(1)).toContainText(
-      "Package size is the model's guess",
-    );
+    await tidy(page, /made 3 suggestions/);
     /* The invented row is left out by the check, said in a sentence. */
-    await expect(panel(page)).toContainText("Left out by the check (1)");
+    await expect(walk(page)).toContainText("Left out by the check (1)");
     expect((await getContentGitLog())[0]).toBe(
-      "Update shopping list: tidy with qwen3:8b (current): 2 suggestions",
+      "Update shopping list: tidy with qwen3:8b (current): 3 suggestions",
     );
+    await skipFlour(page);
     const results = await new AxeBuilder({ page })
-      .include('[data-testid="shopping-tidy"]')
+      .include('[data-testid="shopping-walkthrough"]')
       .withTags(WCAG_TAGS)
       .analyze();
     expect(results.violations).toEqual([]);
 
-    await panel(page)
+    await walk(page)
       .getByRole("button", { name: "Accept: Check the cupboard first" })
       .click();
     await expect
@@ -180,20 +182,22 @@ test.describe("Shopping list: tidy with the model (50b)", () => {
     await expect(check.getByTestId("shopping-row")).toHaveCount(2);
     await expect(check).toContainText("sea salt");
 
-    await panel(page)
+    await expect(title(page)).toHaveText("Buy a quart of buttermilk");
+    await walk(page)
       .getByRole("button", { name: "Skip: Buy a quart of buttermilk" })
       .click();
     await expect
       .poll(async () => (await getContentGitLog())[0], { timeout: 15_000 })
       .toBe("Update shopping list: skip: Buy a quart of buttermilk");
-    await expect(suggestions(page)).toHaveCount(0);
+    await walk(page)
+      .getByRole("button", { name: "Skip: Say large eggs" })
+      .click();
+    await expect(
+      walk(page).getByTestId("shopping-walkthrough-done"),
+    ).toBeVisible();
 
     /* Again, on the current list: nothing done or skipped is made again. */
-    await tidy(page);
-    await expect(panel(page).getByTestId("shopping-tidy-status")).toContainText(
-      "made 0 suggestions",
-    );
-    await expect(panel(page)).toContainText("Nothing pending from this run.");
+    await tidy(page, "made 0 suggestions");
     const runs = await page.request.get("/api/shopping/tidy/runs");
     expect(runs.ok()).toBe(true);
     const body = (await runs.json()) as {
@@ -201,8 +205,17 @@ test.describe("Shopping list: tidy with the model (50b)", () => {
     };
     expect(body.runs.map((run) => run.counts)).toEqual([
       { pending: 0, accepted: 0, skipped: 0, stale: 0 },
-      { pending: 0, accepted: 1, skipped: 1, stale: 0 },
+      { pending: 0, accepted: 1, skipped: 2, stale: 0 },
     ]);
+    /* 50c: the earlier run is one click away, with its counts. */
+    await panel(page)
+      .getByText(/^Earlier runs \(2\)/)
+      .click();
+    const earlier = panel(page).getByTestId("shopping-tidy-run");
+    await expect(earlier).toHaveCount(2);
+    await expect(earlier.nth(1)).toContainText(
+      "1 accepted · 2 skipped · 0 to go",
+    );
   });
 
   test("the models are listed with why one is not offered; a run on the original ignores the changes", async ({
@@ -220,11 +233,14 @@ test.describe("Shopping list: tidy with the model (50b)", () => {
         },
       ],
     });
-    await expect(
-      panel(page).getByRole("option", { name: /Not set up here/ }),
-    ).toBeDisabled();
+    const claude = panel(page).getByTestId(
+      "shopping-tidy-model-unavailable-claude",
+    );
+    await expect(claude).toContainText("Not set up here");
+    await expect(claude.getByRole("radio")).toBeDisabled();
     await tidy(page);
-    await panel(page)
+    await skipFlour(page);
+    await walk(page)
       .getByRole("button", { name: "Accept: Check the cupboard first" })
       .click();
     await expect(page.getByTestId("shopping-change")).toHaveCount(1);
@@ -233,8 +249,6 @@ test.describe("Shopping list: tidy with the model (50b)", () => {
       .check();
     await tidy(page);
     /* The original list has the salts where they were: suggested again. */
-    await expect(suggestions(page).first()).toContainText(
-      "Check the cupboard first",
-    );
+    await expect(title(page)).toHaveText("Check the cupboard first");
   });
 });

@@ -10,11 +10,14 @@ import {
   clearShopping,
   decideShoppingMerge,
   patchShopping,
+  promoteShoppingLayer,
   readShopping,
   readShoppingPlanNames,
   removeShoppingLayer,
+  removeShoppingRule,
   setShoppingLayer,
   setShoppingLeaveOff,
+  setShoppingRuleOn,
   splitShoppingMerge,
   updateShoppingSettings,
   type ShoppingAddResult,
@@ -23,6 +26,7 @@ import {
   type ShoppingMergeResult,
   type ShoppingPatchResult,
   type ShoppingRuleResult,
+  type ShoppingRulesResult,
   type ShoppingSettingsResult,
 } from "../curation/shopping";
 import type {
@@ -169,5 +173,32 @@ export async function setShoppingListLeaveOff(
 ): Promise<ShoppingActionResult<ShoppingRuleResult>> {
   return signedIn((email) =>
     setShoppingLeaveOff(curationContextFor(email), input),
+  );
+}
+
+/** 50c: switch a rule for every list (a rule's, or a merge decision's) — one commit. */
+export async function setShoppingListRule(
+  input: unknown,
+): Promise<ShoppingActionResult<ShoppingRulesResult>> {
+  return signedIn((email) =>
+    setShoppingRuleOn(curationContextFor(email), input),
+  );
+}
+
+/** 50c: remove a rule for every list, or an aisle by name — one commit. */
+export async function removeShoppingListRule(
+  input: unknown,
+): Promise<ShoppingActionResult<ShoppingRulesResult>> {
+  return signedIn((email) =>
+    removeShoppingRule(curationContextFor(email), input),
+  );
+}
+
+/** 50c: "Always do this" — a change made rules for every list, one commit. */
+export async function promoteShoppingListLayer(
+  id: string,
+): Promise<ShoppingActionResult<ShoppingRulesResult>> {
+  return signedIn((email) =>
+    promoteShoppingLayer(curationContextFor(email), { id }),
   );
 }

@@ -482,6 +482,18 @@ export function createLocalBackend({
       await guard();
       return shopping.setShoppingLeaveOff(ctx, raw);
     },
+    async setShoppingRule(raw) {
+      await guard();
+      return shopping.setShoppingRuleOn(ctx, raw);
+    },
+    async removeShoppingRule(raw) {
+      await guard();
+      return shopping.removeShoppingRule(ctx, raw);
+    },
+    async promoteShoppingLayer(raw) {
+      await guard();
+      return shopping.promoteShoppingLayer(ctx, raw);
+    },
     /* 49b: reads the list, asks a model, writes nothing — no identity. A
      * local job lives in this process, so it always runs to its end. */
     async askShopping(input, _options, run) {

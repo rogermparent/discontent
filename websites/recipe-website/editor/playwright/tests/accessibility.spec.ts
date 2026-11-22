@@ -548,6 +548,61 @@ test.describe("Accessibility of the editor's other pages (axe, 40g)", () => {
   }
 
   /*
+   * 50c: the walkthrough's built-in card (two flours) with Edit open, and
+   * the Changes panel with a change of this list and its rules tier open —
+   * the chips, the Now → After lines and the switches carry colour.
+   */
+  for (const mode of ["light", "dark"] as const) {
+    test(`shopping walkthrough and changes have no WCAG2AA violations in ${mode} mode`, async ({
+      page,
+      resetData,
+      initializeContentGit,
+    }) => {
+      await resetData("shopping");
+      await initializeContentGit();
+      await page.emulateMedia({ colorScheme: mode });
+      await page.goto("/");
+      await signIn(page);
+      const added = await page.request.post("/api/shopping", {
+        data: {
+          items: [
+            "2 cups all-purpose flour",
+            "1 cup white flour",
+            "4 tbsp butter",
+          ],
+        },
+      });
+      expect(added.ok()).toBe(true);
+      const { added: lines } = (await added.json()) as {
+        added: { id: string; text: string }[];
+      };
+      const butter = lines.find((line) => line.text.includes("butter"))!;
+      const change = await page.request.post("/api/shopping/layers", {
+        data: {
+          ops: [{ op: "rename", ids: [butter.id], name: "unsalted butter" }],
+          reason: "the recipes mean unsalted",
+        },
+      });
+      expect(change.ok()).toBe(true);
+      await page.goto("/shopping");
+      await expectMode(page, mode);
+      await expect(page.getByTestId("shopping-page")).toHaveAttribute(
+        "data-ready",
+        "true",
+        { timeout: 30_000 },
+      );
+      const card = page.getByTestId("shopping-proposal");
+      await expect(card).toBeVisible();
+      await card.getByRole("button", { name: /^Edit/ }).click();
+      await expect(card.getByLabel("Name", { exact: true })).toBeVisible();
+      const changes = page.getByTestId("shopping-changes");
+      await changes.getByText(/^Rules · every list/).click();
+      await expect(changes.getByTestId("shopping-rule").first()).toBeVisible();
+      await expectNoViolations(page);
+    });
+  }
+
+  /*
    * `/shopping` with a plan and a recipe whose sub-recipe expanded on it:
    * the settings sheet open, then the list with stores and "Probably on
    * hand" switched on and the Sub-recipes fold open; then (42g) the

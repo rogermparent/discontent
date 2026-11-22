@@ -1054,6 +1054,50 @@ export const ShoppingLeaveOffSchema = z
     path: ["name"],
   });
 
+/**
+ * 50c: switch a rule for every list off or on — a rule's file
+ * (`rules/<id>.json`: a leave-off, a rename) or a 49a merge decision's —
+ * keeping the file. Built-in water switches by `leave-off` with its key.
+ */
+export const ShoppingRuleSetSchema = z.strictObject({
+  kind: z.enum(["rule", "merge"]),
+  id: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[0-9a-f]{16}$/, "A rule's id is 16 hex characters"),
+  on: z.boolean(),
+});
+
+/**
+ * 50c: remove a rule for every list — a rule's file, or an aisle by name
+ * (`key`, as `aisleOverrides` stores it). A merge decision's removal is
+ * 49a's Split.
+ */
+export const ShoppingRuleRemoveSchema = z.union([
+  z.strictObject({
+    kind: z.literal("rule"),
+    id: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[0-9a-f]{16}$/, "A rule's id is 16 hex characters"),
+  }),
+  z.strictObject({
+    kind: z.literal("aisle"),
+    key: oneLine(160, "A name key"),
+  }),
+]);
+
+/** 50c: "Always do this" — a change of this list made rules for every list. */
+export const ShoppingLayerPromoteSchema = z.strictObject({ id: LayerIdSchema });
+
+/** 50c: Accept of a model's suggestion as the person edited it. */
+export const TidyAcceptEditSchema = z
+  .array(ShoppingLayerOpSchema)
+  .min(1)
+  .max(LAYER_LIMITS.ops);
+
 /** `checked` (the default) clears what was bought; `all` empties the list. */
 export const ShoppingClearSchema = z.strictObject({
   scope: z.enum(["checked", "all"]).optional(),
