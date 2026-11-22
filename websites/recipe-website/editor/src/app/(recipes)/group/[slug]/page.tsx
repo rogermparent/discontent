@@ -21,11 +21,18 @@ import {
 } from "recipe-editor/controller/actions/groups";
 import {
   addToShoppingList,
+  createSavedShoppingList,
   updateShoppingList,
 } from "recipe-editor/controller/actions/shopping";
 import { curationContextFor } from "recipe-editor/controller/apiContext";
 import { readInventory } from "recipe-editor/controller/curation/inventory";
-import { readShopping } from "recipe-editor/controller/curation/shopping";
+import {
+  createShoppingList,
+  readShopping,
+  readShoppingLists,
+} from "recipe-editor/controller/curation/shopping";
+import { toErrorObject } from "recipe-editor/controller/curation/errors";
+import type { ShoppingListSummary } from "recipe-website-common/util/shoppingLists";
 import { auth } from "@/auth";
 
 export const dynamic = "force-dynamic";
@@ -53,21 +60,51 @@ export async function generateMetadata({
  * how many are ticked — `null` when none are — and the run sheet's docket
  * (43p2: rows by aisle, the big ones) from the same view, read-only. A
  * failed read says nothing rather than failing the page.
+ *
+ * 50d: on the first list holding the plan's lines — its own list (the
+ * newest made from it), then the main list, then the others newest first —
+ * so a plan added to another list from this page is found there after a
+ * reload, not offered again.
  */
 async function shoppingSummary(
   email: string,
   slug: string,
+  planList: ShoppingListSummary | undefined,
+  lists: ShoppingListSummary[] | undefined,
 ): Promise<PlanShoppingSummary | null> {
   try {
-    const { items, settings } = await readShopping(curationContextFor(email));
-    const mine = items.filter((item) => (item.via ?? []).includes(slug));
-    if (mine.length === 0) return null;
+    const ctx = curationContextFor(email);
+    const order = [
+      ...(planList ? [planList.id] : []),
+      "main",
+      ...(lists ?? [])
+        .filter((each) => !each.main && each.id !== planList?.id)
+        .map((each) => each.id),
+    ];
+    let found;
+    for (const id of order) {
+      const read = await readShopping({ ...ctx, shoppingList: id });
+      const lines = read.items.filter((item) =>
+        (item.via ?? []).includes(slug),
+      );
+      if (lines.length > 0) {
+        found = { ...read, mine: lines };
+        break;
+      }
+    }
+    if (!found) return null;
+    const { settings, list, mine } = found;
     const view = buildShoppingView(mine, settings);
     return {
       lines: mine.length,
       rows: view.counts.rows,
       ticked: mine.filter((item) => item.checked).length,
       docket: planDocket(view),
+      list: {
+        id: list.id,
+        name: list.name,
+        ...(list.main ? { main: true as const } : {}),
+      },
     };
   } catch {
     return null;
@@ -111,10 +148,17 @@ export default async function GroupPage({
   let editor: PlanEditor | undefined;
   let second;
   if (email) {
+    const lists = await readShoppingLists(curationContextFor(email)).catch(
+      () => undefined,
+    );
+    /* 50d: the list made from this plan, newest first. */
+    const planList = lists?.find((list) => list.plan === slug);
     const [shopping, saved] = await Promise.all([
-      shoppingSummary(email, slug),
+      shoppingSummary(email, slug, planList, lists),
       readInventory(curationContextFor(email)).catch(() => ({ items: [] })),
     ]);
+    /* Take it off the list the summary is about. */
+    const summaryList = shopping?.list?.id ?? planList?.id ?? "main";
     second = { kind: "saved" as const, items: saved.items };
     editor = {
       saveItems: async (next: GroupItem[], base: string) => {
@@ -134,12 +178,28 @@ export default async function GroupPage({
       addToShopping: addToShoppingList,
       removeFromShopping: async () => {
         "use server";
-        const result = await updateShoppingList({
+        const result = await updateShoppingList(summaryList, {
           removeSource: { group: slug },
         });
         return "error" in result
           ? { error: result.error }
           : { ok: true as const };
+      },
+      ...(lists ? { lists } : {}),
+      createList: createSavedShoppingList,
+      ...(planList ? { planList } : {}),
+      makeShoppingList: async () => {
+        "use server";
+        const signed = (await auth())?.user?.email;
+        if (!signed) return { error: "Sign in to make a shopping list." };
+        try {
+          const made = await createShoppingList(curationContextFor(signed), {
+            plan: slug,
+          });
+          return { ok: true as const, list: made.list.id };
+        } catch (error) {
+          return { error: toErrorObject(error).error.message };
+        }
       },
     };
   } else {

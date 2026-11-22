@@ -348,6 +348,76 @@ test.describe("Shopping list: the walkthrough (50c)", () => {
       ).violations,
     ).toEqual([]);
   });
+
+  test("switching lists starts the walkthrough over: a run is its list's own (50d)", async ({
+    page,
+  }) => {
+    test.slow();
+    await openList(page);
+    /* A second list, "Party", with lemonade only: no card of its own. */
+    const made = await page.request.post("/api/shopping/lists", {
+      data: { name: "Party" },
+    });
+    expect(made.ok()).toBe(true);
+    const party = ((await made.json()) as { list: { id: string } }).list.id;
+    const added = await page.request.post(
+      `/api/shopping?list=${encodeURIComponent(party)}`,
+      { data: { recipe: "lemonade" } },
+    );
+    expect(added.ok()).toBe(true);
+    await page.goto("/shopping?list=main");
+    await expect(page.getByTestId("shopping-page")).toHaveAttribute(
+      "data-ready",
+      "true",
+      { timeout: 30_000 },
+    );
+
+    /* A run on the main list; the built-in card skipped (this page only). */
+    await tidy(page);
+    await title(page).focus();
+    await page.keyboard.press("s");
+    await expect(status(page)).toContainText(
+      "0 accepted · 1 skipped · 3 to go",
+    );
+    await expect(title(page)).toHaveText("Check the cupboard first");
+
+    /* Switch to Party through the switcher: no stale card, no run. */
+    const switcher = page.getByTestId("shopping-list-switcher");
+    await expectHydrated(switcher);
+    await switcher.click();
+    await page
+      .getByTestId("shopping-list-menu")
+      .getByTestId("shopping-list-choice")
+      .filter({ hasText: "Party" })
+      .click();
+    await expect(page).toHaveURL(`/shopping?list=${party}`);
+    await expect(switcher).toHaveText(/Party/);
+    await expect(page.getByTestId("shopping-list")).toContainText("lemon");
+    await expect(panel(page)).toContainText("No suggestions to walk through.");
+    await expect(title(page)).toHaveCount(0);
+    await expect(panel(page).getByTestId("shopping-proposal")).toHaveCount(0);
+    await expect(panel(page).getByTestId("shopping-tidy-runs")).toHaveCount(0);
+    await expect(status(page)).not.toContainText("to go");
+
+    /* Back on the main list: its run is still there, the page's skip gone. */
+    await expectHydrated(switcher);
+    await switcher.click();
+    await page
+      .getByTestId("shopping-list-menu")
+      .getByTestId("shopping-list-choice")
+      .filter({ hasText: "Main list" })
+      .click();
+    await expect(page).toHaveURL("/shopping?list=main");
+    await expect(panel(page).getByTestId("shopping-proposal")).toContainText(
+      "Built-in",
+    );
+    await expect(status(page)).toContainText(
+      "0 accepted · 0 skipped · 4 to go",
+    );
+    await expect(panel(page).getByTestId("shopping-tidy-runs")).toContainText(
+      "Earlier runs (1)",
+    );
+  });
 });
 
 test.describe("Shopping list: the walkthrough on a phone (50c) @mobile", () => {

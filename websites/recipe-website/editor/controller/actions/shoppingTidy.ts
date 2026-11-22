@@ -34,10 +34,20 @@ export interface ShoppingTidyOutcome {
 const StartSchema = z.strictObject({
   model: z.string().trim().min(1).max(80).optional(),
   on: z.enum(["current", "original"]).optional(),
+  /* 50d: the list to tidy (the main list without one). */
+  list: z.string().trim().min(1).max(100).optional(),
 });
 
 function signedIn(email: string | null | undefined): string | undefined {
   return email ?? undefined;
+}
+
+/** 50d: the signed-in editor's context, on one list. */
+function on(email: string, list: unknown) {
+  const ctx = curationContextFor(email);
+  return typeof list === "string" && list
+    ? { ...ctx, shoppingList: list }
+    : ctx;
 }
 
 /** Start a run over the list as it is now. */
@@ -50,7 +60,8 @@ export async function startShoppingTidy(
   if (!parsed.success) return { message: "That run can't be read." };
   try {
     const { storedTidySpec } = await import("../llm/shoppingTidy");
-    const spec = await storedTidySpec(curationContextFor(email), parsed.data);
+    const { list, ...start } = parsed.data;
+    const spec = await storedTidySpec(on(email, list), start);
     const { job, done } = await startSpec(spec);
     keepUnstored(job, done);
     return { job };
@@ -89,7 +100,7 @@ export async function shoppingTidyResultAction(
 }
 
 /** The latest run, as the list reads it now. */
-export async function latestShoppingTidy(): Promise<{
+export async function latestShoppingTidy(list?: string): Promise<{
   run?: TidyRunView;
   message?: string;
 }> {
@@ -98,7 +109,7 @@ export async function latestShoppingTidy(): Promise<{
   try {
     const { readTidyRuns, readShoppingItems } =
       await import("../curation/shopping");
-    const ctx = curationContextFor(email);
+    const ctx = on(email, list);
     const [runs, items] = await Promise.all([
       readTidyRuns(ctx),
       readShoppingItems(ctx),
@@ -109,8 +120,8 @@ export async function latestShoppingTidy(): Promise<{
   }
 }
 
-/** 50c: every kept run, newest first, as the list reads them now. */
-export async function shoppingTidyRuns(): Promise<{
+/** 50c: a list's kept runs, newest first, as the list reads them now. */
+export async function shoppingTidyRuns(list?: string): Promise<{
   runs?: TidyRunView[];
   message?: string;
 }> {
@@ -119,7 +130,7 @@ export async function shoppingTidyRuns(): Promise<{
   try {
     const { readTidyRuns, readShoppingItems } =
       await import("../curation/shopping");
-    const ctx = curationContextFor(email);
+    const ctx = on(email, list);
     const [runs, items] = await Promise.all([
       readTidyRuns(ctx),
       readShoppingItems(ctx),
@@ -138,6 +149,8 @@ const AskSchema = z.strictObject({
   suggestion: z.string().trim().min(1).max(64),
   note: z.string().trim().min(1).max(TIDY_NOTE_MAX),
   model: z.string().trim().min(1).max(80).optional(),
+  /* 50d: the list the card's run is on. */
+  list: z.string().trim().min(1).max(100).optional(),
 });
 
 /**
@@ -153,10 +166,8 @@ export async function askShoppingTidy(
   if (!parsed.success) return { message: "That note can't be read." };
   try {
     const { storedTidyAskSpec } = await import("../llm/shoppingTidy");
-    const spec = await storedTidyAskSpec(
-      curationContextFor(email),
-      parsed.data,
-    );
+    const { list, ...ask } = parsed.data;
+    const spec = await storedTidyAskSpec(on(email, list), ask);
     const { job, done } = await startSpec(spec);
     keepUnstored(job, done);
     return { job };
@@ -173,6 +184,8 @@ export async function decideShoppingTidy(
   id: string,
   action: "accept" | "skip",
   ops?: unknown,
+  /* 50d: the list the run is on (the main list without one). */
+  list?: string,
 ): Promise<{ run?: TidyRunView; message?: string }> {
   const email = signedIn((await auth())?.user?.email);
   if (!email) return { message: "Sign in first." };
@@ -182,7 +195,7 @@ export async function decideShoppingTidy(
   try {
     const { decideTidySuggestion, readShoppingItems } =
       await import("../curation/shopping");
-    const ctx = curationContextFor(email);
+    const ctx = on(email, list);
     const { run } = await decideTidySuggestion(
       ctx,
       id,

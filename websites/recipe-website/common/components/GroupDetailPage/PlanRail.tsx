@@ -19,6 +19,7 @@ import {
 import type { PlanRowView } from "../../util/planPage";
 import { quoteQueryValue } from "../SearchForm/queryLanguage";
 import { AddGroupToShopping } from "../ShoppingPage/AddToShopping";
+import { MAIN_SHOPPING_LIST, shoppingListHref } from "../../util/shoppingLists";
 import { isActionError } from "../ShoppingPage/useShoppingList";
 import type { SecondList } from "../MakePage/InventoryPanel";
 import { useMakeable, type Makeable } from "../MakePage/useMakeable";
@@ -76,9 +77,13 @@ function shoppingSentence(summary: NonNullable<PlanEditor["shopping"]>) {
       : summary.ticked === summary.lines
         ? "All ticked."
         : `${summary.ticked} ticked.`;
+  const where =
+    summary.list && !summary.list.main
+      ? `\u201c${summary.list.name}\u201d`
+      : "your list";
   return (
     <>
-      This plan is on your list:{" "}
+      This plan is on {where}:{" "}
       <b className="font-mono font-medium tabular-nums">{summary.lines}</b>{" "}
       {summary.lines === 1 ? "line" : "lines"}, merged into{" "}
       <b className="font-mono font-medium tabular-nums">{summary.rows}</b>{" "}
@@ -106,12 +111,33 @@ export function ShoppingPanel({
   const [error, setError] = useState<string>();
   const [added, setAdded] = useState(false);
   const summary = editor.shopping;
+  const planList = editor.planList;
+  /* 50d: the summary's own list — never a plain /shopping (Dd5 moves it). */
+  const summaryHref = shoppingListHref(summary?.list?.id ?? MAIN_SHOPPING_LIST);
   return (
     <section className={panelClass} aria-labelledby="plan-shopping-heading">
       <h2 id="plan-shopping-heading" className={headingClass}>
         <ShoppingCart aria-hidden className="size-5" />
         Shopping list
       </h2>
+      {planList && (
+        <p className="text-sm" data-testid="plan-shopping-list">
+          Shopping list:{" "}
+          <Link
+            href={shoppingListHref(planList.id)}
+            className="font-semibold underline"
+          >
+            {planList.name}
+          </Link>{" "}
+          <span className="text-muted-foreground">
+            {`(${
+              planList.left === planList.items
+                ? plural(planList.items, "line")
+                : `${planList.left} of ${plural(planList.items, "line")} left`
+            })`}
+          </span>
+        </p>
+      )}
       {summary ? (
         <>
           <p className="text-sm" data-testid="plan-shopping-summary">
@@ -166,7 +192,7 @@ export function ShoppingPanel({
           ) : (
             <div className="flex flex-wrap gap-2">
               <Button asChild variant="outline" size="sm">
-                <Link href="/shopping">Open list</Link>
+                <Link href={summaryHref}>Open list</Link>
               </Button>
               <Button
                 type="button"
@@ -193,15 +219,72 @@ export function ShoppingPanel({
           </p>
           <AddGroupToShopping
             group={slug}
-            add={async (input) => {
-              const result = await editor.addToShopping(input);
+            add={async (list, input) => {
+              const result = await editor.addToShopping(list, input);
               if (!isActionError(result)) setAdded(true);
               return result;
             }}
+            {...(editor.lists ? { lists: editor.lists } : {})}
+            {...(editor.createList ? { createList: editor.createList } : {})}
           />
         </>
       )}
+      {!planList && editor.makeShoppingList && (
+        <MakeShoppingList make={editor.makeShoppingList} />
+      )}
     </section>
+  );
+}
+
+/**
+ * 50d: "Make a shopping list" — a clean list of the plan's own, named after
+ * it and holding its recipes at the plan's scales; the page then links it.
+ */
+function MakeShoppingList({
+  make,
+}: {
+  make: NonNullable<PlanEditor["makeShoppingList"]>;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  return (
+    <div className="flex flex-col gap-1 border-t border-border pt-3">
+      <p className="text-sm text-muted-foreground">
+        Or give the plan a clean list of its own:
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="self-start"
+        disabled={busy}
+        data-testid="plan-make-shopping-list"
+        onClick={async () => {
+          setBusy(true);
+          setError(undefined);
+          try {
+            const result = await make();
+            if ("error" in result) setError(result.error);
+            else router.refresh();
+          } catch {
+            setError(
+              "Couldn't reach the editor — check the connection and try again.",
+            );
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <ShoppingCart aria-hidden className="size-4" />
+        Make a shopping list
+      </Button>
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 

@@ -13,7 +13,7 @@
  * Thin, per T17: authenticate, parse, call `controller/curation/shopping`,
  * answer through `errorResponse`.
  */
-import { requireCurationContext } from "recipe-editor/controller/apiContext";
+import { requireShoppingContext } from "recipe-editor/controller/apiContext";
 import {
   errorResponse,
   readJsonBody,
@@ -25,7 +25,7 @@ import {
 
 export async function POST(request: Request) {
   try {
-    const ctx = await requireCurationContext(request);
+    const ctx = await requireShoppingContext(request);
     const body = await readJsonBody(request);
     return Response.json(await decideShoppingMerge(ctx, body));
   } catch (error) {
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const ctx = await requireCurationContext(request);
+    const ctx = await requireShoppingContext(request);
     const id = new URL(request.url).searchParams.get("id") ?? "";
     return Response.json(await splitShoppingMerge(ctx, { id }));
   } catch (error) {

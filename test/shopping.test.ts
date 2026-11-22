@@ -1637,6 +1637,10 @@ describe("the export never reads the shopping list", () => {
       if (/shopping\/(?:layers|rules)/.test(source)) {
         violations.push(`${relative(SITE, file)} names a 50a directory`);
       }
+      /* 50d: nor the saved lists'. */
+      if (/shopping\/lists/.test(source)) {
+        violations.push(`${relative(SITE, file)} names shopping/lists`);
+      }
     }
     expect(violations).toEqual([]);
   });

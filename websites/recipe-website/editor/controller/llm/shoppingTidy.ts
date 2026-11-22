@@ -269,6 +269,11 @@ export interface ShoppingTidySpec {
   revise?: { run: string; suggestion: TidySuggestion; note: string };
   /** Write nothing (the measurement, a test): the run is in the result. */
   dryRun?: boolean;
+  /**
+   * 50d: the saved list's id the run reads and is kept on; absent for the
+   * main list. An id, not a name, so a rename meanwhile changes nothing.
+   */
+  list?: string;
 }
 
 /**
@@ -441,6 +446,7 @@ export async function storedTidySpec(
     task: "tidy",
     contentDirectory: ctx.contentDirectory,
     ...(ctx.author ? { author: ctx.author } : {}),
+    ...(list.list.main ? {} : { list: list.list.id }),
     model: chosen.id,
     on,
     rows,
@@ -767,10 +773,12 @@ export async function runShoppingTidy(
   );
   for (const why of checked.leftOut) job.log.info("tidy", `left out: ${why}`);
   const at = new Date().toISOString();
-  const context = ctx ?? {
+  const given = ctx ?? {
     contentDirectory: spec.contentDirectory,
     ...(spec.author ? { author: spec.author } : {}),
   };
+  /* 50d: the run is kept on the list it read. */
+  const context = spec.list ? { ...given, shoppingList: spec.list } : given;
   if (spec.revise) {
     const [first] = checked.suggestions;
     if (!first) {

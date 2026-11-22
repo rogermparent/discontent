@@ -93,6 +93,7 @@ import {
   ShoppingAddSchema,
   ShoppingClearSchema,
   ShoppingSettingsPatchSchema,
+  ShoppingListRefSchema,
   ShoppingTextSchema,
   TermCarrierTypeSchema,
   TermInputSchema,
@@ -1491,20 +1492,44 @@ export function recipeToolDefinitions(
         "{run, model, on, suggestions: [{id, kind, title, reason, text, warnings}]} — a model's " +
         "judgement calls (leave off what a step makes, fry in the oil already on the list, store " +
         "sizes); accepting or skipping one is the person's, on /shopping or the CLI " +
-        "(`shopping accept <id>`, `shopping skip <id>`).",
-      inputSchema: z.strictObject({ store: z.string().min(1).optional() }),
+        "(`shopping accept <id>`, `shopping skip <id>`). " +
+        "There may be several lists: `list` is the one answered " +
+        "({id, name, main?, plan?}) — the main list without the `list` argument " +
+        "(`main`, a list's id, or its name) — and `lists` every list not deleted, " +
+        "[{id, name, main?, plan?, planName?, items, left}], a meal plan's own list " +
+        "naming its plan. The other shopping tools take the same `list`.",
+      inputSchema: z.strictObject({
+        store: z.string().min(1).optional(),
+        list: ShoppingListRefSchema.optional(),
+      }),
       annotations: READ_ONLY,
     },
-    async ({ store }) =>
+    async ({ store, list }) =>
       read(async () => {
-        const { view, text, settings, proposals, merges, layers, items } =
-          await backend.getShopping({ store });
+        const on = list ? backend.forShoppingList(list) : backend;
+        const {
+          view,
+          text,
+          settings,
+          proposals,
+          merges,
+          layers,
+          items,
+          list: which,
+        } = await on.getShopping({ store });
         /* An editor from before 50b has no runs to read: none, then. */
-        const latest = await backend
+        const latest = await on
           .tidyRuns()
           .then(({ runs }) => runs[0])
           .catch(() => undefined);
+        /* An editor from before 50d has one list: none, then. */
+        const lists = await backend
+          .listShoppingLists()
+          .then((answer) => answer.lists)
+          .catch(() => undefined);
         return {
+          ...(which ? { list: which } : {}),
+          ...(lists ? { lists } : {}),
           text,
           view,
           settings,
@@ -1549,7 +1574,8 @@ export function recipeToolDefinitions(
         "names others as slugs of the set's label and the option's name " +
         '(`{"then-make": "bagels"}`), or `"all"` for every option; a plan ' +
         "adds the defaults. Adding the same recipe twice adds it twice. A plan's missing " +
-        "recipes and sub-groups are skipped and named in `missing` and `warnings`.",
+        "recipes and sub-groups are skipped and named in `missing` and `warnings`. " +
+        "`list` names the list to add to (shopping_get's `lists`); the main list without it.",
       inputSchema: ShoppingAddSchema,
       annotations: WRITES,
     },
@@ -1566,12 +1592,14 @@ export function recipeToolDefinitions(
         "from shopping_get (all of them, to tick a merged row), not its `key`; " +
         '`names` tick every item of that ingredient (`["eggs"]` ' +
         'for "I bought eggs"). `uncheck: true` unticks instead. Names that match ' +
-        "nothing come back in `unmatched`, ids not on the list in `unknown`.",
+        "nothing come back in `unmatched`, ids not on the list in `unknown`. " +
+        "`list` names the list (the main list without it).",
       inputSchema: z
         .strictObject({
           ids: z.array(z.string().min(1)).max(2000).optional(),
           names: z.array(ShoppingTextSchema).max(200).optional(),
           uncheck: z.boolean().optional(),
+          list: ShoppingListRefSchema.optional(),
         })
         .refine(
           (data) => (data.ids?.length ?? 0) + (data.names?.length ?? 0) > 0,
@@ -1579,11 +1607,11 @@ export function recipeToolDefinitions(
         ),
       annotations: WRITES,
     },
-    async ({ ids, names, uncheck }) =>
+    async ({ ids, names, uncheck, list }) =>
       write(
         backend,
         () =>
-          backend.patchShopping(
+          (list ? backend.forShoppingList(list) : backend).patchShopping(
             uncheck
               ? { uncheck: ids ?? [], uncheckNames: names ?? [] }
               : { check: ids ?? [], names: names ?? [] },
@@ -1602,13 +1630,14 @@ export function recipeToolDefinitions(
         "slug) put there, or every item a sub-recipe's expansion added (`for`: " +
         "the linked recipe's slug, such as `simple-syrup` — what /shopping's " +
         '"Remove these" does; the recipe that linked it keeps its own lines) — ' +
-        "exactly one of the four.",
+        "exactly one of the four. `list` names the list (the main list without it).",
       inputSchema: z
         .strictObject({
           ids: z.array(z.string().min(1)).min(1).max(2000).optional(),
           recipe: z.string().min(1).optional(),
           group: z.string().min(1).optional(),
           for: z.string().min(1).optional(),
+          list: ShoppingListRefSchema.optional(),
         })
         .refine(
           (data) =>
@@ -1622,11 +1651,11 @@ export function recipeToolDefinitions(
         ),
       annotations: WRITES,
     },
-    async ({ ids, recipe, group, for: forSlug }) =>
+    async ({ ids, recipe, group, for: forSlug, list }) =>
       write(
         backend,
         () =>
-          backend.patchShopping(
+          (list ? backend.forShoppingList(list) : backend).patchShopping(
             ids
               ? { remove: ids }
               : {
@@ -1648,12 +1677,18 @@ export function recipeToolDefinitions(
       title: "Clear the shopping list",
       description:
         'Remove every ticked item (`scope: "checked"`, the default) or the whole ' +
-        'list (`"all"`), one commit.',
+        'list (`"all"`), one commit. `list` names the list (the main list without it).',
       inputSchema: ShoppingClearSchema,
       annotations: DESTRUCTIVE_WRITE,
     },
-    async (args) =>
-      write(backend, () => backend.clearShopping(args), { notify: false }),
+    /* 50d: on the named list through every backend (`--remote` too). */
+    async ({ list, ...args }) =>
+      write(
+        backend,
+        () =>
+          (list ? backend.forShoppingList(list) : backend).clearShopping(args),
+        { notify: false },
+      ),
   );
 
   register(

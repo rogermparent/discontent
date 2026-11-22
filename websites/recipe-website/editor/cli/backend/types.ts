@@ -88,6 +88,7 @@ import type {
   ShoppingAddResult,
   ShoppingClearResult,
   ShoppingLayerResult,
+  ShoppingListResult,
   ShoppingMergeResult,
   ShoppingPatchResult,
   ShoppingRuleResult,
@@ -95,6 +96,7 @@ import type {
   ShoppingSettingsResult,
   ShoppingViewResult,
 } from "../../controller/curation/shopping";
+import type { ShoppingListSummary } from "recipe-website-common/util/shoppingLists";
 import type { ShoppingLayerListing } from "recipe-website-common/util/shoppingChanges";
 import type {
   ShoppingTidyResult,
@@ -191,6 +193,8 @@ export type {
   ShoppingClearResult,
   ShoppingLayerResult,
   ShoppingLayerListing,
+  ShoppingListResult,
+  ShoppingListSummary,
   ShoppingMergeResult,
   ShoppingPatchResult,
   ShoppingRuleResult,
@@ -552,12 +556,28 @@ export interface CuratorBackend {
    * the content repo, every feature a switch. `getShopping` answers the
    * stored items and settings with the view and its copy text; `store`
    * narrows to one store's list. Every write is one commit, or none.
+   *
+   * 50d: every call is about one list — the one `forShoppingList` names,
+   * else the main list. The rules, merges and settings are every list's.
    */
   getShopping(options?: {
     store?: string;
     /** 50a: the base rows — no merges, rules or layers. */
     asWritten?: boolean;
   }): Promise<ShoppingViewResult>;
+  /**
+   * 50d (Dd2): this backend with every shopping call on one list — `main`,
+   * a saved list's id or its name (`--list`, a tool's `list` argument).
+   */
+  forShoppingList(list: string): CuratorBackend;
+  /** 50d: the lists, the main list first; `all` with the deleted ones. */
+  listShoppingLists(options?: {
+    all?: boolean;
+  }): Promise<{ lists: ShoppingListSummary[] }>;
+  /** 50d: `{name}` or `{plan, name?, scale?}` — a new list, one commit. */
+  createShoppingList(raw: unknown): Promise<ShoppingListResult>;
+  /** 50d: `{id, name?, archived?}` — rename, delete or restore. */
+  editShoppingList(raw: unknown): Promise<ShoppingListResult>;
   /** `{recipe, scale?} | {group, scale?} | {items}`. */
   addToShopping(raw: unknown): Promise<ShoppingAddResult>;
   /** `{check, uncheck, remove, need, unneed, names, uncheckNames, removeSource, set}`. */

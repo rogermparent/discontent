@@ -16,12 +16,15 @@
  * - `POST` adds `{recipe, scale?} | {group, scale?} | {items}`.
  * - `PATCH` ticks, flags, moves or removes items (`patchShopping`'s body).
  * - `DELETE ?scope=checked|all` clears (checked by default).
+ * - 50d: `?list=<id>` (or a body's `list`) names the list — `main`, a
+ *   saved list's id or its name (`/api/shopping/lists`); the main list
+ *   without one. `GET` answers `list` {id, name, main?, plan?}.
  *
  * Thin, per T17: authenticate, parse, call `controller/curation/shopping`,
  * answer through `errorResponse`. No `onWrite` follows a write — the list is
  * no content type, and the signed-in `/shopping` reads it per request.
  */
-import { requireCurationContext } from "recipe-editor/controller/apiContext";
+import { requireShoppingContext } from "recipe-editor/controller/apiContext";
 import {
   errorResponse,
   readJsonBody,
@@ -35,7 +38,7 @@ import {
 
 export async function GET(request: Request) {
   try {
-    const ctx = await requireCurationContext(request, { need: "read" });
+    const ctx = await requireShoppingContext(request, { need: "read" });
     const url = new URL(request.url);
     const store = url.searchParams.get("store") || undefined;
     const asWritten = ["1", "true"].includes(
@@ -55,7 +58,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const ctx = await requireCurationContext(request);
+    const ctx = await requireShoppingContext(request);
     const body = await readJsonBody(request);
     return Response.json(await addToShopping(ctx, body));
   } catch (error) {
@@ -65,7 +68,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const ctx = await requireCurationContext(request);
+    const ctx = await requireShoppingContext(request);
     const body = await readJsonBody(request);
     return Response.json(await patchShopping(ctx, body));
   } catch (error) {
@@ -75,7 +78,7 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const ctx = await requireCurationContext(request);
+    const ctx = await requireShoppingContext(request);
     const scope = new URL(request.url).searchParams.get("scope") ?? undefined;
     return Response.json(
       await clearShopping(ctx, scope === undefined ? {} : { scope }),

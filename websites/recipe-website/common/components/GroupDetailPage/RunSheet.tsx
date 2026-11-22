@@ -5,6 +5,7 @@ import { useMemo, type ReactNode } from "react";
 import { ArrowRight, Pencil, Play } from "lucide-react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { cn } from "@discontent/component-library/lib/utils";
+import { MAIN_SHOPPING_LIST, shoppingListHref } from "../../util/shoppingLists";
 import { formatOven } from "../../util/planTimes";
 import type { PlanPageData, PlanRowView } from "../../util/planPage";
 import {
@@ -665,7 +666,7 @@ function Docket({ summary }: { summary: PlanShoppingSummary }) {
         </>
       )}
       <Link
-        href="/shopping"
+        href={shoppingListHref(summary.list?.id ?? MAIN_SHOPPING_LIST)}
         className={cn(
           "inline-flex min-h-6 items-center gap-1 self-start text-sm text-primary underline-offset-4 hover:underline",
           FOCUS,

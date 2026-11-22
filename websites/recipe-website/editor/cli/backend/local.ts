@@ -435,6 +435,24 @@ export function createLocalBackend({
     },
 
     getShopping: (options) => shopping.readShoppingView(ctx, options),
+    /* 50d: the same backend, every shopping call on that list. */
+    forShoppingList: (list) =>
+      createLocalBackend({
+        ...ctx,
+        shoppingList: list,
+        ...(notify ? { notify } : {}),
+        inProcess,
+      }),
+    listShoppingLists: (options) =>
+      shopping.readShoppingLists(ctx, options).then((lists) => ({ lists })),
+    async createShoppingList(raw) {
+      await guard();
+      return shopping.createShoppingList(ctx, raw);
+    },
+    async editShoppingList(raw) {
+      await guard();
+      return shopping.editShoppingList(ctx, raw);
+    },
     async addToShopping(raw) {
       await guard();
       return shopping.addToShopping(ctx, raw);

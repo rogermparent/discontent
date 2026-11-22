@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronRight, Printer } from "lucide-react";
 import { Button } from "@discontent/component-library/components/ui/button";
@@ -367,6 +367,7 @@ export function PlanView({
   setMode,
   asWritten = false,
   setAsWritten,
+  switcher,
 }: {
   list: ShoppingList;
   fullView: ShoppingView;
@@ -390,6 +391,8 @@ export function PlanView({
   /** 50a: the list shows its base rows ("As written"). */
   asWritten?: boolean;
   setAsWritten?(on: boolean): void;
+  /** 50d: the list switcher, beside the heading. */
+  switcher?: ReactNode;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -406,7 +409,10 @@ export function PlanView({
       <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <div className="mr-auto flex flex-col">
-            <h1 className="text-2xl font-bold">Shopping list</h1>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <h1 className="text-2xl font-bold">Shopping list</h1>
+              {switcher}
+            </div>
             <p
               className="text-sm text-muted-foreground"
               data-testid="shopping-counts"
@@ -455,6 +461,8 @@ export function PlanView({
           {/* 50c: the cards first — on a phone too, above the panels. */}
           {(list.canMerge || (tidy && list.canLayer)) && (
             <Walkthrough
+              /* 50c (Dc11): a list's cards are its own — another list starts over. */
+              key={list.listId}
               list={list}
               proposals={proposals}
               {...(asker ? { asker } : {})}

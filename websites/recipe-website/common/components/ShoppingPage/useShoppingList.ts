@@ -11,6 +11,7 @@ import {
 import type { ShoppingMerge } from "../../util/shoppingMerges";
 import type { ShoppingLayer, ShoppingRule } from "../../util/shoppingLayers";
 import type { ShoppingItem, ShoppingSettings } from "../../util/shoppingTypes";
+import { MAIN_SHOPPING_LIST, listStorageKey } from "../../util/shoppingLists";
 
 export type { SyncStatus };
 
@@ -41,6 +42,14 @@ export interface ShoppingListState {
   /** 50a: this list's layers and the leave-off rules (the page composes). */
   layers?: ShoppingLayer[];
   rules?: ShoppingRule[];
+  /** 50d: which list this is (the main list without one). */
+  list?: {
+    id: string;
+    name: string;
+    main?: true;
+    plan?: string;
+    archived?: true;
+  };
 }
 
 /** 50a: what a layer write answers. */
@@ -165,8 +174,23 @@ function browserTicks(area: () => Storage, key: string): TickSyncStorage {
   };
 }
 
-const sessionTicks = browserTicks(() => window.sessionStorage, STORAGE_KEY);
-const heldTicks = browserTicks(() => window.localStorage, HELD_STORAGE_KEY);
+/*
+ * 50d (Dd3): each list's ticks under its own keys — the main list's are the
+ * keys they always were, so an update loses no tick held for Done shopping.
+ */
+function sessionTicksFor(list: string): TickSyncStorage {
+  return browserTicks(
+    () => window.sessionStorage,
+    listStorageKey(STORAGE_KEY, list),
+  );
+}
+
+function heldTicksFor(list: string): TickSyncStorage {
+  return browserTicks(
+    () => window.localStorage,
+    listStorageKey(HELD_STORAGE_KEY, list),
+  );
+}
 
 const NONE: string[] = [];
 const NO_PLANS: Record<string, string> = {};
@@ -211,6 +235,9 @@ export function useShoppingList({
   patchUrl: string;
 }) {
   const [state, setState] = useState<ShoppingListState>(initial);
+  /* 50d: the list never changes under a mounted page (the page keys it). */
+  const [listId] = useState(() => initial.list?.id ?? MAIN_SHOPPING_LIST);
+  const heldKey = listStorageKey(HELD_STORAGE_KEY, listId);
   const [sync, setSync] = useState<TickSyncSnapshot>({
     pending: new Map(),
     status: "idle",
@@ -246,8 +273,8 @@ export function useShoppingList({
       new TickSync({
         patchUrl,
         fetch: (input, init) => fetch(input, init),
-        storage: sessionTicks,
-        heldStorage: heldTicks,
+        storage: sessionTicksFor(listId),
+        heldStorage: heldTicksFor(listId),
         hold: initial.settings.features.holdTicks,
         onItems: (items) => {
           writes.bump();
@@ -328,7 +355,7 @@ export function useShoppingList({
     };
     /* Another tab changed the held ticks (38d): show them here too. */
     const onStorage = (event: StorageEvent) => {
-      if (event.key === HELD_STORAGE_KEY || event.key === null) {
+      if (event.key === heldKey || event.key === null) {
         ticks.refresh();
       }
     };
@@ -342,7 +369,7 @@ export function useShoppingList({
       ticks.detach();
       sendClearNow();
     };
-  }, [ticks, patchUrl]);
+  }, [ticks, patchUrl, heldKey]);
 
   /** Run a server action that answers with the list's items or settings. */
   const run = useCallback(
@@ -424,6 +451,10 @@ export function useShoppingList({
     settings: state.settings,
     inventory: state.inventory,
     plans: state.plans ?? NO_PLANS,
+    /** 50d: the list this page is. */
+    list: state.list,
+    /** 50c: the list's id (`main` for the main list) — what card state is keyed by. */
+    listId,
     /** 49a: the stored merge decisions. */
     merges: state.merges ?? NO_MERGES,
     /** 49a: this page can answer proposals (the editor passed the actions). */

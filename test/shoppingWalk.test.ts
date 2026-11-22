@@ -16,6 +16,7 @@ import { recipeContentTypes } from "../websites/recipe-website/editor/controller
 import {
   addShoppingLayer,
   addToShopping,
+  createShoppingList,
   decideShoppingMerge,
   decideTidySuggestion,
   promoteShoppingLayer,
@@ -25,6 +26,7 @@ import {
   readTidyRuns,
   removeShoppingRule,
   setShoppingRuleOn,
+  shoppingListPaths,
   writeTidyRun,
 } from "../websites/recipe-website/editor/controller/curation/shopping";
 import {
@@ -664,6 +666,76 @@ describe("the seat (50c)", () => {
     expect((await readShoppingView(ctx)).text).toContain("1 egg white");
     await setShoppingRuleOn(ctx, { kind: "merge", id: mergeId, on: true });
     expect((await readShopping(ctx)).merges[0].on).toBeUndefined();
+  });
+
+  it("on a saved list (50d): an edited Accept and Always do this write that list's files", async () => {
+    await addToShopping(ctx, { items: ["2 eggs"] });
+    const party = (await createShoppingList(ctx, { name: "Party" })).list.id;
+    const on = { ...ctx, shoppingList: party };
+    await addToShopping(on, { items: ["1 tbsp butter", "1 cup buttermilk"] });
+    const { items } = await readShopping(on);
+    const id = (text: string) => items.find((each) => each.text === text)!.id;
+    const paths = shoppingListPaths(party);
+    const run: TidyRun = {
+      id: RUN,
+      model: "qwen3:8b",
+      choice: "qwen3:8b",
+      on: "current",
+      at: "2026-11-21T10:00:00.000Z",
+      suggestions: [
+        {
+          id: `${RUN}-1`,
+          kind: "store-size",
+          title: "Buy a quart of buttermilk",
+          reason: "",
+          ops: [
+            { op: "amount", ids: [id("1 cup buttermilk")], amount: "1 quart" },
+          ],
+          warnings: [],
+        },
+      ],
+      status: {},
+      leftOut: [],
+    };
+    await writeTidyRun(on, run);
+    expect(await readTidyRuns(ctx)).toEqual([]);
+    await decideTidySuggestion(on, `${RUN}-1`, "accept", {
+      ops: [{ op: "amount", ids: [id("1 cup buttermilk")], amount: "1 pint" }],
+    });
+    expect(await latest()).toBe(
+      'Update shopping list "Party": accept (edited): Buy a quart of buttermilk (qwen3:8b)',
+    );
+    expect(await readShoppingLayers(ctx)).toEqual([]);
+    expect(await readShoppingLayers(on)).toHaveLength(1);
+
+    const { layer } = await addShoppingLayer(on, {
+      ops: [
+        { op: "rename", ids: [id("1 tbsp butter")], name: "unsalted butter" },
+      ],
+    });
+    const answer = await promoteShoppingLayer(on, { id: layer!.id });
+    expect(await latest()).toMatch(
+      /^Update shopping list "Party": always: Rename butter/,
+    );
+    const shown = await git.raw(["show", "--name-only", "--format=", "HEAD"]);
+    expect(shown.trim().split("\n").sort()).toEqual(
+      [
+        join(paths.layers, `${layer!.id}.json`),
+        `shopping/rules/${ruleIdOf("rename", "butter")}.json`,
+      ].sort(),
+    );
+    /* The answer's layers are the list's; the rule is every list's. */
+    expect(answer.layers.map((each) => each.id)).not.toContain(layer!.id);
+    expect(answer.layers).toHaveLength(1);
+    const off = await setShoppingRuleOn(on, {
+      kind: "rule",
+      id: ruleIdOf("rename", "butter"),
+      on: false,
+    });
+    expect(off.layers).toHaveLength(1);
+    expect(await latest()).toBe(
+      "Update shopping list: rule off: call butter unsalted butter",
+    );
   });
 
   it("refuses a merge whose names a rule merges with others already", async () => {

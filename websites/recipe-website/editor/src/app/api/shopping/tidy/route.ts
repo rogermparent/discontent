@@ -7,10 +7,12 @@
  *   (202), or — `wait: true` — the job's result (`ShoppingTidyResult`: the
  *   run as kept, or why not). The run is written (one commit); nothing on
  *   the list changes until a suggestion is accepted.
+ * - 50d: `?list=` (or the body's `list`) names the list; the main list
+ *   without one.
  * - `GET ?job=<id>` follows one: `{job, status, live, result?, error?}`.
  */
 import { z } from "zod";
-import { requireCurationContext } from "recipe-editor/controller/apiContext";
+import { requireShoppingContext } from "recipe-editor/controller/apiContext";
 import {
   errorResponse,
   readJsonBody,
@@ -27,15 +29,18 @@ const TidyBodySchema = z.strictObject({
   on: z.enum(["current", "original"]).optional(),
   dryRun: z.boolean().optional(),
   wait: z.boolean().optional(),
+  /* 50d: the list to tidy, as `?list=` names it. */
+  list: z.string().trim().min(1).max(100).optional(),
 });
 
 export async function POST(request: Request) {
   try {
-    const ctx = await requireCurationContext(request);
-    const { wait, ...input } = parseInput(
+    const given = await requireShoppingContext(request);
+    const { wait, list, ...input } = parseInput(
       TidyBodySchema,
       await readJsonBody(request),
     );
+    const ctx = list ? { ...given, shoppingList: list } : given;
     const spec = await storedTidySpec(ctx, input);
     if (wait) return Response.json(await runSpec(spec, { ctx }));
     const { job, stored, done } = await startSpec(spec, { ctx });
@@ -48,7 +53,7 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   try {
-    await requireCurationContext(request, { need: "read" });
+    await requireShoppingContext(request, { need: "read" });
     const id = new URL(request.url).searchParams.get("job") ?? "";
     if (!id) throw new ValidationError("Say which job: ?job=<id>.");
     const view = await getJobView(id);

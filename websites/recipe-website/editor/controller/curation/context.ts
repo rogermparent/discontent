@@ -92,6 +92,14 @@ export interface CurationContext {
    * on its own as it always has.
    */
   batch?: CommitBatch;
+  /**
+   * 50d (Dd2): the shopping list a shopping call reads and writes — `main`,
+   * a saved list's id, or its name, resolved by the seat on every call.
+   * Absent is the main list. Only `curation/shopping.ts` reads it; a
+   * transport sets it from `?list=`, `--list` or a tool's `list` argument.
+   * The rules, merges and settings are every list's and ignore it.
+   */
+  shoppingList?: string;
 }
 
 /** The paths a batched write has left uncommitted so far (F34). */

@@ -741,6 +741,20 @@ const capKeys = (record: Record<string, unknown> | undefined) =>
   Object.keys(record ?? {}).length <= MAX_OVERRIDE_CHANGES;
 
 /**
+ * 50d (Dd2): which shopping list a call is about — `main`, a saved list's
+ * id, or its name. Left out: the list the transport named (`?list=`,
+ * `--list`), else the main list.
+ */
+export const ShoppingListRefSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .regex(/^[^\u0000-\u001f\u007f]+$/, {
+    message: "A list may not contain control characters",
+  });
+
+/**
  * What to put on the list (epic 35, D7): a recipe's lines, a meal plan's
  * (nested plans included), or lines typed by hand — exactly one. `scale`
  * multiplies a recipe or a whole plan (`"2"`, `"1/2"`).
@@ -761,6 +775,8 @@ export const ShoppingAddSchema = z
       .record(z.string().min(1).max(200), z.string().min(1).max(200))
       .optional(),
     items: z.array(ShoppingTextSchema).min(1).max(200).optional(),
+    /* 50d: the list to add to. */
+    list: ShoppingListRefSchema.optional(),
   })
   .refine(
     (data) =>
@@ -829,6 +845,8 @@ export const ShoppingPatchSchema = z
         store: z.string().min(1).nullable(),
       })
       .optional(),
+    /* 50d: the list these items are on. */
+    list: ShoppingListRefSchema.optional(),
   })
   .refine(
     (data) =>
@@ -1101,6 +1119,47 @@ export const TidyAcceptEditSchema = z
 /** `checked` (the default) clears what was bought; `all` empties the list. */
 export const ShoppingClearSchema = z.strictObject({
   scope: z.enum(["checked", "all"]).optional(),
+  /* 50d: the list to clear. */
+  list: ShoppingListRefSchema.optional(),
+});
+
+/** 50d: a saved list's name, as typed (one line). */
+const ShoppingListNameSchema = oneLine(80, "A list's name");
+
+/**
+ * 50d (Dd6): a new list — `name`, or `plan` (a meal plan's slug: named
+ * after it, holding its recipes at the plan's scales, times `scale`), or
+ * both.
+ */
+export const ShoppingListCreateSchema = z
+  .strictObject({
+    name: ShoppingListNameSchema.optional(),
+    plan: z.string().trim().min(1).max(200).optional(),
+    scale: ScaleSchema().optional(),
+  })
+  .refine((data) => data.name !== undefined || data.plan !== undefined, {
+    message: "Name the list, or a meal plan to make it from",
+    path: ["name"],
+  })
+  .refine((data) => !(data.scale !== undefined && data.plan === undefined), {
+    message: "`scale` applies to a list made from a `plan`",
+    path: ["scale"],
+  });
+
+/** 50d (Dd4): rename a saved list, delete it (archive) or bring it back. */
+export const ShoppingListEditSchema = z
+  .strictObject({
+    id: ShoppingListRefSchema,
+    name: ShoppingListNameSchema.optional(),
+    archived: z.boolean().optional(),
+  })
+  .refine((data) => data.name !== undefined || data.archived !== undefined, {
+    message: "Name a new `name`, or `archived`",
+    path: ["name"],
+  });
+
+export const ShoppingListIdSchema = z.strictObject({
+  id: ShoppingListRefSchema,
 });
 
 const AisleSchema = z.enum(AISLES);
