@@ -44,6 +44,8 @@ export const JOB_KIND_NAMES = [
   "shopping-merge",
   /* 50b: "Tidy with the model" over the shopping list (a run, or one card). */
   "shopping-tidy",
+  /* 50e: recipes already here, read again for the recipes they link. */
+  "linked-scan",
 ] as const;
 
 /**

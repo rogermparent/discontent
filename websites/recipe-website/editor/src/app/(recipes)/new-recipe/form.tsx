@@ -57,6 +57,7 @@ import {
 import type { RecipeActionState } from "./common";
 import BatchPicker, { plannedSlug } from "./BatchPicker";
 import ImportProgress, { type UnfollowedImport } from "./ImportProgress";
+import { LinkedSummary } from "./LinkedSummary";
 import RoundupImport from "./RoundupImport";
 import { UNSTORED_KEEP_MS } from "recipe-editor/controller/jobs/unstored";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
@@ -415,6 +416,8 @@ export default function NewOrImportRecipeForm({
     }
   }, []);
   const [forceLlm, setForceLlm] = useState(false);
+  /* 50e: follow the recipes the page links to (on by default). */
+  const [followLinked, setFollowLinked] = useState(true);
   /* Pasting the text (36c; a fallback since 36d): controlled, so a failed
    * import keeps it. */
   const [mode, setMode] = useState<StartMode>("url");
@@ -867,6 +870,27 @@ export default function NewOrImportRecipeForm({
                 )}
               </>
             )}
+            {mode === "url" ? (
+              <div className="my-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
+                <label className="flex items-center gap-2">
+                  <FormCheckbox
+                    checked={followLinked}
+                    onCheckedChange={setFollowLinked}
+                    aria-describedby="import-linked-help"
+                  />
+                  Follow linked recipes
+                </label>
+                <span id="import-linked-help" className="text-muted-foreground">
+                  — import the recipes the page links to (a crust, a sauce) and
+                  link the lines that use them
+                </span>
+                <input
+                  type="hidden"
+                  name="linked"
+                  value={followLinked ? "auto" : "off"}
+                />
+              </div>
+            ) : null}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               {mode === "url" ? null : (
                 <SubmitButton
@@ -921,6 +945,11 @@ export default function NewOrImportRecipeForm({
                 : undefined
             }
             doneNote={receiptNote}
+            doneDetail={
+              settledJob === activeJob ? (
+                <LinkedSummary report={importState?.linked} />
+              ) : undefined
+            }
             doneActions={
               collapsed ? (
                 <Button

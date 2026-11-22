@@ -56,6 +56,7 @@ const KIND_WORDS: Record<string, [string, string]> = {
   edit: ["edit with AI", "edits with AI"],
   "shopping-merge": ["shopping list ask", "shopping list asks"],
   "shopping-tidy": ["shopping list tidy", "shopping list tidies"],
+  "linked-scan": ["linked-recipe scan", "linked-recipe scans"],
 };
 
 /** "URL import", "3 inspects". */

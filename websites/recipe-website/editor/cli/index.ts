@@ -41,6 +41,7 @@ import {
   unfeatureCommand,
 } from "./commands/featured";
 import { fillCommand } from "./commands/fill";
+import { linkedCommand } from "./commands/linked";
 import { reviseCommand } from "./commands/revise";
 import { gitCommands } from "./commands/git";
 import { groupCommands } from "./commands/group";
@@ -96,6 +97,8 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
   fill: fillCommand,
   /* "Edit with AI" from the command line, written nowhere (47i). */
   revise: reviseCommand,
+  /* The recipes existing recipes' pages link to (50e). */
+  linked: linkedCommand,
   image: imageCommand,
   show: showCommand,
   list: listCommand,
@@ -159,8 +162,8 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   inspect <url> [--out draft.json] [--llm auto|force|off] [--verbose]
   import <url> [--tags a,b] [--slug s] [--name N] [--image <url>]
                [--dry-run [--out draft.json]] [--overwrite] [--allow-partial]
-               [--llm auto|force|off] [--all | --pick "Name",… | --as-one]
-               [--fresh] [--verbose]
+               [--llm auto|force|off] [--linked auto|off]
+               [--all | --pick "Name",… | --as-one] [--fresh] [--verbose]
   import --text <file|-> [--source <url>] [the same options, no --llm]
   import --photo <file> [<file>…] [--source <url>] [--photo-as-image]
                [the same options, no --llm]
@@ -178,6 +181,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   fill <slug> [--no-estimate] [--uses | --no-uses] [--all-uses]
        [--out patch.json] [--verbose]
   revise <slug> "<request>" [--claude] [--out patch.json] [--verbose]
+  linked --scan [--slug s …] [--limit n] [--dry-run] [--llm auto|force|off]
   notes migrate [--dry-run]
   image <slug> (--url <image-url> | --file <path> | --clear)
   show <slug>
@@ -396,6 +400,20 @@ Content directory: --content-dir > CONTENT_DIRECTORY > ./content.
 The tweak loop: \`inspect <url> --out d.json\` (or \`import <url> --dry-run --out
 d.json\`), edit d.json, \`create --file d.json --dry-run\`, then \`create --file
 d.json\`. Fix a picture later with \`image <slug> --url|--file|--clear\`.
+
+Linked recipes: a URL import follows the recipes its page links to — a link on
+an ingredient line ("poach the pears as instructed here"), a card step's or
+note's link naming a line, a post link that says "recipe" — at most 5, one
+level deep, each page read once on its site's queue. One already here (by
+its source link) is linked to; the others are imported first, each its own
+commit, with the import's --tags only where their own page says so. The line
+each makes becomes a sub-recipe line ("2 cups (600g) [pear puree](/recipe/
+poached-pears)"), so the shopping list opens it; one no line makes gets a
+"Uses: [Poached Pears](/recipe/poached-pears)" note. The result's \`linked\`
+says what was done (a dry run, what would be). --linked off imports the
+page's recipe alone. \`linked --scan [--slug s] [--dry-run]\` does the same for
+recipes already here: each one's source page read again (politely; local
+only), its links matched against the stored lines.
 
 Filling gaps: \`fill <slug>\` reads the recipe's source link (or its video) as
 \`import --dry-run\` would and fills only what is empty — the description,

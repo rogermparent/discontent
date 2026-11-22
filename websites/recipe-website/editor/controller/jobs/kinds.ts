@@ -38,6 +38,7 @@ import type {
   InspectListResult,
 } from "../curation/importList";
 import type { FillResult } from "../curation/fillRecipe";
+import type { LinkedMode, LinkedScanResult } from "../curation/linkedImport";
 import type { DetectChoicesResult } from "../llm/detectChoices";
 import type { EditResult, EditSpec } from "../llm/askEdit";
 import type { ShoppingAskSpec } from "../llm/shoppingAsk";
@@ -112,8 +113,17 @@ export type JobSpec =
       url: string;
       options: ImportListOptions;
     })
-  /** The `/new-recipe` form's import: fills the form, writes nothing. */
-  | { kind: "form-url"; url: string; llm?: LlmMode }
+  /**
+   * The `/new-recipe` form's import: fills the form. Since 50e it may write
+   * the recipes the page links to (its own commits) — only with the corpus
+   * named and `linked` not `off`; the form's own recipe is never written.
+   */
+  | (Partial<CorpusSpec> & {
+      kind: "form-url";
+      url: string;
+      llm?: LlmMode;
+      linked?: LinkedMode;
+    })
   | { kind: "form-text"; text: string; source?: string }
   /** The form's Photo mode (38e): fills the form, writes nothing. */
   | { kind: "form-photo"; photos: StoredPhoto[] }
@@ -243,7 +253,19 @@ export type JobSpec =
    * the spec holds them, one model call, the structural check, and the run
    * kept (one commit); or one card asked again with a note.
    */
-  | ShoppingTidySpec;
+  | ShoppingTidySpec
+  /**
+   * 50e: `recipes linked --scan` — recipes already here, their source pages
+   * read again for the recipes they link, those imported or linked and the
+   * lines that make them rewritten (one commit per recipe; none in a dry run).
+   */
+  | (CorpusSpec & {
+      kind: "linked-scan";
+      slugs?: string[];
+      limit?: number;
+      dryRun?: boolean;
+      llm?: LlmMode;
+    });
 
 /** Who asked for a rebuild — the label says it. */
 export type ReindexTrigger =
@@ -290,6 +312,7 @@ export interface JobResults {
   edit: EditResult;
   "shopping-merge": ShoppingAskResult;
   "shopping-tidy": ShoppingTidyResult;
+  "linked-scan": LinkedScanResult;
 }
 
 /** What "Import N selected" answers: one row per pick. */
@@ -390,9 +413,20 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
     const { importList } = await import("../curation/importList");
     return importList(contextFor(spec, ctx), spec.url, spec.options, { job });
   },
-  async "form-url"(spec, { job }) {
+  async "form-url"(spec, { ctx, job }) {
     const { reduceRecipeImport } = await import("../formImport");
-    return reduceRecipeImport(null, spec.url, spec.llm, job);
+    const { contentDirectory, author } = spec;
+    return reduceRecipeImport(null, spec.url, spec.llm, job, {
+      ...(contentDirectory
+        ? {
+            ctx: contextFor(
+              { contentDirectory, ...(author ? { author } : {}) },
+              ctx,
+            ),
+          }
+        : {}),
+      ...(spec.linked ? { linked: spec.linked } : {}),
+    });
   },
   async "form-text"(spec, { job }) {
     const { reduceTextImport } = await import("../formImport");
@@ -492,6 +526,19 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
       );
       return runMirrorSync(spec.contentDirectory, spec.remote, job);
     });
+  },
+  async "linked-scan"(spec, { ctx, job }) {
+    const { scanLinked } = await import("../curation/linkedImport");
+    return scanLinked(
+      contextFor(spec, ctx),
+      {
+        ...(spec.slugs ? { slugs: spec.slugs } : {}),
+        ...(spec.limit !== undefined ? { limit: spec.limit } : {}),
+        ...(spec.dryRun ? { dryRun: true } : {}),
+        ...(spec.llm ? { llm: spec.llm } : {}),
+      },
+      job,
+    );
   },
   async fill(spec, { ctx, job }) {
     const { fillRecipe } = await import("../curation/fillRecipe");
@@ -696,6 +743,8 @@ export function jobLabel(spec: JobSpec): string {
       return `sync with ${spec.remote ?? "the upstream"} (${spec.triggers.join(", ") || "manual"})`;
     case "agent":
       return agentLabel(spec.prompt, spec.continues !== undefined);
+    case "linked-scan":
+      return `scan ${spec.slugs?.length ? spec.slugs.join(", ") : "every recipe"} for linked recipes${spec.dryRun ? " (dry run)" : ""}`;
     case "fill":
       return `fill ${spec.slug} from its source${spec.estimate === false ? " (no estimate)" : ""}${spec.uses === false ? " (no uses)" : ""}`;
     case "choices":
@@ -921,6 +970,11 @@ export function specWrites(spec: JobSpec): boolean {
     case "import-photo":
     case "import-list":
       return !spec.options.dryRun;
+    case "linked-scan":
+      return !spec.dryRun;
+    /* 50e: the recipes its page links to, unless the switch is off. */
+    case "form-url":
+      return !!spec.contentDirectory && spec.linked !== "off";
     case "form-batch":
     /* A merge commits; a rebuild writes no commit but replaces every index. */
     case "git-sync":

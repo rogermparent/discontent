@@ -11,6 +11,7 @@ import { formatStart } from "../../controller/llm/chapterTime";
 import { readTextInput } from "../input";
 import { MAX_PHOTOS } from "../../controller/photoLimits";
 import { writeDraft } from "./inspect";
+import { formatLinked, linkedOption } from "./linked";
 import {
   LLM_OPTION,
   VERBOSE_OPTION,
@@ -24,7 +25,7 @@ import {
 
 export const importCommand: CommandDef<ImportResult> = {
   name: "import",
-  usage: `recipes import (<url> ${LLM_USAGE} | --text <file|-> [--source <url>] | --photo <file> [<file>…] [--source <url>] [--photo-as-image]) [--all | --pick "Name",… | --as-one] [--tags a,b] [--slug s] [--name N] [--image <url>] [--dry-run [--out draft.json]] [--overwrite] [--allow-partial] [--fresh] [--verbose]`,
+  usage: `recipes import (<url> ${LLM_USAGE} [--linked auto|off] | --text <file|-> [--source <url>] | --photo <file> [<file>…] [--source <url>] [--photo-as-image]) [--all | --pick "Name",… | --as-one] [--tags a,b] [--slug s] [--name N] [--image <url>] [--dry-run [--out draft.json]] [--overwrite] [--allow-partial] [--fresh] [--verbose]`,
   options: {
     tags: { type: "string" },
     slug: { type: "string" },
@@ -48,6 +49,8 @@ export const importCommand: CommandDef<ImportResult> = {
     "photo-as-image": { type: "boolean" },
     /* 39a: read it again — skip the kept reading (38c) and transcription. */
     fresh: { type: "boolean" },
+    /* 50e: follow the recipes the page links to (default auto). */
+    linked: { type: "string" },
   },
   write: true,
   async run({ backend, positionals, options }) {
@@ -104,6 +107,12 @@ export const importCommand: CommandDef<ImportResult> = {
         "--llm is for a URL import: --text and --photo always use the local model.",
       );
     }
+    const linked = linkedOption(options);
+    if (linked && (textFrom !== undefined || photoPaths.length > 0)) {
+      throw new UsageError(
+        "--linked is for a URL import: a pasted text or a photo links no pages.",
+      );
+    }
     const all = booleanOption(options, "all");
     const pickFlags = stringListOption(options, "pick");
     const asOne = booleanOption(options, "as-one");
@@ -156,6 +165,7 @@ export const importCommand: CommandDef<ImportResult> = {
       result = await backend.importRecipe(url!, {
         ...writeOptions,
         ...(llm ? { llm } : {}),
+        ...(linked ? { linked } : {}),
       });
     }
     if (out) {
@@ -190,6 +200,7 @@ export const importCommand: CommandDef<ImportResult> = {
         result.image ? formatImageProbe(result.image) : undefined,
         result.video ? `video: ${result.video}` : undefined,
         ...formatWarnings(result.warnings),
+        ...formatLinked(result.linked, true),
         result.job ? `job: ${result.job}` : undefined,
         ...formatTranscription(result.transcription),
         formatJsonBlock(result.recipe),
@@ -205,6 +216,7 @@ export const importCommand: CommandDef<ImportResult> = {
       result.photos ? `  read from ${photoCount(result.photos)}` : undefined,
       formatLlm(result.llm, "  "),
       ...formatWarnings(result.warnings),
+      ...formatLinked(result.linked, false, "  "),
       result.job ? `  job: ${result.job}` : undefined,
     ]
       .filter(Boolean)

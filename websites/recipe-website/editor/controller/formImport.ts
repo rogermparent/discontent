@@ -26,6 +26,9 @@ import {
   type SplitReading,
 } from "./llm/importWithLlm";
 import { pacedRequest } from "./curation/sitePacing";
+import { withLinkedLinks } from "./curation/pageLinks";
+import type { CurationContext } from "./curation/context";
+import type { LinkedMode, LinkedReport } from "./curation/linkedImport";
 import { jobContext, type JobRun } from "./jobs/context";
 import type { StoredPhoto } from "./jobs/photos";
 import { fetchPageStep, parsePage, videoLinkStep } from "./jobs/steps";
@@ -79,6 +82,52 @@ export interface RecipeActionState {
   fromPage?: boolean;
   /** The import's job (epic 37): its step log. */
   job?: string;
+  /**
+   * The recipes the page links to (50e): linked to the ones already here,
+   * the others imported (each its own commit) — the panel lists them — and
+   * the form's lines that make them rewritten, marked (`linkedLines`).
+   */
+  linked?: LinkedReport;
+}
+
+/** Where a form import may write the recipes its page links to (50e). */
+export interface FormLinkedOptions {
+  /** The corpus: without it nothing is followed. */
+  ctx?: CurationContext;
+  /** `off`: the form's "Follow linked recipes" switch is off. */
+  linked?: LinkedMode;
+}
+
+/**
+ * 50e: follow the page's linked recipes from the form — the same
+ * `followLinked` as `recipes import` — when the switch is on and the form
+ * can write; the state's recipe comes back with its lines rewritten and
+ * marked, and `linked` says what was imported or linked.
+ */
+async function withFollowedLinks(
+  state: RecipeActionState,
+  applied: ApplyLlmResult,
+  url: string,
+  mode: LlmMode | undefined,
+  { ctx, linked = "auto" }: FormLinkedOptions,
+  job: JobRun,
+): Promise<RecipeActionState> {
+  const links = applied.linked;
+  if (!ctx || linked === "off" || !state.recipe || state.recipes) return state;
+  if (!links?.candidates.length) return state;
+  const { followLinked } = await import("./curation/linkedImport");
+  const followed = await followLinked(
+    ctx,
+    {
+      recipe: state.recipe,
+      candidates: links.candidates,
+      skipped: links.skipped,
+      source: url,
+      ...(mode ? { mode } : {}),
+    },
+    job,
+  );
+  return { ...state, recipe: followed.recipe, linked: followed.report };
 }
 
 /** A batch of a page's own Recipe nodes (38c): no reading has `llm`. */
@@ -141,6 +190,7 @@ export async function reduceRecipeImport(
   url: string | null,
   mode?: LlmMode,
   run?: JobRun,
+  follow: FormLinkedOptions = {},
 ): Promise<RecipeActionState> {
   const job = jobContext(run);
   if (!url) {
@@ -173,13 +223,19 @@ export async function reduceRecipeImport(
             job,
           });
           /* 45d: the description's own lists when nothing read a recipe. */
-          const state = withLlm(
-            url,
-            withDescriptionRecipe(
-              followed ?? applied,
-              result.metadata.description,
-              job,
-            ),
+          const described = withDescriptionRecipe(
+            followed ?? applied,
+            result.metadata.description,
+            job,
+          );
+          /* 50e: the followed page's own linked recipes, too. */
+          const state = await withFollowedLinks(
+            withLlm(url, described),
+            described,
+            followed?.followed ?? url,
+            mode,
+            follow,
+            job,
           );
           if (followed?.recipes && fromPageBatch(followed.recipes)) {
             return { ...state, fromPage: true };
@@ -226,9 +282,9 @@ export async function reduceRecipeImport(
           fromPage: true,
         };
       }
-      return withLlm(
-        url,
-        /* 47j: and the page's own notes, by the import's path. */
+      /* 47j: and the page's own notes, by the import's path; 50e: and
+       * the recipes it links to. */
+      const read = withLinkedLinks(
         await withPageNotes(
           await applyLlm({
             url: pageUrl,
@@ -241,6 +297,16 @@ export async function reduceRecipeImport(
           page.html,
           { mode: notesModeFor(mode), job },
         ),
+        pageUrl,
+        page.html,
+      );
+      return withFollowedLinks(
+        withLlm(url, read),
+        read,
+        pageUrl,
+        mode,
+        follow,
+        job,
       );
     } else {
       return { message: "Invalid URL provided" };
