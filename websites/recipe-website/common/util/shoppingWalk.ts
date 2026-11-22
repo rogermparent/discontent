@@ -26,11 +26,7 @@ import {
   type ShoppingRule,
 } from "./shoppingLayers";
 import type { ShoppingMerge } from "./shoppingMerges";
-import {
-  opsSignature,
-  type TidyRunView,
-  type TidySuggestionView,
-} from "./shoppingTidy";
+import { type TidyRunView, type TidySuggestionView } from "./shoppingTidy";
 import type { ShoppingItem, ShoppingSettings } from "./shoppingTypes";
 import {
   buildShoppingView,
@@ -314,7 +310,10 @@ export function isEdited(
   original: readonly ShoppingLayerOp[],
   edited: readonly ShoppingLayerOp[],
 ): boolean {
-  return opsSignature(original) !== opsSignature(edited);
+  /* Review 1: by every field — a signature leaves a note's text out. */
+  const full = (ops: readonly ShoppingLayerOp[]) =>
+    JSON.stringify(ops.map((op) => ({ ...op, ids: [...op.ids].sort() })));
+  return full(original) !== full(edited);
 }
 
 // --- "Always do this" ------------------------------------------------------------
@@ -341,9 +340,13 @@ export const LIST_ONLY_WHY =
  * this list, 50b's review 4) are refused, and so is the whole change.
  */
 export function promoteLayer(
-  layer: Pick<ShoppingLayer, "ops">,
+  layer: Pick<ShoppingLayer, "ops"> & { on?: boolean },
   items: readonly ShoppingItem[],
 ): Promotion {
+  /* Review 5: an undone change is not made a rule for every list. */
+  if (layer.on === false) {
+    return { ok: false, why: "It is switched off: switch it on first." };
+  }
   const parents = orParents(items);
   const byId = new Map(items.map((item) => [item.id, item]));
   const namesFor = (ids: readonly string[]) => {
@@ -383,6 +386,13 @@ export function promoteLayer(
         });
         break;
       case "rename":
+        /* Review 2: one name only — a row of several reads its merge's. */
+        if (names.size > 1) {
+          return {
+            ok: false,
+            why: "Its row has several names: a rule renames one name, so merge them by name first.",
+          };
+        }
         for (const [key, name] of names) {
           rules.push({ kind: "rename", key, name, label: op.name });
         }
@@ -549,6 +559,8 @@ export function walkCards(input: {
   /** Built-in cards answered on this page, in the order they were. */
   answered: ReadonlyMap<string, WalkAnswered>;
   run?: TidyRunView;
+  /** Review 4: the list's item ids now — a card naming one gone is no card. */
+  present?: ReadonlySet<string>;
 }): WalkCard[] {
   const out: WalkCard[] = [];
   const open = new Set(input.proposals.map((proposal) => proposal.id));
@@ -575,6 +587,13 @@ export function walkCards(input: {
   }
   for (const suggestion of input.run?.suggestions ?? []) {
     if (suggestion.status === "stale") continue;
+    if (
+      input.present &&
+      suggestion.status === "pending" &&
+      suggestion.ops.some((op) => op.ids.some((id) => !input.present!.has(id)))
+    ) {
+      continue;
+    }
     out.push({
       source: "model",
       id: suggestion.id,

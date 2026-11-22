@@ -189,6 +189,10 @@ test.describe("Shopping list: ask the model (49b)", () => {
     ).toContainText(
       "Accepted local model qwen3:8b's suggestion: ≈ 360 g all-purpose flour.",
     );
+    /* Focus is not lost with the card: the done state's heading has it. */
+    await expect(
+      panel(page).getByTestId("shopping-walkthrough-done").getByRole("heading"),
+    ).toBeFocused();
     await expect(flourRows(page)).toHaveCount(1);
     await expect(
       page.getByLabel("≈ 360 g all-purpose flour", { exact: true }),

@@ -252,6 +252,10 @@ function ModelCard({
     if (fields.length === 0) return;
     setEditing((on) => !on);
     setValues({});
+    /* Review 6: to the first field, as the built-in card does. */
+    requestAnimationFrame(() =>
+      document.getElementById(`${noteId}-${fields[0].id}`)?.focus(),
+    );
   };
   useEffect(() => {
     keysRef.current = {
@@ -781,8 +785,14 @@ export function Walkthrough({
     () => new Map(),
   );
   const cards = useMemo(
-    () => walkCards({ proposals, answered, ...(run ? { run } : {}) }),
-    [proposals, answered, run],
+    () =>
+      walkCards({
+        proposals,
+        answered,
+        ...(run ? { run } : {}),
+        present: new Set(list.items.map((each) => each.id)),
+      }),
+    [proposals, answered, run, list.items],
   );
   const [cursor, setCursor] = useState<string>();
   const [viewing, setViewing] = useState<string>();
@@ -938,11 +948,16 @@ export function Walkthrough({
 
   async function acceptRest() {
     setBusy(true);
+    setMessage("");
     let accepted = 0;
     let last: WalkCard | undefined;
+    let stoppedAt: WalkCard | undefined;
     for (const card of cards) {
       if (card.status !== "pending") continue;
-      if (!(await acceptCard(card))) break;
+      if (!(await acceptCard(card))) {
+        stoppedAt = card;
+        break;
+      }
       accepted += 1;
       last = card;
     }
@@ -950,14 +965,25 @@ export function Walkthrough({
       await list.reload();
     }
     setBusy(false);
-    if (last) {
-      moved(
-        last,
-        accepted === 1
-          ? "Accepted 1 suggestion."
-          : `Accepted ${accepted} suggestions.`,
+    const done =
+      accepted === 1
+        ? "Accepted 1 suggestion."
+        : `Accepted ${accepted} suggestions.`;
+    /* Review 3: a refusal part-way is said, not covered by the count. */
+    if (stoppedAt) {
+      const what =
+        stoppedAt.source === "built-in"
+          ? stoppedAt.proposal.name
+          : stoppedAt.suggestion.title;
+      setViewing(stoppedAt.id);
+      setMessage(
+        (said) =>
+          `${done} Stopped at “${what}”${said ? `: ${said}` : list.error ? `: ${list.error}` : "."}`,
       );
+      setFocusTick((tick) => tick + 1);
+      return;
     }
+    if (last) moved(last, done);
   }
 
   /** Follow a tidy job to its end; the outcome, or `undefined` once unmounted. */
@@ -1061,7 +1087,8 @@ export function Walkthrough({
   if (!shown) return null;
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (isField(event.target)) return;
+    /* Review 6: a held key is one press, not a card after card. */
+    if (event.repeat || isField(event.target)) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const handler = keysRef.current[event.key.toLowerCase() as keyof CardKeys];
     if (!handler || !current) return;

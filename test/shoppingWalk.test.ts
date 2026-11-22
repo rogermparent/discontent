@@ -164,6 +164,9 @@ describe("Edit before Accept keeps the suggestion's shape (Dc4)", () => {
     if (!("ops" in edited)) throw new Error("edited");
     expect(sameShape(ops, edited.ops)).toBe(true);
     expect(isEdited(ops, edited.ops)).toBe(true);
+    /* Review 1: a note alone edited is an edit (a signature leaves it out). */
+    const note = applyWalkEdits(ops, { "1:text": "a big carton" });
+    expect("ops" in note && isEdited(ops, note.ops)).toBe(true);
     const same = applyWalkEdits(ops, {});
     expect("ops" in same && isEdited(ops, same.ops)).toBe(false);
     expect(applyWalkEdits(ops, { "0:amount": "" })).toEqual({
@@ -260,6 +263,25 @@ describe('"Always do this": a change by names, or why not (Dc5)', () => {
         items,
       ),
     ).toMatchObject({ ok: false });
+    /* A rename of a row of several names; a change switched off. */
+    expect(
+      promoteLayer(
+        { ops: [{ op: "rename", ids: [eggs.id, white.id], name: "eggs" }] },
+        items,
+      ),
+    ).toMatchObject({
+      ok: false,
+      why: expect.stringContaining("several names"),
+    });
+    expect(
+      promoteLayer(
+        { ops: [{ op: "drop", ids: [white.id], reason: "x" }], on: false },
+        items,
+      ),
+    ).toMatchObject({
+      ok: false,
+      why: expect.stringContaining("switched off"),
+    });
   });
 });
 
@@ -430,6 +452,23 @@ describe("the cards and the runs (Dc3, Dc8)", () => {
     expect(nextCard(cards, cards[1].id)?.id).toBe(cards[3].id);
     expect(nextCard(cards, cards[3].id)?.id).toBe(cards[0].id);
     expect(walkCounts(cards)).toEqual({ accepted: 0, skipped: 1, pending: 3 });
+    /* Review 4: a pending card naming a line no longer on the list is gone. */
+    const gone = walkCards({
+      proposals: [],
+      answered: new Map(),
+      run: {
+        ...run,
+        suggestions: [
+          {
+            id: "01kaaaaaaaaaaaaaaaaaaaaa03-1",
+            status: "pending",
+            ops: [{ op: "drop", ids: ["01jgone00000"], reason: "x" }],
+          },
+        ],
+      } as unknown as TidyRunView,
+      present: new Set([a.id]),
+    });
+    expect(gone).toEqual([]);
     /* Merged on this page: the proposal has gone, the card stays, accepted. */
     const after = walkCards({
       proposals: [],
