@@ -91,6 +91,8 @@ import type {
   TidyModels,
   TidyRunView,
   ShoppingLayerResult,
+  ShoppingListResult,
+  ShoppingListSummary,
   ShoppingMergeResult,
   ShoppingPatchResult,
   ShoppingRuleResult,
@@ -262,7 +264,11 @@ function rehydrate(status: number, statusText: string, body: unknown): Error {
 export function createHttpBackend({
   baseUrl,
   token,
-}: HttpBackendOptions): CuratorBackend {
+  shoppingList,
+}: HttpBackendOptions & {
+  /** 50d: every `/api/shopping/…` call names this list (`?list=`). */
+  shoppingList?: string;
+}): CuratorBackend {
   const root = baseUrl.replace(/\/+$/, "");
 
   async function call<TResult>(
@@ -271,6 +277,14 @@ export function createHttpBackend({
     { body, form, query, timeoutMs }: CallOptions = {},
   ): Promise<TResult> {
     const url = new URL(`${root}${path}`);
+    /* 50d: a shopping route reads `?list=`; the lists route has none. */
+    if (
+      shoppingList &&
+      path.startsWith("/api/shopping") &&
+      !path.startsWith("/api/shopping/lists")
+    ) {
+      url.searchParams.set("list", shoppingList);
+    }
     for (const [key, value] of Object.entries(query ?? {})) {
       if (value === undefined) continue;
       if (Array.isArray(value)) {
@@ -690,6 +704,26 @@ export function createHttpBackend({
       return { ...result, link: absoluteLink(result.link, root) };
     },
 
+    forShoppingList(list) {
+      return createHttpBackend({ baseUrl, token, shoppingList: list });
+    },
+    listShoppingLists({ all } = {}) {
+      return call<{ lists: ShoppingListSummary[] }>(
+        "GET",
+        "/api/shopping/lists",
+        { query: all ? { all: "1" } : {} },
+      );
+    },
+    createShoppingList(raw) {
+      return call<ShoppingListResult>("POST", "/api/shopping/lists", {
+        body: raw,
+      });
+    },
+    editShoppingList(raw) {
+      return call<ShoppingListResult>("PATCH", "/api/shopping/lists", {
+        body: raw,
+      });
+    },
     getShopping({ store, asWritten } = {}) {
       return call<ShoppingViewResult>("GET", "/api/shopping", {
         query: { store, ...(asWritten ? { "as-written": "1" } : {}) },

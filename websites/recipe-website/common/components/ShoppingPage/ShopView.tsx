@@ -292,6 +292,7 @@ export function ShopView({
   storesOn,
   mode,
   setMode,
+  listName,
 }: {
   list: ShoppingList;
   fullView: ShoppingView;
@@ -308,6 +309,8 @@ export function ShopView({
   storesOn: boolean;
   mode: ShoppingMode;
   setMode(mode: ShoppingMode): void;
+  /** 50d: which list this is, said once there is more than one. */
+  listName?: string;
 }) {
   const storeId = useId();
   const addId = useId();
@@ -526,6 +529,14 @@ export function ShopView({
             </>
           )}
         </div>
+        {listName && (
+          <p
+            className="truncate font-mono text-xs uppercase tracking-wider text-muted-foreground"
+            data-testid="shopping-shop-list"
+          >
+            List: <span className="font-semibold">{listName}</span>
+          </p>
+        )}
         <div className="flex flex-col gap-1.5" data-testid="shopping-progress">
           <div className="flex items-baseline justify-between font-mono text-xs uppercase tracking-wider">
             <span className="text-muted-foreground">

@@ -50,10 +50,13 @@ const StartSchema = z.discriminatedUnion("task", [
       .optional(),
     note: z.string().max(SHOPPING_ASK_NOTE_MAX),
     claude: z.boolean().optional(),
+    /* 50d: the list whose lines the ask reads. */
+    list: z.string().trim().min(1).max(100).optional(),
   }),
   z.strictObject({
     task: z.literal("find"),
     claude: z.boolean().optional(),
+    list: z.string().trim().min(1).max(100).optional(),
   }),
 ]);
 
@@ -72,9 +75,11 @@ export async function startShoppingAsk(
   try {
     const { storedShoppingAskSpec } = await import("../llm/shoppingAsk");
     const { editModelFor } = await import("../llm/askEdit");
+    const { list, ...ask } = parsed.data;
+    const ctx = curationContextFor(email);
     const spec = await storedShoppingAskSpec(
-      curationContextFor(email),
-      parsed.data,
+      list ? { ...ctx, shoppingList: list } : ctx,
+      ask,
     );
     const chosen = editModelFor(spec.backend);
     const { job, stored, done } = await startSpec(spec);

@@ -704,11 +704,21 @@ which bean salads he could make with whatever beans he has, offer to put
 
 ## 8b. The shopping list
 
-The site keeps one shared shopping list, synced between the editor's hosts,
+The site keeps a shared shopping list, synced between the editor's hosts,
 that Roger reads on his phone in the store. It stores raw lines; how it reads
 — merged by ingredient with amounts added, by aisle, split by store
 (Hannaford, Market Basket), with what's probably on hand folded away — is
 settings Roger switches himself.
+
+There may be **several lists**: the main list, and saved ones Roger makes —
+a clean list, or one made from a meal plan (which names its `plan`).
+`shopping_get` answers `list` (the one it read) and `lists` (each `{id,
+name, main?, plan?, planName?, items, left}`). Every shopping tool takes
+`list` — `"main"`, a list's `id`, or its name — and works on the main list
+without it. When Roger names a list ("put it on the Thanksgiving list"), or
+a plan has its own list (a `lists` entry whose `plan` is that plan's slug),
+pass it; otherwise leave `list` out. Making, renaming and deleting lists is
+Roger's, on `/shopping`.
 
 ```json
 shopping_add {"group": "week-of-oct-19"}
@@ -717,6 +727,7 @@ shopping_add {"items": ["paper towels", "2 lemons"]}
 shopping_check {"names": ["eggs"]}
 shopping_get {"store": "market-basket"}
 shopping_remove {"recipe": "chili"}
+shopping_add {"recipe": "pecan-pie", "list": "Thanksgiving"}
 ```
 
 - **"Put this week's plan on the list"** →
@@ -838,7 +849,9 @@ wait and run the same command once more, as with the tool.
   (or `shopping add "paper towels" --json`, one line per argument);
   `shopping_check {names}` → `pnpm --silent recipes shopping check eggs --json`
   (`uncheck` reverses); `shopping_remove` → `pnpm --silent recipes shopping remove --recipe <slug> --json`
-  (or `--group <slug>`, `--for <sub-recipe slug>`, or item ids);
+  (or `--group <slug>`, `--for <sub-recipe slug>`, or item ids); every
+  shopping command takes `--list <id|name>` as the tools take `list`, and
+  `pnpm --silent recipes shopping lists --json` lists them;
 - `holiday_list {}` → `pnpm --silent recipes holidays --json`; `holiday_get {"slug": "easter"}` →
   `pnpm --silent recipes holidays easter --json` (`--date 2026-12-01` as `date`);
 - `inventory_makeable {query, feature, staples: false}` →

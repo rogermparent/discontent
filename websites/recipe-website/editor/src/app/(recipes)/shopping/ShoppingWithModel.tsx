@@ -5,6 +5,7 @@ import {
   ShoppingPage,
   type ShoppingAskProgressProps,
   type ShoppingAskSurface,
+  type ShoppingListsSurface,
   type ShoppingListState,
   type ShoppingPageActions,
   type ShoppingTidySurface,
@@ -21,6 +22,7 @@ import {
   startShoppingTidy,
 } from "recipe-editor/controller/actions/shoppingTidy";
 import { isShoppingAskResult } from "recipe-website-common/util/shoppingAsk";
+import type { ShoppingListSummary } from "recipe-website-common/util/shoppingLists";
 import { UNSTORED_KEEP_MS } from "recipe-editor/controller/jobs/unstored";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
 import {
@@ -188,6 +190,11 @@ export default function ShoppingWithModel({
   models,
   tidyModels,
   tidyRun,
+  list,
+  listNamed,
+  lists,
+  mealPlans,
+  listActions,
 }: {
   initial: ShoppingListState;
   actions: ShoppingPageActions;
@@ -197,6 +204,16 @@ export default function ShoppingWithModel({
   tidyModels?: TidyModels;
   /** 50b: the latest tidy run, as the list reads it now. */
   tidyRun?: TidyRunView;
+  /** 50d: the list's id — every ask and tidy run is about this list. */
+  list: string;
+  /** 50d: the address named the list (`?list=`). */
+  listNamed: boolean;
+  /** 50d: every list not deleted, for the switcher. */
+  lists: ShoppingListSummary[];
+  /** 50d: the meal plans "New from a meal plan…" offers. */
+  mealPlans: { slug: string; name: string }[];
+  /** 50d: the list actions (`createSavedShoppingList`, `editSavedShoppingList`). */
+  listActions: Pick<ShoppingListsSurface, "create" | "edit">;
 }) {
   const model = models.local ?? models.claude;
   const ask = useMemo<ShoppingAskSurface | undefined>(
@@ -205,11 +222,11 @@ export default function ShoppingWithModel({
         ? {
             model,
             ...(models.local && models.claude ? { claude: models.claude } : {}),
-            start: (input) => startShoppingAsk(input),
+            start: (input) => startShoppingAsk({ ...(input as object), list }),
             progress: (props) => <AskProgress key={props.job} {...props} />,
           }
         : undefined,
-    [model, models.local, models.claude],
+    [model, models.local, models.claude, list],
   );
   const tidy = useMemo<ShoppingTidySurface | undefined>(
     () =>
@@ -217,19 +234,30 @@ export default function ShoppingWithModel({
         ? {
             models: tidyModels,
             ...(tidyRun ? { initial: tidyRun } : {}),
-            start: (input) => startShoppingTidy(input),
+            start: (input) => startShoppingTidy({ ...(input as object), list }),
             follow: (job) => followTidy(job),
-            latest: () => latestShoppingTidy(),
-            decide: (id, action) => decideShoppingTidy(id, action),
+            latest: () => latestShoppingTidy(list),
+            decide: (id, action) => decideShoppingTidy(id, action, list),
           }
         : undefined,
-    [tidyModels, tidyRun],
+    [tidyModels, tidyRun, list],
+  );
+  const surface = useMemo<ShoppingListsSurface>(
+    () => ({
+      lists,
+      plans: mealPlans,
+      create: listActions.create,
+      edit: listActions.edit,
+    }),
+    [lists, mealPlans, listActions],
   );
   return (
     <ShoppingPage
       initial={initial}
       actions={actions}
       patchUrl={patchUrl}
+      lists={surface}
+      listNamed={listNamed}
       {...(ask ? { ask } : {})}
       {...(tidy ? { tidy } : {})}
     />

@@ -9,7 +9,7 @@
  *   (Db6): a `shopping-tidy` job whose answer takes the card's place.
  */
 import { z } from "zod";
-import { requireCurationContext } from "recipe-editor/controller/apiContext";
+import { requireShoppingContext } from "recipe-editor/controller/apiContext";
 import {
   errorResponse,
   readJsonBody,
@@ -33,7 +33,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string; action: string }> },
 ) {
   try {
-    const ctx = await requireCurationContext(request);
+    const ctx = await requireShoppingContext(request);
     const { id, action } = await params;
     if (action === "accept" || action === "skip") {
       return Response.json(await decideTidySuggestion(ctx, id, action));

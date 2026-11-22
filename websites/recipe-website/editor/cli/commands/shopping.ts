@@ -31,6 +31,15 @@
  *   shopping change on|off|rm <id>      50a: turn one on or off (undo), or remove it
  *   shopping leave-off <name…> [--reason …]   50a: never put a name on a list
  *   shopping restore <name…>            50a: bring a left-off name back (water too)
+ *   shopping lists [--all]              50d: the lists — the main list, then saved ones
+ *   shopping lists new <name…> [--plan <slug>] [--scale 2]
+ *                                       50d: a blank list, or one from a meal plan
+ *   shopping lists rename <list> <name…> | rm <list> | restore <list>
+ *                                       50d: rename, delete (kept, hidden) or bring back
+ *
+ * 50d: every command takes `--list <id|name>` — the list it reads or
+ * writes (`main`, a saved list's id, or its name); the main list without
+ * one. The rules, merges and settings are every list's.
  *
  * Lines and names are positionals, one per argument — quote the ones with
  * spaces (`shopping add "2 lemons" "paper towels"`), as `inventory add` does.
@@ -54,8 +63,13 @@ import {
   type TidyRunView,
   type TidySuggestionView,
 } from "recipe-website-common/util/shoppingTidy";
+import {
+  listSummaryText,
+  type ShoppingListSummary,
+} from "recipe-website-common/util/shoppingLists";
 import type {
   ShoppingAddResult,
+  ShoppingListResult,
   ShoppingAskAnswer,
   ShoppingTidyAnswer,
   TidyDecisionResult,
@@ -926,7 +940,110 @@ function leaveOffCommand(leaveOff: boolean): CommandDef<ShoppingRuleResult[]> {
   };
 }
 
-export const shoppingCommands: Record<string, CommandDef<unknown>> = {
+// --- saved lists (50d) -------------------------------------------------------------
+
+function formatListSummary(list: ShoppingListSummary): string {
+  return `${list.id}  ${listSummaryText(list)}`;
+}
+
+function formatListResult(result: ShoppingListResult): string {
+  const lines: string[] = [];
+  if (!result.changed) lines.push("No change.");
+  else if (result.list.archived) {
+    lines.push(
+      `Deleted ${result.list.name} (${result.list.id}); its lines are kept: \`shopping lists restore ${result.list.id}\` brings it back.`,
+    );
+  } else {
+    lines.push(
+      result.added
+        ? `${result.list.name} (${result.list.id}): ${plural(result.added.length, "item")} from the plan.`
+        : `${result.list.name} (${result.list.id})`,
+    );
+  }
+  return withWarnings(lines, result.warnings);
+}
+
+const listsCommand: CommandDef<
+  { lists: ShoppingListSummary[] } | ShoppingListResult
+> = {
+  name: "shopping lists",
+  usage:
+    "recipes shopping lists [--all] | new <name…> [--plan <slug>] [--scale 2] | rename <list> <name…> | rm <list> | restore <list>",
+  options: {
+    all: { type: "boolean" },
+    plan: { type: "string" },
+    scale: { type: "string" },
+  },
+  run({ backend, positionals, options }) {
+    const [verb, ...rest] = positionals.map((value) => value.trim());
+    const words = rest.filter(Boolean);
+    if (verb === undefined) {
+      return backend.listShoppingLists(
+        booleanOption(options, "all") ? { all: true } : {},
+      );
+    }
+    if (verb === "new") {
+      const plan = stringOption(options, "plan");
+      const scale = stringOption(options, "scale");
+      const name = words.join(" ");
+      if (!name && plan === undefined) {
+        throw new UsageError(
+          "shopping lists new needs a name, or --plan <slug> to make it from a meal plan.",
+        );
+      }
+      return backend.createShoppingList({
+        ...(name ? { name } : {}),
+        ...(plan !== undefined ? { plan } : {}),
+        ...(scale !== undefined ? { scale } : {}),
+      });
+    }
+    if (verb === "rename") {
+      const [id, ...name] = words;
+      if (!id || name.length === 0) {
+        throw new UsageError("shopping lists rename <list> <new name…>");
+      }
+      return backend.editShoppingList({ id, name: name.join(" ") });
+    }
+    if (verb === "rm" || verb === "restore") {
+      if (words.length !== 1) {
+        throw new UsageError(`shopping lists ${verb} <list>`);
+      }
+      return backend.editShoppingList({
+        id: words[0],
+        archived: verb === "rm",
+      });
+    }
+    throw new UsageError(
+      "shopping lists takes new, rename, rm or restore (or nothing, to list them).",
+    );
+  },
+  format: (result) =>
+    "lists" in result && !("list" in result)
+      ? result.lists.map(formatListSummary).join("\n")
+      : formatListResult(result as ShoppingListResult),
+};
+
+/**
+ * 50d (Dd2): `--list <id|name>` on every shopping command — the backend
+ * puts every call on that list.
+ */
+function onAList<T>(def: CommandDef<T>): CommandDef<T> {
+  return {
+    ...def,
+    usage: `${def.usage}\n  --list <id|name>   the list (main without one)`,
+    options: { ...def.options, list: { type: "string" } },
+    run(context) {
+      const list = stringOption(context.options, "list")?.trim();
+      return def.run(
+        list
+          ? { ...context, backend: context.backend.forShoppingList(list) }
+          : context,
+      );
+    },
+  };
+}
+
+const commands: Record<string, CommandDef<unknown>> = {
   list: listCommand,
   add: addCommand,
   check: checkCommand("check"),
@@ -949,6 +1066,13 @@ export const shoppingCommands: Record<string, CommandDef<unknown>> = {
   change: changeCommand,
   "leave-off": leaveOffCommand(true),
   restore: leaveOffCommand(false),
+};
+
+export const shoppingCommands: Record<string, CommandDef<unknown>> = {
+  ...Object.fromEntries(
+    Object.entries(commands).map(([name, def]) => [name, onAList(def)]),
+  ),
+  lists: listsCommand as CommandDef<unknown>,
 };
 
 export default shoppingCommands;

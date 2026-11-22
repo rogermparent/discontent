@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { GroupItem, GroupItemRef } from "../../controller/types";
-import type { ShoppingPageActions } from "../ShoppingPage/useShoppingList";
+import type { AddToList, CreateList } from "../ShoppingPage/AddToShopping";
+import type { ShoppingListSummary } from "../../util/shoppingLists";
 import type { SecondList } from "../MakePage/InventoryPanel";
 import type { PlanPageData } from "../../util/planPage";
 import type { PlanDocket } from "../../util/planSheet";
@@ -19,6 +20,8 @@ export interface PlanShoppingSummary {
   ticked: number;
   /** The run sheet's docket (43p2): rows by aisle and the big ones. */
   docket?: PlanDocket;
+  /** 50d: the list these lines are on — the plan's own, else the main list. */
+  list?: { id: string; name: string; main?: true };
 }
 
 /**
@@ -45,9 +48,23 @@ export interface PlanEditor {
   deleteAction: () => Promise<void>;
   /** On the shopping list, or `null` when none of its lines are. */
   shopping: PlanShoppingSummary | null;
-  addToShopping: ShoppingPageActions["add"];
-  /** Take every line that came through this plan off the list. */
+  /** 50d: onto a list by its id (the current one, or the one picked). */
+  addToShopping: AddToList;
+  /** Take every line that came through this plan off the summary's list. */
   removeFromShopping: () => Promise<PlanWriteResult>;
+  /** 50d: the lists not deleted, for the add's picker. */
+  lists?: ShoppingListSummary[];
+  /** 50d: "New list…" in the add's picker. */
+  createList?: CreateList;
+  /** 50d: the list made from this plan, when there is one (the newest). */
+  planList?: ShoppingListSummary;
+  /**
+   * 50d: "Make a shopping list" — a list named after the plan, holding its
+   * recipes as the plan scales them; one commit. Answers the new list's id.
+   */
+  makeShoppingList?: () => Promise<
+    { ok: true; list: string } | { error: string }
+  >;
 }
 
 /** The page's server-rendered pieces, handed to the client page. */

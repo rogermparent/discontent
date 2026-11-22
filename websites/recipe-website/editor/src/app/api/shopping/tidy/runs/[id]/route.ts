@@ -1,5 +1,5 @@
 /** `GET /api/shopping/tidy/runs/<id>` (epic 50, 50b): one run, as the list reads it now. */
-import { requireCurationContext } from "recipe-editor/controller/apiContext";
+import { requireShoppingContext } from "recipe-editor/controller/apiContext";
 import { errorResponse } from "recipe-editor/controller/curation/http";
 import {
   readShoppingItems,
@@ -12,7 +12,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const ctx = await requireCurationContext(request, { need: "read" });
+    const ctx = await requireShoppingContext(request, { need: "read" });
     const { id } = await params;
     const [run, items] = await Promise.all([
       readTidyRun(ctx, id),

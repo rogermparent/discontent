@@ -8,8 +8,17 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@discontent/component-library/lib/utils";
 import { DEFAULT_STAPLES } from "../../util/makeable";
+import {
+  MAIN_SHOPPING_LIST,
+  MAIN_SHOPPING_LIST_NAME,
+  readCurrentShoppingList,
+  saveCurrentShoppingList,
+  shoppingListHref,
+} from "../../util/shoppingLists";
+import { ListSwitcher, type ShoppingListsSurface } from "./ListSwitcher";
 import { findShoppingProposals } from "../../util/shoppingConsolidate";
 import { rowsHolding } from "../../util/shoppingPage";
 import {
@@ -36,6 +45,7 @@ export type {
   ShoppingAskSurface,
 } from "./useShoppingAsk";
 export type { ShoppingTidySurface } from "./Tidy";
+export type { ShoppingListsSurface, ShoppingListAnswer } from "./ListSwitcher";
 
 const STORE_KEY = "shopping-store";
 
@@ -108,6 +118,8 @@ export function ShoppingPage({
   patchUrl,
   ask,
   tidy,
+  lists,
+  listNamed = true,
 }: {
   initial: ShoppingListState;
   actions: ShoppingPageActions;
@@ -120,8 +132,47 @@ export function ShoppingPage({
   ask?: ShoppingAskSurface;
   /** 50b: "Tidy with the model" (Plan), where the editor has a model. */
   tidy?: ShoppingTidySurface;
+  /** 50d: the saved lists and their actions (the switcher). */
+  lists?: ShoppingListsSurface;
+  /**
+   * 50d: the address named this list (`?list=`). Without it the page opens
+   * the list this browser used last (Dd5), when that is another one.
+   */
+  listNamed?: boolean;
 }) {
   const list = useShoppingList({ initial, actions, patchUrl });
+  const router = useRouter();
+  const current = initial.list ?? {
+    id: MAIN_SHOPPING_LIST,
+    name: MAIN_SHOPPING_LIST_NAME,
+    main: true as const,
+  };
+  /*
+   * 50d (Dd5): the list this browser used last. A plain `/shopping` opens
+   * it when it is another list still there; any list shown is remembered.
+   */
+  const knownLists = lists?.lists;
+  useEffect(() => {
+    if (!listNamed) {
+      const stored = readCurrentShoppingList();
+      if (
+        stored !== current.id &&
+        knownLists?.some((each) => each.id === stored)
+      ) {
+        router.replace(shoppingListHref(stored));
+        return;
+      }
+    }
+    if (!current.archived) saveCurrentShoppingList(current.id);
+  }, [listNamed, current.id, current.archived, knownLists, router]);
+  const switcher = lists ? (
+    <ListSwitcher current={current} surface={lists} />
+  ) : undefined;
+  /* Shop says which list it is once there is more than one (Dd7). */
+  const listName =
+    lists && (lists.lists.length > 1 || current.id !== MAIN_SHOPPING_LIST)
+      ? current.name
+      : undefined;
   const asker = useShoppingAsk(list.canMerge ? ask : undefined);
   const [store, setStore] = useStoreChoice();
   const [mode, saveMode] = useShoppingMode();
@@ -281,6 +332,7 @@ export function ShoppingPage({
           storesOn={storesOn}
           mode={mode}
           setMode={setMode}
+          {...(switcher ? { switcher } : {})}
         />
       ) : (
         <ShopView
@@ -296,6 +348,7 @@ export function ShoppingPage({
           storesOn={storesOn}
           mode={mode}
           setMode={setMode}
+          {...(listName ? { listName } : {})}
         />
       )}
     </div>

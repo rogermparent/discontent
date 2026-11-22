@@ -106,3 +106,17 @@ export async function requireCurationContext(
     scope: identity.scope,
   };
 }
+
+/**
+ * 50d (Dd2): `requireCurationContext` on the shopping list `?list=` names
+ * (`main`, a saved list's id or its name); the main list without one. A
+ * body's own `list` (add, patch, clear) wins over the query, in the seat.
+ */
+export async function requireShoppingContext(
+  request: Request,
+  options: { need?: "read" | "write" } = {},
+): Promise<CurationContext> {
+  const ctx = await requireCurationContext(request, options);
+  const list = new URL(request.url).searchParams.get("list")?.trim();
+  return list ? { ...ctx, shoppingList: list } : ctx;
+}

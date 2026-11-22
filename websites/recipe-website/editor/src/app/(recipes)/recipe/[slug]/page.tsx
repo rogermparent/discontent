@@ -12,7 +12,12 @@ import {
 import { ConfirmDeleteButton } from "@discontent/component-library/components/ConfirmDelete";
 import { auth } from "@/auth";
 import { AddRecipeToShopping } from "recipe-website-common/components/ShoppingPage/AddToShopping";
-import { addToShoppingList } from "recipe-editor/controller/actions/shopping";
+import {
+  addToShoppingList,
+  createSavedShoppingList,
+} from "recipe-editor/controller/actions/shopping";
+import { curationContextFor } from "recipe-editor/controller/apiContext";
+import { readShoppingLists } from "recipe-editor/controller/curation/shopping";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +44,12 @@ export default async function RecipePage({
 
   const deleteRecipeWithId = deleteRecipe.bind(null, date, slug);
   /* The shopping list is the signed-in editor's (35d): no button for a guest. */
-  const signedIn = Boolean((await auth())?.user?.email);
+  const email = (await auth())?.user?.email;
+  const signedIn = Boolean(email);
+  /* 50d: the lists the add may go to; a failed read offers the main list. */
+  const lists = email
+    ? await readShoppingLists(curationContextFor(email)).catch(() => undefined)
+    : undefined;
 
   return (
     <PageMain>
@@ -49,7 +59,12 @@ export default async function RecipePage({
           slug={slug}
           ingredientActions={
             signedIn ? (
-              <AddRecipeToShopping recipe={slug} add={addToShoppingList} />
+              <AddRecipeToShopping
+                recipe={slug}
+                add={addToShoppingList}
+                createList={createSavedShoppingList}
+                {...(lists ? { lists } : {})}
+              />
             ) : undefined
           }
         />
