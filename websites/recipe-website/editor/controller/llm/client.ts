@@ -526,6 +526,32 @@ export async function llmStatus(
 }
 
 /**
+ * 50b: every model Ollama has installed (`/api/tags`), or `undefined` when
+ * it is not Ollama or does not answer within the status timeout — the tidy
+ * picker's "Not installed here".
+ */
+export async function ollamaModels(
+  config: LlmConfig,
+  timeoutMs = LLM_STATUS_TIMEOUT_MS,
+): Promise<string[] | undefined> {
+  if (config.api !== "ollama") return undefined;
+  try {
+    const response = await fetch(`${config.url.replace(/\/+$/, "")}/api/tags`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) return undefined;
+    const body = (await response.json()) as {
+      models?: { name?: string; model?: string }[];
+    };
+    return (body.models ?? []).flatMap((entry) =>
+      [entry.name, entry.model].filter((name): name is string => !!name),
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * A model's digest in Ollama's `/api/tags` list (39a): the entry named
  * `model` (or `model:latest`, as Ollama lists an untagged pull).
  */

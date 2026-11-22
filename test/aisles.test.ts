@@ -21,6 +21,8 @@ function lineAisle(line: string): string {
 describe("AISLES", () => {
   it("lists the aisles in walking order, each with a label", () => {
     expect(AISLES).toEqual([
+      /* 50b (Db7): "Check at home first", only a layer's aisle op puts a row there. */
+      "check",
       "produce",
       "meat-fish",
       "dairy-eggs",
@@ -31,6 +33,7 @@ describe("AISLES", () => {
       "other",
     ]);
     expect(AISLE_LABELS["meat-fish"]).toBe("Meat & fish");
+    expect(AISLE_LABELS.check).toBe("Check at home first");
     for (const aisle of AISLES) expect(AISLE_LABELS[aisle]).toBeTruthy();
     expect(isAisle("pantry")).toBe(true);
     expect(isAisle("deli")).toBe(false);

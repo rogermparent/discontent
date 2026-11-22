@@ -192,6 +192,34 @@ export function runIdOfSuggestion(id: string): string | undefined {
   return TIDY_SUGGESTION_ID_PATTERN.exec(id.trim().toLowerCase())?.[1];
 }
 
+/**
+ * A signature of a set of ops (Db4, Db5): the same change asked twice reads
+ * alike. A leave-off, an aisle and a note are signed by what they do to
+ * which items, not by their words ("a step makes it" and "the recipe makes
+ * it" are one leave-off); an amount, a merge's or a rename's name by value.
+ */
+export function opsSignature(ops: readonly ShoppingLayerOp[]): string {
+  return JSON.stringify(
+    ops
+      .map((op) => {
+        const ids = [...op.ids].sort();
+        switch (op.op) {
+          case "drop":
+          case "note":
+            return JSON.stringify({ op: op.op, ids });
+          case "aisle":
+            return JSON.stringify({ op: op.op, ids, aisle: op.aisle });
+          default: {
+            const { ids: _ids, ...rest } = op;
+            void _ids;
+            return JSON.stringify({ ...rest, ids });
+          }
+        }
+      })
+      .sort(),
+  );
+}
+
 /** Every item id a suggestion's ops name. */
 export function suggestionItemIds(suggestion: TidySuggestion): string[] {
   return [...new Set(suggestion.ops.flatMap((op) => op.ids))];

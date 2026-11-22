@@ -176,8 +176,9 @@ test.describe("Shopping list: tidy with the model (50b)", () => {
     const check = page.locator(
       '[data-testid="shopping-aisle"][aria-label="Check at home first"]',
     );
+    /* Both salt rows: the pancakes' salt and the crêpes' sea salt. */
+    await expect(check.getByTestId("shopping-row")).toHaveCount(2);
     await expect(check).toContainText("sea salt");
-    await expect(check).toContainText(/\bsalt\b/);
 
     await panel(page)
       .getByRole("button", { name: "Skip: Buy a quart of buttermilk" })

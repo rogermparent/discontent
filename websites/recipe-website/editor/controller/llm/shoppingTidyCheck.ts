@@ -34,6 +34,7 @@ import {
   TIDY_KIND_LABELS,
   TIDY_LIMITS,
   isTidyKind,
+  opsSignature,
   tidySuggestionId,
   type TidyKind,
   type TidySuggestion,
@@ -193,18 +194,6 @@ function mergeWarnings(rows: readonly TidyPromptRow[]): string[] {
   return warnings;
 }
 
-/** A signature of a suggestion's ops: the same change asked twice reads alike. */
-export function opsSignature(ops: readonly ShoppingLayerOp[]): string {
-  return JSON.stringify(
-    ops
-      .map((op) => {
-        const { ids, ...rest } = op;
-        return JSON.stringify({ ...rest, ids: [...ids].sort() });
-      })
-      .sort(),
-  );
-}
-
 /** "the 40th row" → a sentence's subject: the suggestion's title in quotes. */
 function quoted(title: string): string {
   return `“${title}”`;
@@ -221,9 +210,18 @@ export function checkTidyAnswer(
   runId: string,
   {
     skipped = [],
+    done = [],
+    doneIsWarning = false,
     firstIndex = 0,
   }: {
     skipped?: readonly { ops: readonly ShoppingLayerOp[] }[];
+    /**
+     * Review 1: the ops of changes on this list now. On `current` they are
+     * left out as repeats; on `original` (`doneIsWarning`) they reach the
+     * card with a warning, since that run reads the list without them.
+     */
+    done?: readonly { ops: readonly ShoppingLayerOp[] }[];
+    doneIsWarning?: boolean;
     /** Where this answer's suggestion numbers start in its run. */
     firstIndex?: number;
   } = {},
@@ -237,7 +235,12 @@ export function checkTidyAnswer(
     };
   }
   const byNumber = new Map(rows.map((row) => [row.n, row]));
-  const seen = new Set(skipped.map((each) => opsSignature(each.ops)));
+  const seen = new Set(
+    [...skipped, ...(doneIsWarning ? [] : done)].map((each) =>
+      opsSignature(each.ops),
+    ),
+  );
+  const onList = new Set(done.map((each) => opsSignature(each.ops)));
   const raw = data.suggestions.slice(0, TIDY_LIMITS.suggestions);
   if (data.suggestions.length > raw.length) {
     leftOut.push(
@@ -258,6 +261,9 @@ export function checkTidyAnswer(
       continue;
     }
     seen.add(signature);
+    if (onList.has(signature)) {
+      got.warnings = [...got.warnings, "Already on this list as a change"];
+    }
     suggestions.push({
       ...got,
       id: tidySuggestionId(runId, firstIndex + suggestions.length),

@@ -264,7 +264,8 @@ function RowMenu({
                 })
               }
             >
-              {AISLES.map((aisle) => (
+              {/* 50b (Db7): "Check at home first" is a change of one list, never a rule by name. */}
+              {AISLES.filter((aisle) => aisle !== "check").map((aisle) => (
                 <option key={aisle} value={aisle}>
                   {AISLE_LABELS[aisle]}
                 </option>

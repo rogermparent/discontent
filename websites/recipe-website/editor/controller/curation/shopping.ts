@@ -88,6 +88,7 @@ import {
 import { listLayers } from "recipe-website-common/util/shoppingChanges";
 import {
   TIDY_RUN_ID_PATTERN,
+  opsSignature,
   parseTidyRun,
   runIdOfSuggestion,
   serializeTidyRun,
@@ -2052,6 +2053,15 @@ export async function decideTidySuggestion(
     if (layers.length >= MAX_SHOPPING_LAYERS) {
       throw new ValidationError(
         `The list holds at most ${MAX_SHOPPING_LAYERS} changes: remove some first.`,
+      );
+    }
+    /* Review 1: the same change twice would add its amounts twice. */
+    const signature = opsSignature(suggestion.ops);
+    if (
+      layers.some((each) => each.on && opsSignature(each.ops) === signature)
+    ) {
+      throw new ValidationError(
+        `"${suggestion.title}" is on this list already as a change: skip it, or turn that change off in Changes first.`,
       );
     }
     /* The seat's own check on a layer, as a person's would be (Da2). */

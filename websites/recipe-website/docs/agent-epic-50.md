@@ -617,6 +617,29 @@ again; the runs API's counts; the models API and the disabled Claude
 option; a run on the original after an Accept. `shopping-ask.spec.ts`
 loses its two "Look for more" cases.
 
+**Review** (a read-only agent, before the gates; no blockers). Six
+findings, five taken in the second commit:
+
+1. Accept was not idempotent: "run it against the original" brings an
+   accepted card back, and a second Accept added its amounts twice. Now a
+   change on the list is passed to the check — left out as a repeat on
+   `current`, warned "Already on this list as a change" on `original` —
+   and the seat refuses an Accept whose ops are on the list already.
+2. The revise path had no test: one now (a skipped card revised is
+   pending with the same id, one commit; refused once accepted).
+3. The repeat check signed a leave-off by its words: a leave-off, an aisle
+   and a note are signed by what they do to which items now
+   (`opsSignature`, moved to `shoppingTidy.ts`).
+4. "Check at home first" was offered in a row's "Aisle (for every …)",
+   which writes a rule by name: filtered out (it is a change of one
+   list).
+5. A rejected server action in the panel said nothing: Start and
+   Accept/Skip catch it. (The other half — a streamed error chunk — is
+   already said: `joinStream` keeps the last chunk's `error`, which
+   `answeredFailure` reads.)
+6. The spec's salt assertion could pass on "sea salt" alone: it counts
+   the two rows in the aisle.
+
 ### Roger to confirm
 
 1. **qwen3:8b, not thinking, is the default** (Db8): 45 s a run, 3 of the

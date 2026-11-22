@@ -26,6 +26,7 @@ import {
   readShoppingLayers,
   readShoppingView,
   readTidyRuns,
+  reviseTidySuggestion,
   writeTidyRun,
 } from "../websites/recipe-website/editor/controller/curation/shopping";
 import {
@@ -684,6 +685,85 @@ describe("runs are kept (Db5)", () => {
         ).catch((error: unknown) => error),
       ).error.code,
     ).toBe("not_found");
+  });
+
+  it("the same change is never accepted twice; a revised card takes the old one's place, pending again", async () => {
+    await listWithThree();
+    const configs = tidyModels(LOCAL_ENV, ["qwen3:8b"]);
+    const spec = await storedTidySpec(ctx, {}, configs);
+    const fat = spec.rows.find((each) => each.name === "vegetable shortening")!;
+    const sprinkles = spec.rows.find((each) => each.name === "sprinkles")!;
+    const opsOn = (rows: typeof spec.rows) => [
+      {
+        op: "note",
+        rows: [rows.find((each) => each.name === fat.name)!.n],
+        text: "or vegetable oil",
+      },
+    ];
+    const ops = opsOn(spec.rows);
+    stubModel(
+      answer(
+        suggestion(ops, { title: "Fry in the oil" }),
+        suggestion([{ op: "drop", rows: [sprinkles.n], text: "optional" }], {
+          title: "Sprinkles",
+        }),
+      ),
+    );
+    await runShoppingTidy(spec, { ctx, configs, env: LOCAL_ENV });
+    const [first] = await readTidyRuns(ctx);
+    await decideTidySuggestion(ctx, first.suggestions[0].id, "accept");
+    /* "Run it against the original": the same card again, warned … */
+    const original = await storedTidySpec(ctx, { on: "original" }, configs);
+    stubModel(
+      answer(
+        suggestion(opsOn(original.rows), { title: "Fry in the oil, again" }),
+      ),
+    );
+    await runShoppingTidy(original, { ctx, configs, env: LOCAL_ENV });
+    const [again] = await readTidyRuns(ctx);
+    expect(again.suggestions[0].warnings).toContain(
+      "Already on this list as a change",
+    );
+    /* … and refused at Accept: its amounts would count twice. */
+    await expect(
+      decideTidySuggestion(ctx, again.suggestions[0].id, "accept"),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("on this list already"),
+    });
+    expect(await readShoppingLayers(ctx)).toHaveLength(1);
+    /* On the current list it is left out as a repeat. */
+    const current = await storedTidySpec(ctx, {}, configs);
+    stubModel(
+      answer(suggestion(opsOn(current.rows), { title: "Fry once more" })),
+    );
+    const result = await runShoppingTidy(current, {
+      ctx,
+      configs,
+      env: LOCAL_ENV,
+    });
+    expect(result).toMatchObject({ status: "done" });
+    const [third] = await readTidyRuns(ctx);
+    expect(third.suggestions).toEqual([]);
+    expect(third.leftOut[0]).toContain("repeats a suggestion");
+
+    /* Db6: a skipped card asked again is pending, with the same id. */
+    const card = first.suggestions[1];
+    await decideTidySuggestion(ctx, card.id, "skip");
+    const revised = {
+      ...card,
+      title: "Sprinkles, as asked",
+      revised: { note: "keep them", at: "now", model: "qwen3:8b" },
+    };
+    const kept = await reviseTidySuggestion(ctx, revised);
+    expect(kept.suggestions[1]).toEqual(revised);
+    expect(kept.status[card.id]).toBeUndefined();
+    expect((await git.log()).latest?.message).toBe(
+      "Update shopping list: revise: Sprinkles → Sprinkles, as asked",
+    );
+    /* Refused once accepted. */
+    await expect(
+      reviseTidySuggestion(ctx, { ...first.suggestions[0], title: "x" }),
+    ).rejects.toMatchObject({ message: expect.stringContaining("accepted") });
   });
 
   it("a stored run reads back as written, leniently", () => {

@@ -75,7 +75,12 @@ export function TidyPanel({
 
   async function start() {
     setMessage("");
-    const started = await tidy.start({ model, on });
+    let started: Awaited<ReturnType<ShoppingTidySurface["start"]>>;
+    try {
+      started = await tidy.start({ model, on });
+    } catch (error) {
+      started = { message: `The run did not start: ${String(error)}` };
+    }
     if (!started.job) {
       setMessage(started.message ?? "The run did not start.");
       return;
@@ -112,7 +117,9 @@ export function TidyPanel({
   async function decide(id: string, action: "accept" | "skip") {
     setBusy(id);
     setMessage("");
-    const answer = await tidy.decide(id, action);
+    const answer = await tidy
+      .decide(id, action)
+      .catch((error: unknown) => ({ message: String(error), run: undefined }));
     setBusy(undefined);
     if (answer.run) setRun(answer.run);
     if (answer.message) setMessage(answer.message);

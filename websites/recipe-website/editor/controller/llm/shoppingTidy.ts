@@ -61,6 +61,7 @@ import {
   contextStep,
   estimateTokens,
   llmConfig,
+  ollamaModels,
   sameOllamaModel,
   type LlmConfig,
 } from "./client";
@@ -204,24 +205,9 @@ export function tidyModels(
 /** Ollama's installed models, or `undefined` when it does not answer. */
 export async function installedModels(
   env: NodeJS.ProcessEnv = process.env,
-  timeoutMs = 2_000,
 ): Promise<string[] | undefined> {
   const base = llmConfig(env);
-  if (!base || base.api !== "ollama") return undefined;
-  try {
-    const response = await fetch(`${base.url.replace(/\/+$/, "")}/api/tags`, {
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!response.ok) return undefined;
-    const body = (await response.json()) as {
-      models?: { name?: string; model?: string }[];
-    };
-    return (body.models ?? []).flatMap((entry) =>
-      [entry.name, entry.model].filter((name): name is string => !!name),
-    );
-  } catch {
-    return undefined;
-  }
+  return base ? ollamaModels(base) : undefined;
 }
 
 /** The choices with Ollama asked which are installed (the API, the CLI). */
@@ -277,6 +263,8 @@ export interface ShoppingTidySpec {
   skipped: { title: string; ops: TidySuggestion["ops"]; text: string[] }[];
   /** On `current`: what was accepted already, by title. */
   accepted: string[];
+  /** The ops of every change on this list now (review 1: never twice). */
+  done?: { ops: TidySuggestion["ops"] }[];
   /** revise: the run, the card and the note. */
   revise?: { run: string; suggestion: TidySuggestion; note: string };
   /** Write nothing (the measurement, a test): the run is in the result. */
@@ -459,6 +447,9 @@ export async function storedTidySpec(
     recipes: await readRecipeSteps(ctx, recipeSlugs(list.items)),
     skipped,
     accepted,
+    done: list.layers
+      .filter((layer) => layer.on)
+      .map((layer) => ({ ops: layer.ops })),
     ...(input.dryRun ? { dryRun: true } : {}),
   };
 }
@@ -766,6 +757,8 @@ export async function runShoppingTidy(
   };
   const checked = checkTidyAnswer(result.data, spec.rows, runId, {
     skipped: spec.revise ? [] : spec.skipped,
+    done: spec.done ?? [],
+    doneIsWarning: spec.on === "original",
   });
   job.log.info(
     "tidy",
