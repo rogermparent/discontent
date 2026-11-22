@@ -62,13 +62,19 @@ export function TidyPanel({
   const [running, setRunning] = useState<{ job: string; model: string }>();
   const [busy, setBusy] = useState<string>();
   const [message, setMessage] = useState("");
+  /*
+   * Unmounted: a run's follow loop stops writing state. Set on every mount,
+   * not only at `useRef`: React's Strict Mode (`next dev`) mounts, cleans up
+   * and mounts again, and a flag left true by that first cleanup ended every
+   * run's loop on its first answer with "Tidying…" still showing (Tb4).
+   */
   const stopped = useRef(false);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    stopped.current = false;
+    return () => {
       stopped.current = true;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const words = (id: string) =>
     offered.find((each) => each.id === id)?.name ?? id;

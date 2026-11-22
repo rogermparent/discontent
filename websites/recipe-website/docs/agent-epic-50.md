@@ -655,10 +655,15 @@ recipe-website exec tsc --noEmit`: clean.
 - Playwright `shopping-tidy`, `shopping-ask`, `shopping`,
   `shopping-layers`, `shopping-modes`, `shopping-merge`, `accessibility`
   (e2e + mobile): **115/115**, first run. `shopping-tidy.spec` in `next
-dev` (Docker): **fails** — the run's job stays live past 30 s and the
-  panel keeps "Tidying…" (twice: with the action's long-poll, and with the
-  job store's `GET ?job=`), so the job itself does not end under `next
-dev`; not yet diagnosed (Tb4).
+dev` (Docker) failed: the panel kept "Tidying…" (Tb4).
+- **After merging main (50e, `04f61a0c`) and the Tb4 fix** (2026-11-21):
+  both typechecks clean; `pnpm exec vitest run` **201 files, 4,385/4,385**
+  (the new `shoppingTidyPanel` test included, and the two timing cases
+  passed this time); Playwright `shopping-tidy`, `shopping-ask`,
+  `shopping`, `shopping-layers`, `shopping-modes`, `shopping-merge`,
+  `import-linked`, `accessibility` (e2e + mobile, Docker production)
+  **117/117**, first run; `shopping-tidy.spec` in `next dev` (Docker)
+  **2/2**.
 - **Baselines: none moved, none new** (the suite pins the model off, so
   the page draws no tidy panel).
 - No dependency or Next-config change, so no main-checkout-shaped build.
@@ -702,12 +707,23 @@ dev`; not yet diagnosed (Tb4).
 - **Tb2 — a count's added amount is not pluralised**: "+5" on "1 firm
   pear" reads "6 firm pear" (an amount set by a layer keeps the name as
   the row has it, as 49a's edited amounts do).
-- **Tb4 — open: under `next dev` a stand-in tidy run never ends** (both
-  spec cases, every retry), while the production build passes. Suspects
-  to check first: the streamed request (`TIDY_TIMEOUT_MS` > 240 s sets
-  `stream: true`, and the stand-in answers one JSON body), the dynamic
-  imports of the seat inside the job, or the GPU line in the job's
-  resources.
+- **Tb4 — under `next dev` the panel kept "Tidying…" (fixed).** The job
+  did end: the job store said `done`, `live: false`, result in hand,
+  about a second after the click. The fault was the panel's unmount flag.
+  `Tidy.tsx` set `stopped.current = true` in an effect's cleanup and never
+  set it back. React's Strict Mode (on under `next dev`, not in a
+  production build) mounts, cleans up and mounts again, so the flag was
+  already true before the first click. The follow loop then returned on
+  its first answer without clearing "Tidying…" or showing the result. The
+  effect now sets the flag false on every mount.
+  `test/shoppingTidyPanel.test.tsx` renders the panel in `<StrictMode>`
+  and fails without the fix. None of the first suspects was the cause:
+  the client reads either body by its content type (NDJSON through
+  `joinStream`, anything else as JSON), so the stand-in's one JSON body
+  for a `stream: true` request is fine; the seat's dynamic imports and
+  the GPU line ran normally (the job's step log shows each). An unmount
+  flag needs setting on mount as well, wherever an effect's cleanup sets
+  it; `RoundupImport`'s `stopRef` is safe because each run resets it.
 - **Tb3 — the scorer's first merge rule counted a 23-row merge** as three
   golden cards; a golden merge is at most four rows now. Read the
   scorer's calls by eye.
