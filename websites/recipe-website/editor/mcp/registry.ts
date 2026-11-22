@@ -1681,8 +1681,14 @@ export function recipeToolDefinitions(
       inputSchema: ShoppingClearSchema,
       annotations: DESTRUCTIVE_WRITE,
     },
-    async (args) =>
-      write(backend, () => backend.clearShopping(args), { notify: false }),
+    /* 50d: on the named list through every backend (`--remote` too). */
+    async ({ list, ...args }) =>
+      write(
+        backend,
+        () =>
+          (list ? backend.forShoppingList(list) : backend).clearShopping(args),
+        { notify: false },
+      ),
   );
 
   register(

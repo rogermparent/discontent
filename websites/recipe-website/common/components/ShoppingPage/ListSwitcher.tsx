@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Check, ChevronDown, ListPlus, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Input } from "@discontent/component-library/components/ui/input";
@@ -81,6 +81,31 @@ export function ListSwitcher({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode>("menu");
+  /*
+   * Review 4: a mode swaps the popover's content, the focused button with
+   * it. Going in, focus lands on the form's field or Keep it; coming back,
+   * on the item that opened the mode.
+   */
+  const contentRef = useRef<HTMLDivElement>(null);
+  const cameFrom = useRef<Mode | undefined>(undefined);
+  useEffect(() => {
+    const root = contentRef.current;
+    if (!root) return;
+    if (mode === "menu") {
+      const from = cameFrom.current;
+      cameFrom.current = undefined;
+      if (from) {
+        root.querySelector<HTMLElement>(`[data-opens="${from}"]`)?.focus();
+      }
+      return;
+    }
+    cameFrom.current = mode;
+    root
+      .querySelector<HTMLElement>(
+        mode === "delete" ? "[data-keep]" : "input, select",
+      )
+      ?.focus();
+  }, [mode]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [name, setName] = useState("");
@@ -126,7 +151,10 @@ export function ListSwitcher({
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
-          if (!next) reset();
+          if (!next) {
+            cameFrom.current = undefined;
+            reset();
+          }
         }}
       >
         <PopoverTrigger asChild>
@@ -143,6 +171,7 @@ export function ListSwitcher({
           </Button>
         </PopoverTrigger>
         <PopoverContent
+          ref={contentRef}
           align="start"
           className="flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 p-2"
           data-testid="shopping-list-menu"
@@ -182,6 +211,7 @@ export function ListSwitcher({
                 <button
                   type="button"
                   className={itemClass}
+                  data-opens="new"
                   onClick={() => reset("new")}
                 >
                   <ListPlus aria-hidden className="size-4" />
@@ -191,6 +221,7 @@ export function ListSwitcher({
                   <button
                     type="button"
                     className={itemClass}
+                    data-opens="plan"
                     onClick={() => reset("plan")}
                   >
                     <ListPlus aria-hidden className="size-4" />
@@ -202,6 +233,7 @@ export function ListSwitcher({
                     <button
                       type="button"
                       className={itemClass}
+                      data-opens="rename"
                       onClick={() => reset("rename")}
                     >
                       <Pencil aria-hidden className="size-4" />
@@ -210,6 +242,7 @@ export function ListSwitcher({
                     <button
                       type="button"
                       className={cn(itemClass, "text-destructive")}
+                      data-opens="delete"
                       onClick={() => reset("delete")}
                     >
                       <Trash2 aria-hidden className="size-4" />
@@ -248,6 +281,7 @@ export function ListSwitcher({
                   type="button"
                   variant="outline"
                   size="sm"
+                  data-keep
                   onClick={() => reset()}
                 >
                   Keep it
@@ -317,7 +351,6 @@ export function ListSwitcher({
                 id={nameId}
                 value={name}
                 maxLength={80}
-                autoFocus
                 placeholder={
                   mode === "plan" ? (chosenPlan?.name ?? "") : "Thanksgiving"
                 }

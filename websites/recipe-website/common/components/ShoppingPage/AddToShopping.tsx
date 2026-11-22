@@ -197,6 +197,8 @@ async function addAndSay(
       list: MAIN_SHOPPING_LIST,
     };
   }
+  /* Review 6: a list made here shows in the picker even if the add fails. */
+  const made = "create" in target ? { created: true as const } : {};
   let result: Awaited<ReturnType<AddToList>>;
   try {
     result = await add(list, input);
@@ -205,9 +207,12 @@ async function addAndSay(
       message:
         "Couldn't reach the editor — check the connection and try again.",
       list,
+      ...made,
     };
   }
-  if (isActionError(result)) return { message: result.error, list };
+  if (isActionError(result)) {
+    return { message: result.error, list, ...made };
+  }
   saveCurrentShoppingList(list);
   const n = result.added.length;
   const where =
@@ -219,7 +224,7 @@ async function addAndSay(
       : added,
     list,
     ok: true,
-    ...("create" in target ? { created: true as const } : {}),
+    ...made,
   };
 }
 

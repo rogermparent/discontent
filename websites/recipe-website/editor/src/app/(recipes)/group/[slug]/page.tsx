@@ -61,21 +61,39 @@ export async function generateMetadata({
  * (43p2: rows by aisle, the big ones) from the same view, read-only. A
  * failed read says nothing rather than failing the page.
  *
- * 50d: on the plan's own list when it has one (the newest made from it),
- * else on the main list, as before.
+ * 50d: on the first list holding the plan's lines — its own list (the
+ * newest made from it), then the main list, then the others newest first —
+ * so a plan added to another list from this page is found there after a
+ * reload, not offered again.
  */
 async function shoppingSummary(
   email: string,
   slug: string,
   planList: ShoppingListSummary | undefined,
+  lists: ShoppingListSummary[] | undefined,
 ): Promise<PlanShoppingSummary | null> {
   try {
     const ctx = curationContextFor(email);
-    const { items, settings, list } = await readShopping(
-      planList ? { ...ctx, shoppingList: planList.id } : ctx,
-    );
-    const mine = items.filter((item) => (item.via ?? []).includes(slug));
-    if (mine.length === 0) return null;
+    const order = [
+      ...(planList ? [planList.id] : []),
+      "main",
+      ...(lists ?? [])
+        .filter((each) => !each.main && each.id !== planList?.id)
+        .map((each) => each.id),
+    ];
+    let found;
+    for (const id of order) {
+      const read = await readShopping({ ...ctx, shoppingList: id });
+      const lines = read.items.filter((item) =>
+        (item.via ?? []).includes(slug),
+      );
+      if (lines.length > 0) {
+        found = { ...read, mine: lines };
+        break;
+      }
+    }
+    if (!found) return null;
+    const { settings, list, mine } = found;
     const view = buildShoppingView(mine, settings);
     return {
       lines: mine.length,
@@ -135,11 +153,12 @@ export default async function GroupPage({
     );
     /* 50d: the list made from this plan, newest first. */
     const planList = lists?.find((list) => list.plan === slug);
-    const summaryList = planList?.id ?? "main";
     const [shopping, saved] = await Promise.all([
-      shoppingSummary(email, slug, planList),
+      shoppingSummary(email, slug, planList, lists),
       readInventory(curationContextFor(email)).catch(() => ({ items: [] })),
     ]);
+    /* Take it off the list the summary is about. */
+    const summaryList = shopping?.list?.id ?? planList?.id ?? "main";
     second = { kind: "saved" as const, items: saved.items };
     editor = {
       saveItems: async (next: GroupItem[], base: string) => {

@@ -489,3 +489,36 @@ describe("saved lists in the seat", () => {
     expect((await git.status()).isClean()).toBe(true);
   });
 });
+
+describe("the HTTP backend names the list (review 1)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends ?list= on every shopping call, a clear's raw list too, never on /lists", async () => {
+    const { createHttpBackend } =
+      await import("../websites/recipe-website/editor/cli/backend/http");
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: URL | string) => {
+        urls.push(String(url));
+        return new Response(JSON.stringify({ items: [], lists: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    const backend = createHttpBackend({ baseUrl: "http://editor.test" });
+    await backend.clearShopping({ scope: "all", list: "Party" });
+    await backend.forShoppingList("01kaaaaaaaaaaaaaaaaaaaaaaa").getShopping();
+    await backend.forShoppingList("Party").listShoppingLists();
+    await backend.clearShopping({ scope: "checked" });
+    expect(urls).toEqual([
+      "http://editor.test/api/shopping?list=Party&scope=all",
+      "http://editor.test/api/shopping?list=01kaaaaaaaaaaaaaaaaaaaaaaa",
+      "http://editor.test/api/shopping/lists",
+      "http://editor.test/api/shopping?scope=checked",
+    ]);
+  });
+});

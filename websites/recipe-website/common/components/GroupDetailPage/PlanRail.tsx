@@ -112,10 +112,8 @@ export function ShoppingPanel({
   const [added, setAdded] = useState(false);
   const summary = editor.shopping;
   const planList = editor.planList;
-  const summaryHref =
-    summary?.list && summary.list.id !== MAIN_SHOPPING_LIST
-      ? shoppingListHref(summary.list.id)
-      : "/shopping";
+  /* 50d: the summary's own list — never a plain /shopping (Dd5 moves it). */
+  const summaryHref = shoppingListHref(summary?.list?.id ?? MAIN_SHOPPING_LIST);
   return (
     <section className={panelClass} aria-labelledby="plan-shopping-heading">
       <h2 id="plan-shopping-heading" className={headingClass}>

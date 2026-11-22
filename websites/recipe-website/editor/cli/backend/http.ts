@@ -738,10 +738,18 @@ export function createHttpBackend({
       });
     },
     clearShopping(raw) {
-      const scope = (raw as { scope?: string } | undefined)?.scope;
-      return call<ShoppingClearResult>("DELETE", "/api/shopping", {
-        query: { scope },
-      });
+      const { scope, list } =
+        (raw as { scope?: string; list?: string } | undefined) ?? {};
+      /* 50d: a DELETE has no body, so a raw `list` goes as the query. */
+      return (
+        (list
+          ? createHttpBackend({ baseUrl, token, shoppingList: list })
+          : null
+        )?.clearShopping({ scope }) ??
+        call<ShoppingClearResult>("DELETE", "/api/shopping", {
+          query: { scope },
+        })
+      );
     },
     getShoppingSettings() {
       return call<ShoppingSettingsResult>("GET", "/api/shopping/settings");
