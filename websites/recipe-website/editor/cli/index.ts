@@ -247,6 +247,10 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   shopping change add (--file <json> | --stdin) | on <id> | off <id> | rm <id>
   shopping leave-off <name…> [--reason <text>]
   shopping restore <name…>
+  shopping lists [--all]
+  shopping lists new <name…> [--plan <slug>] [--scale 2]
+  shopping lists rename <list> <name…> | rm <list> | restore <list>
+  (every shopping command takes --list <id|name>: the list, main without one)
   git status [--fetch]
   git fetch [<remote>]
   git pull [<remote>]

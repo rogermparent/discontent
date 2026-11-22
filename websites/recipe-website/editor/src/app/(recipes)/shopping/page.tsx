@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import { getContentDirectory } from "@discontent/cms/fs/getContentDirectory";
 import { auth, redirectToLogin } from "@/auth";
 import {
@@ -7,7 +8,9 @@ import {
 import {
   addShoppingListLayer,
   addToShoppingList,
+  createSavedShoppingList,
   decideShoppingListMerge,
+  editSavedShoppingList,
   loadShoppingList,
   removeShoppingListLayer,
   setShoppingListLayer,
@@ -19,9 +22,13 @@ import {
 import { readInventory } from "recipe-editor/controller/curation/inventory";
 import {
   readShopping,
+  readShoppingLists,
   readShoppingPlanNames,
   readTidyRuns,
+  resolveShoppingList,
 } from "recipe-editor/controller/curation/shopping";
+import { listGroups } from "recipe-editor/controller/curation/groups";
+import { NotFoundError } from "recipe-editor/controller/curation/errors";
 import { readTidyModels } from "recipe-editor/controller/llm/shoppingTidy";
 import { tidyRunView } from "recipe-website-common/util/shoppingTidy";
 import { editModels } from "recipe-editor/controller/llm/askEdit";
@@ -39,25 +46,60 @@ export const metadata = { title: "Shopping list" };
  * builds the view (D3) and batches ticks to `PATCH /api/shopping` (D9).
  * 49b: where this editor has a model (Edit with AI's), the page can ask it
  * about the merges (`ShoppingWithModel`).
+ *
+ * 50d: `?list=<id>` is the list shown (the main list without one, unless
+ * this browser used another last — the page itself goes there, Dd5). Every
+ * action is bound to that list's id; the switcher reads every list.
  */
-export default async function ShoppingListPage() {
+export default async function ShoppingListPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ list?: string | string[] }>;
+}) {
   const session = await auth();
+  const { list: asked } = await searchParams;
+  const named = typeof asked === "string" && asked.trim() ? asked : undefined;
   if (!session?.user?.email) {
-    return redirectToLogin("/shopping");
+    return redirectToLogin(
+      named ? `/shopping?list=${encodeURIComponent(named)}` : "/shopping",
+    );
   }
-  const ctx = { contentDirectory: getContentDirectory() };
-  const [{ items, settings, merges, layers, rules }, inventory] =
+  const base = { contentDirectory: getContentDirectory() };
+  let scope;
+  try {
+    scope = await resolveShoppingList(base, named);
+  } catch (error) {
+    if (error instanceof NotFoundError) notFound();
+    throw error;
+  }
+  const listId = scope.id;
+  const ctx = { ...base, shoppingList: listId };
+  const [{ items, settings, merges, layers, rules, list }, inventory] =
     await Promise.all([readShopping(ctx), readInventory(ctx)]);
-  const [plans, tidyModels, tidyRuns] = await Promise.all([
+  const [plans, tidyModels, tidyRuns, lists, groups] = await Promise.all([
     readShoppingPlanNames(ctx, items),
     readTidyModels(),
     readTidyRuns(ctx),
+    readShoppingLists(ctx),
+    listGroups(ctx, { limit: 100 }).catch(() => ({ groups: [] })),
   ]);
   const models = editModels();
   return (
     <PageMain>
       <PageSection maxWidth="none" grow className="print:p-0">
         <ShoppingWithModel
+          key={listId}
+          list={listId}
+          listNamed={named !== undefined}
+          lists={lists}
+          mealPlans={groups.groups.map(({ slug, name }) => ({
+            slug,
+            name: name || slug,
+          }))}
+          listActions={{
+            create: createSavedShoppingList,
+            edit: editSavedShoppingList,
+          }}
           initial={{
             items,
             settings,
@@ -66,20 +108,25 @@ export default async function ShoppingListPage() {
             merges,
             layers,
             rules,
+            list,
           }}
           actions={{
-            load: loadShoppingList,
-            add: addToShoppingList,
-            update: updateShoppingList,
+            load: loadShoppingList.bind(null, listId),
+            add: addToShoppingList.bind(null, listId),
+            update: updateShoppingList.bind(null, listId),
             saveSettings: updateShoppingListSettings,
-            decideMerge: decideShoppingListMerge,
+            decideMerge: decideShoppingListMerge.bind(null, listId),
             splitMerge: splitShoppingListMerge,
-            addLayer: addShoppingListLayer,
-            setLayer: setShoppingListLayer,
-            removeLayer: removeShoppingListLayer,
+            addLayer: addShoppingListLayer.bind(null, listId),
+            setLayer: setShoppingListLayer.bind(null, listId),
+            removeLayer: removeShoppingListLayer.bind(null, listId),
             leaveOff: setShoppingListLeaveOff,
           }}
-          patchUrl="/api/shopping"
+          patchUrl={
+            listId === "main"
+              ? "/api/shopping"
+              : `/api/shopping?list=${encodeURIComponent(listId)}`
+          }
           tidyModels={tidyModels.choices}
           {...(tidyRuns[0] ? { tidyRun: tidyRunView(tidyRuns[0], items) } : {})}
           models={{

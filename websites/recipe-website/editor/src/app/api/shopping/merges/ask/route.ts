@@ -17,7 +17,7 @@
  * it runs a model.
  */
 import { z } from "zod";
-import { requireCurationContext } from "recipe-editor/controller/apiContext";
+import { requireShoppingContext } from "recipe-editor/controller/apiContext";
 import {
   errorResponse,
   readJsonBody,
@@ -43,21 +43,25 @@ const AskBodySchema = z.discriminatedUnion("task", [
     note: z.string().min(1).max(SHOPPING_ASK_NOTE_MAX),
     claude: z.boolean().optional(),
     wait: z.boolean().optional(),
+    list: z.string().trim().min(1).max(100).optional(),
   }),
   z.strictObject({
     task: z.literal("find"),
     claude: z.boolean().optional(),
     wait: z.boolean().optional(),
+    list: z.string().trim().min(1).max(100).optional(),
   }),
 ]);
 
 export async function POST(request: Request) {
   try {
-    const ctx = await requireCurationContext(request, { need: "read" });
-    const { wait, ...input } = parseInput(
+    const given = await requireShoppingContext(request, { need: "read" });
+    const { wait, list, ...input } = parseInput(
       AskBodySchema,
       await readJsonBody(request),
     );
+    /* 50d: the list whose lines the ask reads (`?list=` or the body's). */
+    const ctx = list ? { ...given, shoppingList: list } : given;
     if (
       input.task === "revise" &&
       (input.id === undefined) === (input.keys === undefined)
@@ -76,7 +80,7 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   try {
-    await requireCurationContext(request, { need: "read" });
+    await requireShoppingContext(request, { need: "read" });
     const id = new URL(request.url).searchParams.get("job") ?? "";
     if (!id) throw new ValidationError("Say which job: ?job=<id>.");
     const view = await getJobView(id);

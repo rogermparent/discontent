@@ -948,3 +948,207 @@ Review amendments:
 9. `linked --scan` on the whole collection reads every recipe's page once,
    ≥ 15 s apart per site — hours for ~1,000 recipes; run it per slug or with
    `--limit` first.
+
+## 50d — Saved lists: a clean one, switching, one per meal plan (M–L)
+
+Roger, 2026-11-21: "being able to save, load, and switch lists would be
+nice to have a clean shopping list associated with a meal plan or
+something." His OK on the mock-up: the list he has today stays the main
+list; he can start a clean list, name it, switch between lists, and make
+one from a meal plan, which adds the plan's recipes; a list's changes and
+checked items are its own.
+
+### Decisions
+
+- **Dd1 — Storage: the main list stays where it was.** No migration and no
+  churn on the Pi's sync: the main list is `shopping/items/`,
+  `shopping/layers/` and `shopping/tidy/` as before (`SHOPPING_LIST_PATHS`
+  is still those three). A saved list is a directory,
+  `shopping/lists/<ulid>/`, holding its record `list.json` — `{id, name,
+created, plan?, archived?}`, keys in that order, a falsy flag no key —
+  and its own `items/`, `layers/` and `tidy/` (`shoppingListPaths(id)`).
+  - **Per list:** the items (ticks and `need` are item flags, an item's
+    pinned `store` too), the layers (50a's changes), the tidy runs (50b).
+  - **Every list's:** `merges/` (49a), `rules/` (50a's leave-off),
+    `settings.json` (switches, stores, store by aisle, the per-name aisle
+    and store overrides) and the on-hand inventory.
+  - `shopping/` is already an unindexed directory (35c's choice 21), so a
+    list's commits never cost a reindex on the other device. Item ids are
+    ULIDs, unique across lists.
+- **Dd2 — Which list a call is about.** `CurationContext.shoppingList`:
+  `main`, a saved list's id, or its name, resolved by the seat on every
+  call (`resolveShoppingList`: case and spacing aside, a list not deleted
+  first; `not_found` for none, `validation` when two lists not deleted share
+  the name). Absent is the main list. The transports set it: `?list=` on
+  every per-list route (`requireShoppingContext`), a body's `list` on add,
+  patch, clear, tidy and the merge ask (it wins over the query), `--list` on
+  every CLI command (`backend.forShoppingList`), a tool's `list` argument.
+  The server never assumes one active list. The page's server actions take
+  the list first and `/shopping` binds them (`action.bind(null, list)`); a
+  tidy job's spec keeps the list's **id** (`spec.list`), so a rename while
+  it runs changes nothing.
+- **Dd3 — Browser storage per list.** The page's pending and held ticks live
+  under `shopping-pending-ticks:<id>` / `shopping-held-ticks:<id>` for a
+  saved list and under the keys they always had for the main list
+  (`listStorageKey`), so the update loses no tick held for Done shopping.
+  Shop's done aisles are kept by item ids already, so they are a list's own.
+  The Shop store choice (`shopping-store`) stays one per browser.
+- **Dd4 — Delete archives.** `archived: true` on the record, every file
+  kept: out of the switcher and the add picker, its address still opens it
+  ("This list is deleted." with **Restore it**), and writes to it are
+  refused until it is restored. Its name is free again (a restore that would
+  clash is refused). The main list is never renamed or deleted, and its
+  names ("main", "Main list") are not a saved list's.
+- **Dd5 — The current list, per browser.** `localStorage["shopping-list"]`
+  (try/catch: a private window answers the main list). Every list shown
+  (not deleted) is remembered; `/shopping` without `?list=` goes to the
+  remembered one when it is another list still there (`router.replace`),
+  else shows the main list; `?list=main` is the main list by name.
+- **Dd6 — Making lists.** A name is one line, at most 80 characters, unique
+  among the lists not deleted (case aside). **New list** is blank. **From a
+  meal plan** (`{plan, name?, scale?}`) is named after the plan unless a
+  name is given ("Week of Oct 19", then "Week of Oct 19 (2)"), holds the
+  plan's recipes exactly as `shopping add --group` adds them (nested plans,
+  each row's scale, times `scale`), records `plan`, and lands as **one
+  commit** with its record. Subjects: `New shopping list: Week of Oct 19
+(+Week of Oct 19 (12 items))`, `Rename shopping list: Party → Birthday`,
+  `Delete shopping list: Birthday (3 items kept)`, `Restore shopping list:
+Birthday`; a saved list's other writes name it — `Update shopping list
+"Party": +Pancakes (3 items)`, `Clear shopping list "Party": 1 checked` —
+  and the main list's read as they always did.
+- **Dd7 — The switcher** (`ListSwitcher.tsx`), in the Plan header beside
+  "Shopping list": the list's name with a menu — the lists as links
+  (`/shopping?list=<id>`, the current one `aria-current`, item counts and
+  the plan's name), **New list**, **New from a meal plan…** (every group,
+  newest first, up to 100), **Rename** and **Delete** (confirmed in place)
+  for a saved list. A new list opens. Shop's sticky bar says "List: <name>"
+  once there is more than one list.
+- **Dd8 — Adding to a list.** "Add to list" (recipe) and "Add to shopping
+  list" (plan) go to the current list. With more than one list a small
+  picker follows — the current list first, then the others, then **New
+  list…** (a name field: the list is made, then the add). The list added to
+  becomes the current one. ⌘K's "Shopping list" is a plain `/shopping`, so
+  it opens the current list (Dd5); Ask (43q) adds nothing to a list.
+- **Dd9 — The plan page.** The newest list made from the plan (not
+  deleted): "Shopping list: <name> (12 lines)" linking it, and the panel's
+  summary (lines, rows, ticked, the run sheet's docket) and **Take it off
+  the list** are about that list; without one, about the main list as
+  before, with **Make a shopping list**.
+- **Dd10 — Surfaces.** HTTP `/api/shopping/lists` (`GET [?all=1]`, `POST
+{name} | {plan, name?, scale?}`, `PATCH {id, name?, archived?}`, `DELETE
+?id=` archives) and `?list=` on `/api/shopping`, `…/layers`, `…/merges`
+  (its proposals read the list), `…/merges/ask`, `…/tidy`, `…/tidy/runs`,
+  `…/tidy/suggestions`; `…/rules`, `…/settings` and `…/tidy/models` are
+  every list's. CLI `shopping lists [--all]`, `shopping lists new <name…>
+[--plan <slug>] [--scale 2]`, `shopping lists rename <list> <name…> | rm
+<list> | restore <list>`, and `--list <id|name>` on every shopping
+  command. MCP: `list` on `shopping_get`, `shopping_add`, `shopping_check`,
+  `shopping_remove` and `shopping_clear`; `shopping_get` answers `list` (the
+  one read) and `lists` (`{id, name, main?, plan?, planName?, items,
+left}`); **no new tool** (59 / 45), so an agent cannot make, rename or
+  delete a list. The skill's 8b says so (and `skillText.generated.ts`); the
+  curator's held proposals name a saved list ("Add to the shopping list
+  “Thanksgiving”").
+
+### Results
+
+**What changed.**
+
+- `common/util/shoppingLists.ts` (new, pure): the record (`MAIN_SHOPPING_LIST`,
+  `parseShoppingListRecord`, `canonicalShoppingListRecord`), the summary
+  and its words (`sortListSummaries`, `listSummaryText`,
+  `shoppingListHref`), the browser's current list (`readCurrentShoppingList`,
+  `saveCurrentShoppingList`, `subscribeCurrentShoppingList`) and
+  `listStorageKey`.
+- The seat (`curation/shopping.ts`): `shoppingListPaths`,
+  `SHOPPING_LISTS_DIRECTORY`, `resolveShoppingList`, `onList`, a list scope
+  through every read and write (items, layers, tidy runs; `listSubject`,
+  `assertListWritable`), `collectAdd` split out of the add, and
+  `readShoppingLists`, `readShoppingListRecords`, `createShoppingList`,
+  `editShoppingList`, `deleteShoppingList`, `shoppingListsForPlan`;
+  `readShopping` answers `list`. `CurationContext.shoppingList`; schemas
+  `ShoppingListRefSchema` (`list` on add, patch, clear),
+  `ShoppingListCreateSchema`, `ShoppingListEditSchema`,
+  `ShoppingListIdSchema`.
+- Transports: `requireShoppingContext` and `?list=` on the per-list routes,
+  `/api/shopping/lists` (new); list-first server actions plus
+  `loadShoppingLists`, `createSavedShoppingList`, `editSavedShoppingList`;
+  the tidy and ask actions and routes take `list`; the tidy spec's `list`.
+  CLI `shopping lists …` and `--list` on every shopping command
+  (`onAList`), backends' `forShoppingList`, `listShoppingLists`,
+  `createShoppingList`, `editShoppingList`. MCP `list` on the five
+  shopping tools, `shopping_get`'s `list` and `lists`; the curator's held
+  proposals name a saved list; the skill's 8b and CLI fallback, and
+  `skillText.generated.ts`.
+- The page: `ListSwitcher.tsx` (new), `/shopping?list=`, the page keyed and
+  its actions bound per list, per-list tick storage, the current list
+  remembered and reopened, Shop's "List: <name>"; `AddToShopping.tsx`'s
+  picker and "New list…"; the plan page's own list, "Make a shopping list",
+  a summary over the list holding the plan's lines and links that name
+  that list (`PlanRail`, `RunSheet`, `CookList`).
+
+**Review** (a read-only agent, before the gates). Six findings; five
+taken in the second commit:
+
+1. **Blocker:** `shopping_clear {list}` through `RECIPE_API_URL` cleared
+   the **main** list — the HTTP backend's DELETE sent only `?scope=`. The
+   registry now scopes the backend (as check and remove did) and the HTTP
+   backend sends a raw `list` as the query; a test pins the URLs.
+2. The plan page's "Open list", the run sheet's docket and the cook view
+   linked a bare `/shopping`, which Dd5 sends to the browser's last list:
+   they name the summary's list (`?list=main` for the main list).
+3. With no list of its own, the plan's summary read only the main list
+   while its add went to the current list: an add to "Party" read back as
+   "Not on your shopping list" and offered the add again. The summary now
+   reads the first list holding the plan's lines — its own, the main list,
+   then the others newest first — and **Take it off the list** takes them
+   off that one.
+4. Focus fell to `<body>` when a switcher mode swapped the popover's
+   content: it now moves into the form (or onto Keep it) and back to the
+   item that opened the mode.
+5. Not taken: list counts read every item file of every list (Td2).
+6. A list made from the add picker joins it even when the add then fails.
+
+**Gates.** `recipe-editor typecheck` and `recipe-website exec tsc --noEmit` clean;
+`pnpm exec vitest run` 202 files, 4399 tests, all passed. Docker production
+run on the first commit: 117 passed, 4 failed (the picker spec, the menu
+baseline's first write, and the two at-home baselines). After the fixes and
+regenerated baselines: `shopping-modes.spec.ts` updated run 15 passed;
+`shopping-lists.spec.ts` + `shopping-modes.spec.ts` production, 21 passed (e2e
+and mobile); `shopping-lists.spec.ts` once in dev mode, 6 passed.
+
+**Baselines.** Moved, regenerated in Docker (production mode), each opened:
+`shopping-modes.spec.ts/shopping-plan-e2e.png` and `shopping-plan-mobile.png`
+(the list switcher, "Main list", now sits beside the "Shopping list" title in
+the Plan header, so the page is 8 px taller on desktop; both looked right).
+New: `shopping-lists.spec.ts/shopping-lists-menu-e2e.png` (the switcher's
+menu: Main list and a ticked "Thanksgiving · 5 items", New list, New from a
+meal plan…, Rename, Delete in red; looked right).
+
+**The picker failure the first Docker run found.** The add picker's "New
+list…" option used `"\u0000new"` as its value. A NUL in an option value does
+not survive the HTML parser, so selecting that option by label never set the
+picked state and the name field never appeared. The sentinel is now
+`"__new-list__"` (list ids are ULIDs, so it can't clash).
+
+### Traps
+
+- **Td1 — A group renamed later doesn't update a list's `plan` slug.** A list
+  made from a plan records the group's slug; rename the group and the record
+  still names the old one, so the plan page no longer finds "its" list and
+  the switcher shows the old slug's name. Rename follow-through for list
+  records is not built.
+- **Td2 — List counts read every item file.** The switcher's counts and the
+  `lists` summary read every item file of every list on each load. Fine at
+  a handful of lists; an index per list is the fix if it ever shows.
+
+### Roger to confirm
+
+- **Delete is archive** (Dd4): the files stay and a deleted list can be
+  restored from its address.
+- **The main list can't be renamed** or deleted.
+- **The Shop store choice is per browser,** not per list (Dd3).
+- **"New from a meal plan…"** offers every group, newest first, up to 100.
+- **Picking a list in the add picker makes it current** (Dd8).
+- **Agents can't make lists:** no new MCP tool (59 / 45); they add to,
+  check, remove from and clear an existing list through `list`.

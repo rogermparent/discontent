@@ -573,6 +573,8 @@ describe("the CLI as a process", () => {
       expect(Object.keys(parsed).sort()).toEqual([
         "items",
         "layers",
+        /* 50d: which list was read. */
+        "list",
         "merges",
         "path",
         "proposals",
@@ -625,6 +627,44 @@ describe("the CLI as a process", () => {
     },
     /* Ten CLI processes, each a `tsx` start. */
     TIMEOUT * 3,
+  );
+
+  /*
+   * 50d: saved lists from the CLI — `shopping lists new`, `--list` by name
+   * on an add, the lists with their counts, and `rm` (kept, hidden). The
+   * main list is untouched.
+   */
+  it(
+    "keeps saved lists: lists new, --list, lists, rm",
+    async () => {
+      const made = await run(["shopping", "lists", "new", "Party", "--json"]);
+      expect(made.exitCode, made.stdout).toBe(0);
+      const { list } = JSON.parse(made.stdout);
+      expect(list).toMatchObject({ name: "Party", items: 0 });
+
+      const added = await run([
+        "shopping",
+        "add",
+        "balloons",
+        "--list",
+        "party",
+        "--json",
+      ]);
+      expect(added.exitCode, added.stdout).toBe(0);
+      expect(JSON.parse(added.stdout).items).toHaveLength(1);
+
+      const lists = await run(["shopping", "lists"]);
+      expect(lists.exitCode).toBe(0);
+      expect(lists.stdout).toContain(`${list.id}  Party · 1 item`);
+      const main = await run(["shopping", "--json"]);
+      expect(JSON.parse(main.stdout).items).toEqual([]);
+
+      const removed = await run(["shopping", "lists", "rm", list.id, "--json"]);
+      expect(removed.exitCode, removed.stdout).toBe(0);
+      expect(JSON.parse(removed.stdout).list.archived).toBe(true);
+    },
+    /* Five CLI processes. */
+    TIMEOUT * 2,
   );
 
   /*

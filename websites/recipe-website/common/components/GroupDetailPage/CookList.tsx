@@ -13,6 +13,7 @@ import {
 import { Badge } from "@discontent/component-library/components/ui/badge";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { cn } from "@discontent/component-library/lib/utils";
+import { MAIN_SHOPPING_LIST, shoppingListHref } from "../../util/shoppingLists";
 import {
   aheadNotes,
   cookCaption,
@@ -611,7 +612,9 @@ export function CookList({
               icon={<ShoppingCart aria-hidden className="size-5" />}
               label="Shopping list"
               caption={`${editor.shopping.lines} ${editor.shopping.lines === 1 ? "line" : "lines"} · ${editor.shopping.ticked} ticked`}
-              href="/shopping"
+              href={shoppingListHref(
+                editor.shopping.list?.id ?? MAIN_SHOPPING_LIST,
+              )}
             />
           ) : (
             <LineRow

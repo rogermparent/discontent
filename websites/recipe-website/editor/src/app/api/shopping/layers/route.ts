@@ -13,7 +13,7 @@
  * Thin, per T17: authenticate, parse, call `controller/curation/shopping`,
  * answer through `errorResponse`.
  */
-import { requireCurationContext } from "recipe-editor/controller/apiContext";
+import { requireShoppingContext } from "recipe-editor/controller/apiContext";
 import {
   errorResponse,
   readJsonBody,
@@ -28,7 +28,7 @@ import { listLayers } from "recipe-website-common/util/shoppingChanges";
 
 export async function GET(request: Request) {
   try {
-    const ctx = await requireCurationContext(request, { need: "read" });
+    const ctx = await requireShoppingContext(request, { need: "read" });
     const { layers, items } = await readShopping(ctx);
     return Response.json({ layers: listLayers(layers, items) });
   } catch (error) {
@@ -38,7 +38,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const ctx = await requireCurationContext(request);
+    const ctx = await requireShoppingContext(request);
     const body = await readJsonBody(request);
     return Response.json(await addShoppingLayer(ctx, body));
   } catch (error) {
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const ctx = await requireCurationContext(request);
+    const ctx = await requireShoppingContext(request);
     const body = await readJsonBody(request);
     return Response.json(await setShoppingLayer(ctx, body));
   } catch (error) {
@@ -58,7 +58,7 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const ctx = await requireCurationContext(request);
+    const ctx = await requireShoppingContext(request);
     const id = new URL(request.url).searchParams.get("id") ?? "";
     return Response.json(await removeShoppingLayer(ctx, { id }));
   } catch (error) {

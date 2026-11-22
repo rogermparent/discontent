@@ -206,6 +206,12 @@ function quoted(text: string, max = 50): string {
   return `“${line.length > max ? `${line.slice(0, max - 1)}…` : line}”`;
 }
 
+/** 50d: " “Thanksgiving”" for a shopping call on a saved list; "" for main. */
+function onList(input: Record<string, unknown>): string {
+  const list = str(input.list);
+  return list && list.toLowerCase() !== "main" ? ` ${quoted(list)}` : "";
+}
+
 /**
  * A held call in words, as a proposal (Db1): "Create “Pork Braise”",
  * "Import from example.com", "Tag 2 recipes middle-eastern". `names` turns
@@ -294,12 +300,13 @@ export function heldPhrase(
       return "Add to what's on hand";
     case "inventory_remove":
       return "Take things off what's on hand";
+    /* 50d: a saved list is named; the main list reads as before. */
     case "shopping_add":
-      return "Add to the shopping list";
+      return `Add to the shopping list${onList(input)}`;
     case "shopping_check":
-      return "Tick the shopping list";
+      return `Tick the shopping list${onList(input)}`;
     case "shopping_remove":
-      return "Take things off the shopping list";
+      return `Take things off the shopping list${onList(input)}`;
     default:
       return `Run ${call.name}`;
   }

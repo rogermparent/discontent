@@ -106,6 +106,19 @@ import {
   viewForStore,
   type ShoppingView,
 } from "recipe-website-common/util/shoppingView";
+import {
+  MAIN_SHOPPING_LIST,
+  MAIN_SHOPPING_LIST_NAME,
+  MAX_SHOPPING_LISTS,
+  SHOPPING_LIST_ID_PATTERN,
+  canonicalShoppingListRecord,
+  cleanListName,
+  isMainListName,
+  parseShoppingListRecord,
+  sortListSummaries,
+  type ShoppingListRecord,
+  type ShoppingListSummary,
+} from "recipe-website-common/util/shoppingLists";
 import type { CurationContext } from "./context";
 import {
   NotFoundError,
@@ -121,6 +134,9 @@ import {
   ShoppingLayerRemoveSchema,
   ShoppingLayerSetSchema,
   ShoppingLeaveOffSchema,
+  ShoppingListCreateSchema,
+  ShoppingListEditSchema,
+  ShoppingListIdSchema,
   ShoppingMergeSchema,
   ShoppingPatchSchema,
   ShoppingSettingsPatchSchema,
@@ -165,12 +181,54 @@ export const SHOPPING_RULES_DIRECTORY = path.join(SHOPPING_DIRECTORY, "rules");
  * 50a (Da6): every path that belongs to **this** list — its items and its
  * layers — in one place, so 50d's saved lists move them under a directory
  * per list together. The rules, merges and settings are every list's.
+ *
+ * 50d (Dd1): these are the **main** list's paths, where they always were —
+ * no migration, no churn on the Pi's sync. A saved list keeps the same
+ * three under `shopping/lists/<id>/` (`shoppingListPaths`), beside its
+ * record, `list.json`.
  */
 export const SHOPPING_LIST_PATHS = {
   items: SHOPPING_ITEMS_DIRECTORY,
   layers: SHOPPING_LAYERS_DIRECTORY,
   tidy: SHOPPING_TIDY_DIRECTORY,
 } as const;
+/** 50d: the saved lists, one directory each, `<ulid>/`. */
+export const SHOPPING_LISTS_DIRECTORY = path.join(SHOPPING_DIRECTORY, "lists");
+
+export type ShoppingListPaths = {
+  readonly [K in keyof typeof SHOPPING_LIST_PATHS]: string;
+};
+
+/** 50d (Dd1): a list's own paths — the main list's are the old ones. */
+export function shoppingListPaths(id: string): ShoppingListPaths {
+  if (id === MAIN_SHOPPING_LIST) return SHOPPING_LIST_PATHS;
+  if (!SHOPPING_LIST_ID_PATTERN.test(id)) {
+    throw new ValidationError(`A shopping list's id is a ULID, not "${id}".`);
+  }
+  const base = path.join(SHOPPING_LISTS_DIRECTORY, id);
+  return {
+    items: path.join(base, "items"),
+    layers: path.join(base, "layers"),
+    tidy: path.join(base, "tidy"),
+  };
+}
+
+function listRecordFile(id: string): string {
+  return path.join(SHOPPING_LISTS_DIRECTORY, id, "list.json");
+}
+
+/** 50d: the list one call reads and writes, resolved (`resolveShoppingList`). */
+export interface ShoppingListScope {
+  id: string;
+  /** A saved list's record; none for the main list. */
+  record?: ShoppingListRecord;
+  paths: ShoppingListPaths;
+}
+
+const MAIN_SCOPE: ShoppingListScope = {
+  id: MAIN_SHOPPING_LIST,
+  paths: SHOPPING_LIST_PATHS,
+};
 export const SHOPPING_RULE_PATHS = {
   merges: SHOPPING_MERGES_DIRECTORY,
   rules: SHOPPING_RULES_DIRECTORY,
@@ -220,6 +278,17 @@ export interface ShoppingResult {
   rules: ShoppingRule[];
   /** Absolute path of the `shopping/` directory (which may not exist yet). */
   path: string;
+  /** 50d: the list this is — the main list, or a saved one. */
+  list: ShoppingListRef;
+}
+
+/** 50d: which list a read or write was about. */
+export interface ShoppingListRef {
+  id: string;
+  name: string;
+  main?: true;
+  plan?: string;
+  archived?: true;
 }
 
 export interface ShoppingViewResult extends ShoppingResult {
@@ -309,16 +378,16 @@ export function shoppingPath(ctx: CurationContext): string {
   return path.join(ctx.contentDirectory, SHOPPING_DIRECTORY);
 }
 
-function itemFile(id: string): string {
-  return path.join(SHOPPING_ITEMS_DIRECTORY, `${id}.json`);
+function itemFile(scope: ShoppingListScope, id: string): string {
+  return path.join(scope.paths.items, `${id}.json`);
 }
 
 function mergeFile(id: string): string {
   return path.join(SHOPPING_MERGES_DIRECTORY, `${id}.json`);
 }
 
-function layerFile(id: string): string {
-  return path.join(SHOPPING_LIST_PATHS.layers, `${id}.json`);
+function layerFile(scope: ShoppingListScope, id: string): string {
+  return path.join(scope.paths.layers, `${id}.json`);
 }
 
 function ruleFile(id: string): string {
@@ -335,17 +404,146 @@ function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException)?.code === "ENOENT";
 }
 
+// --- which list (50d) ---------------------------------------------------------
+
 /**
- * Every item, sorted by id. A file that does not parse — a hand edit gone
- * wrong, or conflict markers mid-merge — is skipped rather than failing the
- * list. The file name is the item's id, whatever the file says.
+ * 50d: `ctx` on the list an input names (a body's or a tool's `list`), else
+ * on the one it already names.
  */
-export async function readShoppingItems(
+export function onList(
   ctx: CurationContext,
+  list: string | undefined,
+): CurationContext {
+  return list === undefined || list === ctx.shoppingList
+    ? ctx
+    : { ...ctx, shoppingList: list };
+}
+
+/** 50d: a saved list's record, or `null` when there is none (or it is unread). */
+async function readListRecord(
+  ctx: CurationContext,
+  id: string,
+): Promise<ShoppingListRecord | null> {
+  try {
+    return parseShoppingListRecord(
+      JSON.parse(
+        await readFile(absolute(ctx, listRecordFile(id)), "utf8"),
+      ) as unknown,
+      id,
+    );
+  } catch (error) {
+    if (isMissing(error) || error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+
+/** 50d: every saved list's record, deleted ones too, oldest first. */
+export async function readShoppingListRecords(
+  ctx: CurationContext,
+): Promise<ShoppingListRecord[]> {
+  let names: string[];
+  try {
+    names = await readdir(absolute(ctx, SHOPPING_LISTS_DIRECTORY));
+  } catch (error) {
+    if (isMissing(error)) return [];
+    throw error;
+  }
+  const records = await Promise.all(
+    names
+      .filter((name) => SHOPPING_LIST_ID_PATTERN.test(name))
+      .map((name) => readListRecord(ctx, name)),
+  );
+  return records
+    .filter((record): record is ShoppingListRecord => record !== null)
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/**
+ * 50d (Dd2): the list a reference names — `main` (or nothing, or "Main
+ * list"), a saved list's id, or its name (case and spacing aside; a list
+ * not deleted first). `not_found` when none does; `validation` when two
+ * lists not deleted share the name.
+ */
+export async function resolveShoppingList(
+  ctx: CurationContext,
+  ref: string | undefined = ctx.shoppingList,
+): Promise<ShoppingListScope> {
+  const wanted = ref === undefined ? "" : cleanListName(ref);
+  if (!wanted || isMainListName(wanted)) return MAIN_SCOPE;
+  const id = wanted.toLowerCase();
+  if (SHOPPING_LIST_ID_PATTERN.test(id)) {
+    const record = await readListRecord(ctx, id);
+    if (!record) {
+      throw new NotFoundError(
+        `No shopping list "${ref}". \`shopping lists\` lists them.`,
+      );
+    }
+    return { id, record, paths: shoppingListPaths(id) };
+  }
+  const named = (await readShoppingListRecords(ctx)).filter(
+    (record) => record.name.toLowerCase() === id,
+  );
+  const live = named.filter((record) => !record.archived);
+  const pick = live.length > 0 ? live : named;
+  if (pick.length > 1) {
+    throw new ValidationError(
+      `${pick.length} shopping lists are named "${wanted}": name one by its id (${pick.map((record) => record.id).join(", ")}).`,
+    );
+  }
+  if (pick.length === 0) {
+    throw new NotFoundError(
+      `No shopping list "${ref}". \`shopping lists\` lists them.`,
+    );
+  }
+  return {
+    id: pick[0].id,
+    record: pick[0],
+    paths: shoppingListPaths(pick[0].id),
+  };
+}
+
+/**
+ * 50d: a write to a saved list re-reads its record under the lock — a list
+ * deleted (archived) since is refused, so nothing lands where nobody looks.
+ */
+async function assertListWritable(
+  ctx: CurationContext,
+  scope: ShoppingListScope,
+): Promise<void> {
+  if (scope.id === MAIN_SHOPPING_LIST) return;
+  const record = await readListRecord(ctx, scope.id);
+  if (!record) {
+    throw new NotFoundError(`No shopping list "${scope.id}".`);
+  }
+  if (record.archived) {
+    throw new ValidationError(
+      `The shopping list "${record.name}" is deleted: restore it first (\`shopping lists restore ${record.id}\`).`,
+    );
+  }
+}
+
+/**
+ * 50d: a commit subject for one list's write. The main list's read as they
+ * always did ("Update shopping list: +eggs"); a saved list's name it
+ * ("Update shopping list "Thanksgiving": +eggs").
+ */
+function listSubject(scope: ShoppingListScope, message: string): string {
+  if (!scope.record) return message;
+  const name = JSON.stringify(scope.record.name);
+  return message.replace(
+    /^(Update|Clear) shopping list(?=:)/,
+    (_match, verb: string) => `${verb} shopping list ${name}`,
+  );
+}
+
+/** Every item of one list, as `readShoppingItems` reads them. */
+async function itemsOf(
+  ctx: CurationContext,
+  scope: ShoppingListScope,
 ): Promise<ShoppingItem[]> {
   let names: string[];
   try {
-    names = await readdir(absolute(ctx, SHOPPING_ITEMS_DIRECTORY));
+    names = await readdir(absolute(ctx, scope.paths.items));
   } catch (error) {
     if (isMissing(error)) return [];
     throw error;
@@ -356,7 +554,7 @@ export async function readShoppingItems(
     if (!match) continue;
     try {
       const raw = JSON.parse(
-        await readFile(absolute(ctx, itemFile(match[1])), "utf8"),
+        await readFile(absolute(ctx, itemFile(scope, match[1])), "utf8"),
       ) as unknown;
       const item = parseShoppingItem(raw, match[1]);
       if (item) items.push({ ...item, id: match[1] });
@@ -367,6 +565,18 @@ export async function readShoppingItems(
     }
   }
   return items.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/**
+ * Every item, sorted by id. A file that does not parse — a hand edit gone
+ * wrong, or conflict markers mid-merge — is skipped rather than failing the
+ * list. The file name is the item's id, whatever the file says. 50d: the
+ * items of the list `ctx.shoppingList` names (the main list without one).
+ */
+export async function readShoppingItems(
+  ctx: CurationContext,
+): Promise<ShoppingItem[]> {
+  return itemsOf(ctx, await resolveShoppingList(ctx));
 }
 
 /**
@@ -440,16 +650,23 @@ async function readRecords<T>(
     .map((entry) => entry.record);
 }
 
-/** 50a: this list's layers, in the order they apply (by id). */
-export function readShoppingLayers(
+function layersOf(
   ctx: CurationContext,
+  scope: ShoppingListScope,
 ): Promise<ShoppingLayer[]> {
   return readRecords(
     ctx,
-    SHOPPING_LIST_PATHS.layers,
+    scope.paths.layers,
     /^([0-9a-hjkmnp-tv-z]{26})\.json$/,
     parseShoppingLayer,
   );
+}
+
+/** 50a: this list's layers, in the order they apply (by id). */
+export async function readShoppingLayers(
+  ctx: CurationContext,
+): Promise<ShoppingLayer[]> {
+  return layersOf(ctx, await resolveShoppingList(ctx));
 }
 
 /** 50a: the leave-off rules, by id. */
@@ -485,14 +702,35 @@ export async function readShoppingSettings(
 export async function readShopping(
   ctx: CurationContext,
 ): Promise<ShoppingResult> {
+  const scope = await resolveShoppingList(ctx);
   const [items, settings, merges, layers, rules] = await Promise.all([
-    readShoppingItems(ctx),
+    itemsOf(ctx, scope),
     readShoppingSettings(ctx),
     readShoppingMerges(ctx),
-    readShoppingLayers(ctx),
+    layersOf(ctx, scope),
     readShoppingRules(ctx),
   ]);
-  return { items, settings, merges, layers, rules, path: shoppingPath(ctx) };
+  return {
+    items,
+    settings,
+    merges,
+    layers,
+    rules,
+    path: shoppingPath(ctx),
+    list: listOfScope(scope),
+  };
+}
+
+/** 50d: which list a read answered. */
+function listOfScope(scope: ShoppingListScope): ShoppingListRef {
+  return scope.record
+    ? {
+        id: scope.id,
+        name: scope.record.name,
+        ...(scope.record.plan ? { plan: scope.record.plan } : {}),
+        ...(scope.record.archived ? { archived: true as const } : {}),
+      }
+    : { id: MAIN_SHOPPING_LIST, name: MAIN_SHOPPING_LIST_NAME, main: true };
 }
 
 /**
@@ -529,10 +767,14 @@ export async function readShoppingPlanNames(
  */
 export async function readShoppingView(
   ctx: CurationContext,
-  { store, asWritten = false }: { store?: string; asWritten?: boolean } = {},
+  {
+    store,
+    asWritten = false,
+    list,
+  }: { store?: string; asWritten?: boolean; list?: string } = {},
 ): Promise<ShoppingViewResult> {
   const [shopping, inventory] = await Promise.all([
-    readShopping(ctx),
+    readShopping(onList(ctx, list)),
     readInventory(ctx),
   ]);
   const { items, settings, layers, rules } = shopping;
@@ -617,6 +859,7 @@ async function restore(
  */
 async function applyItems(
   ctx: CurationContext,
+  scope: ShoppingListScope,
   {
     write = [],
     remove = [],
@@ -628,14 +871,17 @@ async function applyItems(
     ctx,
     [
       ...write.map((item) => ({
-        relative: itemFile(item.id),
+        relative: itemFile(scope, item.id),
         bytes: serializeItem(item),
       })),
-      ...remove.map((id) => ({ relative: itemFile(id), bytes: null })),
+      ...remove.map((id) => ({ relative: itemFile(scope, id), bytes: null })),
       /* 50a: a layer goes with its last items, in the same commit (Da4). */
-      ...removeLayers.map((id) => ({ relative: layerFile(id), bytes: null })),
+      ...removeLayers.map((id) => ({
+        relative: layerFile(scope, id),
+        bytes: null,
+      })),
     ],
-    message,
+    listSubject(scope, message),
   );
 }
 
@@ -645,11 +891,12 @@ async function applyItems(
  */
 async function layersGoingWith(
   ctx: CurationContext,
+  scope: ShoppingListScope,
   items: readonly ShoppingItem[],
   removed: ReadonlySet<string>,
 ): Promise<string[]> {
   if (removed.size === 0) return [];
-  const layers = await readShoppingLayers(ctx);
+  const layers = await layersOf(ctx, scope);
   if (layers.length === 0) return [];
   const left = new Set(
     items.filter((item) => !removed.has(item.id)).map((item) => item.id),
@@ -829,17 +1076,62 @@ export async function addToShopping(
   raw: unknown,
 ): Promise<ShoppingAddResult> {
   const input = parseInput(ShoppingAddSchema, raw);
+  const scope = await resolveShoppingList(onList(ctx, input.list));
   return withWriteLock(ctx.contentDirectory, "shopping: add", () =>
-    addLocked(ctx, input),
+    addLocked(ctx, scope, input),
   );
 }
 
 async function addLocked(
   ctx: CurationContext,
+  scope: ShoppingListScope,
   input: ShoppingAddInput,
 ): Promise<ShoppingAddResult> {
   /* Refuse mid-merge before any file is written (34-D6). */
   await assertNoMergeInProgress(ctx.contentDirectory);
+  await assertListWritable(ctx, scope);
+  const { added, message, result, warnings } = await collectAdd(ctx, input);
+  const existing = (await itemsOf(ctx, scope)).length;
+  const cap = shoppingTestHooks.maxItems ?? MAX_SHOPPING_ITEMS;
+  if (existing + added.length > cap) {
+    throw new ValidationError(
+      `The list would hold ${existing + added.length} items; it holds at most ${cap}.${
+        added.some((item) => item.for?.length)
+          ? " Sub-recipes went on as their own lines — turn off features.subRecipes to add them as written."
+          : ""
+      } Clear what was bought first. Nothing was added.`,
+    );
+  }
+
+  const changed = await applyItems(
+    ctx,
+    scope,
+    { write: added },
+    `Update shopping list: ${message}`,
+  );
+  return {
+    added,
+    items: await itemsOf(ctx, scope),
+    changed,
+    ...result,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  };
+}
+
+/**
+ * What an add puts on a list, worked out and not written: the items, the
+ * commit subject's words, the plan's missing parts and the warnings. 50d:
+ * a list made from a meal plan writes these in its own first commit.
+ */
+async function collectAdd(
+  ctx: CurationContext,
+  input: Omit<ShoppingAddInput, "list">,
+): Promise<{
+  added: ShoppingItem[];
+  message: string;
+  result: Partial<ShoppingAddResult>;
+  warnings: string[];
+}> {
   const scale = parseScale(input.scale);
   const factor = scale && !scale.equals(1) ? ` ×${scale.toFraction()}` : "";
 
@@ -946,31 +1238,7 @@ async function addLocked(
     message = describe(added.map((item) => `+${clip(item.text.trim())}`));
   }
   warnings.push(...expansion.warnings);
-
-  const existing = (await readShoppingItems(ctx)).length;
-  const cap = shoppingTestHooks.maxItems ?? MAX_SHOPPING_ITEMS;
-  if (existing + added.length > cap) {
-    throw new ValidationError(
-      `The list would hold ${existing + added.length} items; it holds at most ${cap}.${
-        added.some((item) => item.for?.length)
-          ? " Sub-recipes went on as their own lines — turn off features.subRecipes to add them as written."
-          : ""
-      } Clear what was bought first. Nothing was added.`,
-    );
-  }
-
-  const changed = await applyItems(
-    ctx,
-    { write: added },
-    `Update shopping list: ${message}`,
-  );
-  return {
-    added,
-    items: await readShoppingItems(ctx),
-    changed,
-    ...result,
-    ...(warnings.length > 0 ? { warnings } : {}),
-  };
+  return { added, message, result, warnings };
 }
 
 /**
@@ -1003,18 +1271,21 @@ export async function patchShopping(
   raw: unknown,
 ): Promise<ShoppingPatchResult> {
   const input = parseInput(ShoppingPatchSchema, raw);
+  const scope = await resolveShoppingList(onList(ctx, input.list));
   return withWriteLock(ctx.contentDirectory, "shopping: update", () =>
-    patchLocked(ctx, input),
+    patchLocked(ctx, scope, input),
   );
 }
 
 async function patchLocked(
   ctx: CurationContext,
+  scope: ShoppingListScope,
   input: ShoppingPatchInput,
 ): Promise<ShoppingPatchResult> {
   await assertNoMergeInProgress(ctx.contentDirectory);
+  await assertListWritable(ctx, scope);
   const [items, settings] = await Promise.all([
-    readShoppingItems(ctx),
+    itemsOf(ctx, scope),
     readShoppingSettings(ctx),
   ]);
   const byId = new Map(items.map((item) => [item.id.toLowerCase(), item]));
@@ -1153,9 +1424,10 @@ async function patchLocked(
       !removed.has(item.id) && serializeItem(item) !== stored.get(item.id),
   );
   const touched = new Set([...write.map((item) => item.id), ...removed]);
-  const removeLayers = await layersGoingWith(ctx, items, removed);
+  const removeLayers = await layersGoingWith(ctx, scope, items, removed);
   const changed = await applyItems(
     ctx,
+    scope,
     { write, remove: [...removed], removeLayers },
     `Update shopping list: ${describe(
       parts
@@ -1164,7 +1436,7 @@ async function patchLocked(
     )}`,
   );
   return {
-    items: changed ? await readShoppingItems(ctx) : items,
+    items: changed ? await itemsOf(ctx, scope) : items,
     changed,
     updated: write.map((item) => item.id),
     removed: [...removed],
@@ -1227,10 +1499,15 @@ export async function clearShopping(
   ctx: CurationContext,
   raw: unknown = {},
 ): Promise<ShoppingClearResult> {
-  const { scope = "checked" } = parseInput(ShoppingClearSchema, raw);
+  const { scope = "checked", list: listRef } = parseInput(
+    ShoppingClearSchema,
+    raw,
+  );
+  const list = await resolveShoppingList(onList(ctx, listRef));
   return withWriteLock(ctx.contentDirectory, "shopping: clear", async () => {
     await assertNoMergeInProgress(ctx.contentDirectory);
-    const items = await readShoppingItems(ctx);
+    await assertListWritable(ctx, list);
+    const items = await itemsOf(ctx, list);
     const gone = items.filter((item) => scope === "all" || item.checked);
     /* 38d: an `OR:` item goes with the line it folds into — never left as
      * a row of its own. */
@@ -1246,14 +1523,15 @@ export async function clearShopping(
       scope === "all"
         ? `Clear shopping list: all ${count(gone.length)}`
         : `Clear shopping list: ${gone.length} checked`;
-    const removeLayers = await layersGoingWith(ctx, items, goneIds);
+    const removeLayers = await layersGoingWith(ctx, list, items, goneIds);
     const changed = await applyItems(
       ctx,
+      list,
       { remove: gone.map((item) => item.id), removeLayers },
       message,
     );
     return {
-      items: changed ? await readShoppingItems(ctx) : items,
+      items: changed ? await itemsOf(ctx, list) : items,
       changed,
       removed: gone.map((item) => item.id),
       ...(changed && removeLayers.length > 0
@@ -1724,11 +2002,13 @@ export async function addShoppingLayer(
   raw: unknown,
 ): Promise<ShoppingLayerResult> {
   const input = parseInput(ShoppingLayerAddSchema, raw);
+  const scope = await resolveShoppingList(ctx);
   return withWriteLock(ctx.contentDirectory, "shopping: change", async () => {
     await assertNoMergeInProgress(ctx.contentDirectory);
+    await assertListWritable(ctx, scope);
     const [items, layers] = await Promise.all([
-      readShoppingItems(ctx),
-      readShoppingLayers(ctx),
+      itemsOf(ctx, scope),
+      layersOf(ctx, scope),
     ]);
     const present = new Set(items.map((item) => item.id));
     const unknown = [...new Set(input.ops.flatMap((op) => op.ids))].filter(
@@ -1766,11 +2046,14 @@ export async function addShoppingLayer(
     }
     await applyFiles(
       ctx,
-      [{ relative: layerFile(id), bytes: serializeLayer(layer) }],
-      `Update shopping list: change: ${layerText(layer, items)}`,
+      [{ relative: layerFile(scope, id), bytes: serializeLayer(layer) }],
+      listSubject(
+        scope,
+        `Update shopping list: change: ${layerText(layer, items)}`,
+      ),
     );
     return {
-      layers: await readShoppingLayers(ctx),
+      layers: await layersOf(ctx, scope),
       changed: true,
       layer,
       removed: [],
@@ -1784,11 +2067,13 @@ export async function setShoppingLayer(
   raw: unknown,
 ): Promise<ShoppingLayerResult> {
   const { id, on } = parseInput(ShoppingLayerSetSchema, raw);
+  const scope = await resolveShoppingList(ctx);
   return withWriteLock(ctx.contentDirectory, "shopping: change", async () => {
     await assertNoMergeInProgress(ctx.contentDirectory);
+    await assertListWritable(ctx, scope);
     const [items, layers] = await Promise.all([
-      readShoppingItems(ctx),
-      readShoppingLayers(ctx),
+      itemsOf(ctx, scope),
+      layersOf(ctx, scope),
     ]);
     const stored = layers.find((layer) => layer.id === id);
     if (!stored) {
@@ -1802,11 +2087,14 @@ export async function setShoppingLayer(
     const layer = canonicalShoppingLayer({ ...stored, on });
     await applyFiles(
       ctx,
-      [{ relative: layerFile(id), bytes: serializeLayer(layer) }],
-      `Update shopping list: change ${on ? "on" : "off"}: ${layerText(layer, items)}`,
+      [{ relative: layerFile(scope, id), bytes: serializeLayer(layer) }],
+      listSubject(
+        scope,
+        `Update shopping list: change ${on ? "on" : "off"}: ${layerText(layer, items)}`,
+      ),
     );
     return {
-      layers: await readShoppingLayers(ctx),
+      layers: await layersOf(ctx, scope),
       changed: true,
       layer,
       removed: [],
@@ -1820,21 +2108,26 @@ export async function removeShoppingLayer(
   raw: unknown,
 ): Promise<ShoppingLayerResult> {
   const { id } = parseInput(ShoppingLayerRemoveSchema, raw);
+  const scope = await resolveShoppingList(ctx);
   return withWriteLock(ctx.contentDirectory, "shopping: change", async () => {
     await assertNoMergeInProgress(ctx.contentDirectory);
+    await assertListWritable(ctx, scope);
     const [items, layers] = await Promise.all([
-      readShoppingItems(ctx),
-      readShoppingLayers(ctx),
+      itemsOf(ctx, scope),
+      layersOf(ctx, scope),
     ]);
     const stored = layers.find((layer) => layer.id === id);
     if (!stored) return { layers, changed: false, removed: [] };
     await applyFiles(
       ctx,
-      [{ relative: layerFile(id), bytes: null }],
-      `Update shopping list: remove change: ${layerText(stored, items)}`,
+      [{ relative: layerFile(scope, id), bytes: null }],
+      listSubject(
+        scope,
+        `Update shopping list: remove change: ${layerText(stored, items)}`,
+      ),
     );
     return {
-      layers: await readShoppingLayers(ctx),
+      layers: await layersOf(ctx, scope),
       changed: true,
       removed: [id],
     };
@@ -1908,20 +2201,27 @@ export async function setShoppingLeaveOff(
 
 // --- 50b: tidy runs ----------------------------------------------------------
 
-function tidyFile(id: string): string {
-  return path.join(SHOPPING_LIST_PATHS.tidy, `${id}.json`);
+function tidyFile(scope: ShoppingListScope, id: string): string {
+  return path.join(scope.paths.tidy, `${id}.json`);
 }
 
-/** 50b: this list's tidy runs, newest first. */
-export async function readTidyRuns(ctx: CurationContext): Promise<TidyRun[]> {
+async function tidyRunsOf(
+  ctx: CurationContext,
+  scope: ShoppingListScope,
+): Promise<TidyRun[]> {
   return sortTidyRuns(
     await readRecords(
       ctx,
-      SHOPPING_LIST_PATHS.tidy,
+      scope.paths.tidy,
       /^([0-9a-hjkmnp-tv-z]{26})\.json$/,
       parseTidyRun,
     ),
   );
+}
+
+/** 50b: this list's tidy runs, newest first. */
+export async function readTidyRuns(ctx: CurationContext): Promise<TidyRun[]> {
+  return tidyRunsOf(ctx, await resolveShoppingList(ctx));
 }
 
 /** 50b: one run, or `not_found`. */
@@ -1957,22 +2257,27 @@ export async function writeTidyRun(
   if (!TIDY_RUN_ID_PATTERN.test(run.id)) {
     throw new ValidationError(`A tidy run's id is a ULID, not "${run.id}".`);
   }
+  const scope = await resolveShoppingList(ctx);
   return withWriteLock(ctx.contentDirectory, "shopping: tidy", async () => {
     await assertNoMergeInProgress(ctx.contentDirectory);
-    const runs = await readTidyRuns(ctx);
+    await assertListWritable(ctx, scope);
+    const runs = await tidyRunsOf(ctx, scope);
     const others = runs.filter((each) => each.id !== run.id);
     const dropped = others.slice(MAX_TIDY_RUNS - 1);
     const n = run.suggestions.length;
     await applyFiles(
       ctx,
       [
-        { relative: tidyFile(run.id), bytes: serializeTidyRun(run) },
+        { relative: tidyFile(scope, run.id), bytes: serializeTidyRun(run) },
         ...dropped.map((each) => ({
-          relative: tidyFile(each.id),
+          relative: tidyFile(scope, each.id),
           bytes: null,
         })),
       ],
-      `Update shopping list: tidy with ${tidyModelText(run)} (${run.on}): ${n === 1 ? "1 suggestion" : `${n} suggestions`}`,
+      listSubject(
+        scope,
+        `Update shopping list: tidy with ${tidyModelText(run)} (${run.on}): ${n === 1 ? "1 suggestion" : `${n} suggestions`}`,
+      ),
     );
     return run;
   });
@@ -2015,12 +2320,14 @@ export async function decideTidySuggestion(
   id: string,
   action: "accept" | "skip",
 ): Promise<TidyDecisionResult> {
+  const scope = await resolveShoppingList(ctx);
   return withWriteLock(ctx.contentDirectory, "shopping: tidy", async () => {
     await assertNoMergeInProgress(ctx.contentDirectory);
+    await assertListWritable(ctx, scope);
     const [runs, items, layers] = await Promise.all([
-      readTidyRuns(ctx),
-      readShoppingItems(ctx),
-      readShoppingLayers(ctx),
+      tidyRunsOf(ctx, scope),
+      itemsOf(ctx, scope),
+      layersOf(ctx, scope),
     ]);
     const { run, suggestion } = findSuggestion(runs, id);
     const present = new Set(items.map((item) => item.id));
@@ -2045,8 +2352,8 @@ export async function decideTidySuggestion(
       };
       await applyFiles(
         ctx,
-        [{ relative: tidyFile(run.id), bytes: serializeTidyRun(next) }],
-        `Update shopping list: skip: ${suggestion.title}`,
+        [{ relative: tidyFile(scope, run.id), bytes: serializeTidyRun(next) }],
+        listSubject(scope, `Update shopping list: skip: ${suggestion.title}`),
       );
       return { run: next, suggestion, changed: true };
     }
@@ -2099,10 +2406,13 @@ export async function decideTidySuggestion(
     await applyFiles(
       ctx,
       [
-        { relative: layerFile(layerId), bytes: serializeLayer(layer) },
-        { relative: tidyFile(run.id), bytes: serializeTidyRun(next) },
+        { relative: layerFile(scope, layerId), bytes: serializeLayer(layer) },
+        { relative: tidyFile(scope, run.id), bytes: serializeTidyRun(next) },
       ],
-      `Update shopping list: accept: ${suggestion.title} (${run.model})`,
+      listSubject(
+        scope,
+        `Update shopping list: accept: ${suggestion.title} (${run.model})`,
+      ),
     );
     return { run: next, suggestion, changed: true, layer };
   });
@@ -2117,9 +2427,11 @@ export async function reviseTidySuggestion(
   ctx: CurationContext,
   revised: TidySuggestion,
 ): Promise<TidyRun> {
+  const scope = await resolveShoppingList(ctx);
   return withWriteLock(ctx.contentDirectory, "shopping: tidy", async () => {
     await assertNoMergeInProgress(ctx.contentDirectory);
-    const runs = await readTidyRuns(ctx);
+    await assertListWritable(ctx, scope);
+    const runs = await tidyRunsOf(ctx, scope);
     const { run, suggestion } = findSuggestion(runs, revised.id);
     if (run.status[suggestion.id]?.status === "accepted") {
       throw new ValidationError(
@@ -2137,9 +2449,314 @@ export async function reviseTidySuggestion(
     };
     await applyFiles(
       ctx,
-      [{ relative: tidyFile(run.id), bytes: serializeTidyRun(next) }],
-      `Update shopping list: revise: ${suggestion.title} → ${revised.title}`,
+      [{ relative: tidyFile(scope, run.id), bytes: serializeTidyRun(next) }],
+      listSubject(
+        scope,
+        `Update shopping list: revise: ${suggestion.title} → ${revised.title}`,
+      ),
     );
     return next;
   });
+}
+
+// --- saved lists (50d) ---------------------------------------------------------
+
+/** 50d: a list made, renamed, deleted or restored. */
+export interface ShoppingListResult {
+  /** The list as it is now. */
+  list: ShoppingListSummary;
+  /** Every list not deleted, the main list first. */
+  lists: ShoppingListSummary[];
+  changed: boolean;
+  /** A list made from a meal plan: the lines it put on it. */
+  added?: ShoppingItem[];
+  missing?: { recipes: string[]; groups: string[] };
+  cycles?: string[][];
+  warnings?: string[];
+}
+
+function serializeListRecord(record: ShoppingListRecord): string {
+  return `${JSON.stringify(canonicalShoppingListRecord(record), null, 2)}\n`;
+}
+
+async function summaryOf(
+  ctx: CurationContext,
+  scope: ShoppingListScope,
+  planNames: Map<string, string | undefined>,
+): Promise<ShoppingListSummary> {
+  const items = await itemsOf(ctx, scope);
+  const left = items.filter((item) => !item.checked).length;
+  if (!scope.record) {
+    return {
+      id: MAIN_SHOPPING_LIST,
+      name: MAIN_SHOPPING_LIST_NAME,
+      main: true,
+      items: items.length,
+      left,
+    };
+  }
+  const { id, name, created, plan, archived } = scope.record;
+  const planName = plan ? planNames.get(plan) : undefined;
+  return {
+    id,
+    name,
+    created,
+    ...(plan ? { plan } : {}),
+    ...(planName ? { planName } : {}),
+    ...(archived ? { archived: true as const } : {}),
+    items: items.length,
+    left,
+  };
+}
+
+/**
+ * 50d: the lists — the main list first, then the saved ones newest first,
+ * each with its counts and its plan's name. `all` includes deleted ones.
+ */
+export async function readShoppingLists(
+  ctx: CurationContext,
+  { all = false }: { all?: boolean } = {},
+): Promise<ShoppingListSummary[]> {
+  const records = (await readShoppingListRecords(ctx)).filter(
+    (record) => all || !record.archived,
+  );
+  const plans = [
+    ...new Set(records.flatMap((record) => (record.plan ? [record.plan] : []))),
+  ];
+  const groups = await Promise.all(
+    plans.map((slug) => readGroup(ctx, slug).catch(() => null)),
+  );
+  const planNames = new Map(
+    plans.map((slug, index) => [slug, groups[index]?.name]),
+  );
+  const scopes: ShoppingListScope[] = [
+    MAIN_SCOPE,
+    ...records.map((record) => ({
+      id: record.id,
+      record,
+      paths: shoppingListPaths(record.id),
+    })),
+  ];
+  return sortListSummaries(
+    await Promise.all(scopes.map((scope) => summaryOf(ctx, scope, planNames))),
+  );
+}
+
+/** A saved list by its id (not a name): the record, or `not_found`. */
+async function savedList(
+  ctx: CurationContext,
+  ref: string,
+): Promise<ShoppingListScope> {
+  const scope = await resolveShoppingList(ctx, ref);
+  if (!scope.record) {
+    throw new ValidationError(
+      "The main list keeps its name and can't be deleted.",
+    );
+  }
+  return scope;
+}
+
+/** A name no list not deleted has yet, as typed; `validation` when one has. */
+function checkName(
+  name: string,
+  records: readonly ShoppingListRecord[],
+  except?: string,
+): void {
+  if (isMainListName(name)) {
+    throw new ValidationError(
+      `"${name}" is the main list's name: pick another.`,
+    );
+  }
+  const taken = records.find(
+    (record) =>
+      !record.archived &&
+      record.id !== except &&
+      record.name.toLowerCase() === name.toLowerCase(),
+  );
+  if (taken) {
+    throw new ValidationError(
+      `A shopping list is named "${taken.name}" already (${taken.id}): pick another name.`,
+    );
+  }
+}
+
+/** A plan's name made free: "Thanksgiving", then "Thanksgiving (2)"… */
+function freeName(
+  name: string,
+  records: readonly ShoppingListRecord[],
+): string {
+  const taken = new Set(
+    records
+      .filter((record) => !record.archived)
+      .map((record) => record.name.toLowerCase()),
+  );
+  const base = isMainListName(name) ? `${name} (plan)` : name;
+  if (!taken.has(base.toLowerCase())) return base;
+  for (let n = 2; ; n++) {
+    const next = `${base} (${n})`;
+    if (!taken.has(next.toLowerCase())) return next;
+  }
+}
+
+/**
+ * 50d (Dd6): make a list — blank and named, or from a meal plan (`plan`, a
+ * group's slug): named after the plan unless a name is given, holding the
+ * plan's recipes as `shopping add --group` adds them (nested plans, each at
+ * its row's scale, times `scale`), with `plan` on its record. One commit,
+ * the record and the lines together.
+ */
+export async function createShoppingList(
+  ctx: CurationContext,
+  raw: unknown,
+): Promise<ShoppingListResult> {
+  const input = parseInput(ShoppingListCreateSchema, raw);
+  return withWriteLock(ctx.contentDirectory, "shopping: lists", async () => {
+    await assertNoMergeInProgress(ctx.contentDirectory);
+    const records = await readShoppingListRecords(ctx);
+    if (records.length >= MAX_SHOPPING_LISTS) {
+      throw new ValidationError(
+        `The content holds at most ${MAX_SHOPPING_LISTS} shopping lists, deleted ones included.`,
+      );
+    }
+    let name = input.name ? cleanListName(input.name) : "";
+    let collected: Awaited<ReturnType<typeof collectAdd>> | undefined;
+    if (input.plan !== undefined) {
+      collected = await collectAdd(ctx, {
+        group: input.plan,
+        ...(input.scale !== undefined ? { scale: input.scale } : {}),
+      });
+      if (!name) {
+        const group = await readGroup(ctx, input.plan);
+        name = freeName(
+          cleanListName(group?.name ?? input.plan).slice(0, 80) || input.plan,
+          records,
+        );
+      }
+    }
+    if (!name) throw new ValidationError("A new list needs a name.");
+    checkName(name, records);
+    const cap = shoppingTestHooks.maxItems ?? MAX_SHOPPING_ITEMS;
+    const added = collected?.added ?? [];
+    if (added.length > cap) {
+      throw new ValidationError(
+        `The list would hold ${added.length} items; it holds at most ${cap}. Nothing was made.`,
+      );
+    }
+    const id = newId();
+    const record: ShoppingListRecord = canonicalShoppingListRecord({
+      id,
+      name,
+      created: new Date().toISOString(),
+      ...(input.plan !== undefined ? { plan: input.plan } : {}),
+    });
+    const scope: ShoppingListScope = {
+      id,
+      record,
+      paths: shoppingListPaths(id),
+    };
+    await applyFiles(
+      ctx,
+      [
+        { relative: listRecordFile(id), bytes: serializeListRecord(record) },
+        ...added.map((item) => ({
+          relative: itemFile(scope, item.id),
+          bytes: serializeItem(item),
+        })),
+      ],
+      `New shopping list: ${clip(name)}${collected ? ` (${collected.message})` : ""}`,
+    );
+    const lists = await readShoppingLists(ctx);
+    const warnings = collected?.warnings ?? [];
+    return {
+      list: lists.find((each) => each.id === id)!,
+      lists,
+      changed: true,
+      ...(collected ? { added } : {}),
+      ...(collected?.result.missing
+        ? { missing: collected.result.missing }
+        : {}),
+      ...(collected?.result.cycles ? { cycles: collected.result.cycles } : {}),
+      ...(warnings.length > 0 ? { warnings } : {}),
+    };
+  });
+}
+
+/**
+ * 50d (Dd4): rename a saved list, or delete it (`archived: true` — hidden
+ * from the switcher, its files kept) or bring it back (`archived: false`).
+ * One commit; none when nothing changes. The main list is neither renamed
+ * nor deleted.
+ */
+export async function editShoppingList(
+  ctx: CurationContext,
+  raw: unknown,
+): Promise<ShoppingListResult> {
+  const input = parseInput(ShoppingListEditSchema, raw);
+  const scope = await savedList(ctx, input.id);
+  return withWriteLock(ctx.contentDirectory, "shopping: lists", async () => {
+    await assertNoMergeInProgress(ctx.contentDirectory);
+    const stored = await readListRecord(ctx, scope.id);
+    if (!stored) {
+      throw new NotFoundError(`No shopping list "${input.id}".`);
+    }
+    const records = await readShoppingListRecords(ctx);
+    const name =
+      input.name !== undefined ? cleanListName(input.name) : stored.name;
+    const archived = input.archived ?? Boolean(stored.archived);
+    /* A rename, or a list coming back, must not take a name in use. */
+    if (!archived && (name !== stored.name || stored.archived)) {
+      checkName(name, records, stored.id);
+    }
+    const next = canonicalShoppingListRecord({
+      ...stored,
+      name,
+      archived,
+    });
+    const before = serializeListRecord(stored);
+    if (serializeListRecord(next) !== before) {
+      const items = await itemsOf(ctx, scope);
+      const subject =
+        archived && !stored.archived
+          ? `Delete shopping list: ${clip(stored.name)} (${count(items.length)} kept)`
+          : !archived && stored.archived
+            ? `Restore shopping list: ${clip(name)}`
+            : `Rename shopping list: ${clip(stored.name)} → ${clip(name)}`;
+      await applyFiles(
+        ctx,
+        [
+          {
+            relative: listRecordFile(stored.id),
+            bytes: serializeListRecord(next),
+          },
+        ],
+        subject,
+      );
+    }
+    const lists = await readShoppingLists(ctx, { all: true });
+    return {
+      list: lists.find((each) => each.id === stored.id)!,
+      lists: lists.filter((each) => !each.archived),
+      changed: serializeListRecord(next) !== before,
+    };
+  });
+}
+
+/** 50d (Dd4): Delete is an archive — the record says so, the files stay. */
+export function deleteShoppingList(
+  ctx: CurationContext,
+  raw: unknown,
+): Promise<ShoppingListResult> {
+  const { id } = parseInput(ShoppingListIdSchema, raw);
+  return editShoppingList(ctx, { id, archived: true });
+}
+
+/**
+ * 50d: the saved lists made from a plan, not deleted, newest first — what
+ * the plan's page links ("Shopping list: Thanksgiving").
+ */
+export async function shoppingListsForPlan(
+  ctx: CurationContext,
+  plan: string,
+): Promise<ShoppingListSummary[]> {
+  return (await readShoppingLists(ctx)).filter((list) => list.plan === plan);
 }
