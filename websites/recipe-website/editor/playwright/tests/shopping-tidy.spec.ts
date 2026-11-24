@@ -107,7 +107,10 @@ async function openList(page: Page) {
   );
 }
 
-async function tidy(page: Page, made = /made \d+ suggestions?/) {
+async function tidy(
+  page: Page,
+  made: string | RegExp = /made \d+ suggestions?/,
+) {
   const button = panel(page).getByRole("button", {
     name: "Tidy with the model",
   });

@@ -818,6 +818,24 @@ selectable (e.g. 'looks like qwen 3:8b didn't do a good job, I want to run
   `DELETE /api/shopping/rules` and `POST /api/shopping/layers/always`; CLI
   `shopping change always <id>` and `shopping rule on|off rule|merge <id> |
 rm rule <id> | rm aisle <key>`. No new MCP tool (59 / 45).
+- **Dc11 — On 50d's lists** (the merge of `dadac069`). The walkthrough is
+  one list's: tidy runs, their cards and the changes they write are that
+  list's (`shopping/lists/<id>/tidy`, `…/layers`); rules, merges and aisles
+  by name stay every list's. Every 50c surface names the list 50d's way —
+  the page's actions bound to it (`setShoppingListRule`,
+  `removeShoppingListRule`, `promoteShoppingListLayer` list-first;
+  `decideShoppingTidy(id, action, ops, list)`, `shoppingTidyRuns(list)`,
+  `askShoppingTidy({…, list})`), `?list=` on `/api/shopping/rules` and
+  `/api/shopping/layers/always` (the HTTP backend adds it), and `--list` on
+  `shopping change always` and `shopping rule` (every shopping command has
+  it). A rule's switch or Remove writes the shared rule but answers the
+  shown list's layers, so a saved list's page never shows the main list's
+  changes; the list is resolved before the lock, so an unknown one writes
+  nothing. "Always do this" on a saved list removes that list's change, is
+  refused on a deleted list, and its subject names the list (`Update
+shopping list "Party": always: …`). `<Walkthrough>` is keyed by the list's
+  id (`useShoppingList`'s `listId`) as well as the page by 50d: another list
+  starts with no card, no picked run and no page-only skip.
 
 ### Results
 
