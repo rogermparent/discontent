@@ -1128,6 +1128,13 @@ Review amendments:
   position — a model's reading, headings, or a person's edits move them.
 - **Te2 — `stripMarkup` drops links.** For a person reading a rewrite, only
   the number markup is undone (`plain` in `linkedImport.ts`).
+- **Te3 — "Already here" read the recipe index only** (found 2026-11-24, on a
+  fresh clone of the real content). `recipeBySource` answers nothing when
+  the index is missing, so every recipe already imported from a linked page
+  failed as "a recipe from another source already has the slug …". Now a
+  taken slug whose recipe has the same source key (`sourceUrlKey`) is that
+  recipe, and links as `existing`. A scan on an indexed repository never
+  hit it.
 
 ### Roger to confirm
 
