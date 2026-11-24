@@ -16,7 +16,8 @@ import { snapshotLocator } from "../support/visual";
  */
 
 const page$ = (page: Page) => page.getByTestId("shopping-page");
-const panel = (page: Page) => page.getByTestId("shopping-proposals");
+/* 50c: the proposals are the walkthrough's built-in cards now. */
+const panel = (page: Page) => page.getByTestId("shopping-walkthrough");
 const proposal = (page: Page) => page.getByTestId("shopping-proposal");
 const rows = (page: Page) => page.getByTestId("shopping-row");
 
@@ -70,8 +71,8 @@ test.describe("Shopping list: same thing, different names", () => {
   }) => {
     await openWithFlour(page);
     await expect(page$(page)).toHaveAttribute("data-mode", "plan");
-    await expect(panel(page).getByRole("heading")).toHaveText(
-      "Same thing, different names (1)",
+    await expect(panel(page).getByTestId("shopping-card-title")).toHaveText(
+      "Same thing, different names: all-purpose flour",
     );
     const card = proposal(page);
     await expect(card).toHaveCount(1);
@@ -89,18 +90,20 @@ test.describe("Shopping list: same thing, different names", () => {
     await expect(flourRows(page)).toHaveCount(2);
 
     const merge = card.getByRole("button", {
-      name: "Merge into 3 cups all-purpose flour",
+      name: "Accept: merge into 3 cups all-purpose flour",
     });
     await expectHydrated(merge);
     await merge.click();
     await expect
       .poll(async () => (await getContentGitLog())[0], { timeout: 15_000 })
       .toBe("Update shopping list: merge all purpose flour + white flour");
-    await expect(panel(page).getByRole("status")).toHaveText(
-      "Merged into one row: 3 cups all-purpose flour.",
-    );
-    /* Focus is not lost with the button: it is on the panel's heading. */
-    await expect(panel(page).getByRole("heading")).toBeFocused();
+    await expect(
+      panel(page).getByTestId("shopping-walkthrough-status"),
+    ).toContainText("Merged into one row: 3 cups all-purpose flour.");
+    /* Focus is not lost with the button: it is on the done state's heading. */
+    await expect(
+      panel(page).getByTestId("shopping-walkthrough-done").getByRole("heading"),
+    ).toBeFocused();
     await expect(proposal(page)).toHaveCount(0);
 
     await expect(flourRows(page)).toHaveCount(1);
@@ -157,7 +160,7 @@ test.describe("Shopping list: same thing, different names", () => {
     );
     await name.fill("King Arthur flour");
     await card.getByLabel("Amount", { exact: true }).fill("1 bag");
-    await card.getByRole("button", { name: "Merge as edited" }).click();
+    await card.getByRole("button", { name: /^Accept as edited/ }).click();
     await expect
       .poll(async () => (await getContentGitLog())[0], { timeout: 15_000 })
       .toBe(
@@ -219,7 +222,7 @@ test.describe("Shopping list: same thing, different names", () => {
       (await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()).violations,
     ).toEqual([]);
     await proposal(page)
-      .getByRole("button", { name: "Merge as edited" })
+      .getByRole("button", { name: /^Accept as edited/ })
       .click();
     await expect(flourRows(page)).toHaveCount(1);
     expect(
@@ -259,7 +262,7 @@ test.describe("Shopping list: same thing, different names @mobile", () => {
     await review.click();
     await expect(page$(page)).toHaveAttribute("data-mode", "plan");
 
-    const merge = proposal(page).getByRole("button", { name: /^Merge/ });
+    const merge = proposal(page).getByRole("button", { name: /^Accept/ });
     await expect(merge).toBeVisible();
     await merge.click();
     await expect

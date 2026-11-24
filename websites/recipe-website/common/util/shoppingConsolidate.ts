@@ -174,7 +174,9 @@ export function findShoppingProposals(
   }
 
   const merged = activeMerges(merges, new Set(groups.keys()));
-  const apart = merges.filter((merge) => merge.status === "apart");
+  const apart = merges.filter(
+    (merge) => merge.status === "apart" && merge.on !== false,
+  );
 
   /* Each curated set → the rows of the list in it, merged ones as one. */
   const proposals: { first: string; proposal: ShoppingProposal }[] = [];

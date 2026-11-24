@@ -95,6 +95,8 @@ export interface TidySuggestionState {
   at?: string;
   /** The layer Accept wrote. */
   layer?: string;
+  /** 50c: accepted as the person edited it (the layer keeps the model's). */
+  edited?: true;
 }
 
 /** One numbered row the model read, for the record (scoring, 50c's cards). */
@@ -171,6 +173,8 @@ export interface TidySuggestionView extends TidySuggestion {
   text: string[];
   /** Accepted: the layer it wrote. */
   layer?: string;
+  /** 50c: accepted as the person edited it. */
+  edited?: true;
 }
 
 export interface TidyRunView extends Omit<TidyRun, "suggestions" | "status"> {
@@ -264,6 +268,7 @@ export function tidyRunView(
       status,
       text: suggestion.ops.map((op) => describeOp(op, byId)),
       ...(layer ? { layer } : {}),
+      ...(run.status[suggestion.id]?.edited ? { edited: true as const } : {}),
     };
   });
   const { suggestions: _s, status: _t, ...rest } = run;
@@ -343,6 +348,7 @@ function parseState(raw: unknown): TidySuggestionState | null {
     status,
     ...(typeof raw.at === "string" ? { at: raw.at } : {}),
     ...(typeof raw.layer === "string" ? { layer: raw.layer } : {}),
+    ...(raw.edited === true ? { edited: true as const } : {}),
   };
 }
 
@@ -514,3 +520,6 @@ export function isShoppingTidyResult(
 
 /** A note on a card is at most this long. */
 export const TIDY_NOTE_MAX = TIDY_LIMITS.note;
+
+/** 50c: the runs the page's "Earlier runs" lists, newest first (Dc8). */
+export const TIDY_RUNS_SHOWN = 20;

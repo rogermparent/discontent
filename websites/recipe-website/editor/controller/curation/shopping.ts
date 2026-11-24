@@ -87,6 +87,11 @@ import {
 } from "recipe-website-common/util/shoppingLayers";
 import { listLayers } from "recipe-website-common/util/shoppingChanges";
 import {
+  isEdited,
+  promoteLayer,
+  sameShape,
+} from "recipe-website-common/util/shoppingWalk";
+import {
   TIDY_RUN_ID_PATTERN,
   opsSignature,
   parseTidyRun,
@@ -131,12 +136,16 @@ import {
   ShoppingAddSchema,
   ShoppingClearSchema,
   ShoppingLayerAddSchema,
+  ShoppingLayerPromoteSchema,
   ShoppingLayerRemoveSchema,
   ShoppingLayerSetSchema,
   ShoppingLeaveOffSchema,
   ShoppingListCreateSchema,
   ShoppingListEditSchema,
   ShoppingListIdSchema,
+  ShoppingRuleRemoveSchema,
+  ShoppingRuleSetSchema,
+  TidyAcceptEditSchema,
   ShoppingMergeSchema,
   ShoppingPatchSchema,
   ShoppingSettingsPatchSchema,
@@ -1813,6 +1822,7 @@ async function decideLocked(
       for (const merge of merges) {
         if (
           merge.status === "merged" &&
+          merge.on !== false &&
           overlaps(merge.keys, keys) &&
           merge.keys.some((key) => !keys.includes(key))
         ) {
@@ -2199,6 +2209,279 @@ export async function setShoppingLeaveOff(
   });
 }
 
+// --- 50c: the rules tier, and "Always do this" --------------------------------
+
+export interface ShoppingRulesResult {
+  rules: ShoppingRule[];
+  merges: ShoppingMerge[];
+  settings: ShoppingSettings;
+  layers: ShoppingLayer[];
+  changed: boolean;
+}
+
+/** 50d: `scope` is the list whose layers the answer carries back. */
+async function rulesState(
+  ctx: CurationContext,
+  changed: boolean,
+  scope: ShoppingListScope,
+): Promise<ShoppingRulesResult> {
+  const [rules, merges, settings, layers] = await Promise.all([
+    readShoppingRules(ctx),
+    readShoppingMerges(ctx),
+    readShoppingSettings(ctx),
+    layersOf(ctx, scope),
+  ]);
+  return { rules, merges, settings, layers, changed };
+}
+
+/** A rule in a commit subject. */
+function ruleText(rule: ShoppingRule): string {
+  return rule.kind === "rename"
+    ? `call ${rule.name ?? rule.key} ${rule.label}`
+    : rule.leaveOff
+      ? `leave off ${rule.name ?? rule.key}`
+      : `buy ${rule.name ?? rule.key}`;
+}
+
+/**
+ * 50c: switch a rule for every list off or on, keeping its file (Dc7) — a
+ * rule's (`rules/`) or a 49a decision's (`merges/`); one commit, none when
+ * it is so already. Off applies nothing: a merge's rows show apart and its
+ * proposal comes back; a kept-apart pair may be proposed again.
+ */
+export async function setShoppingRuleOn(
+  ctx: CurationContext,
+  raw: unknown,
+): Promise<ShoppingRulesResult> {
+  const input = parseInput(ShoppingRuleSetSchema, raw);
+  /* 50d: resolved first, so a list that isn't there writes nothing. */
+  const scope = await resolveShoppingList(ctx);
+  return withWriteLock(ctx.contentDirectory, "shopping: rule", async () => {
+    await assertNoMergeInProgress(ctx.contentDirectory);
+    if (input.kind === "merge") {
+      const merges = await readShoppingMerges(ctx);
+      const stored = merges.find((merge) => merge.id === input.id);
+      if (!stored) {
+        throw new NotFoundError(
+          `No merge rule "${input.id}". \`shopping merges\` lists them.`,
+        );
+      }
+      if ((stored.on !== false) === input.on)
+        return rulesState(ctx, false, scope);
+      const { on: _on, ...rest } = stored;
+      void _on;
+      const next = canonicalShoppingMerge(
+        input.on ? rest : { ...rest, on: false },
+      );
+      await applyFiles(
+        ctx,
+        [{ relative: mergeFile(input.id), bytes: serializeMerge(next) }],
+        `Update shopping list: rule ${input.on ? "on" : "off"}: ${stored.status === "merged" ? "merge" : "keep apart"} ${keysText(stored.keys)}`,
+      );
+      return rulesState(ctx, true, scope);
+    }
+    const rules = await readShoppingRules(ctx);
+    const stored = rules.find((rule) => rule.id === input.id);
+    if (!stored) {
+      throw new NotFoundError(
+        `No rule "${input.id}" for the shopping list. \`shopping rules\` lists them.`,
+      );
+    }
+    if ((stored.on !== false) === input.on)
+      return rulesState(ctx, false, scope);
+    const { on: _on, ...rest } = stored;
+    void _on;
+    const next = canonicalShoppingRule(
+      (input.on ? rest : { ...rest, on: false }) as ShoppingRule,
+    );
+    await applyFiles(
+      ctx,
+      [{ relative: ruleFile(input.id), bytes: serializeRule(next) }],
+      `Update shopping list: rule ${input.on ? "on" : "off"}: ${ruleText(stored)}`,
+    );
+    return rulesState(ctx, true, scope);
+  });
+}
+
+/**
+ * 50c: remove a rule for every list (Dc7) — a rule's file, or an aisle by
+ * name from the settings' `aisleOverrides` — one commit; none when it is
+ * not stored. A merge decision's removal is 49a's Split.
+ */
+export async function removeShoppingRule(
+  ctx: CurationContext,
+  raw: unknown,
+): Promise<ShoppingRulesResult> {
+  const input = parseInput(ShoppingRuleRemoveSchema, raw);
+  const scope = await resolveShoppingList(ctx);
+  return withWriteLock(ctx.contentDirectory, "shopping: rule", async () => {
+    await assertNoMergeInProgress(ctx.contentDirectory);
+    if (input.kind === "aisle") {
+      const settings = await readShoppingSettings(ctx);
+      if (!(input.key in settings.aisleOverrides)) {
+        return rulesState(ctx, false, scope);
+      }
+      const next = structuredClone(settings);
+      delete next.aisleOverrides[input.key];
+      await applyFiles(
+        ctx,
+        [
+          {
+            relative: SHOPPING_SETTINGS_FILE,
+            bytes: serializeSettings(normalizeShoppingSettings(next)),
+          },
+        ],
+        `Update shopping list: remove rule: ${input.key} in its own aisle`,
+      );
+      return rulesState(ctx, true, scope);
+    }
+    const rules = await readShoppingRules(ctx);
+    const stored = rules.find((rule) => rule.id === input.id);
+    if (!stored) return rulesState(ctx, false, scope);
+    await applyFiles(
+      ctx,
+      [{ relative: ruleFile(stored.id), bytes: null }],
+      `Update shopping list: remove rule: ${ruleText(stored)}`,
+    );
+    return rulesState(ctx, true, scope);
+  });
+}
+
+/**
+ * 50c (Dc5): "Always do this" — a change of this list said again as rules
+ * for every list, by its items' names: a merge (49a's decision), a rename
+ * and a leave-off (rules), an aisle (`aisleOverrides`). The change itself
+ * goes, since the rules now do it — all in one commit. Refused for an
+ * amount, a note, a merge's own amount, "Check at home first", and a merge
+ * whose names a rule merges with others already.
+ */
+export async function promoteShoppingLayer(
+  ctx: CurationContext,
+  raw: unknown,
+): Promise<ShoppingRulesResult> {
+  const { id } = parseInput(ShoppingLayerPromoteSchema, raw);
+  const scope = await resolveShoppingList(ctx);
+  return withWriteLock(ctx.contentDirectory, "shopping: rule", async () => {
+    await assertNoMergeInProgress(ctx.contentDirectory);
+    await assertListWritable(ctx, scope);
+    const [items, layers, rules, merges, settings] = await Promise.all([
+      itemsOf(ctx, scope),
+      layersOf(ctx, scope),
+      readShoppingRules(ctx),
+      readShoppingMerges(ctx),
+      readShoppingSettings(ctx),
+    ]);
+    const layer = layers.find((each) => each.id === id);
+    if (!layer) {
+      throw new NotFoundError(
+        `No change "${id}" on the shopping list. \`shopping changes\` lists them.`,
+      );
+    }
+    const promotion = promoteLayer(layer, items);
+    if (!promotion.ok) throw new ValidationError(promotion.why);
+    const decidedAt = new Date().toISOString();
+    const steps: { relative: string; bytes: string | null }[] = [];
+    const nextSettings = structuredClone(settings);
+    let settingsChanged = false;
+    const written = new Map<string, ShoppingRule>();
+    for (const rule of promotion.rules) {
+      switch (rule.kind) {
+        case "merge": {
+          const keys = normalizeMergeKeys(rule.keys);
+          const mergeId = mergeIdOf(keys);
+          const clash = merges.find(
+            (merge) =>
+              merge.id !== mergeId &&
+              merge.status === "merged" &&
+              merge.on !== false &&
+              overlaps(merge.keys, keys),
+          );
+          if (clash) {
+            throw new ValidationError(
+              `${keysText(clash.keys)} are merged by a rule already: split that row first, or merge on this list only.`,
+            );
+          }
+          steps.push({
+            relative: mergeFile(mergeId),
+            bytes: serializeMerge(
+              canonicalShoppingMerge({
+                id: mergeId,
+                keys,
+                status: "merged",
+                ...(rule.name ? { name: rule.name } : {}),
+                decidedAt,
+              }),
+            ),
+          });
+          break;
+        }
+        case "rename":
+        case "leave-off": {
+          const ruleId = ruleIdOf(rule.kind, rule.key);
+          const record: ShoppingRule =
+            rule.kind === "rename"
+              ? {
+                  id: ruleId,
+                  kind: "rename",
+                  key: rule.key,
+                  name: rule.name,
+                  label: rule.label,
+                  decidedAt,
+                }
+              : {
+                  id: ruleId,
+                  kind: "leave-off",
+                  key: rule.key,
+                  name: rule.name,
+                  leaveOff: true,
+                  reason: rule.reason,
+                  decidedAt,
+                };
+          if (!rules.some((each) => each.id === ruleId)) {
+            if (rules.length + written.size >= MAX_SHOPPING_RULES) {
+              throw new ValidationError(
+                `The list holds at most ${MAX_SHOPPING_RULES} rules.`,
+              );
+            }
+          }
+          written.set(ruleId, record);
+          break;
+        }
+        case "aisle":
+          nextSettings.aisleOverrides[rule.key] = rule.aisle;
+          settingsChanged = true;
+          break;
+      }
+    }
+    for (const [ruleId, record] of written) {
+      steps.push({ relative: ruleFile(ruleId), bytes: serializeRule(record) });
+    }
+    if (settingsChanged) {
+      if (
+        Object.keys(nextSettings.aisleOverrides).length > MAX_SHOPPING_OVERRIDES
+      ) {
+        throw new ValidationError(
+          `\`aisleOverrides\` would hold more than ${MAX_SHOPPING_OVERRIDES} entries.`,
+        );
+      }
+      steps.push({
+        relative: SHOPPING_SETTINGS_FILE,
+        bytes: serializeSettings(normalizeShoppingSettings(nextSettings)),
+      });
+    }
+    steps.push({ relative: layerFile(scope, layer.id), bytes: null });
+    await applyFiles(
+      ctx,
+      steps,
+      listSubject(
+        scope,
+        `Update shopping list: always: ${layerText(layer, items)}`,
+      ),
+    );
+    return rulesState(ctx, true, scope);
+  });
+}
+
 // --- 50b: tidy runs ----------------------------------------------------------
 
 function tidyFile(scope: ShoppingListScope, id: string): string {
@@ -2319,7 +2602,19 @@ export async function decideTidySuggestion(
   ctx: CurationContext,
   id: string,
   action: "accept" | "skip",
+  /**
+   * 50c (Dc4): Accept as the person edited it — the same ops on the same
+   * rows, with other names, amounts or notes. The layer keeps the model's.
+   */
+  options: { ops?: unknown } = {},
 ): Promise<TidyDecisionResult> {
+  const typed =
+    options.ops === undefined
+      ? undefined
+      : parseInput(TidyAcceptEditSchema, options.ops);
+  if (typed && action !== "accept") {
+    throw new ValidationError("Only an Accept can carry an edit.");
+  }
   const scope = await resolveShoppingList(ctx);
   return withWriteLock(ctx.contentDirectory, "shopping: tidy", async () => {
     await assertNoMergeInProgress(ctx.contentDirectory);
@@ -2362,8 +2657,15 @@ export async function decideTidySuggestion(
         `The list holds at most ${MAX_SHOPPING_LAYERS} changes: remove some first.`,
       );
     }
+    const edited = typed && isEdited(suggestion.ops, typed) ? typed : undefined;
+    if (edited && !sameShape(suggestion.ops, edited)) {
+      throw new ValidationError(
+        `An edit of "${suggestion.title}" changes names, amounts and notes only: the same changes on the same lines.`,
+      );
+    }
+    const ops = edited ?? suggestion.ops;
     /* Review 1: the same change twice would add its amounts twice. */
-    const signature = opsSignature(suggestion.ops);
+    const signature = opsSignature(ops);
     if (
       layers.some((each) => each.on && opsSignature(each.ops) === signature)
     ) {
@@ -2373,7 +2675,7 @@ export async function decideTidySuggestion(
     }
     /* The seat's own check on a layer, as a person's would be (Da2). */
     const input = parseInput(ShoppingLayerAddSchema, {
-      ops: suggestion.ops,
+      ops,
       reason: suggestion.title.slice(0, 300),
       by: { kind: "model", model: run.model },
       from: suggestion.id,
@@ -2388,6 +2690,7 @@ export async function decideTidySuggestion(
         at,
         on: true,
         from: input.from,
+        ...(edited ? { edited: { at, ops: suggestion.ops } } : {}),
       },
       layerId,
     );
@@ -2400,7 +2703,12 @@ export async function decideTidySuggestion(
       ...run,
       status: {
         ...run.status,
-        [suggestion.id]: { status: "accepted", at, layer: layerId },
+        [suggestion.id]: {
+          status: "accepted",
+          at,
+          layer: layerId,
+          ...(edited ? { edited: true as const } : {}),
+        },
       },
     };
     await applyFiles(
@@ -2411,7 +2719,7 @@ export async function decideTidySuggestion(
       ],
       listSubject(
         scope,
-        `Update shopping list: accept: ${suggestion.title} (${run.model})`,
+        `Update shopping list: accept${edited ? " (edited)" : ""}: ${suggestion.title} (${run.model})`,
       ),
     );
     return { run: next, suggestion, changed: true, layer };

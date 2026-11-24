@@ -403,8 +403,8 @@ export function notesSelectorAnswer(user: string): {
 /**
  * "Tidy with the model" (50b, `TIDY_SYSTEM_PROMPT`), by rule on the rows:
  * the salt rows to "check at home first", the first buttermilk row as a
- * quart, and one suggestion naming a row that is not on the list (the
- * check leaves it out). A suggestion whose title the prompt says was done
+ * quart, (50c) the eggs as "large eggs", and one suggestion naming a row
+ * that is not on the list (the check leaves it out). A suggestion whose title the prompt says was done
  * or skipped already is not made again; a note on one card (the revise
  * prompt) answers that card with a note op saying the note.
  */
@@ -452,6 +452,17 @@ export function shoppingTidyAnswer(user: string): {
       reason: "Buttermilk is sold by the quart.",
       ops: [{ op: "package", rows: [buttermilk.n], text: "1 quart" }],
       confidence: 0.7,
+    });
+  }
+  /* 50c: a third card to walk through — a rename, so Edit has a name. */
+  const eggs = rows.find((row) => /\beggs\b/i.test(label(row)));
+  if (eggs && !said("Say large eggs")) {
+    out.push({
+      kind: "rename",
+      title: "Say large eggs",
+      reason: "Both recipes mean large eggs.",
+      ops: [{ op: "rename", rows: [eggs.n], text: "large eggs" }],
+      confidence: 0.5,
     });
   }
   out.push({

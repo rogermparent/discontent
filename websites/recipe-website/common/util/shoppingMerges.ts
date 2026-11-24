@@ -63,6 +63,11 @@ export interface ShoppingMerge {
   amount?: { text: string; ids: string[] };
   /** For a model to follow up on (49b). Stored only; 49a never reads it. */
   note?: string;
+  /**
+   * 50c: switched off in Changes' Rules — as if undecided (the rows apart,
+   * the proposal back), the file kept to switch on again. Stored only then.
+   */
+  on?: false;
   /** ISO time of the decision. */
   decidedAt: string;
 }
@@ -74,6 +79,7 @@ export const SHOPPING_MERGE_KEYS = [
   "name",
   "amount",
   "note",
+  "on",
   "decidedAt",
 ] as const satisfies readonly (keyof ShoppingMerge)[];
 
@@ -135,6 +141,7 @@ export function canonicalShoppingMerge(merge: ShoppingMerge): ShoppingMerge {
     const value = merge[key];
     if (value === undefined || value === null) continue;
     if (value === "" && key !== "decidedAt") continue;
+    if (key === "on" && value !== false) continue;
     out[key] = value;
   }
   return out as unknown as ShoppingMerge;
@@ -191,6 +198,7 @@ export function parseShoppingMerge(
     const note = raw.note.trim();
     if (note && note.length <= MERGE_LIMITS.note) merge.note = note;
   }
+  if (raw.on === false) merge.on = false;
   return canonicalShoppingMerge(merge);
 }
 
@@ -206,7 +214,7 @@ export function activeMerges(
 ): Map<string, ShoppingMerge> {
   const byKey = new Map<string, ShoppingMerge>();
   const sorted = [...merges]
-    .filter((merge) => merge.status === "merged")
+    .filter((merge) => merge.status === "merged" && merge.on !== false)
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   for (const merge of sorted) {
     const keys = merge.keys.filter(

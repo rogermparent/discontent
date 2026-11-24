@@ -77,11 +77,11 @@ function MergedFrom({
 
 /** 50a: who made a change, as the chain says it. */
 export function changedBy(
-  change: Pick<ShoppingChange, "source" | "by">,
+  change: Pick<ShoppingChange, "source" | "by" | "edited">,
 ): string {
   if (change.source === "rule") return "a rule for every list";
   return change.by?.kind === "model"
-    ? `suggested by ${change.by.model ?? "the model"}`
+    ? `suggested by ${change.by.model ?? "the model"}${change.edited ? ", edited by you" : ""}`
     : "by you";
 }
 
