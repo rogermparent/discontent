@@ -902,9 +902,68 @@ key accepted card after card, and E on a model card left focus on the title;
 merge decision overlapping another is not checked (`activeMerges` gives a
 name to the first by id, as for a hand edit).
 
-**Gates:** not run yet — the machine ran out of memory while the editor
-typecheck waited in the heavy slot (the session reaped it); see the
-hand-back.
+**The merge with 50d** (Dc11, by a finisher after the first worker's
+hand-back). Three files conflicted (`curation/shopping.ts`,
+`actions/shoppingTidy.ts`, `ShoppingWithModel.tsx`); the rest merged
+cleanly but needed the list threaded through (`promoteShoppingLayer` still
+wrote the main list's layer path; the rules actions answered the main
+list's layers on a saved list's page). A read-only review of the
+resolution found no blockers; taken: rule writes resolve the list before
+the lock (an unknown `--list` had committed the rule, then failed), and a
+deleted list's "Always do this" is tested refused. A seat test on a saved
+list and a spec — two lists, a run on the main list, switch to the other
+through the switcher, no card, no run, no page-only skip; back, the run's
+cards again — cover it.
+
+**What the gates found** (the first Playwright run: 141 passed, 13
+failed):
+
+- **The key hints broke WCAG 2.5.3.** A button named by `aria-label`
+  ("Skip: all-purpose flour") showed "Skip S": axe's
+  `label-content-name-mismatch` (serious) on every card. The letter is now
+  CSS content (`after:content-[attr(data-key)]`), in the button's own
+  colour (it was muted grey on the primary Accept).
+- **An ask's Accept left the card open.** Accepting 49b's suggestion on a
+  built-in card wrote the merge but never answered the card, so the panel
+  fell to "No suggestions" with focus nowhere; `AskOutcome` now says what it
+  decided (`decided`) and the card counts as accepted (or kept apart),
+  showing the done state with its heading focused.
+- **A built-in card's reason ran into "Accept…"** ("Both are all-purpose
+  flour Accept merges…"): the reason is now ended as a sentence.
+- Specs that had never run: "Always do this" on the eggs reads "Rename egg
+  to large eggs" and the rule "Call egg “large eggs”" (names are keyed and
+  labelled singular, as 49a's merges are); `shopping-tidy.spec`'s `tidy()`
+  took a RegExp only (a typecheck error).
+
+**Gates.** `recipe-editor typecheck` and `recipe-website exec tsc --noEmit`
+clean (after the fixes too). `pnpm exec vitest run` on the merge: 203
+files, 4412 passed, 1 failed — `editFormRoundTrip`'s "a set's label typed
+key by key" timed out at 5 s under load (untouched by 50c or 50d), and its
+file alone passed 17/17; after the UI fixes `shoppingWalk`,
+`shoppingTidyPanel` and `shoppingLists` passed again (28). Docker,
+production: shopping-walkthrough, -merge, -ask, -tidy, -layers, -modes,
+-lists, shopping, plan-page and accessibility, **154 passed** (e2e and
+mobile); after the reason and key-hint fixes, walkthrough, merge, ask, tidy,
+layers, modes and accessibility again, **110 passed**.
+`shopping-walkthrough.spec` once in Docker dev mode (`next dev`, Strict
+Mode): 4 passed.
+
+**Baselines.** Moved, regenerated in Docker (production), each opened:
+
+- `shopping-merge.spec.ts/shopping-merge-proposal-e2e.png` — 49a's
+  proposal is now the walkthrough's built-in card: "Suggestions", the
+  tally, MERGE · Built-in, the title, the reason (a full stop now), Now and
+  After, Accept / Skip / Edit with their key hints, Keep apart. Looks right.
+- `shopping-layers.spec.ts/shopping-layers-changes-e2e.png` — the two
+  tiers: "Rules · every list (3)" collapsed, "This list" with the change,
+  its switch, Remove and a disabled "Always do this" with the reason under
+  it. Looks right.
+- `shopping-modes.spec.ts/shopping-plan-e2e.png` and
+  `shopping-plan-mobile.png` — the Changes panel always shows now (the rules
+  tier holds the built-in water, Dc7) with "No changes on this list" and
+  50d's switcher in the header. Looks right.
+- No new walkthrough screenshot: the spec asserts layout (card above the
+  panels on a phone, no sideways scroll) rather than pixels.
 
 ### Roger to confirm
 
@@ -931,6 +990,12 @@ hand-back.
    water), with the tier collapsed.
 10. **The page reads the 20 newest runs** for "Earlier runs".
 11. An edited Accept is page-only: the HTTP and CLI `accept` take no edit.
+12. **A rule's switch and Remove from a saved list's page** change the rule
+    for every list (they are rules); only "Always do this" removes that
+    list's own change (Dc11).
+13. **Names in rules read keyed and singular** ("Call egg “large eggs”",
+    "Rename egg to large eggs"), as 49a's merge subjects do; say if a rule
+    should keep the line's own wording ("eggs").
 
 ## 50e — Imports follow the recipes a recipe links to (M–L)
 

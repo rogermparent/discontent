@@ -306,7 +306,7 @@ test.describe("Shopping list: the walkthrough (50c)", () => {
     await eggs.getByRole("button", { name: /^Always do this/ }).click();
     await expect
       .poll(() => latestCommit(page, getContentGitLog), { timeout: 15_000 })
-      .toMatch(/^Update shopping list: always: Rename eggs to large eggs/);
+      .toMatch(/^Update shopping list: always: Rename egg to large eggs/);
     await expect(changes.getByTestId("shopping-change")).toHaveCount(2);
     await expect(
       page.getByLabel("4 large eggs", { exact: true }),
@@ -324,7 +324,7 @@ test.describe("Shopping list: the walkthrough (50c)", () => {
     await changes.getByText(/^Rules · every list/).click();
     const rules = changes.getByTestId("shopping-rule");
     await expect(
-      rules.filter({ hasText: "Call eggs “large eggs”" }),
+      rules.filter({ hasText: "Call egg “large eggs”" }),
     ).toHaveCount(1);
     await expect(
       rules.filter({ hasText: "Keep all purpose flour and white flour apart" }),
@@ -332,12 +332,12 @@ test.describe("Shopping list: the walkthrough (50c)", () => {
     await expect(rules.filter({ hasText: "Leave off water" })).toHaveCount(1);
     /* Switched off: the rule stays, the eggs read as written again. */
     await rules
-      .filter({ hasText: "Call eggs “large eggs”" })
+      .filter({ hasText: "Call egg “large eggs”" })
       .getByRole("switch")
       .click();
     await expect
       .poll(() => latestCommit(page, getContentGitLog), { timeout: 15_000 })
-      .toBe("Update shopping list: rule off: call eggs large eggs");
+      .toBe("Update shopping list: rule off: call egg large eggs");
     await expect(page.getByLabel("4 eggs", { exact: true })).toBeVisible();
     expect(
       (

@@ -88,12 +88,15 @@ function Suggestion({
   asker,
   retry,
   answered,
+  decided,
 }: {
   result: ShoppingReviseResult;
   list: ShoppingList;
   asker: ShoppingAsker;
   retry(): void;
   answered(message: string): void;
+  /** 50c: the decision written (a walkthrough card counts it as answered). */
+  decided?(status: "merged" | "apart"): void;
 }) {
   const model = result.model ?? "the model";
   /* 49c (Dc1): a unit the lines can't be given in — no model would change it. */
@@ -146,6 +149,7 @@ function Suggestion({
     const answer = await list.decideMerge(result.decision);
     if (!answer) return;
     asker.clearRevised();
+    decided?.(result.status === "merge" ? "merged" : "apart");
     answered(
       result.status === "merge"
         ? `Accepted ${model}'s suggestion: ${result.proposal.line}.`
@@ -227,11 +231,13 @@ export function AskOutcome({
   list,
   asker,
   answered,
+  decided,
 }: {
   topic: string;
   list: ShoppingList;
   asker: ShoppingAsker;
   answered(message: string): void;
+  decided?(status: "merged" | "apart"): void;
 }) {
   const { revised } = asker;
   const result =
@@ -253,6 +259,7 @@ export function AskOutcome({
               void asker.ask({ ...revised.input, claude: true }, revised.topic)
             }
             answered={answered}
+            {...(decided ? { decided } : {})}
           />
         ) : null}
       </div>

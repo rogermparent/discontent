@@ -77,14 +77,24 @@ function isField(target: EventTarget | null): boolean {
   );
 }
 
+/** A reason as a sentence: "Both are flour" → "Both are flour." */
+function sentence(text: string | undefined): string {
+  const said = text?.trim() ?? "";
+  return !said || /[.!?…:]$/.test(said) ? said : `${said}.`;
+}
+
+/**
+ * A key's hint on its button. The letter is CSS content, not text: a button
+ * named by `aria-label` ("Skip: <title>") must show only words its name holds
+ * (axe's label-content-name-mismatch, WCAG 2.5.3), and "Skip S" doesn't.
+ */
 function Kbd({ children }: { children: string }) {
   return (
     <kbd
       aria-hidden
-      className="ml-1.5 rounded border border-b-2 border-border px-1 font-mono text-[0.6875rem] leading-none text-muted-foreground"
-    >
-      {children}
-    </kbd>
+      data-key={children}
+      className="ml-1.5 rounded border border-b-2 border-current/40 px-1 font-mono text-[0.6875rem] leading-none opacity-80 after:content-[attr(data-key)]"
+    />
   );
 }
 
@@ -473,6 +483,7 @@ function BuiltInCard({
   skip,
   keepApart,
   answered,
+  decided,
   ...props
 }: CardProps & {
   card: WalkCard & { source: "built-in" };
@@ -486,6 +497,8 @@ function BuiltInCard({
   skip(): void;
   keepApart(): Promise<void>;
   answered(message: string): void;
+  /** The ask's suggestion accepted: the card is answered, as Accept's is. */
+  decided(status: "merged" | "apart"): void;
 }) {
   const { list, titleRef, keysRef, busy } = props;
   const nameId = useId();
@@ -546,8 +559,9 @@ function BuiltInCard({
         Same thing, different names: {proposal.name}
       </h3>
       <p className="text-sm break-words">
-        {proposal.reason || "These lines look like one thing to buy."} Accept
-        merges them on this list and on later ones; Keep apart stops asking.
+        {sentence(proposal.reason) || "These lines look like one thing to buy."}{" "}
+        Accept merges them on this list and on later ones; Keep apart stops
+        asking.
         {proposal.estimated && " ≈ volume and weight added by density."}
       </p>
       <div className="@container">
@@ -747,6 +761,7 @@ function BuiltInCard({
           list={list}
           asker={asker}
           answered={answered}
+          decided={decided}
         />
       )}
     </article>
@@ -1173,6 +1188,15 @@ export function Walkthrough({
           accept={(edit) => accept(current, edit)}
           skip={() => void skip(current)}
           keepApart={() => keepApart(current)}
+          decided={(status) => {
+            /* Review: an ask's Accept answers the card, so the done state shows. */
+            remember(current.id, {
+              status: status === "merged" ? "accepted" : "apart",
+              proposal: current.proposal,
+            });
+            setCursor(current.id);
+            setViewing(undefined);
+          }}
           answered={(text) => {
             setMessage(text);
             setFocusTick((tick) => tick + 1);
