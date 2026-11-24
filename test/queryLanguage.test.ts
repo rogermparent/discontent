@@ -174,6 +174,33 @@ describe("parseQuery — free text vs typed terms", () => {
   });
 });
 
+describe("parseQuery — a + before a filter joins atoms (51)", () => {
+  it("reads ingredient:cranberry+tag:dessert as two terms, the way spaces do", () => {
+    const joined = parseQuery(
+      "ingredient:cranberry+tag:dessert+tag:thanksgiving",
+    );
+    const spaced = parseQuery(
+      "ingredient:cranberry tag:dessert tag:thanksgiving",
+    );
+    expect(spanless(joined.filter)).toEqual(spanless(spaced.filter));
+    expect(joined.text).toBe("");
+  });
+
+  it("joins free text to a filter and keeps a negation", () => {
+    const parsed = parseQuery("cranberry+-tag:side");
+    expect(parsed.text).toBe("cranberry");
+    expect(spanless(parsed.filter)).toEqual(
+      spanless(parseQuery("cranberry -tag:side").filter),
+    );
+  });
+
+  it("leaves any other + inside the word", () => {
+    expect(parseQuery("c++ tag:dessert").text).toBe("c++");
+    expect(parseQuery("salt+pepper").text).toBe("salt+pepper");
+    expect(parseQuery("salt+foo:bar").text).toBe("salt+foo:bar");
+  });
+});
+
 describe("the source: field (27d)", () => {
   const imbibe: FilterableRecipe = {
     name: "Last Word (Imbibe)",
