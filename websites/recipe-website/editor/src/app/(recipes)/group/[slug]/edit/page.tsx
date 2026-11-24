@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { readHolidayChoices } from "recipe-website-common/controller/data/readHolidays";
 import { readTagPicker } from "recipe-website-common/controller/data/readTermPage";
 import { getGroupBySlug } from "recipe-website-common/controller/data/readGroups";
 import { getTransformedGroupImageProps } from "recipe-website-common/components/GroupImage";
@@ -50,7 +51,10 @@ export default async function EditGroupPage({
       })
     : undefined;
 
-  const tagPicker = await readTagPicker();
+  const [tagPicker, holidays] = await Promise.all([
+    readTagPicker(),
+    readHolidayChoices().catch(() => []),
+  ]);
 
   return (
     <PageMain>
@@ -60,6 +64,7 @@ export default async function EditGroupPage({
           slug={slug}
           defaultImage={defaultImage}
           tagPicker={tagPicker}
+          holidays={holidays}
         />
       </PageSection>
     </PageMain>

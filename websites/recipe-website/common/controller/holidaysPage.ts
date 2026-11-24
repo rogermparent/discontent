@@ -268,7 +268,10 @@ function slugLabel(slug: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-function labelOf(tree: TermTree | null | undefined, slug: string): string {
+export function labelOf(
+  tree: TermTree | null | undefined,
+  slug: string,
+): string {
   return tree?.[slug]?.label ?? slugLabel(slug);
 }
 

@@ -382,6 +382,52 @@ export async function addPlanItem(
   return planWrite((email) => addItem(curationContextFor(email), slug, target));
 }
 
+/**
+ * The recipe page's "Group" picker (51, Dg2): one row at the end, no label,
+ * one commit (`addItem`, under the write lock). Not forced — a recipe the
+ * page showed exists. A group that already has the recipe is the picker's
+ * business (it opens that group); a stale picker adding it twice is allowed
+ * (a plan may cook a dish twice). The answer carries the group's name for
+ * the "Added to …" line, and `busy` says what to do in words.
+ */
+export type AddToGroupResult =
+  { ok: true; slug: string; name: string } | { error: string };
+
+export async function addRecipeToGroup(
+  group: unknown,
+  recipe: unknown,
+): Promise<AddToGroupResult> {
+  if (typeof group !== "string" || typeof recipe !== "string" || !group) {
+    return { error: "Pick a group to add the recipe to." };
+  }
+  const email = await authenticateUser();
+  if (!email) return { error: "Sign in to add this recipe to a group." };
+  const ctx = curationContextFor(email);
+  try {
+    await addItem(ctx, group, { recipe });
+    /* Written already: a failed name read must not read as a failed add. */
+    const name = await getGroup(ctx, group)
+      .then((detail) => detail.group.name)
+      .catch(() => group);
+    return { ok: true, slug: group, name };
+  } catch (error) {
+    const { code, message } = toErrorObject(error).error;
+    if (code === "busy") {
+      return {
+        error:
+          "Another change is being saved. Wait a few seconds and try again.",
+      };
+    }
+    if (code === "not_found") {
+      return { error: "That group is gone. Reload the page to see the list." };
+    }
+    if (code === "unknown_recipe") {
+      return { error: "This recipe is gone, so it can't be added." };
+    }
+    return { error: message };
+  }
+}
+
 export async function rebuildGroupIndex() {
   const contentDirectory = getContentDirectory();
   /* Under the write lock (34d): see `lockedRebuild`. Busy: nothing moved. */

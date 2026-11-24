@@ -235,6 +235,26 @@ test.describe("Accessibility (axe)", () => {
     expect(results.violations).toEqual([]);
   });
 
+  /* 51: the recipe page's Group picker, open (both modes: it is a surface). */
+  for (const mode of ["light", "dark"] as const) {
+    test(`the recipe page's group picker has no WCAG2AA violations in ${mode} mode`, async ({
+      page,
+      resetData,
+    }) => {
+      await resetData("three-recipes-groups");
+      await page.emulateMedia({ colorScheme: mode });
+      await page.goto("/recipe/third-recipe");
+      await signIn(page);
+      await page.goto("/recipe/third-recipe");
+      const trigger = page.getByTestId("group-picker-trigger");
+      await expectHydrated(trigger);
+      await trigger.click();
+      await expect(page.getByTestId("group-picker")).toBeVisible();
+      await expectMode(page, mode);
+      await expectNoViolations(page);
+    });
+  }
+
   test("sign-in form has no WCAG2AA violations", async ({
     page,
     resetData,

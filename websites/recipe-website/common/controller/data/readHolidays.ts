@@ -1,12 +1,15 @@
 import { recipeTagReads } from "./readRecipeTagIndex";
 import { tagTermReads } from "./readTagTerms";
 import { tagSlug } from "../tagSlug";
+import type { HolidayChoice } from "../../util/upcomingHolidays";
 import {
   holidayAliasTarget,
   holidayChildren,
   holidayEntries,
   holidayKeys,
   holidayMenuData,
+  holidayRule,
+  labelOf,
   type HolidayEntry,
   type HolidayMenuData,
 } from "../holidaysPage";
@@ -99,4 +102,18 @@ export async function readHolidaySlugs({
     : [];
   const slugs = [...new Set([...children, ...extra])];
   return slugs.length > 0 ? slugs : ["_"];
+}
+
+/**
+ * Every holiday the group form may offer as a tag chip (51, Dg4): the
+ * `holidays` root's children with their label and the rule that dates them,
+ * the empty ones too (a plan is how a holiday gets its first menu). The
+ * form picks the upcoming ones in the browser, on the reader's calendar.
+ */
+export async function readHolidayChoices(): Promise<HolidayChoice[]> {
+  const tree = await tagTermReads.tree.read();
+  return holidayChildren(tree).map((slug) => {
+    const rule = holidayRule(tree, slug);
+    return { slug, label: labelOf(tree, slug), ...(rule ? { rule } : {}) };
+  });
 }

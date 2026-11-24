@@ -1,4 +1,5 @@
 import NewGroupForm from "./form";
+import { readHolidayChoices } from "recipe-website-common/controller/data/readHolidays";
 import { readTagPicker } from "recipe-website-common/controller/data/readTermPage";
 import {
   groupPrefill,
@@ -40,12 +41,19 @@ export default async function NewGroup({
     return redirectToLogin(prefill ? groupPrefillHref(prefill) : "/group/new");
   }
 
-  const tagPicker = await readTagPicker();
+  const [tagPicker, holidays] = await Promise.all([
+    readTagPicker(),
+    readHolidayChoices().catch(() => []),
+  ]);
 
   return (
     <PageMain>
       <PageSection maxWidth="xl" grow>
-        <NewGroupForm prefill={prefill} tagPicker={tagPicker} />
+        <NewGroupForm
+          prefill={prefill}
+          tagPicker={tagPicker}
+          holidays={holidays}
+        />
       </PageSection>
     </PageMain>
   );
