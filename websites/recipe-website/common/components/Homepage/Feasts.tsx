@@ -213,9 +213,14 @@ function NextUp({
               {index > 0 && " · "}
               <Link
                 href={menuHref(feast.slug)}
-                className="inline-flex min-h-6 items-center text-primary underline-offset-4 hover:underline"
+                className="inline-flex min-h-6 items-center gap-1 text-primary underline-offset-4 hover:underline"
               >
-                {course.label} {course.count}
+                {course.label}
+                {/* The count as the cards write it ("SIDES · 20"), not
+                    glued to the name ("Salads 2" read as a name). */}
+                <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                  · {course.count}
+                </span>
               </Link>
             </Fragment>
           ))}

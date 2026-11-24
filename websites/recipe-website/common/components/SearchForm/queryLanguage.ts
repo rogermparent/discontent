@@ -154,6 +154,18 @@ function isFilterField(name: string): name is FilterField {
 }
 
 /**
+ * A `+` right before a known filter (`cranberry+tag:dessert`,
+ * `ingredient:cranberry+-tag:side`) joins two atoms, the way a URL's
+ * `+` is a space: a local model wrote whole queries that way and every one
+ * matched nothing (51, 2026-11-24). Any other `+` is part of the word.
+ */
+function plusJoinsFilter(raw: string, at: number): boolean {
+  if (raw[at] !== "+") return false;
+  const next = /^-?([A-Za-z]+):/.exec(raw.slice(at + 1));
+  return next !== null && isFilterField(next[1].toLowerCase());
+}
+
+/**
  * Split a raw query into tokens. Quotes suspend the usual delimiters, so
  * `tag:"slow cooker"` is one term; an unterminated quote simply runs to the end
  * of the input rather than failing (rule 2 — this is what half-typed looks like).
@@ -165,7 +177,7 @@ function tokenize(raw: string): Token[] {
   while (i < raw.length) {
     const char = raw[i];
 
-    if (/\s/.test(char)) {
+    if (/\s/.test(char) || plusJoinsFilter(raw, i)) {
       i += 1;
       continue;
     }
@@ -204,7 +216,7 @@ function tokenize(raw: string): Token[] {
         if (i < raw.length) i += 1; // closing quote
         continue;
       }
-      if (/[\s()]/.test(c)) break;
+      if (/[\s()]/.test(c) || plusJoinsFilter(raw, i)) break;
       if (c === ":" && firstColon === -1) firstColon = text.length;
       text += c;
       i += 1;
