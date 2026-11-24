@@ -83,7 +83,7 @@ export function formatLinked(
     if (item.tags?.length) out.push(`${pad}tags: ${item.tags.join(", ")}`);
     if (item.already && item.lines?.length) {
       out.push(
-        `${pad}line${item.lines.length === 1 ? "" : "s"} ${item.lines.map((line) => line + 1).join(", ")} link it already`,
+        `${pad}line${item.lines.length === 1 ? "" : "s"} ${item.lines.map((line) => line + 1).join(", ")} ${item.lines.length === 1 ? "links" : "link"} it already`,
       );
     }
   }

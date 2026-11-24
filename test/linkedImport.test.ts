@@ -25,7 +25,9 @@ import {
 } from "vitest";
 
 import { derivedContentPaths } from "@discontent/cms/content/derivedPaths";
+import { getIndexDirectory } from "@discontent/cms/content/database";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
+import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
 
 import { recipeContentTypes } from "../websites/recipe-website/editor/controller/contentTypes";
 import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
@@ -208,6 +210,24 @@ describe("importing a recipe that links another", () => {
     expect(hits.filter((path) => !path.startsWith("/wp-content/"))).toEqual([
       CAKE_PATH,
     ]);
+  });
+
+  it("links to the poached pears already here when there is no recipe index (a fresh clone)", async () => {
+    await importAndCreate(ctx, pearsUrl(), {});
+    /* A clone has the recipe files but not the index the source lookup
+     * reads; the slug's own file still says where it came from. */
+    await closeCachedEnvironments();
+    await rm(getIndexDirectory(recipeContentConfig, contentDirectory), {
+      recursive: true,
+      force: true,
+    });
+    const result = (await importAndCreate(ctx, cakeUrl(), {
+      dryRun: true,
+    })) as ImportDryRunResult;
+    expect(result.linked?.recipes[0]).toMatchObject({
+      status: "existing",
+      slug: "poached-pears",
+    });
   });
 
   it("imports the cake alone with linked off", async () => {

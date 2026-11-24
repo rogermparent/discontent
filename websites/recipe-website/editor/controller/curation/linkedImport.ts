@@ -51,8 +51,16 @@ import {
   getRecipe,
   resolveCreateSlug,
   slugIsTaken,
+  type RecipeDetail,
 } from "./recipes";
 import { pacedRequest } from "./sitePacing";
+import { sourceUrlKey } from "recipe-website-common/util/roundupPage";
+
+/** Two source links name the same page (the duplicate check's key). */
+function sameSource(stored: string | undefined, url: string): boolean {
+  const key = stored ? sourceUrlKey(stored) : undefined;
+  return key !== undefined && key === sourceUrlKey(url);
+}
 
 export { LINKED_MODES, type LinkedMode } from "./linkedMode";
 
@@ -216,8 +224,7 @@ export async function followLinked(
       "linked",
       { url: candidate.url, where: candidate.where },
       async (step): Promise<Followed> => {
-        const existing = await recipeBySource(ctx, candidate.url);
-        if (existing) {
+        const asExisting = (existing: RecipeDetail): Followed => {
           step.set({ status: "existing", slug: existing.slug });
           const name = existing.recipe.name ?? existing.slug;
           return {
@@ -231,7 +238,9 @@ export async function followLinked(
               ),
             },
           };
-        }
+        };
+        const existing = await recipeBySource(ctx, candidate.url);
+        if (existing) return asExisting(existing);
         let page;
         try {
           page = await importPage(
@@ -263,6 +272,14 @@ export async function followLinked(
           const input = importedToInput(linked, { tags: carried });
           const slug = resolveCreateSlug(input);
           if (await slugIsTaken(ctx, slug)) {
+            /* Without the recipe index (a fresh clone) `recipeBySource`
+             * finds nothing; the recipe at the slug may still be this
+             * page's, so read its own file before calling it another
+             * source's. */
+            const here = await getRecipe(ctx, slug).catch(() => undefined);
+            if (here && sameSource(here.recipe.source?.url, candidate.url)) {
+              return asExisting(here);
+            }
             const why = `a recipe from another source already has the slug "${slug}" — import ${candidate.url} on its own with --slug`;
             step.fail(why);
             return {
