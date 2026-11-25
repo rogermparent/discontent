@@ -268,8 +268,12 @@ survives a cleared context.
   list as layers: base → rules (49a's merges, leave-off with water built
   in) → this list's layers (merge, rename, drop, amount, note, aisle by
   item id, on/off), the Changes and Left off panels and As written (50a);
-  then "Tidy with the model" (50b), the walkthrough (50c), saved lists
-  (50d).
+  then "Tidy with the model" (50b, a per-run model picker, kept runs), the
+  walkthrough (50c: one card at a time, "Always do this"), saved lists
+  (50d), imports that follow linked recipes (50e) and the recipe page's
+  group picker with holiday tag chips (#362). Closed and deployed
+  2026-11-24; the confirm page (with the linked-recipe dry run s01–s05) is
+  linked in the Close-out.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
