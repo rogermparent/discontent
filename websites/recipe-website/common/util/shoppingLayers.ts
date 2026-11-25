@@ -126,6 +126,18 @@ export interface ShoppingLayer {
   on: boolean;
   /** The suggestion it came from (50b), when a model's. */
   from?: string;
+  /**
+   * 50c (Dc4): a model's suggestion the person edited before accepting —
+   * when, and the model's own ops, kept; `ops` are the person's.
+   */
+  edited?: ShoppingLayerEdit;
+}
+
+/** 50c: who edited a model's suggestion (always the person), and what it was. */
+export interface ShoppingLayerEdit {
+  at: string;
+  /** The model's ops as it suggested them. */
+  ops: ShoppingLayerOp[];
 }
 
 export const SHOPPING_LAYER_KEYS = [
@@ -137,6 +149,7 @@ export const SHOPPING_LAYER_KEYS = [
   "at",
   "on",
   "from",
+  "edited",
 ] as const satisfies readonly (keyof ShoppingLayer)[];
 
 /** A layer's id: a ULID, lower case (Crockford base32). */
@@ -277,6 +290,20 @@ export function parseShoppingLayer(
       ? raw.note.trim()
       : undefined;
   const from = boundedText(raw.from, LAYER_LIMITS.from);
+  const editedOps =
+    isRecord(raw.edited) && Array.isArray(raw.edited.ops)
+      ? raw.edited.ops
+          .slice(0, LAYER_LIMITS.ops)
+          .map(parseShoppingLayerOp)
+          .filter((op): op is ShoppingLayerOp => op !== null)
+      : [];
+  const edited =
+    isRecord(raw.edited) && editedOps.length > 0
+      ? {
+          at: typeof raw.edited.at === "string" ? raw.edited.at : "",
+          ops: editedOps,
+        }
+      : undefined;
   return canonicalShoppingLayer({
     id,
     ops,
@@ -287,6 +314,7 @@ export function parseShoppingLayer(
     /* Only an explicit `false` is off: a hand-written layer is on. */
     on: raw.on !== false,
     ...(from ? { from } : {}),
+    ...(edited ? { edited } : {}),
   });
 }
 
@@ -315,24 +343,41 @@ export function sortLayers(layers: readonly ShoppingLayer[]): ShoppingLayer[] {
 // --- rules -------------------------------------------------------------------
 
 /**
- * A rule for every list, by name (Da3). 50a has one kind: **leave off** —
- * a name never bought (`leaveOff: true`), or a built-in one bought after
- * all (`leaveOff: false`, what Restore writes for water).
+ * A rule for every list, by name (Da3). Two kinds in this directory:
+ * **leave off** — a name never bought (`leaveOff: true`), or a built-in one
+ * bought after all (`leaveOff: false`, what Restore writes for water) — and
+ * (50c, Dc6) **rename** — a name always shown as `label`. Any rule can be
+ * switched off (`on: false`, stored only then) and keeps its file.
  */
-export interface ShoppingRule {
+interface ShoppingRuleBase {
   /** `ruleIdOf(kind, key)`: 16 hex characters. Names the file. */
   id: string;
-  kind: "leave-off";
   /** The name key it matches (`shoppingNameOf(...).key`). */
   key: string;
   /** The name as the person gave it, for reading back. */
   name?: string;
-  leaveOff: boolean;
-  /** Why, shown beside a row it leaves off. */
+  /** Why, shown beside a row it changes. */
   reason?: string;
+  /** 50c: switched off — it applies nothing, and its file stays. */
+  on?: false;
   /** ISO time of the decision. */
   decidedAt: string;
 }
+
+export interface ShoppingLeaveOffRule extends ShoppingRuleBase {
+  kind: "leave-off";
+  leaveOff: boolean;
+}
+
+/** 50c (Dc6): rows of this name read `label`, on every list. */
+export interface ShoppingRenameRule extends ShoppingRuleBase {
+  kind: "rename";
+  label: string;
+}
+
+export type ShoppingRule = ShoppingLeaveOffRule | ShoppingRenameRule;
+
+export const SHOPPING_RULE_KINDS = ["leave-off", "rename"] as const;
 
 export const SHOPPING_RULE_KEYS = [
   "id",
@@ -340,9 +385,11 @@ export const SHOPPING_RULE_KEYS = [
   "key",
   "name",
   "leaveOff",
+  "label",
   "reason",
+  "on",
   "decidedAt",
-] as const satisfies readonly (keyof ShoppingRule)[];
+] as const;
 
 export const RULE_ID_PATTERN = /^[0-9a-f]{16}$/;
 
@@ -352,15 +399,17 @@ export function ruleIdOf(kind: ShoppingRule["kind"], key: string): string {
 }
 
 /** A rule as stored: known keys only, in order. */
-export function canonicalShoppingRule(rule: ShoppingRule): ShoppingRule {
+export function canonicalShoppingRule<T extends ShoppingRule>(rule: T): T {
   const out: Record<string, unknown> = {};
+  const source = rule as unknown as Record<string, unknown>;
   for (const key of SHOPPING_RULE_KEYS) {
-    const value = rule[key];
+    const value = source[key];
     if (value === undefined || value === null) continue;
     if (value === "" && key !== "decidedAt") continue;
+    if (key === "on" && value !== false) continue;
     out[key] = value;
   }
-  return out as unknown as ShoppingRule;
+  return out as unknown as T;
 }
 
 /** A stored rule, read leniently: `null` without a key or a kind it knows. */
@@ -368,23 +417,50 @@ export function parseShoppingRule(
   raw: unknown,
   fallbackId?: string,
 ): ShoppingRule | null {
-  if (!isRecord(raw) || raw.kind !== "leave-off") return null;
+  if (!isRecord(raw)) return null;
+  if (raw.kind !== "leave-off" && raw.kind !== "rename") return null;
   const key = boundedText(raw.key, 160);
-  if (!key || typeof raw.leaveOff !== "boolean") return null;
-  const id = ruleIdOf("leave-off", key);
+  if (!key) return null;
+  const id = ruleIdOf(raw.kind, key);
   /* A file whose name is not its key's id is a hand edit gone wrong. */
   if (fallbackId !== undefined && fallbackId.toLowerCase() !== id) return null;
   const name = boundedText(raw.name, LAYER_LIMITS.name);
   const reason = boundedText(raw.reason, LAYER_LIMITS.reason);
-  return canonicalShoppingRule({
+  const base = {
     id,
-    kind: "leave-off",
     key,
     ...(name ? { name } : {}),
-    leaveOff: raw.leaveOff,
     ...(reason ? { reason } : {}),
+    ...(raw.on === false ? { on: false as const } : {}),
     decidedAt: typeof raw.decidedAt === "string" ? raw.decidedAt : "",
+  };
+  if (raw.kind === "rename") {
+    const label = boundedText(raw.label, LAYER_LIMITS.name);
+    if (!label) return null;
+    return canonicalShoppingRule({ ...base, kind: "rename", label });
+  }
+  if (typeof raw.leaveOff !== "boolean") return null;
+  return canonicalShoppingRule({
+    ...base,
+    kind: "leave-off",
+    leaveOff: raw.leaveOff,
   });
+}
+
+/** 50c: whether a rule applies (switched on). */
+export function ruleIsOn(rule: { on?: boolean }): boolean {
+  return rule.on !== false;
+}
+
+/** 50c (Dc6): name key → the rename rule that labels it, on rules only. */
+export function renameRules(
+  rules: readonly ShoppingRule[],
+): Map<string, ShoppingRenameRule> {
+  const out = new Map<string, ShoppingRenameRule>();
+  for (const rule of rules) {
+    if (rule.kind === "rename" && ruleIsOn(rule)) out.set(rule.key, rule);
+  }
+  return out;
 }
 
 /** Water, as recipes write it (Da3): from the tap, never bought. */
@@ -428,7 +504,7 @@ export function leaveOffVerdicts(
     out.set(key, { reason: BUILT_IN_LEAVE_OFF_REASON, builtIn: true });
   }
   for (const rule of rules) {
-    if (rule.kind !== "leave-off") continue;
+    if (rule.kind !== "leave-off" || !ruleIsOn(rule)) continue;
     if (!rule.leaveOff) out.delete(rule.key);
     else {
       out.set(rule.key, {

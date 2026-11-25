@@ -21,9 +21,9 @@ import type {
   ShoppingSubRecipeGroup,
   ShoppingView,
 } from "../../util/shoppingView";
-import { MergeProposals } from "./MergeProposals";
 import { AsWrittenSwitch, ChangesPanel, LeftOffPanel } from "./Layers";
-import { TidyPanel, type ShoppingTidySurface } from "./Tidy";
+import type { ShoppingTidySurface } from "./Tidy";
+import { Walkthrough } from "./Walkthrough";
 import {
   AddBox,
   ClearChecked,
@@ -458,6 +458,21 @@ export function PlanView({
 
       <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] lg:items-start">
         <aside className="flex flex-col gap-4 print:hidden">
+          {/* 50c: the cards first — on a phone too, above the panels. */}
+          {(list.canMerge || (tidy && list.canLayer)) && (
+            <Walkthrough
+              /*
+               * 50c (Dc11): a list's cards are its own. The page is keyed by
+               * the list already; this keeps the cards so if that ever moves.
+               */
+              key={list.listId}
+              list={list}
+              proposals={proposals}
+              {...(asker ? { asker } : {})}
+              {...(tidy && list.canLayer ? { tidy } : {})}
+              view={fullView}
+            />
+          )}
           <section className={panelClass} aria-label="Add">
             <h2 className="mb-1.5 text-sm font-semibold">Add to the list</h2>
             <AddBox
@@ -465,13 +480,6 @@ export function PlanView({
               hint="Plans and recipes add from their own pages."
             />
           </section>
-          <MergeProposals
-            proposals={proposals}
-            list={list}
-            asker={asker}
-            view={fullView}
-          />
-          {tidy && list.canLayer && <TidyPanel tidy={tidy} list={list} />}
           <ChangesPanel list={list} />
           {origins.length > 0 && (
             <Origins origins={origins} view={fullView} list={list} />

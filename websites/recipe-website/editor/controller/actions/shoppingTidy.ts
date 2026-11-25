@@ -12,6 +12,8 @@ import { toErrorObject } from "../curation/errors";
 import { startSpec } from "../jobs/kinds";
 import { keepUnstored, waitUnstored } from "../jobs/unstored";
 import {
+  TIDY_NOTE_MAX,
+  TIDY_RUNS_SHOWN,
   isShoppingTidyResult,
   tidyRunView,
   type ShoppingTidyResult,
@@ -118,10 +120,71 @@ export async function latestShoppingTidy(list?: string): Promise<{
   }
 }
 
-/** Accept (one change on this list) or Skip one suggestion. */
+/** 50c: a list's kept runs, newest first, as the list reads them now. */
+export async function shoppingTidyRuns(list?: string): Promise<{
+  runs?: TidyRunView[];
+  message?: string;
+}> {
+  const email = signedIn((await auth())?.user?.email);
+  if (!email) return { message: "Sign in first." };
+  try {
+    const { readTidyRuns, readShoppingItems } =
+      await import("../curation/shopping");
+    const ctx = on(email, list);
+    const [runs, items] = await Promise.all([
+      readTidyRuns(ctx),
+      readShoppingItems(ctx),
+    ]);
+    return {
+      runs: runs
+        .slice(0, TIDY_RUNS_SHOWN)
+        .map((run) => tidyRunView(run, items)),
+    };
+  } catch (error) {
+    return { message: toErrorObject(error).error.message };
+  }
+}
+
+const AskSchema = z.strictObject({
+  suggestion: z.string().trim().min(1).max(64),
+  note: z.string().trim().min(1).max(TIDY_NOTE_MAX),
+  model: z.string().trim().min(1).max(80).optional(),
+  /* 50d: the list the card's run is on. */
+  list: z.string().trim().min(1).max(100).optional(),
+});
+
+/**
+ * 50c: "Tell the model…" on a card — 50b's ask (Db6): a job whose answer
+ * takes the card's place, revised. Followed as a run is.
+ */
+export async function askShoppingTidy(
+  input: unknown,
+): Promise<ShoppingTidyStarted> {
+  const email = signedIn((await auth())?.user?.email);
+  if (!email) return { message: "Sign in to ask the model." };
+  const parsed = AskSchema.safeParse(input);
+  if (!parsed.success) return { message: "That note can't be read." };
+  try {
+    const { storedTidyAskSpec } = await import("../llm/shoppingTidy");
+    const { list, ...ask } = parsed.data;
+    const spec = await storedTidyAskSpec(on(email, list), ask);
+    const { job, done } = await startSpec(spec);
+    keepUnstored(job, done);
+    return { job };
+  } catch (error) {
+    return { message: toErrorObject(error).error.message };
+  }
+}
+
+/**
+ * Accept (one change on this list) or Skip one suggestion; 50c: Accept with
+ * the person's edit (`ops`), the model's kept on the change.
+ */
 export async function decideShoppingTidy(
   id: string,
   action: "accept" | "skip",
+  ops?: unknown,
+  /* 50d: the list the run is on (the main list without one). */
   list?: string,
 ): Promise<{ run?: TidyRunView; message?: string }> {
   const email = signedIn((await auth())?.user?.email);
@@ -133,7 +196,12 @@ export async function decideShoppingTidy(
     const { decideTidySuggestion, readShoppingItems } =
       await import("../curation/shopping");
     const ctx = on(email, list);
-    const { run } = await decideTidySuggestion(ctx, id, action);
+    const { run } = await decideTidySuggestion(
+      ctx,
+      id,
+      action,
+      ops === undefined ? {} : { ops },
+    );
     return { run: tidyRunView(run, await readShoppingItems(ctx)) };
   } catch (error) {
     return { message: toErrorObject(error).error.message };

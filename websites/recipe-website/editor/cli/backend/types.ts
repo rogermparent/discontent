@@ -92,6 +92,7 @@ import type {
   ShoppingMergeResult,
   ShoppingPatchResult,
   ShoppingRuleResult,
+  ShoppingRulesResult,
   ShoppingSettingsResult,
   ShoppingViewResult,
 } from "../../controller/curation/shopping";
@@ -197,6 +198,7 @@ export type {
   ShoppingMergeResult,
   ShoppingPatchResult,
   ShoppingRuleResult,
+  ShoppingRulesResult,
   ShoppingSettingsResult,
   ShoppingViewResult,
   ShowResult,
@@ -601,6 +603,12 @@ export interface CuratorBackend {
   removeShoppingLayer(raw: unknown): Promise<ShoppingLayerResult>;
   /** 50a: `{name, leaveOff, reason?}` — a leave-off rule for every list. */
   setShoppingLeaveOff(raw: unknown): Promise<ShoppingRuleResult>;
+  /** 50c: `{kind: "rule" | "merge", id, on}` — switch a rule for every list. */
+  setShoppingRule(raw: unknown): Promise<ShoppingRulesResult>;
+  /** 50c: `{kind: "rule", id} | {kind: "aisle", key}` — remove a rule. */
+  removeShoppingRule(raw: unknown): Promise<ShoppingRulesResult>;
+  /** 50c: `{id}` — "Always do this": a change made rules for every list. */
+  promoteShoppingLayer(raw: unknown): Promise<ShoppingRulesResult>;
   /**
    * 49b: ask the model about one proposal or merged row with a note, or
    * look for more merges — a `shopping-merge` job, written nowhere. Locally

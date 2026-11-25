@@ -1,10 +1,10 @@
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import {
-  TidyPanel,
-  type ShoppingTidySurface,
-} from "../websites/recipe-website/common/components/ShoppingPage/Tidy";
+import type { ShoppingTidySurface } from "../websites/recipe-website/common/components/ShoppingPage/Tidy";
+import { Walkthrough } from "../websites/recipe-website/common/components/ShoppingPage/Walkthrough";
+import { DEFAULT_SHOPPING_SETTINGS } from "../websites/recipe-website/common/util/shoppingTypes";
+import type { ShoppingView } from "../websites/recipe-website/common/util/shoppingView";
 import type { ShoppingList } from "../websites/recipe-website/common/components/ShoppingPage/useShoppingList";
 import type {
   ShoppingTidyResult,
@@ -16,6 +16,7 @@ import type {
  * panel kept "Tidying…" — Strict Mode's mount, cleanup, mount left the
  * panel's unmounted flag set, so the follow loop returned on its first
  * answer without showing it. The panel in <StrictMode> must show the end.
+ * 50c: the panel is the walkthrough's now; the same follow loop.
  */
 
 const run = {
@@ -59,8 +60,9 @@ function surface(): ShoppingTidySurface {
             } as unknown as ShoppingTidyResult,
           },
     ),
-    latest: vi.fn(async () => ({ run })),
+    runsNow: vi.fn(async () => ({ runs: [run] })),
     decide: vi.fn(async () => ({})),
+    ask: vi.fn(async () => ({})),
   };
 }
 
@@ -69,9 +71,23 @@ describe("the tidy panel under Strict Mode (Tb4)", () => {
     const tidy = surface();
     render(
       <StrictMode>
-        <TidyPanel
+        <Walkthrough
           tidy={tidy}
-          list={{ reload: async () => {} } as unknown as ShoppingList}
+          proposals={[]}
+          view={{} as ShoppingView}
+          list={
+            {
+              reload: async () => {},
+              items: [],
+              settings: DEFAULT_SHOPPING_SETTINGS,
+              inventory: [],
+              merges: [],
+              layers: [],
+              rules: [],
+              canLayer: true,
+              working: false,
+            } as unknown as ShoppingList
+          }
         />
       </StrictMode>,
     );
@@ -80,8 +96,6 @@ describe("the tidy panel under Strict Mode (Tb4)", () => {
     );
     expect(await screen.findByText("qwen3:8b made 1 suggestion.")).toBeTruthy();
     expect(tidy.follow).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId("shopping-tidy-status").textContent).not.toMatch(
-      /Tidying/,
-    );
+    expect(screen.queryByTestId("shopping-tidy-running")).toBeNull();
   });
 });

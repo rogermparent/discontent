@@ -132,15 +132,18 @@ RUN set -eu; \
 # Upstream publishes only `current/`, so the version and each architecture's
 # checksum are pinned here (the sha256 is the key in the tarball's `.info`
 # file). A new upstream release makes this download fail its check rather than
-# change silently: update all three ARGs from
+# change silently: update the architecture's version and sha256 ARGs from
 # https://downloads.kitenet.net/git-annex/linux/current/git-annex-standalone-<arch>.tar.gz.info
-ARG GIT_ANNEX_VERSION=10.20261006
-ARG GIT_ANNEX_SHA256_ARM64=5fb9d1695b98aa0d6ca5d02563762197fc62e6e5f0b97b29496a4ba19f0ef62d
-ARG GIT_ANNEX_SHA256_AMD64=88ea73c9bb8fb751916e0e4a0a8f489a7476f9b9e861fd2cce2601a77f4f409d
+# (its 4th line is the version). The two builds release on their own days, so
+# each has its own version (2026-11-24: arm64 10.20261026, amd64 10.20261113).
+ARG GIT_ANNEX_VERSION_ARM64=10.20261026
+ARG GIT_ANNEX_SHA256_ARM64=58cdefa991f92747ebd7faf6a8df5213e40b344c093ee778fd0d2566176bf644
+ARG GIT_ANNEX_VERSION_AMD64=10.20261113
+ARG GIT_ANNEX_SHA256_AMD64=b37f65297c47901a1121e93f9481f5bb152daab92eb0d61601d0812a527e7023
 RUN set -eu; \
     case "$TARGETARCH" in \
-      arm64) sum="$GIT_ANNEX_SHA256_ARM64" ;; \
-      amd64) sum="$GIT_ANNEX_SHA256_AMD64" ;; \
+      arm64) sum="$GIT_ANNEX_SHA256_ARM64"; version="$GIT_ANNEX_VERSION_ARM64" ;; \
+      amd64) sum="$GIT_ANNEX_SHA256_AMD64"; version="$GIT_ANNEX_VERSION_AMD64" ;; \
       *) echo "no git-annex build for $TARGETARCH" >&2; exit 1 ;; \
     esac; \
     asset="git-annex-standalone-${TARGETARCH}.tar.gz"; \
@@ -153,7 +156,7 @@ RUN set -eu; \
     sed -i 's|if \[ -e "$HOME/.ssh" \]; then|if [ -w "$HOME/.ssh" ]; then|' \
       /out/git-annex.linux/runshell; \
     test "$(grep -c 'if \[ -w "$HOME/.ssh" \]; then' /out/git-annex.linux/runshell)" = 2; \
-    echo "$GIT_ANNEX_VERSION" > /out/git-annex.linux/VERSION.pinned
+    echo "$version" > /out/git-annex.linux/VERSION.pinned
 
 # Everything but the app: OS, node, deno, yt-dlp, git-annex and the target's
 # node_modules. `pnpm deploy:pi` tags it `recipe-editor-base:<image id>` and

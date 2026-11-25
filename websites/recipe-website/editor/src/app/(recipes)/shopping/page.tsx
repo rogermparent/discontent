@@ -12,9 +12,12 @@ import {
   decideShoppingListMerge,
   editSavedShoppingList,
   loadShoppingList,
+  promoteShoppingListLayer,
   removeShoppingListLayer,
+  removeShoppingListRule,
   setShoppingListLayer,
   setShoppingListLeaveOff,
+  setShoppingListRule,
   splitShoppingListMerge,
   updateShoppingList,
   updateShoppingListSettings,
@@ -30,7 +33,10 @@ import {
 import { listGroups } from "recipe-editor/controller/curation/groups";
 import { NotFoundError } from "recipe-editor/controller/curation/errors";
 import { readTidyModels } from "recipe-editor/controller/llm/shoppingTidy";
-import { tidyRunView } from "recipe-website-common/util/shoppingTidy";
+import {
+  TIDY_RUNS_SHOWN,
+  tidyRunView,
+} from "recipe-website-common/util/shoppingTidy";
 import { editModels } from "recipe-editor/controller/llm/askEdit";
 import { readerLabel } from "recipe-editor/controller/llm/readerLabel";
 import ShoppingWithModel from "./ShoppingWithModel";
@@ -121,6 +127,9 @@ export default async function ShoppingListPage({
             setLayer: setShoppingListLayer.bind(null, listId),
             removeLayer: removeShoppingListLayer.bind(null, listId),
             leaveOff: setShoppingListLeaveOff,
+            setRule: setShoppingListRule.bind(null, listId),
+            removeRule: removeShoppingListRule.bind(null, listId),
+            promoteLayer: promoteShoppingListLayer.bind(null, listId),
           }}
           patchUrl={
             listId === "main"
@@ -128,7 +137,9 @@ export default async function ShoppingListPage({
               : `/api/shopping?list=${encodeURIComponent(listId)}`
           }
           tidyModels={tidyModels.choices}
-          {...(tidyRuns[0] ? { tidyRun: tidyRunView(tidyRuns[0], items) } : {})}
+          tidyRuns={tidyRuns
+            .slice(0, TIDY_RUNS_SHOWN)
+            .map((run) => tidyRunView(run, items))}
           models={{
             ...(models.local ? { local: readerLabel(models.local) } : {}),
             ...(models.claude ? { claude: readerLabel(models.claude) } : {}),

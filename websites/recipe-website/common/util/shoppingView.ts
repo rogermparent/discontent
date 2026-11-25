@@ -63,6 +63,7 @@ import {
 import {
   isStaleLayer,
   leaveOffVerdicts,
+  renameRules,
   sortLayers,
   type ShoppingLayer,
   type ShoppingLayerBy,
@@ -384,6 +385,8 @@ export interface ShoppingChange {
   text: string;
   /** It applied to nothing on this row, and why ("2 cans is a count…"). */
   skipped?: string;
+  /** 50c: a model's suggestion the person edited before accepting it. */
+  edited?: true;
 }
 
 /** 50a: a row taken off the list, and who said so (Da5). */
@@ -405,7 +408,7 @@ export interface ShoppingLeftOff {
 export interface ShoppingCompose {
   /** This list's layers, any order (applied by id). */
   layers?: readonly ShoppingLayer[];
-  /** The rules for every list: leave-off. */
+  /** The rules for every list: leave-off, and (50c) rename. */
   rules?: readonly ShoppingRule[];
 }
 
@@ -977,6 +980,7 @@ function applyOp(
     ...(layer.reason ? { reason: layer.reason } : {}),
     text,
     ...(skipped ? { skipped } : {}),
+    ...(layer.edited ? { edited: true as const } : {}),
   });
   const labelOf = (draft: Draft) =>
     buildRow(draft.key, draft.entries, features, draft.merge).label;
@@ -1303,6 +1307,26 @@ export function buildShoppingView(
         ...(verdict.rule ? { id: verdict.rule } : {}),
         key: keys[0],
       });
+    }
+
+    /*
+     * 50c (Dc6): a rename rule labels a row of its one name — not a row of
+     * several names (a merge says its own name) — on every list.
+     */
+    const renames = renameRules(compose.rules ?? []);
+    if (renames.size > 0) {
+      for (const draft of drafts) {
+        const keys = draftKeys(draft);
+        const rule = keys.length === 1 ? renames.get(keys[0]) : undefined;
+        if (!rule || draft.merge?.decision) continue;
+        draft.merge = { ...ownContext(draft), label: rule.label, named: true };
+        draft.changes.push({
+          source: "rule",
+          id: rule.id,
+          op: "rename",
+          text: `renamed to ${rule.label} (a rule for every list)`,
+        });
+      }
     }
 
     /* Layers (Da4), in id order: on, and naming an item still on the list. */

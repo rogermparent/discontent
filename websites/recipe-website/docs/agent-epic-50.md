@@ -728,6 +728,275 @@ dev` (Docker) failed: the panel kept "Tidying…" (Tb4).
   golden cards; a golden merge is at most four rows now. Read the
   scorer's calls by eye.
 
+## 50c — Walk through the suggestions, one card at a time (L)
+
+The spec is the mock-up Roger approved (artifact `M3sTTwEeGe8QgWmZfUTNWQ`,
+all seven questions OK), with his note on the model: "make it easily
+selectable (e.g. 'looks like qwen 3:8b didn't do a good job, I want to run
+3:14b or Claude against the original or to iterate on these results')".
+
+### Decisions
+
+- **Dc1 — One panel, "Suggestions", first in Plan's left column**
+  (`Walkthrough.tsx`): the cards one at a time with progress dots and "N
+  accepted · N skipped · N to go", then "Tidy with the model" (`Tidy.tsx`'s
+  `TidyControls`) and its earlier runs. Card first, the list beside it on a
+  wide screen; on a phone the panel is above the others (Plan's list is
+  Shop's there, unchanged). 49a's "Same thing, different names" panel and
+  50b's minimal tidy panel are gone; 49b's asks that belong to no card (a
+  merged row's "Ask the model about this", the running ask) show in this
+  panel (`MergeAsks`). Split and "Ask the model about this" stay on the row.
+- **Dc2 — After is composed** (`shoppingWalk.ts`, `suggestionDiff`): the
+  list as the page composes it (`composeWalk`, 50a's `buildShoppingView`
+  with merges, rules and layers) with the card's ops added as one more layer
+  whose id sorts after every ULID — exactly what Accept writes. Now is the
+  rows the ops' items are in; After the same items' rows, or what was left
+  off and why, a row's notes, and "moved to <aisle>".
+- **Dc3 — Built-in cards come first**, then the picked run's (not mixed: the
+  table's merges are deterministic and settle names the model's cards then
+  read as one row; a model card's ops reach rows by item id either way).
+  "Same thing, different names: <name>", by "Built-in": **Accept** = 49a's
+  Merge (a rule for every list, as before), **Skip** is this page only (the
+  proposal is asked again next time — a proposal has no stored skip), **Keep
+  apart** is 49a's (a rule), **Edit** the name and amount, and — with a model
+  here — **Tell the model…** is 49b's note. Kept apart counts as skipped in
+  the tally but is not offered to reopen (it is a rule: switch it off in
+  Changes). A stale model card (an item left) is not a card.
+- **Dc4 — Edit, then Accept as edited** (`walkFields`, `applyWalkEdits`):
+  a merge's name and amount (empty: the list's own), a rename's name, an own
+  or added amount, a note — the After lines follow as you type. The seat
+  refuses an edit that changes anything else (`sameShape`: the ops, their
+  rows, a drop's reason, an aisle, a unit). The layer stores the person's
+  ops and `edited: {at, ops}` — the model's own — `by` stays the model's;
+  the run's status says `edited: true`; the commit is "accept (edited): …";
+  the chain and Changes say "suggested by qwen3:8b, edited by you". An
+  Accept whose ops equal the model's is no edit.
+- **Dc5 — "Always do this"** (`promoteLayer`, the seat's
+  `promoteShoppingLayer`): a change of this list said again by its lines'
+  names — a merge of two or more names → 49a's merge decision (its name
+  kept), a rename → a rename rule, a leave-off → a leave-off rule (its
+  reason kept), an aisle → `aisleOverrides` (the routing table the row's
+  "Aisle (for every list)" writes). The change itself goes in the same
+  commit ("Update shopping list: always: …"): the rules do it now. Refused,
+  for the whole change, with the reason under the disabled button: an amount
+  or a note ("Amounts and notes stay on this list: they follow its recipes,
+  and another list's lines differ."), a merge with its own amount, "Check at
+  home first" (this list's cupboard check, 50b's review 4), a merge of one
+  name, and a merge whose names a rule merges with others already.
+- **Dc6 — A rename rule** (`rules/<id>.json`, `kind: "rename"`, `key`,
+  `name`, `label`; `ruleIdOf("rename", key)`): a row of that one name reads
+  `label` on every list, after the leave-offs and before this list's layers;
+  a row of several names (a merge) keeps its own name. `ShoppingRule` is a
+  union of the leave-off and rename kinds.
+- **Dc7 — Rules switch off and keep their file**: `on: false` on a rule's
+  file or a 49a merge decision (stored only when off). Off applies nothing:
+  a merge's rows show apart and its proposal comes back as a card; a
+  kept-apart pair may be proposed again; a merge decided again is on. The
+  Rules tier (`listRules`), collapsed: the built-in water names (their
+  switch is 50a's Restore / leave off again; no Remove), a person's
+  leave-offs and renames (switch, Remove), merges and kept-apart pairs
+  (switch; Remove is 49a's Split), aisles by name (Remove only — a setting).
+  "This list": each change with its switch, Remove and "Always do this".
+- **Dc8 — Runs**: the page reads the 20 newest (`TIDY_RUNS_SHOWN`); "Earlier
+  runs" lists each with model, on, when and its counts now, and picking one
+  shows its remaining cards. Iterate is a new run on the current list (it is
+  told what was accepted and skipped, 50b's Db1). The model is radio cards
+  as on /curator (48-close #12): one this editor can't run stays in view,
+  disabled, saying what to set. A card's note asks the model the picker
+  names ("Ask qwen3:8b again with this note"), so a card can be re-asked of
+  14b or Claude; the revised card replaces the old one (50b's Db6), shown
+  "Revised" with the note.
+- **Dc9 — Keys and focus**: A / S / E answer while focus is in the panel and
+  not in a field (WCAG 2.1.4: single-key shortcuts only where the component
+  has focus), with `aria-keyshortcuts` on the buttons. After an action focus
+  goes to the next card's title, or the done state's heading; the counts and
+  what happened are in the panel's `role="status"`. The run's progress links
+  its steps on `/jobs/<id>`.
+- **Dc10 — Surfaces.** Server actions `setShoppingListRule`,
+  `removeShoppingListRule`, `promoteShoppingListLayer`, `askShoppingTidy`,
+  `shoppingTidyRuns`, and `decideShoppingTidy`'s `ops`; HTTP `PATCH` /
+  `DELETE /api/shopping/rules` and `POST /api/shopping/layers/always`; CLI
+  `shopping change always <id>` and `shopping rule on|off rule|merge <id> |
+rm rule <id> | rm aisle <key>`. No new MCP tool (59 / 45).
+- **Dc11 — On 50d's lists** (the merge of `dadac069`). The walkthrough is
+  one list's: tidy runs, their cards and the changes they write are that
+  list's (`shopping/lists/<id>/tidy`, `…/layers`); rules, merges and aisles
+  by name stay every list's. Every 50c surface names the list 50d's way —
+  the page's actions bound to it (`setShoppingListRule`,
+  `removeShoppingListRule`, `promoteShoppingListLayer` list-first;
+  `decideShoppingTidy(id, action, ops, list)`, `shoppingTidyRuns(list)`,
+  `askShoppingTidy({…, list})`), `?list=` on `/api/shopping/rules` and
+  `/api/shopping/layers/always` (the HTTP backend adds it), and `--list` on
+  `shopping change always` and `shopping rule` (every shopping command has
+  it). A rule's switch or Remove writes the shared rule but answers the
+  shown list's layers, so a saved list's page never shows the main list's
+  changes; the list is resolved before the lock, so an unknown one writes
+  nothing. "Always do this" on a saved list removes that list's change, is
+  refused on a deleted list, and its subject names the list (`Update
+shopping list "Party": always: …`). `<Walkthrough>` is keyed by the list's
+  id (`useShoppingList`'s `listId`) as well as the page by 50d: another list
+  starts with no card, no picked run and no page-only skip.
+
+### Results
+
+**What changed.**
+
+- `common/util/shoppingWalk.ts` (new, pure): `composeWalk`,
+  `suggestionDiff`, `walkFields` / `applyWalkEdits` / `sameShape` /
+  `isEdited`, `promoteLayer` and `LIST_ONLY_WHY`, `listRules`, the queue
+  (`walkCards`, `walkCounts`, `nextCard`) and the runs (`runHistory`,
+  `pickRun`).
+- `shoppingLayers.ts`: `ShoppingRule` is the leave-off and rename union,
+  `on: false`, `ruleIsOn`, `renameRules`; a layer's `edited`.
+  `shoppingMerges.ts`: a decision's `on: false` (`activeMerges` skips it);
+  `shoppingConsolidate.ts`: an apart decision switched off proposes again;
+  `shoppingView.ts`: rename rules, a change's `edited`; `shoppingTidy.ts`: a
+  suggestion's `edited`, `TIDY_RUNS_SHOWN`.
+- The page: `Walkthrough.tsx` (new), `Tidy.tsx` (`TidyControls`, the
+  model radio cards, `RunTime`), `MergeProposals.tsx` (its pieces kept for
+  the built-in card; `MergeAsks`), `Layers.tsx` (the two tiers),
+  `PlanView.tsx`, `useShoppingList`'s `setRule`, `removeRule`,
+  `promoteLayer`, `canRule`; `ShoppingRowView`'s `changedBy` says an edit.
+- The seat: `setShoppingRuleOn`, `removeShoppingRule`,
+  `promoteShoppingLayer`, `decideTidySuggestion`'s `ops`; schemas
+  `ShoppingRuleSetSchema`, `ShoppingRuleRemoveSchema`,
+  `ShoppingLayerPromoteSchema`, `TidyAcceptEditSchema`; a switched-off
+  merge does not grow a new one.
+- Actions, the editor page (the 20 newest runs, the new actions), HTTP
+  (`/api/shopping/rules` PATCH and DELETE, `/api/shopping/layers/always`),
+  the CLI and both backends; the stand-in model's third tidy card ("Say
+  large eggs", a rename).
+
+**Tests.** `test/shoppingWalk.test.ts` (new): After by composition (a
+leave-off and an added amount, equal to the accepted layer's list; an aisle
+move, a merge, a note); edits (the fields, a note-only edit, empty refused,
+the shape check); "Always do this" (each kind; amounts, notes, a merge's
+amount, one name, Check at home, a rename of several names and a change
+switched off refused); rename rules and switching off (a rule, a merge's
+proposal back); the tier's listing; run history and picking; the queue
+(built-in first, the next card, a gone item's card dropped). In a real
+repository: an edited Accept (the person's ops, the model's kept, "(edited)",
+a new shape refused, the model's own ops no edit); "Always do this" in one
+commit (merge, rename, aisle and the layer's file), an amount refused; a
+rule off, on, removed; an aisle removed; a merge off and on; a merge
+promotion that clashes with a rule refused. `shoppingTidyPanel.test.tsx`
+renders the walkthrough in Strict Mode (Tb4). Playwright
+`shopping-walkthrough.spec.ts` (new): a run walked with A, S and E (typing
+"as said" in the field presses nothing), a note re-asking a card (Revised),
+the done state reopening the skipped card, "suggested by …, edited by you";
+Keep apart then Accept the rest; "Always do this" on the rename, refused on
+the store size with its reason; the rules tier (the rename switched off);
+axe on the panel and Changes; a phone's Plan with the card first and no
+sideways scroll. `accessibility.spec` gains the walkthrough with Edit open
+and the rules tier, light and dark. `shopping-merge`, `shopping-ask`,
+`shopping-tidy` and `shopping-layers` follow the cards and the two tiers.
+
+**Review** (a read-only agent, before the gates; no blockers). Eight
+findings, seven taken in the second commit: a note-only edit was dropped
+(`isEdited` compared a signature that leaves a note's text out); "Always do
+this" on a rename of a row of several names wrote a rule per name; Accept
+the rest hid where it stopped; a pending card whose line had left the list
+still showed; "Always do this" was offered on a change switched off; a held
+key accepted card after card, and E on a model card left focus on the title;
+`shopping-ask.spec` had lost its focus assertion. Not taken: a switched-on
+merge decision overlapping another is not checked (`activeMerges` gives a
+name to the first by id, as for a hand edit).
+
+**The merge with 50d** (Dc11, by a finisher after the first worker's
+hand-back). Three files conflicted (`curation/shopping.ts`,
+`actions/shoppingTidy.ts`, `ShoppingWithModel.tsx`); the rest merged
+cleanly but needed the list threaded through (`promoteShoppingLayer` still
+wrote the main list's layer path; the rules actions answered the main
+list's layers on a saved list's page). A read-only review of the
+resolution found no blockers; taken: rule writes resolve the list before
+the lock (an unknown `--list` had committed the rule, then failed), and a
+deleted list's "Always do this" is tested refused. A seat test on a saved
+list and a spec — two lists, a run on the main list, switch to the other
+through the switcher, no card, no run, no page-only skip; back, the run's
+cards again — cover it.
+
+**What the gates found** (the first Playwright run: 141 passed, 13
+failed):
+
+- **The key hints broke WCAG 2.5.3.** A button named by `aria-label`
+  ("Skip: all-purpose flour") showed "Skip S": axe's
+  `label-content-name-mismatch` (serious) on every card. The letter is now
+  CSS content (`after:content-[attr(data-key)]`), in the button's own
+  colour (it was muted grey on the primary Accept).
+- **An ask's Accept left the card open.** Accepting 49b's suggestion on a
+  built-in card wrote the merge but never answered the card, so the panel
+  fell to "No suggestions" with focus nowhere; `AskOutcome` now says what it
+  decided (`decided`) and the card counts as accepted (or kept apart),
+  showing the done state with its heading focused.
+- **A built-in card's reason ran into "Accept…"** ("Both are all-purpose
+  flour Accept merges…"): the reason is now ended as a sentence.
+- Specs that had never run: "Always do this" on the eggs reads "Rename egg
+  to large eggs" and the rule "Call egg “large eggs”" (names are keyed and
+  labelled singular, as 49a's merges are); `shopping-tidy.spec`'s `tidy()`
+  took a RegExp only (a typecheck error).
+
+**Gates.** `recipe-editor typecheck` and `recipe-website exec tsc --noEmit`
+clean (after the fixes too). `pnpm exec vitest run` on the merge: 203
+files, 4412 passed, 1 failed — `editFormRoundTrip`'s "a set's label typed
+key by key" timed out at 5 s under load (untouched by 50c or 50d), and its
+file alone passed 17/17; after the UI fixes `shoppingWalk`,
+`shoppingTidyPanel` and `shoppingLists` passed again (28). Docker,
+production: shopping-walkthrough, -merge, -ask, -tidy, -layers, -modes,
+-lists, shopping, plan-page and accessibility, **154 passed** (e2e and
+mobile); after the reason and key-hint fixes, walkthrough, merge, ask, tidy,
+layers, modes and accessibility again, **110 passed**.
+`shopping-walkthrough.spec` once in Docker dev mode (`next dev`, Strict
+Mode): 4 passed.
+
+**Baselines.** Moved, regenerated in Docker (production), each opened:
+
+- `shopping-merge.spec.ts/shopping-merge-proposal-e2e.png` — 49a's
+  proposal is now the walkthrough's built-in card: "Suggestions", the
+  tally, MERGE · Built-in, the title, the reason (a full stop now), Now and
+  After, Accept / Skip / Edit with their key hints, Keep apart. Looks right.
+- `shopping-layers.spec.ts/shopping-layers-changes-e2e.png` — the two
+  tiers: "Rules · every list (3)" collapsed, "This list" with the change,
+  its switch, Remove and a disabled "Always do this" with the reason under
+  it. Looks right.
+- `shopping-modes.spec.ts/shopping-plan-e2e.png` and
+  `shopping-plan-mobile.png` — the Changes panel always shows now (the rules
+  tier holds the built-in water, Dc7) with "No changes on this list" and
+  50d's switcher in the header. Looks right.
+- No new walkthrough screenshot: the spec asserts layout (card above the
+  panels on a phone, no sideways scroll) rather than pixels.
+
+### Roger to confirm
+
+1. **Built-in cards come first**, then the run's (Dc3), and Skip on a
+   built-in card lasts for this page only (the proposal is asked again on a
+   reload); Keep apart is the way to stop it.
+2. **Kept apart counts as skipped** in "N accepted · N skipped · N to go"
+   and is not offered to reopen.
+3. **An edit can change names, amounts, added amounts and notes only**
+   (Dc4) — not which lines, a drop's reason or an aisle.
+4. **"Always do this" removes the change** from this list in the same commit
+   (the rules do it now), and refuses amounts, notes, a merge's own amount,
+   Check at home and a rename of a merged row (Dc5).
+5. **An aisle by name stays the routing setting** (`aisleOverrides`, what the
+   row's "Aisle (for every list)" writes): in the Rules tier it has Remove
+   but no switch.
+6. **Switching a 49a merge off** shows its rows apart and brings its card
+   back; switching a kept-apart pair off lets it be proposed again (Dc7).
+7. **The keys work only while focus is in the Suggestions panel** (Dc9);
+   say if they should work anywhere on the page.
+8. **A card's note asks the model the picker names**, not the run's own
+   (Dc8) — the "run 14b or Claude on these results" case.
+9. **The Changes panel always shows** now (its rules tier has the built-in
+   water), with the tier collapsed.
+10. **The page reads the 20 newest runs** for "Earlier runs".
+11. An edited Accept is page-only: the HTTP and CLI `accept` take no edit.
+12. **A rule's switch and Remove from a saved list's page** change the rule
+    for every list (they are rules); only "Always do this" removes that
+    list's own change (Dc11).
+13. **Names in rules read keyed and singular** ("Call egg “large eggs”",
+    "Rename egg to large eggs"), as 49a's merge subjects do; say if a rule
+    should keep the line's own wording ("eggs").
+
 ## 50e — Imports follow the recipes a recipe links to (M–L)
 
 Roger, 2026-11-21: _"Ideally importing recipes should also follow and import
