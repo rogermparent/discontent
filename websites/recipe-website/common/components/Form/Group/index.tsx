@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import slugify from "@sindresorhus/slugify";
 import { Plus, X } from "lucide-react";
 import { Button } from "@discontent/component-library/components/ui/button";
@@ -27,6 +27,69 @@ import {
 import type { TagPickerData } from "recipe-website-common/components/Form/Tags/tagPicker";
 import type { GroupFormState } from "recipe-website-common/controller/groupFormState";
 import type { Group, GroupItem } from "recipe-website-common/controller/types";
+import { tagSlug } from "recipe-website-common/controller/tagSlug";
+import { localDay } from "recipe-website-common/util/holidays";
+import {
+  upcomingHolidays,
+  type HolidayChoice,
+} from "recipe-website-common/util/upcomingHolidays";
+
+const noSubscription = () => () => {};
+
+/**
+ * 51 (Dg4): "Upcoming: Thanksgiving · Thu 26 Nov" — one line of one-click
+ * tag chips under the tags field, for the holidays coming up on *this
+ * browser's* calendar (the server cannot know it; the form is not static).
+ * A chip whose tag the group already has is not offered. The line's height
+ * is reserved from the first render, so the form does not jump when the
+ * chips arrive after hydration; nothing is rendered with no candidate.
+ */
+function UpcomingHolidayChips({
+  holidays,
+  tags,
+  onAdd,
+}: {
+  holidays: readonly HolidayChoice[];
+  tags: readonly string[];
+  onAdd(slug: string): void;
+}) {
+  const hydrated = useSyncExternalStore(
+    noSubscription,
+    () => true,
+    () => false,
+  );
+  const have = new Set(tags.map((tag) => tagSlug(tag)));
+  const shown = hydrated
+    ? upcomingHolidays(holidays, localDay(new Date()), have)
+    : [];
+  return (
+    <div
+      className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 text-sm"
+      data-testid="upcoming-holidays"
+    >
+      {shown.length > 0 && (
+        <>
+          <span className="text-muted-foreground">Upcoming:</span>
+          {shown.map((holiday) => (
+            <Button
+              key={holiday.slug}
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs"
+              data-testid="upcoming-holiday"
+              onClick={() => onAdd(holiday.slug)}
+            >
+              <Plus aria-hidden className="size-3" />
+              {holiday.label}
+              <span className="text-muted-foreground">· {holiday.when}</span>
+            </Button>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
 
 /**
  * A row, plus the identity React needs to keep it in place.
@@ -69,6 +132,7 @@ export default function GroupFields({
   slug,
   defaultImage,
   tagPicker,
+  holidays,
 }: {
   group?: Partial<Group>;
   state?: GroupFormState;
@@ -87,6 +151,11 @@ export default function GroupFields({
    * hand-off `defaultImage` uses, and the one the recipe form pages make.
    */
   tagPicker?: TagPickerData;
+  /**
+   * 51: the holiday terms, for the "Upcoming" chips under the tags (read by
+   * the page; the browser picks the ones coming up). Absent: no chips.
+   */
+  holidays?: HolidayChoice[];
 }) {
   const { name, kind, description, date, items, tags } = group || {};
   const currentTimezone = useCurrentTimezone();
@@ -198,6 +267,19 @@ export default function GroupFields({
               tags={tagValues}
               onChange={setTagValues}
             />
+            {holidays && holidays.length > 0 && (
+              <UpcomingHolidayChips
+                holidays={holidays}
+                tags={tagValues}
+                onAdd={(slug) =>
+                  setTagValues((current) =>
+                    current.some((tag) => tagSlug(tag) === slug)
+                      ? current
+                      : [...current, slug],
+                  )
+                }
+              />
+            )}
           </div>
         </TagPickerProvider>
       </FieldWrapper>

@@ -66,6 +66,10 @@ import {
   toGroupItems,
 } from "./schema";
 import { z } from "zod";
+import {
+  groupHasRecipe,
+  type GroupChoice,
+} from "recipe-website-common/util/groupChoices";
 
 /**
  * An item with its target resolved.
@@ -206,6 +210,39 @@ export async function listGroups(
     }),
   });
   return { total, more, groups: entries };
+}
+
+/**
+ * The recipe page's "Group" picker (51, Dg1): every group, newest first —
+ * the group index's own order, read the way `listGroups` reads it — with its
+ * item count and whether `recipe` is already one of its rows. One read of
+ * the existing index; no index of its own. Capped at `PICKER_MAX` groups
+ * (a plan list that long wants the filter, not the page).
+ */
+const PICKER_MAX = 500;
+
+export async function readGroupChoices(
+  ctx: CurationContext,
+  recipe: string,
+): Promise<GroupChoice[]> {
+  const { entries } = await readContentIndex<
+    GroupEntryValue,
+    GroupEntryKey,
+    GroupChoice
+  >({
+    config: groupContentConfig,
+    limit: PICKER_MAX,
+    offset: 0,
+    reverse: true,
+    contentDirectory: ctx.contentDirectory,
+    map: ({ key: [, slug], value }) => ({
+      slug,
+      name: value.name,
+      itemCount: (value.items ?? []).length,
+      hasRecipe: groupHasRecipe(value.items, recipe),
+    }),
+  });
+  return entries;
 }
 
 /**

@@ -6,14 +6,17 @@ import { SubmitButton } from "@discontent/component-library/components/SubmitBut
 import type { GroupFormState } from "recipe-website-common/controller/groupFormState";
 import type { GroupPrefill } from "recipe-website-common/controller/groupPrefill";
 import { createGroup } from "recipe-editor/controller/actions/groups";
+import type { HolidayChoice } from "recipe-website-common/util/upcomingHolidays";
 import type { TagPickerData } from "recipe-website-common/components/Form/Tags/tagPicker";
 
 export default function NewGroupForm({
   prefill,
   tagPicker,
+  holidays,
 }: {
   prefill?: GroupPrefill;
   tagPicker?: TagPickerData;
+  holidays?: HolidayChoice[];
 }) {
   const initialState = { message: "", errors: {} } as GroupFormState;
   const [state, dispatch] = useActionState(createGroup, initialState);
@@ -25,6 +28,7 @@ export default function NewGroupForm({
         <CreateGroupFields
           state={state}
           tagPicker={tagPicker}
+          holidays={holidays}
           /*
            * The link's values become the form's defaults (`groupPrefill`):
            * `?recipe=` the first row, the homepage's menu link a name, tags

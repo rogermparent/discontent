@@ -17,6 +17,9 @@ import {
   createSavedShoppingList,
 } from "recipe-editor/controller/actions/shopping";
 import { curationContextFor } from "recipe-editor/controller/apiContext";
+import { addRecipeToGroup } from "recipe-editor/controller/actions/groups";
+import { readGroupChoices } from "recipe-editor/controller/curation/groups";
+import { GroupPicker } from "recipe-website-common/components/GroupPicker";
 import { readShoppingLists } from "recipe-editor/controller/curation/shopping";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +52,13 @@ export default async function RecipePage({
   /* 50d: the lists the add may go to; a failed read offers the main list. */
   const lists = email
     ? await readShoppingLists(curationContextFor(email)).catch(() => undefined)
+    : undefined;
+
+  /* 51: the groups the "Group" button offers; a failed read offers none. */
+  const groupChoices = email
+    ? await readGroupChoices(curationContextFor(email), slug).catch(
+        () => undefined,
+      )
     : undefined;
 
   return (
@@ -90,9 +100,11 @@ export default async function RecipePage({
           <Button asChild size="sm">
             <Link href={`/featured-recipe/new?recipe=${slug}`}>Feature</Link>
           </Button>
-          <Button asChild size="sm">
-            <Link href={`/group/new?recipe=${slug}`}>Group</Link>
-          </Button>
+          <GroupPicker
+            recipe={slug}
+            groups={groupChoices ?? []}
+            add={addRecipeToGroup}
+          />
         </PageActions>
       )}
     </PageMain>

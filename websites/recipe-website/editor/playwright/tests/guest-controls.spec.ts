@@ -15,11 +15,17 @@ const link = (page: Page, name: string) =>
 
 async function expectControls(
   page: Page,
-  controls: { links: string[]; deleteButton?: boolean },
+  controls: { links: string[]; buttons?: string[]; deleteButton?: boolean },
   shown: boolean,
 ) {
   for (const name of controls.links) {
     await expect(link(page, name), name).toHaveCount(shown ? 1 : 0);
+  }
+  for (const name of controls.buttons ?? []) {
+    await expect(
+      page.getByRole("button", { name, exact: true }),
+      name,
+    ).toHaveCount(shown ? 1 : 0);
   }
   if (controls.deleteButton) {
     await expect(
@@ -35,7 +41,9 @@ test.describe("Guest controls (43a)", () => {
   }) => {
     await resetData("three-recipes-groups");
     const controls = {
-      links: ["Edit", "Copy", "Feature", "Group"],
+      links: ["Edit", "Copy", "Feature"],
+      /* 51: Group is the picker's button once the page has hydrated. */
+      buttons: ["Group"],
       deleteButton: true,
     };
     await page.goto("/recipe/first-recipe");

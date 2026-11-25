@@ -1428,3 +1428,86 @@ picked state and the name field never appeared. The sentinel is now
 - **Picking a list in the add picker makes it current** (Dd8).
 - **Agents can't make lists:** no new MCP tool (59 / 45); they add to,
   check, remove from and clear an existing list through `list`.
+
+## Group picker (follow-up, 2026-11-24)
+
+Roger: the recipe page's "Group" went straight to a new group; it should
+open a midpoint of the groups there are plus "New group…". And: "offering
+upcoming holiday tags on the new group page would be good, the need to tag
+thanksgiving slipped my mind for a second". Branch `agent/group-picker`.
+
+### What changed
+
+- **The picker** (`common/components/GroupPicker`): a Radix popover on the
+  recipe page's Group button. Rows are the groups newest first (the group
+  index's own order, `readGroupChoices` in `curation/groups.ts`, one read of
+  the existing index, no new one), each with its name and size ("3 items",
+  "empty"); a filter field shows past eight groups (`GROUP_FILTER_THRESHOLD`);
+  "New group…" at the bottom links to `/group/new?recipe=<slug>`.
+- **The add** (`addRecipeToGroup`, `actions/groups.ts`): `addItem` on the
+  curation seat, one commit under the write lock, at the end, no label. The
+  page says "Added to <name> · Open" in place; the group and recipe pages
+  revalidate through the groups success config (the same aggregate tags as
+  any group write). Errors are plain sentences; `busy` says "Another change
+  is being saved. Wait a few seconds and try again."
+- **Without JavaScript** the button stays the link to `/group/new?recipe=`;
+  the popover replaces it at hydration.
+- **Holiday chips** (`UpcomingHolidayChips` in `Form/Group`, pure rule in
+  `util/upcomingHolidays.ts`, tested in `test/groupPicker.test.ts`): one
+  line under the tags, "Upcoming: Thanksgiving · Thu 26 Nov", on the new and
+  edit group forms. The page reads the `holidays` root's children with
+  their rules (`readHolidayChoices`, empty holidays included); the browser
+  picks the ones coming up on its own calendar.
+
+### Decisions
+
+- **Dg1 — Order and size.** Newest first, the index's date order (a group's
+  date is when it was made or set; "most recently changed" would need a
+  second index). At most 500 groups are read. Row text is "N items", the
+  count of rows including sub-groups.
+- **Dg2 — Already in it opens the group.** A group that already has the
+  recipe shows "Already in it" with a tick and is a link to that group, not
+  a disabled row; a plan may cook a dish twice, and that is done on the
+  plan page. The picker also marks a group it has just added to the same
+  way, so a second click opens it rather than doubling the row.
+- **Dg3 — Keys.** Focus goes to the first row (the filter when there is
+  one) on open; Arrow Up/Down and Home/End move through the filter, rows and
+  "New group…" (wrapping); Enter picks; Escape closes and Radix returns the
+  focus to the button. Rows are 44 px tall for a phone.
+- **Dg4 — Holiday window and count.** Today through the next 42 days
+  (`UPCOMING_WINDOW_DAYS`), nearest first, at most 3 (`UPCOMING_MAX`). A
+  holiday is a single calendar day in `HOLIDAY_RULES`, so "in progress" is
+  the day itself, which counts. A holiday with no rule is never offered.
+- **Dg5 — Hiding.** A chip whose tag the group already has is not shown
+  (compared by `tagSlug`, so a prefilled `tags=thanksgiving` from a
+  holiday's menu hides it). A click adds the term's slug as a tag.
+- **Dg6 — No layout jump.** The chip line reserves its height (1.75 rem) once
+  the page has any holiday terms; the chips fill it after hydration, since
+  only the browser knows its day. With no holiday in the window the reserved
+  line is blank.
+
+### Gates
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit`: clean.
+- `pnpm exec vitest run`: 4,403 of 4,405 passed in the full run; the two
+  failures (`queue.test.ts` "cancels a model call", `editFormRoundTrip` "headings
+  follow on blur") were 5 s timeouts under a loaded machine and pass alone
+  (56/56). `test/groupPicker.test.ts`: 5 tests.
+- Playwright in Docker, production: `group-picker.spec` 6/6, with
+  `accessibility.spec`, `recipe.spec`, `groups.spec` and everything matching
+  `group` in the same run: 171 passed, and the 3 failures were this spec's own
+  (a label that is text, not a control; a fixture that already had the
+  Christmas term), fixed. Dev mode once (`next dev`, Docker): 5 passed and 1
+  flaky (the group page's cold compile after "Open"; its URL wait is 30 s now).
+- No screenshot baselines moved.
+
+### Roger to confirm
+
+- **"Already in it" opens the group** rather than being disabled (Dg2).
+- **Order is the group index's** (newest made first), not "last changed"
+  (Dg1).
+- **Window 6 weeks, three chips** (Dg4); the chips add the holiday's slug
+  as the tag.
+- **The blank reserved line** on the group form when no holiday is near
+  (Dg6): say if you would rather it collapse.
