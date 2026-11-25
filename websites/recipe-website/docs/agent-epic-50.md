@@ -15,7 +15,7 @@ changes` / `change` / `leave-off` / `restore` CLI. The orchestrator
 
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded · 📝 proposed.
 
-**Now:** 50a in review.
+**Now:** closed 2026-11-24 — every phase merged and deployed; see the Close-out. Epic 51 (`agent-epic-51.md`) follows.
 
 ## Context
 
@@ -36,12 +36,14 @@ clean shopping list associated with a meal plan or something."
 
 ## Roadmap
 
-| Phase | Branch                      | Size | Status | What                                                                                                                                                                      |
-| ----- | --------------------------- | ---- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 50a   | `agent/50a-shopping-layers` | L    | 🟡     | The layer model and its storage; deterministic fixes found on Roger's real list; a minimal UI for layers.                                                                 |
-| 50b   | —                           | L    | 📝     | "Tidy with the model": a whole-list pass proposing judgement calls (drop what the recipe makes, use what you're buying, rename, convert, merge), with a structural check. |
-| 50c   | —                           | M    | 📝     | The walkthrough: one suggestion at a time — Accept, Skip, Edit, a note to the model — and a Changes panel.                                                                |
-| 50d   | —                           | M    | 📝     | Saved lists: save, switch, start a clean list, optionally tied to a meal plan (a group).                                                                                  |
+| Phase  | Branch                       | Size | Status        | What                                                                                                          |
+| ------ | ---------------------------- | ---- | ------------- | ------------------------------------------------------------------------------------------------------------- |
+| 50a    | `agent/50a-shopping-layers`  | L    | ✅ #355       | The layer model and its storage; deterministic fixes found on Roger's real list; a minimal UI for layers.     |
+| 50b    | `agent/50b-shopping-tidy`    | L    | ✅ #357       | "Tidy with the model": a whole-list pass proposing judgement calls, any model, kept runs, a structural check. |
+| 50c    | `agent/50c-tidy-walkthrough` | L    | ✅ #360       | The walkthrough: one suggestion at a time — Accept, Skip, Edit, a note to the model — and a Changes panel.    |
+| 50d    | `agent/50d-saved-lists`      | M–L  | ✅ #358       | Saved lists: save, switch, start a clean list, optionally tied to a meal plan (a group).                      |
+| 50e    | `agent/50e-linked-recipes`   | M–L  | ✅ #356, #359 | Imports follow the recipes a recipe links to; a sub-recipe linked from two lines is one batch.                |
+| Picker | `agent/group-picker`         | S–M  | ✅ #362       | The recipe page's Group button picks an existing group; upcoming holidays as tag chips on the group form.     |
 
 - **50b** sends the composed list's rows (`promptRowsOf`, Da9) and each
   recipe's step text; its checker is loose and structural, and 49c's
@@ -1511,3 +1513,32 @@ exec tsc --noEmit`: clean.
   as the tag.
 - **The blank reserved line** on the group form when no holiday is near
   (Dg6): say if you would rather it collapse.
+
+## Close-out (2026-11-24)
+
+Epic 50 is closed. Every phase and follow-up is merged and deployed.
+
+| PR   | Merge      | What                                                                     |
+| ---- | ---------- | ------------------------------------------------------------------------ |
+| #355 | `ffdd14b7` | 50a: the shopping list as layers                                         |
+| #356 | `04f61a0c` | 50e: imports follow the recipes a recipe links to                        |
+| #357 | `5c165f14` | 50b: Tidy with the model                                                 |
+| #358 | `dadac069` | 50d: saved shopping lists                                                |
+| #359 | `7919eb6e` | 50e fix: a linked recipe already here is found without the index         |
+| #360 | `bb9fddab` | 50c: walk through the tidy suggestions, one card at a time               |
+| #361 | `1f7cd251` | Search reads `+` before a filter as a space; feast counts read as counts |
+| #362 | `20c11d4f` | Recipe page: add to an existing group (the group picker, holiday chips)  |
+| #363 | `08562723` | Pi image: git-annex pinned to upstream builds, a version per arch        |
+
+- **Deploys.** The workstation ran `bb9fddab` (with `RECIPE_SEARCH_URL`
+  for SearXNG, epic 51) and the Pi `08562723`. After #362 both moved to
+  `20c11d4f` (the workstation fast-forwarded and rebuilt; the Pi image `recipe-editor:20c11d4f`, healthy, its indexes fresh). No `indexVersion` change, so there is no reindex.
+- **Confirm page.** The Roger-to-confirm items of every phase, the group
+  picker's (g01–g04), and the linked-recipe dry run on his pies (s01–s05:
+  OK writes that link; nothing is written until then) are one page:
+  https://claude.ai/artifact/DkpfdtA65sYyD343gHg8zp. Its answers are read
+  at the start of epic 51 (`agent-epic-51.md`).
+- **Open.** A Claude key on the workstation (f01) decides whether the tidy
+  can be measured on Claude. The curator work found during this epic
+  (no web search for the local model, "already have" left to the model,
+  no group tools in the local view) is epic 51.
