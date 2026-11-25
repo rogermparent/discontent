@@ -122,8 +122,8 @@ runs `node …/next start` directly.
 **git-annex (28e).** The image carries git-annex's standalone build at
 `/opt/git-annex.linux` (last on `PATH`), downloaded in the `assets` stage and
 checked against a pinned sha256 per architecture. Upstream publishes only
-`current/`, so when it releases, the build fails the check: update
-`GIT_ANNEX_VERSION` and both `GIT_ANNEX_SHA256_*` ARGs from
+`current/`, so when it releases, the build fails the check: update that
+architecture's `GIT_ANNEX_VERSION_*` and `GIT_ANNEX_SHA256_*` ARGs from
 `https://downloads.kitenet.net/git-annex/linux/current/git-annex-standalone-<arch>.tar.gz.info`
 (the key's hash). The Pi _host_ needs `git-annex` too (`apt install`), since
 ssh transfers run `git-annex-shell` there. Activation is
