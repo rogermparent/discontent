@@ -214,6 +214,27 @@ function envValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
 
 interface LlmGlobal {
   __discontentLlmUrlOverride?: string;
+  __discontentAgentModelOverride?: string;
+}
+
+/**
+ * Test-only (51d), as `setLlmUrlOverride` is for the URL: under
+ * `TEST_MODE`, `/settings/test-llm?url=…&agent=<model>` gives this server
+ * process a curator model of its own (as `RECIPE_AGENT_MODEL` does), so a
+ * spec sees `/curator`'s picker with two local models. `undefined` clears
+ * it.
+ */
+export function setAgentModelOverride(model: string | undefined): void {
+  (globalThis as LlmGlobal).__discontentAgentModelOverride = model || undefined;
+}
+
+/** The override above, read only under `TEST_MODE` (`curatorModels`). */
+export function agentModelOverride(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return env.TEST_MODE
+    ? (globalThis as LlmGlobal).__discontentAgentModelOverride
+    : undefined;
 }
 
 /**

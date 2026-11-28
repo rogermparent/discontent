@@ -51,6 +51,13 @@ export interface MineOutcome {
   maybe: string[];
   no: string[];
   unjudged: string[];
+  /** 51d (Dd1): how many recipes the judge was given ("read 18"). */
+  checked?: number;
+  /**
+   * 51d (Dd1): each judged recipe's name and the judge's one line of why,
+   * by slug, for `/curator`'s cards.
+   */
+  reasons?: Record<string, { name: string; why: string }>;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -192,6 +199,15 @@ export async function runMine(run: IntentRun): Promise<{
   outcome.maybe = maybe.map((verdict) => verdict.slug);
   outcome.no = no.map((verdict) => verdict.slug);
   outcome.unjudged = judged.unjudged;
+  outcome.checked = slugs.length;
+  if (judged.verdicts.length > 0) {
+    outcome.reasons = Object.fromEntries(
+      judged.verdicts.map((verdict) => [
+        verdict.slug,
+        { name: verdict.name, why: verdict.why },
+      ]),
+    );
+  }
 
   /* 4. The answer. */
   const lines: string[] = [];

@@ -386,7 +386,13 @@ export async function startAgentRun(
  */
 function conversationModel(meta: JobMeta): CuratorModelId | undefined {
   const spec = (meta.spec ?? {}) as { model?: unknown };
-  if (spec.model === "local" || spec.model === "claude") return spec.model;
+  if (
+    spec.model === "local" ||
+    spec.model === "import" ||
+    spec.model === "claude"
+  ) {
+    return spec.model;
+  }
   const api = (meta.result as { api?: unknown } | undefined)?.api;
   if (api === "anthropic") return "claude";
   if (typeof api === "string") return "local";

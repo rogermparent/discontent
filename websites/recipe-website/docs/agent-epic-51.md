@@ -18,7 +18,7 @@
 
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded · 📝 proposed.
 
-**Now:** 51b in progress (2026-11-28); 51f waits on its mock-up's answers (https://claude.ai/artifact/V3hxRb6AG3eaZR11zndKBd).
+**Now:** 51d in progress (2026-11-28); 51f waits on its mock-up's answers (https://claude.ai/artifact/V3hxRb6AG3eaZR11zndKBd).
 
 ## Context
 
@@ -103,9 +103,9 @@ Plan page and mock-up: https://claude.ai/artifact/V9LtB7eAeAf7DLaoQWpcLD.
 | ----- | ----------------------------- | ---- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | 51a   | `agent/51a-curator-cases`     | S–M  | ✅ #366 | `RECIPE_AGENT_MODEL`; the case file and cases e–h in the harness; the `num_ctx` reload; the baseline.                            |
 | 51c   | `agent/51c-deep-search-judge` | M    | ✅ #367 | `searchRecipeText` over steps and notes (`recipe_search` `deep`), and `judgeRecipes` (fit / maybe / no).                         |
-| 51b   | `agent/51b-intents`           | L    | 🟡      | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any. |
+| 51b   | `agent/51b-intents`           | L    | ✅ #368 | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any. |
 | 51f   | `agent/51f-grams`             | M–L  | 📝      | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                        |
-| 51d   | `agent/51d-curator-ui`        | L    | 📝      | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                  |
+| 51d   | `agent/51d-curator-ui`        | L    | 🟡      | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                  |
 | 51e   | `agent/51e-curator-drive`     | M    | 📝      | Claude Code drives the curator: a skill, review notes on runs, the case runner.                                                  |
 
 Order: **51a + 51c** in parallel → **51b** (with **51f** in parallel once its
@@ -924,6 +924,179 @@ Scope: the plan's 51f. Starts once its mock-up is answered.
 ## 51d — /curator redesign (L)
 
 Scope: the plan's 51d.
+
+### Results (51d)
+
+Built on the mock-up Roger OK'd (`curator-plan.html`), from the site's
+components and tokens (`Button`, the theme's `success` / `warning` /
+`destructive` borders, `HeadsUpCallout`, `StageStrip`'s marks); no raw
+colours.
+
+**The ask.**
+
+- **The intent row** (`src/curator/IntentRow.tsx`) sits above the ask's
+  box: Find new recipes online, Search my recipes, Plan meals, Organize and
+  tag, Anything. It is one labelled group of buttons with `aria-pressed`,
+  and a line under it says why.
+- **The guess** is `guessIntent` from `intents/guess.ts`, read as the person
+  types. That is the server's own rules, so the page and the run can't
+  disagree. Nothing is read from `localStorage` (U1).
+  - The line says "Looks like **Find new recipes online**, guessed from
+    your words: you asked for recipes you don't have. Pick another to
+    change it."
+  - A pick wins: "You picked **Search my recipes**. The guess was **Plan
+    meals**: it sounds like a plan." Beside it, **Use the guess**.
+  - Words no rule decides press nothing: "the model decides when you ask,
+    or pick one."
+- **The request** sends the pick, or `auto` when there is none (Dd3).
+- **"What it will do"** (the mock-up's plan list) shows the guessed or
+  picked intent's steps under the ask, each with who does it (code, the
+  model, web search). It sits above "How a run goes".
+- **`CURATOR_EXAMPLES`** is one ask per intent: the mock-up's two first,
+  then a Christmas plan, the gochujang tagging read and the import with a
+  URL. An example is guessed afresh.
+
+**The run.**
+
+- **The run's intent** is pressed in the same row, with how it was settled
+  (`settledLine`): picked, guessed by the rules or the model, the default,
+  or "The open loop ran instead: there is no web search for the plan here
+  (RECIPE_SEARCH_URL)".
+- **Another intent asks again.** Once the run has ended, picking another
+  starts a **new run** with the same ask and the same model, not a
+  follow-up (Dd4). While it runs, the row is disabled.
+- **The ask before its first record.** While the model classifies, the
+  transcript has no record yet (Trap 1), so the title is read from the
+  job's spec.
+- **The plan's steps, live** (`controller/agent/planSteps.ts`,
+  `PlanSteps.tsx`), for online, mine and plan:
+  - `useAgentRun` now keeps the step log's top-level lines (it skipped
+    them all), and `planProgress` maps them onto the plan's steps (Dd5);
+  - each step is to do, now (`aria-current="step"`), done, failed, or
+    skipped ("not needed" / "not reached");
+  - counts come from the lines: "2 searches, 1 failed", "4 pages read",
+    "3 held", and the judge's own tally "5 fit, 1 maybe, 12 no";
+  - the run's status line, the page's one polite live region, says the
+    step running now ("Working: read the best pages…"). The steps
+    announce nothing of their own.
+- **The transcript stays, folded.** "What it did" with "Show the N tool
+  calls" is unchanged. Under cards, the answer in words is folded into
+  "The answer in words" (Dd7).
+
+**The result cards** (`ResultCards.tsx`), beside the steps (one column on
+a phone):
+
+- **online:**
+  - a card per held import (New, its page, the model's reason, the dry
+    run's detail line with 51b's "its notes are read when you approve
+    it"), with **Import** / **Skip**;
+  - "N of M new, held for your OK · K decided", marked "suggested by
+    <model>";
+  - **Close to yours** cards are marked and not held. "Like your [Pulled
+    Pork]", and **Import it anyway** opens the import form (its own Save);
+  - **Already yours** and **You have** link your recipes.
+- **mine:**
+  - "N that fit · read M", then **Maybe** and **Close, but no** (five, as
+    the answer has);
+  - each card has the judge's why, **Open**, and **Add to shopping list**;
+  - the add is 50d's add with its list picker: `AddRecipeToList`, split
+    out of the recipe page's `AddRecipeToShopping` so it works outside a
+    `MultiplierProvider`. The lists are read server-side, as the recipe
+    page reads them.
+- **plan:**
+  - the held plan as one card: its name, "Tagged thanksgiving · for
+    Thursday, November 25, 2027", and each dish with its label, link and
+    ×scale;
+  - each dish's notes: "named in your ask · 2 servings · it makes 8", or
+    "its yield, “1 9x13-inch pan”, isn't in servings: not scaled";
+  - the plan's heads-up (a dish not found, Db14's ambiguity) on the card;
+  - **Approve** / **Skip**, then "Saved. Open the plan".
+- **organize / any:** today's answer and `ReviewPanel`, unchanged.
+- **How a decision is made:**
+  - each card decides one held call through the existing review API
+    (`postReview`, lifted out of `ReviewPanel`);
+  - focus moves to the card's state line, since its buttons are gone;
+  - `ReviewPanel` still shows, but only for held calls no card applies:
+    none on a plan's own run.
+- **Roger's standing rule holds.** Every model-made change is marked and
+  waits for a click. Nothing applies on its own.
+
+**The model picker.**
+
+- `ModelChoice` lists `curatorModels` in order: the curator's own model
+  (`RECIPE_AGENT_MODEL`, "Free · the curator's own model"), then the import
+  model ("the import model: best for reads and single imports"), then
+  Claude.
+- Claude stays a disabled choice that says what to set when there is no
+  key (48-close #12). No name is hard-coded (Dd2).
+
+#### Decisions (51d)
+
+- **Dd1 — 51b's outcomes gain fields; nothing is renamed or removed.** The
+  cards needed what only the answer's prose said:
+  - `OnlineOutcome.yours` (the bank search's recipes, "You have");
+  - `MineOutcome.checked` (how many were judged) and `reasons` (each
+    judged slug's `{name, why}`);
+  - `PlanOutcome.items[]` gains `name`, `how`, `why`, `servings`, `yields`
+    and `yieldText` (`PlanItem`'s own);
+  - `PlanOutcome.date`.
+
+  The harness reads only the old fields. `curatorIntents.test.ts` pins the
+  new ones.
+
+- **Dd2 — `import`, a third `CuratorModelId`.**
+  - Beside a curator model of its own (`RECIPE_AGENT_MODEL`, when it
+    differs from `RECIPE_LLM_MODEL`), the editor also offers the import
+    model: `curatorModels().import`.
+  - The order is local, import, claude. `POST /api/agent` `model` takes
+    `import` (`CURATOR_MODEL_IDS`), and a follow-up keeps it.
+  - Test seam: `/settings/test-llm?…&agent=<model>`
+    (`setAgentModelOverride`, `TEST_MODE` only). The suite pins
+    `RECIPE_AGENT_MODEL` empty.
+- **Dd3 — the page asks for `auto` unless the person picked.** The guess
+  it shows is the rules' guess, the same one the server's `auto` makes.
+  When no rule decides, nothing is pressed and the server's model
+  classifies. The page never sends its own guess as if it were a pick.
+- **Dd4 — a change of intent after asking is a new run, once the run has
+  ended.**
+  - It keeps the first ask and the run's model, and has no `runId` (51b
+    Db2: a follow-up is the loop).
+  - It is disabled while the run is live: two local runs at once would
+    queue on the GPU, and Stop is there for a wrong guess.
+  - A follow-up's run shows no intent row.
+- **Dd5 — the live steps come from the job's top-level step lines**, the
+  ones 51b's plans already log (tool steps, `llm.intent` by `task`,
+  `llm.judge`, the `judge` tally note).
+  - A step that logs nothing ("Skip what you have", "Sort them") is done
+    once a later one has started.
+  - A step no later one needed is "not needed"; one never reached when
+    the run stopped is "not reached".
+  - A model classify (`task: "classify"`) shows first, as "Decide what
+    kind of ask it is".
+- **Dd6 — a card's decision is final, with no Undo.** The review API
+  applies at once, as its own commit, so the mock-up's Undo would be a
+  revert. An applied card says "Imported. Open it" or "Saved. Open the
+  plan", and Git undoes it.
+- **Dd7 — cards replace the answer's prose, which stays folded.** The
+  heads-ups move into the cards' column (the plan's onto its card), and
+  "Found on the web" is not shown under cards: the cards are those pages.
+- **Dd8 — cards only on a plan's own run.** The outcome is that job's
+  result, and a follow-up is a new job (the loop). So a follow-up's view
+  is today's, with `ReviewPanel` covering every held call of the
+  conversation, the plan's included.
+
+#### Traps (51d)
+
+- **No transcript record while the model classifies.** `settleIntent`
+  runs before the start record (51b), so an `auto` ask the rules can't
+  place has no records until the classify call returns, and none at all
+  if it is stopped. The view reads the ask from `meta.spec.prompt`
+  meanwhile (`curator.spec`'s Stop test asks "Find something slowly",
+  which now classifies).
+- **A stubbed run must honour the offsets.** `useAgentRun` appends what
+  each read returns. A `page.route` stub that answers the whole transcript
+  or log every time repeats it, so `curator-intents.spec` slices by
+  `from` / `transcriptFrom` as the server does.
 
 ## 51e — Claude Code drives the curator (M)
 

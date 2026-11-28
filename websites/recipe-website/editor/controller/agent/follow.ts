@@ -33,10 +33,11 @@ export interface AgentRunInput {
    */
   hold?: boolean;
   /**
-   * Who answers (48b, Db5): `claude` or `local`, where the editor has both.
-   * A follow-up keeps its conversation's model.
+   * Who answers (48b, Db5): `claude` or `local`, where the editor has both
+   * — or `import` (51d, Dd2), the import model beside the curator's own. A
+   * follow-up keeps its conversation's model.
    */
-  model?: "local" | "claude";
+  model?: "local" | "import" | "claude";
   /**
    * What the ask is for (51b, D1): `online`, `mine`, `plan`, `organize`,
    * `any`, or `auto` for a guess. Unset: the open loop, as before. A

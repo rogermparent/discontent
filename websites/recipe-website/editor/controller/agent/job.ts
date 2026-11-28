@@ -37,6 +37,7 @@ import {
   ANTHROPIC_DEFAULT_URL,
   DEFAULT_CLAUDE_MODEL,
   LLM_NUM_CTX,
+  agentModelOverride,
   llmConfig,
   takesNewerWebTools,
   type LlmApi,
@@ -124,12 +125,25 @@ export interface AgentJobSpec {
   intent?: AgentIntentChoice;
 }
 
-/** Who may run the curator: the local model, or the Claude API (48b). */
-export type CuratorModelId = "local" | "claude";
+/**
+ * Who may run the curator: the local model, or the Claude API (48b) — and,
+ * where the curator has a local model of its own (`RECIPE_AGENT_MODEL`),
+ * the import model beside it (`import`, 51d Dd2: qwen3:8b beside
+ * qwen3.5:9b).
+ */
+export type CuratorModelId = "local" | "import" | "claude";
+
+/** Every `CuratorModelId`, for a request's schema. */
+export const CURATOR_MODEL_IDS = ["local", "import", "claude"] as const;
 
 /** The models this editor can run the curator on (48b, Db5). */
 export interface CuratorModels {
   local?: LlmConfig;
+  /**
+   * 51d (Dd2): the editor's own local model (`RECIPE_LLM_MODEL`, what
+   * imports run on) when the curator has another (`RECIPE_AGENT_MODEL`).
+   */
+  import?: LlmConfig;
   claude?: LlmConfig;
   /** The editor's own model (`RECIPE_LLM_*`): what an ask runs on unless it picks. */
   primary?: CuratorModelId;
@@ -162,9 +176,12 @@ export function curatorModels(
   if (base.api === "anthropic") return { claude: base, primary: "claude" };
   const key = env[CURATOR_CLAUDE_KEY_ENV]?.trim();
   const claudeModel = env[CURATOR_CLAUDE_MODEL_ENV]?.trim();
-  const agentModel = env[CURATOR_LOCAL_MODEL_ENV]?.trim();
+  const agentModel =
+    agentModelOverride(env) || env[CURATOR_LOCAL_MODEL_ENV]?.trim();
   return {
     local: agentModel ? { ...base, model: agentModel } : base,
+    /* 51d (Dd2): the import model too, when the curator has its own. */
+    ...(agentModel && agentModel !== base.model ? { import: base } : {}),
     primary: "local",
     ...(key
       ? {
@@ -192,7 +209,9 @@ export function curatorModelFor(
         ? `The Claude API is not set up in this editor (${CURATOR_CLAUDE_KEY_ENV}, or RECIPE_LLM_API=anthropic).`
         : id === "local"
           ? "No local model is set up in this editor (RECIPE_LLM_URL)."
-          : agentUnavailableMessage(),
+          : id === "import"
+            ? `The curator has no local model of its own here (${CURATOR_LOCAL_MODEL_ENV}), so there is no second one to pick.`
+            : agentUnavailableMessage(),
     );
   }
   return { id, config };

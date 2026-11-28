@@ -11,6 +11,12 @@ import {
 } from "recipe-editor/controller/agent/curator";
 import { AGENT_PROMPT_MAX } from "recipe-editor/controller/agent/follow";
 import { DEFAULT_AGENT_BUDGETS } from "recipe-editor/controller/agent/loop";
+import {
+  addToShoppingList,
+  createSavedShoppingList,
+} from "recipe-editor/controller/actions/shopping";
+import { curationContextFor } from "recipe-editor/controller/apiContext";
+import { readShoppingLists } from "recipe-editor/controller/curation/shopping";
 import { CuratorApp } from "@/curator/CuratorApp";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +56,11 @@ export default async function CuratorPage({
   if (!setup) notFound();
   const query = await searchParams;
   const runs = await listCuratorRuns({ limit: RECENT_RUNS });
+  /* 51d: a mine card adds a recipe to a list (50d's picker, as the recipe
+   * page's); a failed read offers the main list. */
+  const lists = await readShoppingLists(
+    curationContextFor(session.user.email),
+  ).catch(() => undefined);
   const run = param(query.run);
   const prompt = param(query.prompt);
   const show = param(query.show);
@@ -64,6 +75,11 @@ export default async function CuratorPage({
           {...(show === "review" || show === "changed" ? { filter: show } : {})}
           maxPrompt={AGENT_PROMPT_MAX}
           maxTurns={DEFAULT_AGENT_BUDGETS.maxTurns}
+          shopping={{
+            add: addToShoppingList,
+            createList: createSavedShoppingList,
+            ...(lists ? { lists } : {}),
+          }}
         />
       </PageSection>
     </PageMain>

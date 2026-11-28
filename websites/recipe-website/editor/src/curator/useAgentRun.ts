@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentRunView } from "recipe-editor/controller/agent/follow";
 import type { TranscriptRecord } from "recipe-editor/controller/agent/transcript";
+import type { JobLine } from "recipe-editor/controller/jobs/log";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
 
 /** How often an open run is read (as the import panel's job, 37c D7). */
@@ -15,6 +16,11 @@ export interface AgentRunPoll {
   meta?: JobRecord;
   /** The transcript's records read so far. */
   records: TranscriptRecord[];
+  /**
+   * 51d: the step log's top-level lines read so far (a plan's steps, live:
+   * each tool, model call and judge; a step's own inner steps left out).
+   */
+  lines: JobLine[];
   /** Still queued or running (true until the first answer says otherwise). */
   live: boolean;
   /** Read at least once. */
@@ -43,17 +49,24 @@ interface State {
   id?: string;
   meta?: JobRecord;
   records: TranscriptRecord[];
+  lines: JobLine[];
   live: boolean;
   loaded: boolean;
   error?: string;
+}
+
+/** The lines a plan's steps are read from: the top level only (51d). */
+function topLevel(lines: readonly JobLine[]): JobLine[] {
+  return lines.filter((line) => line.parent === undefined);
 }
 
 /**
  * Follow an agent run (44c's `GET /api/agent/<id>?from=&transcriptFrom=`):
  * every `AGENT_POLL_MS` while it is live, only what was written since the
  * last read (a cut read is read again at once, `transcriptMore`), and once
- * more after it ends. The step log's lines are skipped (the page reads the
- * conversation; `/jobs/<id>` has the steps).
+ * more after it ends. Of the step log, only the top-level lines are kept
+ * (51d: an intent's plan shows its steps from them; `/jobs/<id>` has the
+ * rest).
  *
  * `carryFrom` (a follow-up just started from that run): its conversation
  * stays on screen until the new run's first read arrives — the new run's
@@ -71,6 +84,7 @@ export function useAgentRun(
 ): AgentRunPoll {
   const [state, setState] = useState<State>({
     records: [],
+    lines: [],
     live: true,
     loaded: false,
   });
@@ -117,6 +131,12 @@ export function useAgentRun(
             : view.transcript.length
               ? [...before.records, ...view.transcript]
               : before.records,
+        lines:
+          reset || before.id !== id
+            ? topLevel(view.lines)
+            : view.lines.length
+              ? [...before.lines, ...topLevel(view.lines)]
+              : before.lines,
         live: view.live,
         loaded: true,
       }));
@@ -162,7 +182,9 @@ export function useAgentRun(
               ? {
                   live: false,
                   loaded: true,
-                  ...(before.id !== id ? { records: [], meta: undefined } : {}),
+                  ...(before.id !== id
+                    ? { records: [], lines: [], meta: undefined }
+                    : {}),
                 }
               : {}),
           }));
@@ -184,13 +206,14 @@ export function useAgentRun(
   const refresh = useCallback(() => kick.current(), []);
 
   if (!id) {
-    return { records: [], live: false, loaded: false, refresh };
+    return { records: [], lines: [], live: false, loaded: false, refresh };
   }
   if (state.id === id) {
     return {
       shown: id,
       ...(state.meta ? { meta: state.meta } : {}),
       records: state.records,
+      lines: state.lines,
       live: state.live,
       loaded: state.loaded,
       ...(state.error ? { error: state.error } : {}),
@@ -202,10 +225,11 @@ export function useAgentRun(
     return {
       shown: carryFrom,
       records: state.records,
+      lines: [],
       live: true,
       loaded: false,
       refresh,
     };
   }
-  return { records: [], live: true, loaded: false, refresh };
+  return { records: [], lines: [], live: true, loaded: false, refresh };
 }

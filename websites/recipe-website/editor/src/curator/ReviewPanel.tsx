@@ -47,6 +47,45 @@ export function useReview(
   };
 }
 
+/**
+ * `POST /api/agent/<id>/review` (48b): apply or skip held calls. The
+ * review as it now stands, or the editor's own words for why not. 51d's
+ * result cards decide one call at a time through it.
+ */
+export async function postReview(
+  id: string,
+  decisions: {
+    call: string;
+    apply: boolean;
+    add?: string[];
+    remove?: string[];
+  }[],
+): Promise<{ review: CuratorReview } | { error: string }> {
+  try {
+    const response = await fetch(
+      `/api/agent/${encodeURIComponent(id)}/review`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decisions }),
+      },
+    );
+    const body = (await response.json().catch(() => undefined)) as
+      (CuratorReview & { error?: { message?: string } }) | undefined;
+    if (!response.ok || !body?.calls) {
+      return {
+        error:
+          body?.error?.message ?? `The editor answered ${response.status}.`,
+      };
+    }
+    return { review: body };
+  } catch (failure) {
+    return {
+      error: `Couldn't reach the editor: ${failure instanceof Error ? failure.message : String(failure)}`,
+    };
+  }
+}
+
 /** The recipes a held `term_assign` would change: not already tagged. */
 function tagRows(call: CuratorReviewCall): CuratorReviewRecipe[] {
   return (call.recipes ?? []).filter((recipe) => !recipe.alreadyTagged);
@@ -66,7 +105,7 @@ function termOf(call: CuratorReviewCall): string {
 }
 
 /** One held call's detail line, in words. */
-function detailLine(call: CuratorReviewCall): string | undefined {
+export function detailLine(call: CuratorReviewCall): string | undefined {
   const input = (call.input ?? {}) as Record<string, unknown>;
   const held = call.held;
   switch (call.tool) {
@@ -266,22 +305,12 @@ export function ReviewPanel({
       return { call: call.id, apply: !off.has(call.id) };
     });
     try {
-      const response = await fetch(
-        `/api/agent/${encodeURIComponent(id)}/review`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ decisions }),
-        },
-      );
-      const body = (await response.json().catch(() => undefined)) as
-        (CuratorReview & { error?: { message?: string } }) | undefined;
-      if (!response.ok || !body?.calls) {
-        setError(
-          body?.error?.message ?? `The editor answered ${response.status}.`,
-        );
+      const answer = await postReview(id, decisions);
+      if ("error" in answer) {
+        setError(answer.error);
         return;
       }
+      const body = answer.review;
       const decided = body.calls.filter((call) =>
         pending.some((before) => before.id === call.id),
       );
@@ -299,10 +328,6 @@ export function ReviewPanel({
       );
       onSaved(body);
       requestAnimationFrame(() => statusRef.current?.focus());
-    } catch (failure) {
-      setError(
-        `Couldn't reach the editor: ${failure instanceof Error ? failure.message : String(failure)}`,
-      );
     } finally {
       setSaving(false);
     }
