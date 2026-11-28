@@ -18,6 +18,7 @@ import {
   usesModelFor,
 } from "recipe-editor/controller/llm/askEdit";
 import { readGramsBank } from "recipe-editor/controller/curation/conversions";
+import { gramsBankOrSeed } from "recipe-website-common/controller/data/readGramsBank";
 import { curationContextFor } from "recipe-editor/controller/apiContext";
 
 export const dynamic = "force-dynamic";
@@ -73,7 +74,7 @@ export default async function Recipe({
   /* 51f: "Add grams" — the bank, and who the model step asks. */
   const email = user.user?.email;
   const gramsEntries = email
-    ? await readGramsBank(curationContextFor(email)).catch(() => [])
+    ? await readGramsBank(curationContextFor(email)).catch(gramsBankOrSeed)
     : [];
   const gramsModel = editModelFor(undefined, models);
   return (

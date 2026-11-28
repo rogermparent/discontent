@@ -21,7 +21,10 @@ import { addRecipeToGroup } from "recipe-editor/controller/actions/groups";
 import { readGroupChoices } from "recipe-editor/controller/curation/groups";
 import { GroupPicker } from "recipe-website-common/components/GroupPicker";
 import { readShoppingLists } from "recipe-editor/controller/curation/shopping";
-import { readGramsBankEntries } from "recipe-website-common/controller/data/readGramsBank";
+import {
+  gramsBankOrSeed,
+  readGramsBankEntries,
+} from "recipe-website-common/controller/data/readGramsBank";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +66,7 @@ export default async function RecipePage({
     : undefined;
 
   /* 51f: "Show grams" works its estimates out from the gram bank. */
-  const gramsBank = await readGramsBankEntries().catch(() => []);
+  const gramsBank = await readGramsBankEntries().catch(gramsBankOrSeed);
 
   return (
     <PageMain>

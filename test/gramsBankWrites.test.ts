@@ -6,7 +6,7 @@
 // `recipes grams` over a stored recipe (paste, bank, dry run, one commit);
 // the shopping list reading the same bank; and `conversions` unindexed.
 
-import { mkdtemp, readFile, rm, writeFile } from "fs-extra";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "fs-extra";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -21,9 +21,12 @@ import {
   CONVERSIONS_FILE,
   gramsBankRows,
   readGramsBank,
+  readGramsBankChecked,
   resetGrams,
   setGrams,
 } from "../websites/recipe-website/editor/controller/curation/conversions";
+import { readShoppingView } from "../websites/recipe-website/editor/controller/curation/shopping";
+import { readGramsBankEntries } from "recipe-website-common/controller/data/readGramsBank";
 import { gramsForRecipe } from "../websites/recipe-website/editor/controller/curation/gramsRecipe";
 import {
   createRecipe,
@@ -166,6 +169,75 @@ describe("the bank's writes", () => {
     ).rejects.toMatchObject({ code: "validation" });
   });
 
+  /* Review finding 7: a hand edit gone wrong is read around, never written over. */
+  it("reads around a file that isn't JSON, and refuses to write over it", async () => {
+    await mkdir(join(contentDirectory, "conversions"));
+    const file = join(contentDirectory, CONVERSIONS_FILE);
+    await writeFile(file, '{"entries": [{"key": "brown sugar",');
+    const before = await messages();
+    expect(await readGramsBank(ctx)).toEqual([]);
+    expect(await readGramsBankEntries(contentDirectory)).toEqual([]);
+    expect((await readGramsBankChecked(ctx)).problem).toBe(
+      "conversions/grams.json isn't valid JSON",
+    );
+    await expect(
+      setGrams(ctx, { name: "maple syrup", gramsPerCup: 300 }),
+    ).rejects.toMatchObject({
+      code: "validation",
+      message: expect.stringMatching(/isn't valid JSON\. Fix it by hand/),
+    });
+    await expect(resetGrams(ctx, "brown sugar")).rejects.toMatchObject({
+      code: "validation",
+    });
+    expect(await readFile(file, "utf8")).toBe(
+      '{"entries": [{"key": "brown sugar",',
+    );
+    expect(await messages()).toEqual(before);
+  });
+
+  it("keeps a hand-edited file's good entries, says the bad, and won't write over it", async () => {
+    await mkdir(join(contentDirectory, "conversions"));
+    const file = join(contentDirectory, CONVERSIONS_FILE);
+    const text = JSON.stringify({
+      entries: [
+        { key: "brown sugar", name: "brown sugar", gramsPerCup: 200 },
+        { key: "maple syrup", name: "maple syrup", gramsPerCup: "lots" },
+        { key: "honey", gramsPerCup: 340 },
+      ],
+    });
+    await writeFile(file, text);
+    const read = await readGramsBankChecked(ctx);
+    expect(read.entries.map((entry) => entry.key)).toEqual(["brown sugar"]);
+    expect(read.problem).toMatch(
+      /^2 entries in conversions\/grams.json aren't/,
+    );
+    expect(
+      gramsBankRows(read.entries, "brown sugar").find(
+        (row) => row.key === "brown sugar",
+      ),
+    ).toMatchObject({ gramsPerCup: 200, origin: "changed" });
+    await expect(
+      setGrams(ctx, { name: "honey", gramsPerCup: 340 }),
+    ).rejects.toMatchObject({ code: "validation" });
+    expect(await readFile(file, "utf8")).toBe(text);
+  });
+
+  it("throws any other read error rather than read an empty bank", async () => {
+    await mkdir(join(contentDirectory, CONVERSIONS_FILE), { recursive: true });
+    await expect(readGramsBank(ctx)).rejects.toMatchObject({
+      code: "EISDIR",
+    });
+    await expect(readGramsBankEntries(contentDirectory)).rejects.toMatchObject({
+      code: "EISDIR",
+    });
+    await expect(readShoppingView(ctx)).rejects.toMatchObject({
+      code: "EISDIR",
+    });
+    await expect(
+      setGrams(ctx, { name: "honey", gramsPerCup: 340 }),
+    ).rejects.toMatchObject({ code: "EISDIR" });
+  });
+
   it("is a directory no index reads", () => {
     expect(UNINDEXED_DIRECTORIES).toContain("conversions");
     expect(CONVERSIONS_FILE.startsWith("conversions")).toBe(true);
@@ -197,6 +269,23 @@ describe("the shopping list reads the same bank", () => {
       ]),
     );
     expect(rowOf(mine).quantity).toBe("≈ 2 cups");
+  });
+
+  /* Review finding 8: walnuts have a weight now (King Arthur's 128 g a cup,
+   * whole), so a cup and grams of them add up, as "≈". */
+  it("adds walnuts in cups and grams as ≈", () => {
+    const rows = buildShoppingView(
+      [
+        { id: "01A", text: "1 cup walnuts", checked: false },
+        { id: "01B", text: "128 g walnuts", checked: false },
+      ] as never,
+      DEFAULT_SHOPPING_SETTINGS,
+      [],
+      [],
+      [],
+    ).stores[0].sections.flatMap((section) => section.rows);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].quantity).toBe("≈ 2 cups");
   });
 });
 

@@ -141,6 +141,44 @@ const isEntry = (value: unknown): value is GramsBankEntry => {
   );
 };
 
+/** A bank file read: its good entries, and what was wrong with it, if anything. */
+export interface GramsBankRead {
+  entries: GramsBankEntry[];
+  /** A hand edit gone wrong: not JSON, no `entries` list, or bad entries left out. */
+  problem?: string;
+}
+
+/**
+ * `conversions/grams.json`'s text, checked (review finding 7): the good
+ * entries, and the problem when it isn't JSON, has no `entries` list, or
+ * holds entries that aren't `{key, name, gramsPerCup}` in range. A reader
+ * goes on with the good entries (the seed under them); a write refuses
+ * the file, so a hand edit is never overwritten.
+ */
+export function readGramsBankText(text: string): GramsBankRead {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { entries: [], problem: `${GRAMS_BANK_FILE} isn't valid JSON` };
+  }
+  const list = (raw as GramsBankFile | undefined)?.entries;
+  if (!Array.isArray(list)) {
+    return {
+      entries: [],
+      problem: `${GRAMS_BANK_FILE} has no "entries" list`,
+    };
+  }
+  const entries = list.filter(isEntry);
+  const bad = list.length - entries.length;
+  return bad
+    ? {
+        entries,
+        problem: `${bad} entr${bad === 1 ? "y" : "ies"} in ${GRAMS_BANK_FILE} ${bad === 1 ? "isn't" : "aren't"} a name with ${GRAMS_PER_CUP_MIN}–${GRAMS_PER_CUP_MAX} grams a cup, and ${bad === 1 ? "is" : "are"} left out`,
+      }
+    : { entries };
+}
+
 /** A file's entries, every malformed one dropped (a hand edit gone wrong). */
 export function gramsEntriesOf(raw: unknown): GramsBankEntry[] {
   const entries = (raw as GramsBankFile | undefined)?.entries;

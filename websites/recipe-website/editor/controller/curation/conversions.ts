@@ -27,10 +27,11 @@ import {
   GRAMS_PER_CUP_MAX,
   GRAMS_PER_CUP_MIN,
   builtInGramsOf,
-  gramsEntriesOf,
   gramsKeyOf,
   gramsTableOf,
+  readGramsBankText,
   type GramsBankEntry,
+  type GramsBankRead,
   type GramsDensity,
 } from "recipe-website-common/util/gramsBank";
 import type { CurationContext } from "./context";
@@ -49,24 +50,49 @@ function gramsBankPath(contentDirectory: string): string {
 }
 
 /**
- * The person's entries, or none (a missing or unreadable file). The recipe
- * pages read the same file through `common/controller/data/readGramsBank`;
- * this seat reads it itself, as `inventory.ts` does (D8).
+ * The bank file, checked (review finding 7): none for a missing file; the
+ * good entries and the problem for a hand edit gone wrong (not JSON, no
+ * `entries`, bad entries); any other read error (EISDIR, EACCES) thrown.
+ * The recipe pages read the same file through
+ * `common/controller/data/readGramsBank`; this seat reads it itself, as
+ * `inventory.ts` does (D8).
  */
-export async function readGramsBank(
+export async function readGramsBankChecked(
   ctx: CurationContext,
-): Promise<GramsBankEntry[]> {
+): Promise<GramsBankRead> {
+  let raw: string;
   try {
-    const raw = await readFile(
+    raw = await readFile(
       /*turbopackIgnore: true*/ gramsBankPath(ctx.contentDirectory),
       "utf8",
     );
-    return gramsEntriesOf(JSON.parse(raw));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    if (error instanceof SyntaxError) return [];
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { entries: [] };
+    }
     throw error;
   }
+  return readGramsBankText(raw);
+}
+
+/** The person's good entries (a reader: a bad hand edit's problem is dropped). */
+export async function readGramsBank(
+  ctx: CurationContext,
+): Promise<GramsBankEntry[]> {
+  return (await readGramsBankChecked(ctx)).entries;
+}
+
+/** For a write: the entries, or a refusal that leaves a bad hand edit alone. */
+async function readGramsBankToWrite(
+  ctx: CurationContext,
+): Promise<GramsBankEntry[]> {
+  const read = await readGramsBankChecked(ctx);
+  if (read.problem) {
+    throw new ValidationError(
+      `${read.problem}. Fix it by hand (or restore it from git) before changing the bank here; nothing was written.`,
+    );
+  }
+  return read.entries;
 }
 
 /** One row of Settings › Conversions. */
@@ -149,7 +175,7 @@ export async function setGrams(
   const gramsPerCup = Math.round(input.gramsPerCup * 10) / 10;
   return withWriteLock(ctx.contentDirectory, "conversions: set", async () => {
     await assertNoMergeInProgress(ctx.contentDirectory);
-    const entries = await readGramsBank(ctx);
+    const entries = await readGramsBankToWrite(ctx);
     const old = entries.find((entry) => entry.key === key);
     if (old && old.gramsPerCup === gramsPerCup && old.name === input.name) {
       return { entries, key, changed: false };
@@ -184,7 +210,7 @@ export async function resetGrams(
 ): Promise<GramsWriteResult> {
   return withWriteLock(ctx.contentDirectory, "conversions: reset", async () => {
     await assertNoMergeInProgress(ctx.contentDirectory);
-    const entries = await readGramsBank(ctx);
+    const entries = await readGramsBankToWrite(ctx);
     const old = entries.find((entry) => entry.key === key);
     if (!old) throw new NotFoundError(`No entry of yours for "${key}".`);
     const written = entries.filter((entry) => entry.key !== key);

@@ -29,7 +29,7 @@ import { gramsTableOf } from "recipe-website-common/util/gramsBank";
 import { plainLine } from "recipe-website-common/components/Form/Ingredients/ingredientRows";
 import type { GramsModelLine, GramsModelResult } from "../llm/gramsModel";
 import type { CurationContext } from "./context";
-import { readGramsBank } from "./conversions";
+import { readGramsBankChecked } from "./conversions";
 import { getRecipe, updateRecipe } from "./recipes";
 
 export interface GramsRecipeOptions {
@@ -96,14 +96,17 @@ export async function gramsForRecipe(
 ): Promise<GramsRecipeResult> {
   const { recipe } = await getRecipe(ctx, slug);
   const ingredients = recipe.ingredients ?? [];
-  const table = gramsTableOf(await readGramsBank(ctx));
+  const bank = await readGramsBankChecked(ctx);
+  const table = gramsTableOf(bank.entries);
   const plan = suggestGrams(ingredients, {
     ...(options.paste ? { paste: options.paste } : {}),
     table,
   });
   const suggestions = [...plan.suggestions];
   const modelSuggestions: GramsSuggestion[] = [];
-  const warnings: string[] = [];
+  const warnings: string[] = bank.problem
+    ? [`The gram bank: ${bank.problem}; the rest of it was read.`]
+    : [];
   const problems = new Map<number, string>();
   let model: string | undefined;
   let job: string | undefined;
