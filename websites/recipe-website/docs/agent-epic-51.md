@@ -99,14 +99,14 @@ Plan page and mock-up: https://claude.ai/artifact/V9LtB7eAeAf7DLaoQWpcLD.
 
 ## Roadmap
 
-| Phase | Branch                        | Size | Status  | What                                                                                                                             |
-| ----- | ----------------------------- | ---- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| 51a   | `agent/51a-curator-cases`     | S–M  | ✅ #366 | `RECIPE_AGENT_MODEL`; the case file and cases e–h in the harness; the `num_ctx` reload; the baseline.                            |
-| 51c   | `agent/51c-deep-search-judge` | M    | ✅ #367 | `searchRecipeText` over steps and notes (`recipe_search` `deep`), and `judgeRecipes` (fit / maybe / no).                         |
-| 51b   | `agent/51b-intents`           | L    | ✅ #368 | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any. |
-| 51f   | `agent/51f-grams`             | M–L  | 📝      | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                        |
-| 51d   | `agent/51d-curator-ui`        | L    | 🟡      | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                  |
-| 51e   | `agent/51e-curator-drive`     | M    | 📝      | Claude Code drives the curator: a skill, review notes on runs, the case runner.                                                  |
+| Phase | Branch                        | Size | Status                                             | What                                                                                                                             |
+| ----- | ----------------------------- | ---- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| 51a   | `agent/51a-curator-cases`     | S–M  | ✅ #366                                            | `RECIPE_AGENT_MODEL`; the case file and cases e–h in the harness; the `num_ctx` reload; the baseline.                            |
+| 51c   | `agent/51c-deep-search-judge` | M    | ✅ #367                                            | `searchRecipeText` over steps and notes (`recipe_search` `deep`), and `judgeRecipes` (fit / maybe / no).                         |
+| 51b   | `agent/51b-intents`           | L    | ✅ #368                                            | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any. |
+| 51f   | `agent/51f-grams`             | M–L  | 📝                                                 | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                        |
+| 51d   | `agent/51d-curator-ui`        | L    | 🟡                                                 | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                  |
+| 51e   | `agent/51e-curator-drive`     | M    | ✅ #369 (backend; the review-note display follows) | Claude Code drives the curator: a skill, review notes on runs, the case runner.                                                  |
 
 Order: **51a + 51c** in parallel → **51b** (with **51f** in parallel once its
 mock-up is answered) → **51d** → **51e**. At most two workers at once; one PR
