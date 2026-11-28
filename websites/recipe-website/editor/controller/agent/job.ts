@@ -29,6 +29,7 @@
  * What the job answers (its meta's `result`) is small — the final text, how
  * it stopped, the usage and counts — never the transcript.
  */
+import { readPreferredSources } from "./preferredSources";
 import { createLocalBackend } from "../../cli/backend/local";
 import type { CurationContext } from "../curation/context";
 import { UsageError } from "../curation/errors";
@@ -510,6 +511,8 @@ export async function runAgentJob(
     standIn?: {
       model?: RunAgentOptions["model"];
       chat?: IntentChat;
+      /** The online plan's preferred sites, in place of the saved setting. */
+      preferredSites?: readonly string[];
     };
   },
 ): Promise<AgentJobResult> {
@@ -720,6 +723,7 @@ export async function runAgentJob(
       tools,
       hold,
       chat,
+      preferredSites: standIn?.preferredSites ?? (await readPreferredSources()),
       ...(local ? { numCtx: local.numCtx, think: local.think } : {}),
       ...(cost.maxCostUsd !== undefined
         ? {
