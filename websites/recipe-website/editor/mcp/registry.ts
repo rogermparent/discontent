@@ -67,6 +67,7 @@ import {
   JOB_STATUS_FILTERS,
 } from "../controller/jobs/listing";
 import type { RecipeRow } from "../controller/curation/recipes";
+import type { DeepSearchRow } from "../controller/curation/search";
 import {
   FeaturedInputSchema,
   GitDiffQuerySchema,
@@ -507,21 +508,32 @@ export function recipeToolDefinitions(
         "name:, description:, source: (a site's " +
         "name or host), group: (a group's slug or name, sub-groups included), " +
         "time:, before:, after:, and a leading - to negate a term; " +
-        "typed terms narrow exactly.",
+        "typed terms narrow exactly. deep: true also searches each recipe's " +
+        "steps and notes (a tool, a method, a tip), at the description's weight; " +
+        "a row found there carries found: {field, number, text}.",
       inputSchema: z.strictObject({
         query: z.string().min(1),
         limit: Limit,
         offset: Offset,
         fields: RowFields,
+        /* 51c (D8): `searchRecipeText` — no new tool, so 59/45 stay. */
+        deep: z.boolean().optional(),
       }),
       annotations: READ_ONLY,
     },
-    async ({ query, limit, offset, fields }) =>
+    async ({ query, limit, offset, fields, deep }) =>
       read(async () => {
-        const result = await backend.searchRecipes(query, { limit, offset });
+        const result = await backend.searchRecipes(query, {
+          limit,
+          offset,
+          ...(deep ? { deep } : {}),
+        });
         return {
           ...result,
-          recipes: result.recipes.map((row) => compactRow(row, fields)),
+          recipes: result.recipes.map((row: DeepSearchRow) => ({
+            ...compactRow(row, fields),
+            ...(row.found ? { found: row.found } : {}),
+          })),
         };
       }),
   );

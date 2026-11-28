@@ -167,6 +167,180 @@ on `runShoppingAsk`'s pattern (a `job.log.step` + `chatJson` per chunk,
 ingredients, trimmed steps and notes, answering
 `{slug, verdict: fit|maybe|no, why}` for at most 30.
 
+### Results (51c)
+
+**The deep search** — `searchRecipeText(ctx, query, {limit, offset})` in
+`controller/curation/search.ts`:
+
+- It shares `searchRecipes`' filtering and sort (a new private `rankRows`:
+  the same `parseQuery`, `matchesFilter`, `tag:` resolver and `group:`
+  corpus, best first then newest), so the two differ only in scoring.
+  `scoreFreeText` is unchanged in behaviour; its per-word field pick is now
+  `rowFieldFor`, which the deep scorer reuses.
+- Each word scores its best field: name 4, tags 3, ingredients 2, then
+  description, **steps** and **notes** 1 (`DEEP_FIELD_WEIGHTS`). Steps are
+  `flatSteps` then `stepPlainText`; notes are `cleanNotes` then the same
+  plain-words pass. A word found only in a step or a note gives the row a
+  `found: {field: "steps"|"notes", number, text}`: the 1-based step or note
+  and about 120 characters around the match, cut at words. That way a model
+  reading the row sees why "frother" found it.
+- `matchIndex` is `fieldMatches`' rule with a position. A test holds the two
+  side by side over ten needles. It filters with `indexOf` first, which is
+  what made the warm search fast (see below).
+- **The corpus** is every indexed recipe's `recipe.json`, read through the
+  engine's `readContentFileOrNull` in batches of 32.
+  - It needs no new filesystem call in traced code, so no
+    `turbopackIgnore` annotation.
+  - The index says which recipes exist, and a reader never builds one
+    (F30).
+  - An unreadable file counts as a recipe with no text.
+  - It is kept in **one** entry (`corpusCache`), keyed by content directory
+    and HEAD (`readHead`). A new HEAD reads it again. Outside a repository
+    nothing is kept.
+  - With no free text, no file is read.
+- **Surfaces:**
+  - `recipe_search` takes `deep: true`. There is no new tool, so 59/45
+    stay, and the description grew one sentence.
+  - The `CuratorBackend.searchRecipes` option `deep`: the local backend
+    calls `searchRecipeText`, and the HTTP backend sends `?deep=1` to
+    `GET /api/recipes`, which honours it.
+  - `recipes search --deep` (`--json` as ever) prints the `found` lines
+    under the table.
+  - The curator's step reads "Searched your recipes, steps and notes too,
+    for “…”".
+  - SKILL.md §3 says when to use it, and `skillText.generated.ts` is
+    regenerated. `skill-local.md` is unchanged: its 1,200-token budget had
+    no room (see Dc1).
+  - `/search` is unchanged.
+
+**The judge** — `judgeRecipes(ctx, {criterion, slugs, model, job?, numCtx?,
+think?, maxCostUsd?, timeoutMs?})` in `controller/llm/judge.ts`:
+
+- It follows `runShoppingAsk`'s pattern. The candidates go in even chunks of
+  at most 8 (30 makes 8/8/7/7). Each chunk is one `llm.judge` step ("Model
+  judges the recipes 2/4" on `/jobs`) and one `chatJson` call with
+  `JUDGE_JSON_SCHEMA`, no tools and no thinking unless asked.
+- The answer is `{verdicts: [{slug, why, verdict: fit|maybe|no}]}`. It
+  returns a `JudgeResult` with:
+  - `verdicts` in the order given, each with the recipe's name;
+  - `unjudged`, `dropped` (past 30), `missing` (no such recipe), `ignored`
+    (answers set aside, with why) and `problems` (a failed chunk);
+  - the model, calls, tokens, `numCtx` and the Claude cost.
+- **Nothing the model says is trusted** (`checkJudgeAnswer`):
+  - A slug that wasn't asked about is set aside, and so is a second answer
+    for the same slug.
+  - A verdict other than the three is no verdict.
+  - A non-list answer fails that chunk.
+  - A slug is matched leniently: `## London-Fog` reads as `london-fog`.
+- **The candidate's text** (`judgeRecipeText`) is a `## <slug>` heading,
+  then name, yield, times, the drink spec, the description (≤ 200), the
+  ingredients (≤ 700) and the notes (≤ 400).
+  - Steps get ≤ 1,000 characters, shared by `shareBudget`: the short steps
+    stay whole, the long ones split what's left, and every step keeps at
+    least 80 characters of its start.
+  - Past the budget, whole steps drop from the end, counted as "(+N
+    more)". This is adapted from `estimateUserPrompt`, which cuts the whole
+    text at 12,000.
+- A test shows a chunk of eight pathologically long recipes fits under
+  12,288 tokens. Real ones land well under 8,192.
+- **Not a tool, not a job kind.** No MCP tool calls it. 51b's intents call
+  it from code inside their own job, so its steps nest in the agent job's
+  log.
+
+#### Measurements (scratch clone of the content, 1,007 recipes, reindexed; never `editor/content`)
+
+The machine was busy: 51a's vitest held the heavy slot, and about 2 GB was
+free. The numbers are wall times of single calls, three runs each.
+
+| What                                        | Time                        |
+| ------------------------------------------- | --------------------------- |
+| `readHead` (two git spawns), warm           | 8–15 ms                     |
+| Deep search, cold (read + parse + fold all) | 310–490 ms                  |
+| Index search (`searchRecipes`), warm        | 56–141 ms                   |
+| Deep search, warm, same queries             | 57–193 ms                   |
+| Heap after the corpus is kept               | ~136 MB (whole tsx process) |
+
+- The first warm pass, before `matchIndex`'s `indexOf` prefilter, was
+  80–305 ms ("dutch oven" 305 ms). It used a `matchAll` word scan per step
+  per word.
+- On the clone, `frother` finds nothing by the index and 2 deep:
+  `eggnog-latte` (step 1, "…milk frother and heat and foam…") and
+  `london-fog-acouplecooks` (step 2, "…a handheld frother or a whisk").
+  `frother tag:drink` finds the same two. `froth` deep finds 24, from
+  hollandaise to dinner rolls ("foamy and frothy on top").
+- Deep matches are loose: `dutch oven` has 28 of its first 30 rows found by
+  "Preheat oven…". That is the judge's job, and SKILL.md says so.
+- `hot-chocolate-acouplecooks` (case f) says no "frother" anywhere, so
+  `mine` must search expansions (51b's `chatJson` step), not the bare word.
+
+#### Gates (51c, before review)
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit` are clean.
+- `pnpm exec vitest run`: 4,451 of 4,452 passed (206 files). The one failure
+  was `editFormRoundTrip.test.tsx` "cleared and retyped…", a 5 s timeout
+  under load (51a's suite was in the slot beside it). Alone it passes,
+  17/17. It touches nothing here.
+- New: `test/searchText.test.ts` (15) and `test/judge.test.ts` (15).
+  `test/curation.test.ts`' D8 allow-list gains `Form/Instructions/stepChecks`
+  (`flatSteps`).
+- No Playwright spec covers this phase: no UI changed (`/search` is
+  untouched). CI's shards are the e2e gate.
+
+#### Decisions (51c)
+
+- **Dc1 — the local view exposes `deep`,** because the frother case is a
+  local-model case. It is in `LOCAL_TOOL_TEXT.recipe_search` only:
+  "`deep: true` searches steps and notes too (a tool, a method)".
+  - A sentence in `skill-local.md` too took the skill to 1,228 of 1,200
+    tokens, and the prompt plus tools to 3,564 of 3,500
+    (`test/agentLocal.test.ts`).
+  - To pay for the tool sentence, the tool's list of typed terms became "as
+    the guide says": `skill-local.md` step 1 lists the same terms word for
+    word.
+- **Dc2 — the judge reads 8 a call, with fixed budgets per part** (above).
+  With four calls for 30, each call's answer stays short and each recipe is
+  judged beside few others.
+- **Dc3 — one `num_ctx` for every chunk.** It is the caller's `numCtx` when
+  that holds them all (an agent run's 12,288), else the largest chunk's
+  step. Then the judge never makes Ollama reload the model between chunks,
+  or against the run that called it (51a's 14 s reload).
+- **Dc4 — `why` comes before `verdict` in the schema,** so the model gives
+  its reason before it decides.
+- **Dc5 — the corpus is read through the engine, kept per HEAD,** in one
+  entry, and not at all outside a repository (above).
+- **Dc6 — deep rows carry `found`.** The MCP answer and the CLI show it. A
+  shallow search's rows are unchanged.
+- **Dc7 — the judge's Claude cost is the caller's to cap.** `maxCostUsd`
+  (the run's remaining budget) is checked against each chunk's expected
+  cost before the call, not against the `ANTHROPIC_MAX_TOKENS` worst case,
+  which would refuse almost any judge under the $1 run cap. The actual cost
+  is summed in `costEstimateUsd`.
+- **Dc8 — a failed chunk doesn't fail the judge.** Its slugs are unjudged
+  and said. The status is `failed` only when nothing was judged.
+
+#### Traps (51c)
+
+- **A hand edit isn't seen until HEAD moves.** Every engine write commits,
+  so the editor, CLI and MCP never hit this. A `recipe.json` edited on disk
+  and not committed is searched as it was (a test pins this).
+- **`fieldMatches` with punctuation.** A needle with punctuation ("1/2",
+  "half-and") is in no word: it matches only at the text's start. The
+  `indexOf` fast path keeps that.
+- **The sandbox refused Python heredocs** whose text had template literals
+  or the word "git". Edit and Write worked.
+
+#### Roger to confirm (51c)
+
+- c01: deep search is the curator's only — `recipe_search` `deep`,
+  `recipes search --deep`, `GET /api/recipes?deep=1` — and `/search` is
+  untouched (D8).
+- c02: a deep row's `found` snippet (about 120 characters around the first
+  step or note match).
+- c03: the judge's reasons are asked for in at most 20 words, kept to 160
+  characters.
+- c04: the local view advertises `deep` (Dc1).
+
 ## 51b — Intents as code-run plans (L)
 
 Scope: the plan's 51b. Starts after 51a and 51c merge.

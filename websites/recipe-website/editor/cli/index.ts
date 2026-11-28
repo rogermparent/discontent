@@ -186,7 +186,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   image <slug> (--url <image-url> | --file <path> | --clear)
   show <slug>
   list [--tag t] [--limit 20] [--offset 0]
-  search <query…>
+  search <query…> [--deep] [--limit 20] [--offset 0]
   tags
   delete <slug> [--yes]
   group create --name N [--kind meal-plan] [--description D] [--slug s]

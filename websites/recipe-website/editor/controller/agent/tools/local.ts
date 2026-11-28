@@ -47,7 +47,7 @@ export interface LocalToolText {
 export const LOCAL_TOOL_TEXT: Partial<Record<LocalToolName, LocalToolText>> = {
   recipe_search: {
     description:
-      "Search the site's recipes, best first: {total, more, recipes: [{slug, name, tags, totalTime?}]}. Typed terms tag:x, -tag:x, ingredient:x, name:x, source:x, time:<=30; free words match at a word start. `fields` adds description, ingredients, prepTime, cookTime.",
+      "Search the site's recipes, best first: {total, more, recipes: [{slug, name, tags, totalTime?}]}. Typed terms as the guide says. `fields` adds description, ingredients, prepTime, cookTime. `deep: true` searches steps and notes too (a tool, a method).",
   },
   recipe_get: {
     description:

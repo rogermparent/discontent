@@ -571,9 +571,9 @@ export function createHttpBackend({
     listRecipes(options = {}) {
       return call<RecipeListResult>("GET", "/api/recipes", { query: options });
     },
-    searchRecipes(query, options = {}) {
+    searchRecipes(query, { deep, ...options } = {}) {
       return call<SearchResult>("GET", "/api/recipes", {
-        query: { q: query, ...options },
+        query: { q: query, ...options, deep: deep ? 1 : undefined },
       });
     },
     deleteRecipe(slug) {
