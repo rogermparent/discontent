@@ -146,7 +146,7 @@ export function LineMarkNote({
             size="sm"
             className="max-sm:h-11"
             disabled={saving}
-            aria-label={`Save ingredient ${number}'s grams to the bank`}
+            aria-label={`Save to the bank: ingredient ${number}'s grams`}
             onClick={async () => {
               setSaving(true);
               try {

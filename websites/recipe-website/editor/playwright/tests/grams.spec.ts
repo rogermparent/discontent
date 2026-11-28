@@ -359,7 +359,7 @@ test.describe("Add grams on the edit page (51f)", () => {
     await panel.getByRole("button", { name: "Match to lines" }).click();
     await page
       .getByRole("button", {
-        name: "Save ingredient 3's grams to the bank",
+        name: "Save to the bank: ingredient 3's grams",
       })
       .click();
     await expect(page.getByTestId("grams-line-mark").first()).toContainText(
