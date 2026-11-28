@@ -18,7 +18,7 @@
 
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded · 📝 proposed.
 
-**Now:** 51d in progress (2026-11-28); 51f waits on its mock-up's answers (https://claude.ai/artifact/V3hxRb6AG3eaZR11zndKBd).
+**Now:** 51a–51e closed and deployed 2026-11-28 (`7d63da33`); see the Close-out. 51f (gram conversions) waits on its mock-up's answers (https://claude.ai/artifact/V3hxRb6AG3eaZR11zndKBd).
 
 ## Context
 
@@ -103,9 +103,9 @@ Plan page and mock-up: https://claude.ai/artifact/V9LtB7eAeAf7DLaoQWpcLD.
 | ----- | ----------------------------- | ---- | ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | 51a   | `agent/51a-curator-cases`     | S–M  | ✅ #366       | `RECIPE_AGENT_MODEL`; the case file and cases e–h in the harness; the `num_ctx` reload; the baseline.                            |
 | 51c   | `agent/51c-deep-search-judge` | M    | ✅ #367       | `searchRecipeText` over steps and notes (`recipe_search` `deep`), and `judgeRecipes` (fit / maybe / no).                         |
-| 51b   | `agent/51b-intents`           | L    | ✅ #368       | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any. |
-| 51f   | `agent/51f-grams`             | M–L  | 📝            | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                        |
-| 51d   | `agent/51d-curator-ui`        | L    | 🟡            | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                  |
+| 51b   | `agent/51b-intents`           | L    | ✅ #368, #372 | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any. |
+| 51f   | `agent/51f-grams`             | M–L  | ⏸️ answers    | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                        |
+| 51d   | `agent/51d-curator-ui`        | L    | ✅ #370       | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                  |
 | 51e   | `agent/51e-curator-drive`     | M    | ✅ #369, #371 | Claude Code drives the curator: a skill, review notes on runs, the case runner.                                                  |
 
 Order: **51a + 51c** in parallel → **51b** (with **51f** in parallel once its
@@ -1460,3 +1460,69 @@ On `c55d68ef`, through the heavy slot:
 - Docker dev mode, `curator-intents.spec`: 7 passed.
 - No baseline moved or was added (the working tree stayed clean after the
   runs); the notes case takes no screenshot.
+
+## Close-out (2026-11-28)
+
+51a–51e are merged and deployed. 51f stays open: its mock-up and 7 questions
+(https://claude.ai/artifact/V3hxRb6AG3eaZR11zndKBd, db `answers` q01–q07) have
+no answers yet, and they gate its worker.
+
+### PRs
+
+| PR   | What                                                                              |
+| ---- | --------------------------------------------------------------------------------- |
+| #365 | The doc skeleton.                                                                 |
+| #366 | 51a: `RECIPE_AGENT_MODEL`, the cases, the runner, `closeRecipeName`.              |
+| #367 | 51c: deep search over steps and notes, `judgeRecipes`; the baseline table.        |
+| #368 | 51b: intents as code-run plans (first build, review and real-run fixes 1–10).     |
+| #369 | 51e: review notes, the runner's model summary, the `curator-drive` skill.         |
+| #370 | 51d: `/curator` by intent; the review route's `remove` fix; the import-model fix. |
+| #371 | 51e2: "Reviewed by Claude Code" notes on a run.                                   |
+| #372 | Case i and Db18, from the first driven run's miss.                                |
+
+### Scores (qwen3.5:9b, scratch clone e9f34a56, SearXNG on, three runs each)
+
+| Case                | qwen3:8b before | qwen3.5:9b before | after 51b's first build | after the fixes and Db18 |
+| ------------------- | --------------- | ----------------- | ----------------------- | ------------------------ |
+| e (pulled pork)     | 0/3             | 0/3               | 3/3                     | 3/3                      |
+| f (frother)         | 0/3             | 3/3               | 0/3                     | 3/3                      |
+| g (Thanksgiving)    | 0/1             | 0/1               | 3/3 (wrong side)        | 3/3                      |
+| h (Christmas)       | —               | 0/1               | 3/3                     | 3/3                      |
+| i (frother, strict) | —               | —                 | —                       | 3/3                      |
+
+### The first driven run (51e's real check)
+
+Claude Code ran Roger's frother ask through the workstation's `/curator` with
+the `curator-drive` skill (run `01M8H1MNK37Q3Z63FJY9B73M0X`, mine, 73 s,
+qwen3.5:9b). The answer was right on the case but had two misses: panna cotta
+as a fit, and gingerbread hot chocolate turned down for two servings. The run
+carries a `miss` note naming case i. The fix (#372, Db18) passes f and i 3/3,
+with no regressions on e, g and h.
+
+### Deploys
+
+- **Workstation:** `pnpm workstation update` to `4dfb57ff`, then `7d63da33`
+  (through `heavy-bg.sh`); healthy, `BUILT_FROM` stamp written.
+  `RECIPE_AGENT_MODEL=qwen3.5:9b` added to the main checkout's `editor/.env`
+  (D5, once every case passed); the service was restarted.
+- **Pi:** `pnpm deploy:pi` to `recipe-editor:7d63da33`; indexes fresh, healthy,
+  3 images kept. The Pi's curator stays on Claude (no local model there).
+- No `indexVersion` change, so no reindex.
+
+### Roger's steps
+
+- Answer the confirm page: https://claude.ai/artifact/Dd81ZwpWTjuaX5zaLVpaBf
+  (db `answers`; x01–x03 first, then b, c, d, e and a items). Its source is
+  `orchestrator/confirm-51.html`.
+- Answer the 51f mock-up (above) so 51f can start.
+- Lift Archilyzer's transcription lane: it has been held since the first
+  baseline window.
+- Optional (x03): pre-approve `.claude/skills/curator-drive/drive.sh` so the
+  skill runs without prompts.
+- The epic 50 confirm page (s01–s05, f01, g01–g04) still has no answers.
+
+### Left open
+
+- The 51d worktree (`agent-a9c2d3c8174767006`) and the case-i worktree are
+  locked by the harness; remove them once it lets go.
+- 51f, gated on its answers.

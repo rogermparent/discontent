@@ -41,7 +41,19 @@ The editor's `/curator` page (and `pnpm recipes agent`) runs the same 45
 tools in-process on the configured model — the Claude API with all 45 (plus
 `web_fetch` and Anthropic's `web_search`), or a local qwen with a condensed
 view of 8 of them plus `web_fetch` and SearXNG's `web_search`; both
-refuse a local `path` / `photos` argument. See `agent-epic-44.md`.
+refuse a local `path` / `photos` argument. See `agent-epic-44.md`. Since
+epic 51 an ask can carry an intent (`online`, `mine`, `plan`, `organize`,
+`any`, or `auto` to guess), and the first three run as plans in code: "already
+have" is checked by source and close name, search reads steps and notes, a
+judge sorts fits, and imports and plans are held for approval. The workstation
+curator runs `RECIPE_AGENT_MODEL` (qwen3.5:9b). See `agent-epic-51.md`.
+
+The `curator-drive` skill (`.claude/skills/curator-drive/`, Claude Code only)
+runs an ask through the workstation editor's `/curator` instead of doing the
+curation itself, judges what the run holds, approves only the sure writes,
+leaves a review note on the run, and turns each miss into a case in
+`editor/scripts/curator-cases.json` plus a fix. Use it when Roger asks for the
+curator; it never pauses the GPU's transcription lane, which is Roger's.
 
 The same operations exist as a CLI fallback, `pnpm --silent recipes <command>
 … --json` from the repo root (`--silent` keeps pnpm's banner out of the JSON).
@@ -275,11 +287,16 @@ survives a cleared context.
   2026-11-24; the confirm page (with the linked-recipe dry run s01–s05) is
   linked in the Close-out.
 - `websites/recipe-website/docs/agent-epic-51.md` — epic 51, the curator
-  by intent: `RECIPE_AGENT_MODEL` (qwen3.5:9b) and test cases e–h in the
-  harness (51a), search over steps and notes plus a judge step (51c),
-  intents as code-run plans with "already have" in code and held writes
-  (51b), gram conversions with a bank in the content repo (51f), the
-  `/curator` redesign (51d) and Claude Code driving the curator (51e).
+  by intent: `RECIPE_AGENT_MODEL` (qwen3.5:9b) and test cases e–i with a
+  runner that scores any model (51a), search over steps and notes plus a
+  judge step (51c), intents as code-run plans with "already have" in code
+  and held writes (51b), the `/curator` redesign (51d: the intent row and
+  guess, live steps, result cards) and Claude Code driving the curator
+  (51e: the `curator-drive` skill, review notes on runs, a `BUILT_FROM`
+  stamp). Cases e–i pass 3/3 on qwen3.5:9b (before, on the open loop, only the
+  frother case passed). Deployed to
+  both machines 2026-11-28 (`7d63da33`); 51f (gram conversions) waits on
+  its mock-up's answers. The confirm page is linked in the Close-out.
   SearXNG is permanent on the workstation.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
