@@ -1,0 +1,37 @@
+{
+  "cases": [
+    {
+      "id": "e",
+      "kind": "new-imports",
+      "ask": "3 pulled pork recipes I don't already have",
+      "count": 3,
+      "good": "Three held recipe_import calls, none whose source (existingBySource) is already in the bank and none whose name is close to one already there (Roger's own pulled-pork must not count)."
+    },
+    {
+      "id": "f",
+      "kind": "answer",
+      "ask": "recipes that work well in small batches with a milk frother",
+      "include": ["london-fog-acouplecooks", "hot-chocolate-acouplecooks"],
+      "exclude": ["homemade-slow-cooker-hot-chocolate"],
+      "good": "Names the London fog and the small-batch hot chocolate; leaves out the slow-cooker hot chocolate (a crowd-size batch)."
+    },
+    {
+      "id": "g",
+      "kind": "plan",
+      "ask": "Plan Thanksgiving from its menu as a meal plan tagged thanksgiving; we bring 2 servings of the cranberry curd tart plus a simple side",
+      "tag": "thanksgiving",
+      "require": ["cranberry-curd-tart"],
+      "minItems": 2,
+      "good": "A held group_create tagged thanksgiving holding cranberry-curd-tart (scale 2 or 2 servings) and at least one side."
+    },
+    {
+      "id": "h",
+      "kind": "plan",
+      "ask": "Plan Christmas from its menu as a meal plan tagged christmas; we're making the pernil for 6, plus a breakfast and a dessert",
+      "tag": "christmas",
+      "require": ["pernil"],
+      "minItems": 3,
+      "good": "A held group_create tagged christmas from the christmas holiday menu: the pernil resolved by name (Pernil, Puerto Rican Roast Pork; scale 6 servings), plus a breakfast and a dessert."
+    }
+  ]
+}

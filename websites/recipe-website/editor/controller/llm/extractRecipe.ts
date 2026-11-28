@@ -20,6 +20,10 @@ import type {
 } from "recipe-website-common/controller/types";
 import { capText } from "recipe-website-common/util/pageText";
 import {
+  sharedWords as shared,
+  wordDice,
+} from "recipe-website-common/util/wordDice";
+import {
   createIngredient,
   normalizeIngredientText,
 } from "recipe-website-common/util/parseIngredients";
@@ -319,27 +323,6 @@ export function isGrounded(line: string, source: GroundingSource): boolean {
 /* Skipped lines                                                       */
 /* ------------------------------------------------------------------ */
 
-/** Word-multiset Dice similarity of two normalised lines. */
-function dice(left: string[], right: string[]): number {
-  if (left.length === 0 || right.length === 0) return 0;
-  return (2 * shared(left, right)) / (left.length + right.length);
-}
-
-/** How many words two lines share, counting repeats. */
-function shared(left: string[], right: string[]): number {
-  const pool = new Map<string, number>();
-  for (const word of right) pool.set(word, (pool.get(word) ?? 0) + 1);
-  let count = 0;
-  for (const word of left) {
-    const remaining = pool.get(word) ?? 0;
-    if (remaining > 0) {
-      count += 1;
-      pool.set(word, remaining - 1);
-    }
-  }
-  return count;
-}
-
 /** A position match needs the shorter line to cover this much of the longer. */
 const POSITION_MATCH_MIN = 0.75;
 
@@ -500,7 +483,7 @@ export function fillSkippedLines(
     for (const candidate of candidates) {
       const twin = between.findIndex(
         (line, at) =>
-          !garbled.has(at) && dice(words(line), words(candidate)) >= 0.5,
+          !garbled.has(at) && wordDice(words(line), words(candidate)) >= 0.5,
       );
       if (twin >= 0) garbled.add(twin);
     }

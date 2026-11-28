@@ -42,6 +42,7 @@ import {
   type LlmApi,
   type LlmConfig,
 } from "../llm/client";
+import { withAgentModel } from "../llm/agentContext";
 import { DEFAULT_AGENT_MAX_COST_USD, modelPrice } from "../llm/cost";
 import { AGENT_PROMPT_MAX } from "./follow";
 import { decisionsNote, heldCalls } from "./held";
@@ -113,6 +114,13 @@ export interface CuratorModels {
 export const CURATOR_CLAUDE_KEY_ENV = "RECIPE_LLM_CLAUDE_API_KEY";
 /** Its model (47i's, default claude-sonnet-5). */
 export const CURATOR_CLAUDE_MODEL_ENV = "RECIPE_LLM_CLAUDE_MODEL";
+/**
+ * The curator's own local model (51a, Da1): `/curator` and `recipes agent`
+ * run on it while imports keep `RECIPE_LLM_MODEL` (qwen3.5:9b agent beside
+ * qwen3:8b imports). Unset: the curator runs on `RECIPE_LLM_MODEL`. Not read
+ * when the editor's own model is the Claude API (the Pi).
+ */
+export const CURATOR_LOCAL_MODEL_ENV = "RECIPE_AGENT_MODEL";
 
 /**
  * The curator's models (48b, Db5): the editor's own (`RECIPE_LLM_*`) — the
@@ -129,8 +137,9 @@ export function curatorModels(
   if (base.api === "anthropic") return { claude: base, primary: "claude" };
   const key = env[CURATOR_CLAUDE_KEY_ENV]?.trim();
   const claudeModel = env[CURATOR_CLAUDE_MODEL_ENV]?.trim();
+  const agentModel = env[CURATOR_LOCAL_MODEL_ENV]?.trim();
   return {
-    local: base,
+    local: agentModel ? { ...base, model: agentModel } : base,
     primary: "local",
     ...(key
       ? {
@@ -503,39 +512,46 @@ export async function runAgentJob(
     );
   }
 
-  const result = await runAgent({
-    system,
-    prompt,
-    history,
-    tools,
-    serverTools,
-    budgets: {
-      ...(spec.maxTurns ? { maxTurns: spec.maxTurns } : {}),
-      ...(cost.maxCostUsd !== undefined ? { maxCostUsd: cost.maxCostUsd } : {}),
-    },
-    ...(newerWebTools ? { newerWebTools: true } : {}),
-    config,
-    ...(local ? { numCtx: local.numCtx, think: local.think } : {}),
-    job,
-    onEvent: (event) => {
-      if (event.type === "message") {
-        writer.write({
-          type: "message",
-          job: jobId ?? "",
-          message: event.message,
-        });
-      } else if (event.type === "turn.end") {
-        /* 48b (Db6): each turn's usage as it ends, for the live budget. */
-        writer.write({
-          type: "turn",
-          job: jobId ?? "",
-          turn: event.turn,
-          usage: event.usage,
-          durationMs: event.durationMs,
-        });
-      }
-    },
-  });
+  const loop = () =>
+    runAgent({
+      system,
+      prompt,
+      history,
+      tools,
+      serverTools,
+      budgets: {
+        ...(spec.maxTurns ? { maxTurns: spec.maxTurns } : {}),
+        ...(cost.maxCostUsd !== undefined
+          ? { maxCostUsd: cost.maxCostUsd }
+          : {}),
+      },
+      ...(newerWebTools ? { newerWebTools: true } : {}),
+      config,
+      ...(local ? { numCtx: local.numCtx, think: local.think } : {}),
+      job,
+      onEvent: (event) => {
+        if (event.type === "message") {
+          writer.write({
+            type: "message",
+            job: jobId ?? "",
+            message: event.message,
+          });
+        } else if (event.type === "turn.end") {
+          /* 48b (Db6): each turn's usage as it ends, for the live budget. */
+          writer.write({
+            type: "turn",
+            job: jobId ?? "",
+            turn: event.turn,
+            usage: event.usage,
+            durationMs: event.durationMs,
+          });
+        }
+      },
+    });
+  /* 51a (Da2): an import a tool starts asks for this run's `num_ctx`. */
+  const result = local
+    ? await withAgentModel({ model: config.model, numCtx: local.numCtx }, loop)
+    : await loop();
 
   /* 46d: a budget's stop is said in the job's own log, not only its result. */
   if (result.stopReason.startsWith("budget:") && result.error) {

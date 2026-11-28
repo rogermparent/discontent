@@ -328,6 +328,10 @@ Environment:
                        a web_search with a local model; unset, a local
                        model has none (the Claude API brings its own).
                        Read from editor/.env too
+  RECIPE_AGENT_MODEL   The local model \`agent\` runs (and /curator) use, on
+                       RECIPE_LLM_URL's server (default RECIPE_LLM_MODEL),
+                       so imports can keep another (qwen3.5:9b agent beside
+                       qwen3:8b imports); read from editor/.env too
   RECIPE_AGENT_NUM_CTX The context a local model's \`agent\` run asks for:
                        12288 (default) or 16384; read from editor/.env too
   RECIPE_AGENT_THINK   1 to let a local model think in \`agent\` runs
