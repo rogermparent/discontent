@@ -153,6 +153,98 @@ by `scripts/agent-measure.ts` with scoring in `scripts/agentMeasure.ts`; the
 the agent's `num_ctx`); the baseline (qwen3:8b against qwen3.5:9b on e/f/g)
 recorded in the table above.
 
+### 51a Results (code; the baseline run is not in yet)
+
+- **`RECIPE_AGENT_MODEL` (Da1).** `curatorModels(env)` takes the curator's
+  local model from it (trimmed; blank is unset), so `/curator`, ⌘K's hand-off,
+  `pnpm recipes agent` and the model picker all run on it, since all four
+  read `curatorModels`. Imports, fills, the edit box and tidy keep
+  `RECIPE_LLM_MODEL`. Unset: nothing changes. It is not read when the editor's
+  own model is the Claude API (the Pi). It is in `EDITOR_ENV_KEYS` (the CLI
+  reads it from `editor/.env`), the CLI help and `.env.example`, which also
+  now shows `RECIPE_LLM_TIDY_MODELS=qwen3:14b,qwen3.5:9b` (it was documented
+  only in epic 50 and the CLI help). The harness sets it to `--model`, so a
+  value in `editor/.env` cannot change a measured run.
+- **The `num_ctx` reload (Da2).** The cause is not only the context. An import
+  a tool starts reads on `RECIPE_LLM_MODEL`; the agent runs on its own model
+  at `RECIPE_AGENT_NUM_CTX` (12,288), and `applyLlm` picked its own step
+  (`extractionContext`: 4,096 / 8,192 / 12,288 by the page), so an import on
+  the agent's model asked Ollama for another context and reloaded it
+  (the 14 s). Fix: `controller/llm/agentContext.ts` (`withAgentModel`,
+  `agentNumCtxFor`, an `AsyncLocalStorage`) is set around `runAgent` in
+  `runAgentJob` for a local model; `applyLlm` asks for the run's `num_ctx`
+  when its model is the agent's (an Ollama-style model, not Claude), else as
+  before. The agent's 12,288 or 16,384 is never below an import's need, so no
+  reading is cut. Nothing sets it outside an agent run. **With
+  `RECIPE_AGENT_MODEL=qwen3.5:9b` beside `RECIPE_LLM_MODEL=qwen3:8b` the two
+  are different models, so the fix does nothing and an import in a curator run
+  loads qwen3:8b beside qwen3.5:9b** (a swap on an 8 GB card, not a context
+  reload). Measure it in the baseline (the `llm.extract` step's `numCtx` and
+  the import's wall time in `jobs show`); if it costs, 51b's import plan can
+  run on the agent's model. Unit-tested with a stubbed Ollama
+  (`test/llmContext.test.ts`).
+- **The case file.** `editor/scripts/curator-cases.json` holds e, f, g and h
+  (kinds `new-imports`, `answer`, `plan`); `scripts/agent-measure.ts` reads it
+  (`--cases <file>`, default that file; ids join the built-in a–d, so `--asks
+e,f,g,h` works and `--cases file` alone runs every case in it). A case runs
+  with the curator's writes held (`hold: true`, as `/curator` runs them), so
+  the transcript carries held `recipe_import` / `group_create` calls and
+  nothing is committed; the clone is still reset and reindexed per run.
+  Roger's wording is used for e, f and g.
+- **Scoring (pure, `scripts/agentMeasure.ts`, `test/curatorCases.test.ts`).**
+  `parseCases` validates the file. `checkNewImports` (e): exactly `count`
+  distinct held imports (by URL, dry runs the model made itself ignored); none
+  whose `sourceUrlKey` is in `existingBySource` (now exported from
+  `controller/curation/importList.ts`; the harness asks it about the
+  imports' URLs against the clone) and none with a name close to a recipe on
+  the site (`closeRecipeName`, the name read from the held answer's dry run).
+  `checkAnswerSlugs` (f): the include slugs appear in the final text (link or
+  bare slug) and the exclude ones do not. `checkHeldGroup` (g, h): a
+  `group_create` tagged with the tag (`tagSlug`) whose items (string
+  `slug:label@scale` or `{recipe}`) include the required slugs and at least
+  `minItems`; the best of several creates is judged. A held answer for a
+  page's dry run reaches the transcript wrapped as page text (E7), so
+  `answerObject` unwraps it. Slugs a case names that the corpus lacks are
+  reported as a setup fault and fail the run (`caseFileFaults`).
+- **`closeRecipeName(a, b)`** in `common/util/closeRecipeName.ts`, for 51b to
+  reuse: fold (case, accents, punctuation), drop filler words ("the", "best",
+  "easy", "recipe"…) and a plural `s`, then word-multiset Dice ≥ 0.85
+  (`CLOSE_NAME_MIN`). The importer's private `dice` and `shared` moved to
+  `common/util/wordDice.ts` (`wordDice`, `sharedWords`) and
+  `extractRecipe.ts` imports them. **The line is a judgement:** one extra
+  word on a two-word name ("Carolina Pulled Pork" against "Pulled Pork",
+  Dice 0.8) is a different dish and passes as new; "The Best Pulled Pork" is
+  the same; an oven and a slow-cooker version stay apart (D2).
+- **Not done here (as briefed):** the baseline real runs. To run them (the
+  orchestrator, on the scratch clone, GPU free, SearXNG up; from this
+  worktree's `websites/recipe-website/editor`, `--out` and `--jobs-dir` on
+  disk, not `/tmp`):
+
+  ```
+  pnpm exec tsx scripts/agent-measure.ts \
+    --content-dir /home/roger/.claude/jobs/6f7c677f/tmp/51/scan/content \
+    --model qwen3:8b --asks e,f,g \
+    --jobs-dir $CLAUDE_JOB_DIR/tmp/51/51a/jobs-8b --out $CLAUDE_JOB_DIR/tmp/51/51a/qwen3-8b.jsonl
+  pnpm exec tsx scripts/agent-measure.ts \
+    --content-dir /home/roger/.claude/jobs/6f7c677f/tmp/51/scan/content \
+    --model qwen3.5:9b --asks e,f,g,h \
+    --jobs-dir $CLAUDE_JOB_DIR/tmp/51/51a/jobs-9b --out $CLAUDE_JOB_DIR/tmp/51/51a/qwen3.5-9b.jsonl
+  ```
+
+  Add `--repeat 3` for a spread. qwen3:8b on `h` is optional (it cannot plan:
+  `LOCAL_AGENT_TOOLS` has no group tools, 51b's finding). Needs
+  `RECIPE_LLM_URL` and `RECIPE_SEARCH_URL` in `editor/.env` (copied in).
+
+**Roger to confirm (51a):**
+
+1. Case h's required dish is a **placeholder**, `christmas-sugar-cookies`,
+   which I could not check without reading `editor/content`. A run says "case h
+   names slugs this corpus lacks" if the slug is wrong; replace it in
+   `curator-cases.json` with a Christmas dish that exists (and, if wanted,
+   rewrite the ask to name it).
+2. The "close name" threshold (0.85) and the filler list.
+3. Case h's `minItems` of 3 ("a dish per course").
+
 ## 51c — Search steps and notes, then judge (M)
 
 Scope (the plan's 51c): `searchRecipeText(ctx, query, {limit})` in

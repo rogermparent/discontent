@@ -644,6 +644,37 @@ describe("pure pieces", () => {
   });
 });
 
+describe("the curator's own local model (51a, Da1)", () => {
+  const env = { RECIPE_LLM_URL: "http://localhost:11434" };
+
+  it("runs the curator on RECIPE_AGENT_MODEL while imports keep RECIPE_LLM_MODEL", () => {
+    const models = curatorModels({
+      ...env,
+      RECIPE_LLM_MODEL: "qwen3:8b",
+      RECIPE_AGENT_MODEL: " qwen3.5:9b ",
+    });
+    expect(models.local).toMatchObject({ model: "qwen3.5:9b", api: "ollama" });
+    expect(curatorModelFor(undefined, models).config.model).toBe("qwen3.5:9b");
+    expect(
+      curatorSetup({ ...env, RECIPE_AGENT_MODEL: "qwen3.5:9b" })?.model,
+    ).toContain("qwen3.5:9b");
+  });
+
+  it("changes nothing when unset or blank, and is not read for the Claude API", () => {
+    expect(curatorModels(env)).toEqual(
+      curatorModels({ ...env, RECIPE_AGENT_MODEL: "  " }),
+    );
+    expect(curatorModels(env).local?.model).toBe("qwen3:8b");
+    const claude = curatorModels({
+      RECIPE_LLM_API: "anthropic",
+      RECIPE_LLM_API_KEY: "sk-ant-x",
+      RECIPE_AGENT_MODEL: "qwen3.5:9b",
+    });
+    expect(claude.local).toBeUndefined();
+    expect(claude.claude?.model).toBe("claude-sonnet-5");
+  });
+});
+
 describe("who answers (Db5)", () => {
   it("offers the Claude API beside a local model when its key is set", () => {
     expect(curatorModels({})).toEqual({});
