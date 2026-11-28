@@ -16,6 +16,21 @@
       "good": "Names the London fog and the small-batch hot chocolate; leaves out the slow-cooker hot chocolate (a crowd-size batch)."
     },
     {
+      "id": "i",
+      "kind": "answer",
+      "ask": "recipes that work well in small batches with a milk frother",
+      "include": [
+        "london-fog-acouplecooks",
+        "hot-chocolate-acouplecooks",
+        "gingerbread-hot-chocolate-acouplecooks"
+      ],
+      "exclude": [
+        "homemade-slow-cooker-hot-chocolate",
+        "vegan-coconut-panna-cotta"
+      ],
+      "good": "Names the London fog, the small-batch hot chocolate and the gingerbread hot chocolate (two servings is a small batch; a maybe is fine); leaves out the slow-cooker hot chocolate (a crowd-size batch) and the coconut panna cotta (a set dessert, nothing for a frother). Neither may be a fit or a maybe. Stricter than f (51b Db18)."
+    },
+    {
       "id": "g",
       "kind": "plan",
       "ask": "Plan Thanksgiving from its menu as a meal plan tagged thanksgiving; we bring 2 servings of the cranberry curd tart plus a simple side",
