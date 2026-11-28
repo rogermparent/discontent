@@ -33,6 +33,7 @@ import {
   readReviewNotes,
 } from "../websites/recipe-website/editor/controller/agent/reviewNoteStore";
 import { getAgentRunView } from "../websites/recipe-website/editor/controller/agent/runs";
+import { listCuratorRuns } from "../websites/recipe-website/editor/controller/agent/curator";
 import {
   newJobMeta,
   notesPath,
@@ -327,6 +328,29 @@ describe("the store", () => {
       "Busy GPU.",
     ]);
     expect((await getAgentRunView(id, { dir })).reviewNotes).toHaveLength(1);
+  });
+});
+
+describe("the runs list (51e2)", () => {
+  it("marks a run Claude Code reviewed, and not one only the person noted", async () => {
+    const reviewed = await agentRun();
+    const yours = await agentRun();
+    const plain = await agentRun();
+    await addReviewNote(
+      reviewed,
+      { verdict: "approved", text: "Fine." },
+      { dir },
+    );
+    await addReviewNote(
+      yours,
+      { verdict: "miss", text: "Mine.", by: "you" },
+      { dir },
+    );
+    const rows = await listCuratorRuns({ dir });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    expect(byId.get(reviewed)?.reviewed).toBe(true);
+    expect(byId.get(yours)).not.toHaveProperty("reviewed");
+    expect(byId.get(plain)).not.toHaveProperty("reviewed");
   });
 });
 

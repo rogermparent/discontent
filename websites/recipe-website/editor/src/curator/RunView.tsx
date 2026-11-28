@@ -82,6 +82,7 @@ import {
 } from "./RunParts";
 import { useHydrated, When } from "./time";
 import { ToolRows } from "./ToolRows";
+import { ReviewNotes } from "./ReviewNotes";
 import type { AgentRunPoll } from "./useAgentRun";
 
 function capitalized(text: string): string {
@@ -849,6 +850,8 @@ export function RunView({
           ) : null}
         </div>
       )}
+
+      <ReviewNotes notes={poll.reviewNotes} />
 
       <ol aria-label="Asks" className="flex flex-col gap-6">
         {segments.map((segment, index) => (
