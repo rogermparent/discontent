@@ -815,6 +815,19 @@ The orchestrator's run, 2026-11-28: qwen3.5:9b, scratch clone `e9f34a56`,
   in servings").
 - Thanksgiving 2027 as g's name is right: 2026's has passed.
 
+#### Real run (after 51b's fixes, 300a19c7)
+
+On 2026-11-28 the orchestrator ran qwen3.5:9b with `--intent auto --repeat 3` on the scratch clone (e9f34a56) with SearXNG on. Results: `tmp/51/51b/qwen3.5-9b-2.jsonl`.
+
+| Case | Intent guessed | Score     | Time    | What it did                                                                                                                                                                                                                                  |
+| ---- | -------------- | --------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| e    | online (rules) | **3 / 3** | 54–85 s | It held 3 new recipes each run. The Modern Proper's and The Kitchn's pulled pork were listed as "Close to yours", not counted. In run 1 the third pick was a YouTube video, because the close names left only two pages (the Db12 fallback). |
+| f    | mine (rules)   | **3 / 3** | 55–72 s | London Fog and Hot Chocolate are fits; the slow cooker hot chocolate is left out.                                                                                                                                                            |
+| g    | plan (rules)   | **3 / 3** | 30–41 s | A held "Thanksgiving Menu" tagged thanksgiving: Cranberry Curd Tart (named in the ask, 2 servings) and Scalloped Potatoes (×1/3, picked from the menu's sides).                                                                              |
+| h    | plan (rules)   | **3 / 3** | 50–67 s | A held "Christmas Menu" tagged christmas: Eggnog Pancakes ×1.5, Pernil ×3/4 (named in the ask), and Spiced Eggnog Oatmeal Cream Pies, unscaled because its yield, "12 sandwiches", isn't in servings.                                        |
+
+Compared with the baseline (qwen3.5:9b with the open loop: e 0/3, f 3/3, g 0/1, h 0/1) and 51b's first build (e 3/3, f 0/3, g 3/3 but with a wrong side, h 3/3), every case now passes on the local model.
+
 #### Fixes after the review and the first real run
 
 The read-only review of `afe56a42` (findings 1–7, no blockers) and the
@@ -856,8 +869,7 @@ moved; `curator.spec` runs in Docker (production mode).
 **Gates (after the fixes, on `c5054d4e`; origin/main unmoved at
 `1855f4b6`):** `recipe-editor` typecheck clean; `recipe-website` `tsc
 --noEmit` clean; full `vitest run` 208 files, 4514 tests passed
-(`curatorIntents` 32); `curator.spec` in Docker: started, result in the
-orchestrator's report.
+(`curatorIntents` 32); `curator.spec` 8/8, Docker production, orchestrator-checked.
 
 #### The real check (the orchestrator's, GPU etiquette)
 
