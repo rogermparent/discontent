@@ -23,6 +23,7 @@ import {
 } from "../websites/recipe-website/editor/controller/curation/recipes";
 import {
   DEEP_FIELD_WEIGHTS,
+  DEEP_PHRASE_WEIGHT,
   clearRecipeTextCache,
   matchIndex,
   recipeText,
@@ -233,7 +234,7 @@ describe("searchRecipeText", () => {
     const result = await searchRecipeText(ctx, "milk frother");
     /*
      * milk is an ingredient of all three (2). London Fog's step 2 has the
-     * whole phrase "milk frother" (+2); the pudding's note has frother
+     * whole phrase "milk frother" (+4, Dc9); the pudding's note has frother
      * alone (+1).
      */
     expect(result.recipes.map((row) => row.slug)).toEqual([
@@ -263,6 +264,7 @@ describe("searchRecipeText", () => {
     });
     await createRecipe(ctx, {
       name: "Oven Fries",
+      date: 1_600_000_000_000,
       instructions: ["Toss the potatoes in oil and roast."],
     });
     await createRecipe(ctx, {
@@ -271,24 +273,48 @@ describe("searchRecipeText", () => {
       instructions: ["Sear the beef, then roast it low in the oven."],
       notes: ["A Dutch-style pot works best."],
     });
+    await createRecipe(ctx, {
+      name: "Chocolate Cake",
+      date: 1_700_000_200_000,
+      ingredients: ["1/2 cup Dutch-process cocoa", "2 cups flour"],
+      instructions: ["Preheat oven to 350°F.", "Mix and bake 30 minutes."],
+    });
+    await createRecipe(ctx, {
+      name: "Dutch Oven Bread",
+      date: 1_500_000_000_000,
+      instructions: ["Bake in a covered pot for 45 minutes."],
+    });
     const result = await searchRecipeText(ctx, "dutch oven");
-    /* Oven Fries by its name (4); the ribs by the phrase (2); the roast
-     * has both words, apart (2); the cookies only "Preheat oven": gone. */
+    /*
+     * The bread by its whole name (4 + 4); the ribs by the phrase in a
+     * step (Dc9: 2 a word, 4), tied with Oven Fries' one name word (4) and
+     * newer; the cocoa cake by "dutch" in an ingredient (2) and "oven" in
+     * a step (1); the roast by both words apart (1 + 1); the cookies only
+     * "Preheat oven": gone.
+     */
+    expect(DEEP_PHRASE_WEIGHT).toBe(2);
     expect(result.recipes.map((row) => row.slug)).toEqual([
-      "oven-fries",
-      "pot-roast",
+      "dutch-oven-bread",
       "braised-short-ribs",
+      "oven-fries",
+      "chocolate-cake",
+      "pot-roast",
     ]);
     expect(result.recipes[0].found).toBeUndefined();
-    expect(result.recipes[1].found).toMatchObject({
-      field: "notes",
-      number: 1,
-    });
     /* The phrase's step, not the first step that says "oven". */
-    expect(result.recipes[2].found).toMatchObject({
+    expect(result.recipes[1].found).toMatchObject({
       field: "steps",
       number: 2,
       text: "Brown the ribs in a Dutch oven, then braise for 3 hours.",
+    });
+    expect(result.recipes[2].found).toBeUndefined();
+    expect(result.recipes[3].found).toMatchObject({
+      field: "steps",
+      number: 1,
+    });
+    expect(result.recipes[4].found).toMatchObject({
+      field: "notes",
+      number: 1,
     });
     /* One word is unchanged: every "oven" step still counts. */
     const oven = await searchRecipeText(ctx, "oven");

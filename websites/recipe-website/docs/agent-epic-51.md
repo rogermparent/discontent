@@ -296,7 +296,7 @@ ingredients, trimmed steps and notes, answering
   tags 3, ingredients 2, description 1. **Steps** and **notes** then add 1
   a word (`DEEP_FIELD_WEIGHTS`), more strictly since the review (Dc9):
   - With two or more words, the whole folded phrase in one step or note is
-    tried first. A hit adds `words.length` and sets `found` there.
+    tried first. A hit adds 2 a word (`DEEP_PHRASE_WEIGHT`, Dc9) and sets `found` there.
   - Otherwise every word the index fields missed must be in the steps or
     notes (AND). If one isn't, the deep part adds nothing.
   - A single word works as before.
@@ -395,9 +395,13 @@ free. The numbers are wall times of single calls, three runs each.
   - After: 69 rows on a fresh clone (warm 95–155 ms).
   - The real Dutch-oven steps come in by the phrase, e.g.
     `new-mexico-carne-adovada` step 11, "a large, heavy Dutch oven".
-  - Bakes with **Dutch-process cocoa** still rank with "Preheat oven". The
-    ingredient gives "dutch" 2 and the step gives "oven" 1, which outscores
-    a phrase hit's 2 (`chocolate-chess-pie`, `maine-whoopie-pies`).
+  - **Dutch-process cocoa** bakes (`chocolate-chess-pie`,
+    `maine-whoopie-pies`) score 3: "dutch" 2 in an ingredient, plus 1 for
+    "Preheat oven".
+    - When the phrase hit counted 1 a word (2 in all), they ranked above
+      the real Dutch-oven steps.
+    - Since Dc9's 2 a word, a phrase hit scores 4 and outranks them. The
+      unit test pins this. It was not re-measured on the clone.
   - Single-word deep matches stay loose (every bake says "oven"). Sorting
     that out is the judge's job, and SKILL.md says so.
 - `hot-chocolate-acouplecooks` (case f) says no "frother" anywhere, so
@@ -454,11 +458,17 @@ exec tsc --noEmit` are clean.
 - **Dc9 (review) — several words in the steps and notes are a phrase or an
   AND.**
   - The index-field scoring is untouched.
-  - The phrase in one step or note scores a point a word, with `found`
-    there.
-  - Otherwise every word the index missed must be in the steps or notes.
-  - This is pinned by `searchText.test.ts`: "dutch oven" keeps the
-    Dutch-oven step and drops a recipe whose only match is "Preheat oven".
+  - The phrase in one step or note scores 2 a word (`DEEP_PHRASE_WEIGHT`),
+    with `found` there. So "dutch oven" in a step (4) beats "dutch" in an
+    ingredient plus "oven" in a step (3), and a full name match (8) still
+    ranks above both.
+  - Otherwise every word the index missed must be in the steps or notes, 1
+    a word.
+  - This is pinned by `searchText.test.ts`:
+    - "dutch oven" ranks the whole-name bread, then the Dutch-oven step,
+      then the Dutch-process-cocoa cake;
+    - it drops a recipe whose only match is "Preheat oven";
+    - `found` points at the phrase's step.
   - The local text's "typed terms as the guide says" is held by a test in
     `agentLocal.test.ts`: `skill-local.md` must name `tag:`, `ingredient:`,
     `name:`, `source:` and `time:`.

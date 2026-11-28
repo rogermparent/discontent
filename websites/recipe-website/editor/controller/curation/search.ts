@@ -221,6 +221,14 @@ export const DEEP_FIELD_WEIGHTS = {
   notes: 1,
 } as const;
 
+/**
+ * A word's worth when a step or note has the whole phrase (Dc9): 2, so
+ * "dutch oven" in a step (4) outranks "dutch" in an ingredient ("Dutch-
+ * process cocoa", 2) plus "oven" in a step (1), while a name match of the
+ * words (4 a word) still ranks above both.
+ */
+export const DEEP_PHRASE_WEIGHT = 2;
+
 /** A recipe's steps and notes as plain words, in reading order. */
 export interface RecipeText {
   steps: string[];
@@ -372,13 +380,18 @@ function scoreEntry(
   /*
    * The steps and notes are stricter (51c review): "dutch oven" must not
    * keep every recipe that says "Preheat oven". Several words: the whole
-   * phrase in one step or note first, worth a point a word; otherwise the
+   * phrase in one step or note first, worth `DEEP_PHRASE_WEIGHT` a word; otherwise the
    * words the index fields missed must all be there (AND), each worth its
    * field's point. One word is the same rule either way.
    */
   if (words.length > 1) {
     const phrase = textHit(entry, words.join(" "));
-    if (phrase) return { score: score + words.length, found: phrase };
+    if (phrase) {
+      return {
+        score: score + DEEP_PHRASE_WEIGHT * words.length,
+        found: phrase,
+      };
+    }
   }
   if (missed.length === 0) return { score };
   const hits: DeepHit[] = [];
@@ -395,9 +408,9 @@ function scoreEntry(
  * `scoreFreeText` with the steps and notes as two more fields at weight 1
  * (D8). Each word scores the best index field it appears in: name 4,
  * tags 3, ingredients 2, description 1. On top of that, the steps and
- * notes add 1 a word, in one of two ways:
- * - the whole phrase in one step or note, which counts every word;
- * - otherwise, only when every word the index missed is there.
+ * notes add points in one of two ways:
+ * - the whole phrase in one step or note: `DEEP_PHRASE_WEIGHT` (2) a word;
+ * - otherwise 1 a word, only when every word the index missed is there.
  * `found` is where the phrase was, or the first of those words.
  */
 export function scoreDeepText(
