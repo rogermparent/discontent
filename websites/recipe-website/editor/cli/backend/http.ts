@@ -43,6 +43,7 @@ import type {
   AgentStartResult,
 } from "../../controller/agent/follow";
 import type { AddReviewNoteResult } from "../../controller/agent/reviewNoteStore";
+import type { GramsRecipeResult } from "../../controller/curation/gramsRecipe";
 import type {
   CuratorBackend,
   DeleteResult,
@@ -511,6 +512,13 @@ export function createHttpBackend({
             ...(options.usesAll === true ? { usesAll: true } : {}),
           },
         },
+      );
+    },
+    gramsForRecipe(slug, options = {}) {
+      return call<GramsRecipeResult>(
+        "POST",
+        `/api/recipe/${encodeURIComponent(slug)}/grams`,
+        { body: options },
       );
     },
     /* 50e: a long, polite crawl of the corpus's pages — run it where the

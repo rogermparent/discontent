@@ -20,6 +20,7 @@ import {
 } from "../../util/shoppingLists";
 import { ListSwitcher, type ShoppingListsSurface } from "./ListSwitcher";
 import { findShoppingProposals } from "../../util/shoppingConsolidate";
+import { gramsPerCupTable, gramsTableOf } from "../../util/gramsBank";
 import { rowsHolding } from "../../util/shoppingPage";
 import {
   buildShoppingView,
@@ -206,6 +207,12 @@ export function ShoppingPage({
    */
   const [asWrittenChosen, setAsWritten] = useState(false);
   const asWritten = asWrittenChosen && mode === "plan";
+  /* 51f: the totals' densities, from the gram bank over the built-in seed. */
+  const bank = initial.grams;
+  const grams = useMemo(
+    () => (bank?.length ? gramsPerCupTable(gramsTableOf(bank)) : undefined),
+    [bank],
+  );
   const fullView = useMemo(
     () =>
       asWritten
@@ -214,6 +221,9 @@ export function ShoppingPage({
             list.settings,
             list.inventory,
             DEFAULT_STAPLES,
+            [],
+            undefined,
+            grams,
           )
         : buildShoppingView(
             list.items,
@@ -222,6 +232,7 @@ export function ShoppingPage({
             DEFAULT_STAPLES,
             list.merges,
             { layers: list.layers, rules: list.rules },
+            grams,
           ),
     [
       asWritten,
@@ -231,15 +242,16 @@ export function ShoppingPage({
       list.merges,
       list.layers,
       list.rules,
+      grams,
     ],
   );
   /* 49a: the open "same thing, different names" proposals (Da8). */
   const proposals = useMemo(
     () =>
       list.canMerge
-        ? findShoppingProposals(list.items, list.settings, list.merges)
+        ? findShoppingProposals(list.items, list.settings, list.merges, grams)
         : [],
-    [list.canMerge, list.items, list.settings, list.merges],
+    [list.canMerge, list.items, list.settings, list.merges, grams],
   );
   const storesOn = list.settings.features.stores;
   const known = fullView.stores.some((each) => each.store?.id === store);

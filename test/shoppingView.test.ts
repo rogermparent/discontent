@@ -162,8 +162,8 @@ describe("buildShoppingView", () => {
   it("joins unit families it cannot convert, and keeps one of a thing singular", () => {
     const view = buildShoppingView(
       [
-        item("1 lb walnuts", cookies),
-        item("2 cups walnuts, chopped", cake),
+        item("1 lb hickory nuts", cookies),
+        item("2 cups hickory nuts, chopped", cake),
         item("1 lb butter", cookies),
         item("2 cups butter, melted", cake),
         item("1 lemon", cake),
@@ -171,7 +171,7 @@ describe("buildShoppingView", () => {
       settings({ aisles: false }),
     );
     /* No density on file: side by side. */
-    expect(row(view, "walnut").label).toBe("1 lb + 2 cups walnuts");
+    expect(row(view, "hickory nut").label).toBe("1 lb + 2 cups hickory nuts");
     /* 50a: one with a density adds up, marked ≈ (in cups, the larger share). */
     expect(row(view, "butter").label).toBe("≈ 4 cups butter");
     expect(row(view, "lemon").label).toBe("1 lemon");

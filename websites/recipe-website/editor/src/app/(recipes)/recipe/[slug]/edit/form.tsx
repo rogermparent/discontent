@@ -68,6 +68,17 @@ import {
   type ModelChoices,
 } from "recipe-website-common/components/Form/Instructions/modelChoices";
 import { choicesResultAction, choicesStartAction } from "./choicesActions";
+import {
+  GramsProvider,
+  type GramsSurface,
+} from "recipe-website-common/components/Form/Ingredients/gramsContext";
+import { GramMarksProvider } from "recipe-website-common/components/Form/Ingredients/gramMarks";
+import type { GramsBankEntry } from "recipe-website-common/util/gramsBank";
+import {
+  gramsResultAction,
+  gramsStartAction,
+  saveGramsToBankAction,
+} from "./gramsActions";
 
 /** A fill the form holds (45b): what it was remounted with, and its marks. */
 interface AppliedFill {
@@ -160,6 +171,7 @@ export default function EditRecipeForm({
   choicesUnavailable,
   editModels,
   usesAsk,
+  grams,
 }: {
   slug: string;
   recipe: Recipe;
@@ -182,6 +194,15 @@ export default function EditRecipeForm({
   editModels?: EditModelsShown;
   /** Who "Suggest step uses" asks (47i), or why nobody is. */
   usesAsk?: { model: string } | { unavailable: string };
+  /**
+   * 51f: "Add grams" — the gram bank's entries, and who the model step
+   * asks (or why nobody can be).
+   */
+  grams?: {
+    entries: GramsBankEntry[];
+    model?: string;
+    unavailable?: string;
+  };
 }) {
   /* 46f: the Steps section's model action, bound to this recipe. */
   const modelChoices = useMemo<ModelChoices>(
@@ -192,6 +213,21 @@ export default function EditRecipeForm({
       result: (job) => choicesResultAction(job),
     }),
     [slug, choicesModel, choicesUnavailable],
+  );
+  /* 51f: "Add grams", bound to this recipe. */
+  const gramsSurface = useMemo<GramsSurface | undefined>(
+    () =>
+      grams
+        ? {
+            entries: grams.entries,
+            ...(grams.model ? { model: grams.model } : {}),
+            ...(grams.unavailable ? { unavailable: grams.unavailable } : {}),
+            ask: (lines) => gramsStartAction(slug, lines),
+            result: (job) => gramsResultAction(job),
+            saveToBank: (input) => saveGramsToBankAction(input),
+          }
+        : undefined,
+    [grams, slug],
   );
   const { date } = recipe;
   const initialState = { message: "", errors: {} } as RecipeFormState;
@@ -525,47 +561,53 @@ export default function EditRecipeForm({
         }
       />
       <ModelChoicesProvider value={modelChoices}>
-        <RecipeFormShell
-          key={failed ? failed.message : (fill?.key ?? undoKey)}
-          action={dispatch}
-          recipe={effectiveRecipe}
-          slug={effectiveSlug}
-          tagPicker={tagPicker}
-          className="flex w-full flex-col gap-7"
-        >
-          <ValuesProbe readRef={readForm} />
-          <UpdateRecipeFields
-            recipe={effectiveRecipe}
-            slug={effectiveSlug}
-            state={withSlugConflict(shown)}
-            defaultImage={defaultImage}
-            fill={fill?.marks}
-            pictures={fill?.pictures}
-          />
-          {/* Last: on a phone its save bar ends the form, sticky above the tab bar. */}
-          <RecipeFormRail
-            mode="edit"
-            eyebrow="Editing"
-            picture={
-              fill?.pictures
-                ? "new"
-                : fill?.recipe.imageImportUrl &&
-                    fill.marks.filled.includes("image")
-                  ? "page"
-                  : defaultImage
-                    ? "saved"
-                    : "none"
-            }
-            errors={withSlugConflict(shown).errors}
-            saveLabel="Save"
-            cancelHref={`/recipe/${slug}`}
-            message={shown.message || undefined}
-            overwrite={shown.slugConflict ? overwriteDispatch : undefined}
-            baseline={baseline}
-            fill={fill?.marks}
-            extraChanges={fill?.extraChanges}
-          />
-        </RecipeFormShell>
+        <GramsProvider value={gramsSurface}>
+          {/* 51f review finding 2: the gram marks outlive the shell's
+              remounts (a fill, Edit with AI, an Undo of either). */}
+          <GramMarksProvider>
+            <RecipeFormShell
+              key={failed ? failed.message : (fill?.key ?? undoKey)}
+              action={dispatch}
+              recipe={effectiveRecipe}
+              slug={effectiveSlug}
+              tagPicker={tagPicker}
+              className="flex w-full flex-col gap-7"
+            >
+              <ValuesProbe readRef={readForm} />
+              <UpdateRecipeFields
+                recipe={effectiveRecipe}
+                slug={effectiveSlug}
+                state={withSlugConflict(shown)}
+                defaultImage={defaultImage}
+                fill={fill?.marks}
+                pictures={fill?.pictures}
+              />
+              {/* Last: on a phone its save bar ends the form, sticky above the tab bar. */}
+              <RecipeFormRail
+                mode="edit"
+                eyebrow="Editing"
+                picture={
+                  fill?.pictures
+                    ? "new"
+                    : fill?.recipe.imageImportUrl &&
+                        fill.marks.filled.includes("image")
+                      ? "page"
+                      : defaultImage
+                        ? "saved"
+                        : "none"
+                }
+                errors={withSlugConflict(shown).errors}
+                saveLabel="Save"
+                cancelHref={`/recipe/${slug}`}
+                message={shown.message || undefined}
+                overwrite={shown.slugConflict ? overwriteDispatch : undefined}
+                baseline={baseline}
+                fill={fill?.marks}
+                extraChanges={fill?.extraChanges}
+              />
+            </RecipeFormShell>
+          </GramMarksProvider>
+        </GramsProvider>
       </ModelChoicesProvider>
     </RecipeFormFrame>
   );

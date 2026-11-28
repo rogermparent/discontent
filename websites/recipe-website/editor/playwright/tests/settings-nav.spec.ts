@@ -8,6 +8,7 @@ const AREAS = [
   "Appearance",
   "Navigation",
   "Pages",
+  "Conversions",
   "Sync & upkeep",
   "Jobs",
   "Export",

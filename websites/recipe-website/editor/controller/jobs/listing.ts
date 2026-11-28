@@ -38,6 +38,8 @@ export const JOB_KIND_NAMES = [
   "fill",
   /* 46f: the model looks for alternatives in a recipe's steps (the edit page). */
   "choices",
+  /* 51f: grams for a recipe's lines asked of a model, one line at a time. */
+  "grams",
   /* 47i: "Edit with AI" on the edit page (a request, or step uses). */
   "edit",
   /* 49b: the shopping list's merges asked of a model (a note, or look for more). */

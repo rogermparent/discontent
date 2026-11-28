@@ -30,6 +30,7 @@ import { cn } from "@discontent/component-library/lib/utils";
 import { useRecipeForm, type RecipeFormValues } from "./formContext";
 import { useDrinkShown } from "./drinkShown";
 import { editedSections, fillSections, type FillMarks } from "./fillMarks";
+import { useSaveHolds } from "./saveHold";
 import {
   recipeSections,
   changeText,
@@ -374,6 +375,9 @@ export function RecipeFormRail(props: RecipeFormRailProps) {
   } = props;
   const slot = useContext(RailSlot);
   const wide = useWideRail();
+  /* 51f: marked grams nobody has kept or undone hold Save. */
+  const holds = useSaveHolds();
+  const held = holds.length > 0;
   const form = useRecipeForm();
   const defaults = form.options.defaultValues!;
   const loaded = baseline ?? defaults;
@@ -451,12 +455,21 @@ export function RecipeFormRail(props: RecipeFormRailProps) {
       ) : null}
     </div>
   );
+  const holdLine = held ? (
+    <p
+      className="border-l-2 border-warning pl-2 text-sm"
+      data-testid="recipe-form-held"
+    >
+      {holds[0]}
+    </p>
+  ) : null;
   const overwriteButton = overwrite ? (
     <Button
       type="submit"
       form="recipe-form"
       variant="destructive"
       formAction={overwrite}
+      disabled={held}
     >
       Overwrite
     </Button>
@@ -578,9 +591,14 @@ export function RecipeFormRail(props: RecipeFormRailProps) {
           data-mode={mode}
         >
           {notice}
+          {holdLine}
           {messageLine}
           {changeLine}
-          <SubmitButton form="recipe-form" className="w-full" disabled={busy}>
+          <SubmitButton
+            form="recipe-form"
+            className="w-full"
+            disabled={busy || held}
+          >
             {saveLabel}
           </SubmitButton>
           {overwriteButton}
@@ -599,6 +617,7 @@ export function RecipeFormRail(props: RecipeFormRailProps) {
           data-testid="recipe-form-savebar"
         >
           {notice}
+          {holdLine}
           {messageLine}
           <div className="flex items-center gap-2">
             <div className="min-w-0 flex-1">{changeLine}</div>
@@ -606,7 +625,7 @@ export function RecipeFormRail(props: RecipeFormRailProps) {
             <SubmitButton
               form="recipe-form"
               className="h-11 px-6"
-              disabled={busy}
+              disabled={busy || held}
             >
               {saveLabel}
             </SubmitButton>

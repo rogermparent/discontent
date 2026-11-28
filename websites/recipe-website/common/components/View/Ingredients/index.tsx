@@ -22,17 +22,21 @@ import { INGREDIENTS_ID } from "../JumpLinks";
 import { cn } from "@discontent/component-library/lib/utils";
 import { hasChoices, optionOfLine } from "../../../util/alternatives";
 import { choiceSetId, offPath, useChoices } from "../Choices";
+import { GramsEstimate, ShowGramsToggle } from "../Grams";
 
 export function IngredientItem({
   ingredient,
   type,
   shown = true,
   option,
+  line,
 }: Ingredient & {
   /** On the reader's path (45e): false for an option not chosen. */
   shown?: boolean;
   /** The option a heading starts, and its set's picker anchor (45e). */
   option?: { label: string; href: string };
+  /** 51f: its place in the list, for "Show grams"' estimate. */
+  line?: number;
 }) {
   // If the ingredient is a heading, render it as such
   if (type === "heading") {
@@ -69,6 +73,7 @@ export function IngredientItem({
       <label className="my-2 flex flex-row flex-nowrap items-center gap-2 print:h-auto">
         <Checkbox className="m-2 shrink-0" />
         <IngredientLineText ingredient={ingredient} />
+        {line !== undefined ? <GramsEstimate line={line} /> : null}
       </label>
     </li>
   );
@@ -212,8 +217,10 @@ export function Ingredients({
               Reset
             </Button>
           </div>
-          <div className="mt-2">
+          <div className="mt-2 flex flex-row flex-wrap items-center gap-2">
             <MultiplierInput />
+            {/* 51f: the bank's grams, at view time. */}
+            <ShowGramsToggle />
           </div>
         </div>
         <ul
@@ -228,6 +235,7 @@ export function Ingredients({
               type={type}
               shown={shownLines?.[i] !== false}
               option={type === "heading" ? optionAt(i) : undefined}
+              line={i}
             />
           ))}
         </ul>

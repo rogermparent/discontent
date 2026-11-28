@@ -132,6 +132,11 @@ import {
   ValidationError,
 } from "./errors";
 import { readInventory } from "./inventory";
+import { readGramsBank } from "./conversions";
+import {
+  gramsPerCupTable,
+  gramsTableOf,
+} from "recipe-website-common/util/gramsBank";
 import {
   ShoppingAddSchema,
   ShoppingClearSchema,
@@ -782,13 +787,16 @@ export async function readShoppingView(
     list,
   }: { store?: string; asWritten?: boolean; list?: string } = {},
 ): Promise<ShoppingViewResult> {
-  const [shopping, inventory] = await Promise.all([
+  const [shopping, inventory, bank] = await Promise.all([
     readShopping(onList(ctx, list)),
     readInventory(ctx),
+    readGramsBank(ctx),
   ]);
   const { items, settings, layers, rules } = shopping;
   const merges = asWritten ? [] : shopping.merges;
   const compose = asWritten ? undefined : { layers, rules };
+  /* 51f: the totals' densities are the gram bank's. */
+  const grams = gramsPerCupTable(gramsTableOf(bank));
   let view: ShoppingView;
   if (store !== undefined) {
     if (!settings.stores.some((known) => known.id === store)) {
@@ -804,6 +812,7 @@ export async function readShoppingView(
         DEFAULT_STAPLES,
         merges,
         compose,
+        grams,
       ),
       store,
     );
@@ -815,13 +824,14 @@ export async function readShoppingView(
       DEFAULT_STAPLES,
       merges,
       compose,
+      grams,
     );
   }
   return {
     ...shopping,
     view,
     text: formatShoppingText(view),
-    proposals: findShoppingProposals(items, settings, shopping.merges),
+    proposals: findShoppingProposals(items, settings, shopping.merges, grams),
     ...(asWritten ? { asWritten: true } : {}),
   };
 }

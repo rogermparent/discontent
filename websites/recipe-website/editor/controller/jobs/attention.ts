@@ -53,6 +53,7 @@ const KIND_WORDS: Record<string, [string, string]> = {
   agent: ["curator run", "curator runs"],
   fill: ["fill from the source", "fills from the source"],
   choices: ["look for alternatives", "looks for alternatives"],
+  grams: ["weigh in grams", "weighs in grams"],
   edit: ["edit with AI", "edits with AI"],
   "shopping-merge": ["shopping list ask", "shopping list asks"],
   "shopping-tidy": ["shopping list tidy", "shopping list tidies"],
@@ -82,6 +83,7 @@ export function kindGroup(kind: string): Exclude<KindFilter, "all"> {
     kind === "agent" ||
     kind === "fill" ||
     kind === "choices" ||
+    kind === "grams" ||
     kind === "edit" ||
     kind === "shopping-merge" ||
     kind === "shopping-tidy"

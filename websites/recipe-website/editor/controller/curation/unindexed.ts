@@ -22,8 +22,16 @@ import {
 } from "@discontent/cms/git/indexStamp";
 import { withWriteLock } from "@discontent/cms/git/writeLock";
 
-/** Top-level directories whose files no index reads. */
-export const UNINDEXED_DIRECTORIES = ["shopping", "inventory"] as const;
+/**
+ * Top-level directories whose files no index reads. 51f: `conversions`,
+ * the gram bank — the recipe pages read it per request (the editor) or at
+ * build time (the export), never through an index.
+ */
+export const UNINDEXED_DIRECTORIES = [
+  "shopping",
+  "inventory",
+  "conversions",
+] as const;
 
 function isUnindexed(path: string): boolean {
   return UNINDEXED_DIRECTORIES.some((directory) =>

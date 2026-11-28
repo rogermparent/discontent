@@ -13,6 +13,7 @@ import {
   Wrench,
   ListChecks,
   UserRound,
+  Weight,
 } from "lucide-react";
 import { cn } from "@discontent/component-library/lib/utils";
 import type { EditorRole } from "recipe-website-common/config/role";
@@ -49,6 +50,8 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { name: "Appearance", href: "/settings/theme", icon: Palette },
       { name: "Navigation", href: "/menus", icon: ListTree },
       { name: "Pages", href: "/pages", icon: FileText },
+      /* 51f: the gram bank. */
+      { name: "Conversions", href: "/settings/conversions", icon: Weight },
     ],
   },
   {

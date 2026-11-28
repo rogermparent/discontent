@@ -35,14 +35,24 @@ import { drinkYieldBase, isDrinkRecipe } from "../../util/drinkCount";
 import { cleanNotes } from "../../util/recipeNotes";
 import { TimersProvider, TimerTray } from "./Timers";
 import { RecipeNotes } from "./Notes";
+import { ViewGramsProvider } from "./Grams";
+import { gramsTableOf, type GramsBankEntry } from "../../util/gramsBank";
+import { viewGrams } from "../../util/suggestGrams";
 
 export async function RecipeView({
   recipe,
   slug,
   ingredientActions,
+  gramsBank,
 }: {
   recipe?: Recipe;
   slug: string;
+  /**
+   * 51f: the gram bank's entries (`readGramsBankEntries`), for "Show grams"
+   * — the estimates are worked out here, on the server. Without it, the
+   * built-in seed alone.
+   */
+  gramsBank?: readonly GramsBankEntry[];
   /**
    * Controls for the Ingredients header (35d: the editor's "Add to list"),
    * rendered inside `MultiplierProvider`. Only the editor passes them.
@@ -108,6 +118,11 @@ export async function RecipeView({
           },
         ]
       : [];
+  /* 51f: "Show grams" — each measured line's bank grams, or null. */
+  const gramsShown = viewGrams(
+    ingredients ?? [],
+    gramsTableOf(gramsBank ?? []),
+  ).map((grams) => grams ?? null);
   /* 42c2: a drink's scaler counts drinks, from its yield's count. */
   const isDrink = isDrinkRecipe(recipe);
   const drinkBase = isDrink ? drinkYieldBase(recipe.recipeYield) : undefined;
@@ -132,192 +147,198 @@ export async function RecipeView({
       <UnitProvider
         lines={(ingredients ?? []).map(({ ingredient }) => ingredient)}
       >
-        <VideoPlayerProvider>
-          {/* 42c2: timers in step text, shared by the page and the cook
+        <ViewGramsProvider grams={gramsShown}>
+          <VideoPlayerProvider>
+            {/* 42c2: timers in step text, shared by the page and the cook
               view, so a running one survives the view opening and closing. */}
-          <TimersProvider>
-            <ChoicesProvider slug={slug} choices={choices}>
-              <RecipeJsonLD
-                recipe={recipe}
-                image={recipeImageProps?.props.src}
-                video={resolveRecipeVideoSrc(slug, video)}
-              />
-              <div className="w-full h-full p-2 print:p-0 grow flex flex-col flex-nowrap">
-                <div className="container mx-auto lg:flex lg:flex-row justify-center print:w-full print:max-w-full">
-                  {/* 42c1: no frame at all for a recipe with neither a photo nor
+            <TimersProvider>
+              <ChoicesProvider slug={slug} choices={choices}>
+                <RecipeJsonLD
+                  recipe={recipe}
+                  image={recipeImageProps?.props.src}
+                  video={resolveRecipeVideoSrc(slug, video)}
+                />
+                <div className="w-full h-full p-2 print:p-0 grow flex flex-col flex-nowrap">
+                  <div className="container mx-auto lg:flex lg:flex-row justify-center print:w-full print:max-w-full">
+                    {/* 42c1: no frame at all for a recipe with neither a photo nor
                   a video — it was an empty 16:10 (phone) or 24rem (desktop)
                   block above the recipe. */}
-                  {(image || video) && (
-                    <div className="aspect-[16/10] w-full lg:aspect-auto lg:h-96 lg:max-w-96 lg:mr-4 print:hidden relative">
-                      {recipeImageProps ? (
-                        <img
-                          {...recipeImageProps.props}
-                          alt={`Photo of ${name}`}
-                        />
-                      ) : (
-                        image &&
-                        !video && (
-                          /* Named, but not on this editor (D10): not copied here
+                    {(image || video) && (
+                      <div className="aspect-[16/10] w-full lg:aspect-auto lg:h-96 lg:max-w-96 lg:mr-4 print:hidden relative">
+                        {recipeImageProps ? (
+                          <img
+                            {...recipeImageProps.props}
+                            alt={`Photo of ${name}`}
+                          />
+                        ) : (
+                          image &&
+                          !video && (
+                            /* Named, but not on this editor (D10): not copied here
                        yet, or dropped. A monogram, not an empty frame. */
-                          <div
-                            className="absolute inset-0 overflow-hidden rounded-md"
-                            data-testid="recipe-image-missing"
-                          >
-                            <RecipeCardPlaceholder name={name} />
-                          </div>
-                        )
-                      )}
-                      {video && (
-                        <VideoPlayer
-                          src={resolveRecipeVideoSrc(slug, video)}
-                          title={`Video: ${name}`}
-                          className="object-cover absolute w-full h-full inset-0"
-                          /* A recipe from a several-recipe video starts at its
+                            <div
+                              className="absolute inset-0 overflow-hidden rounded-md"
+                              data-testid="recipe-image-missing"
+                            >
+                              <RecipeCardPlaceholder name={name} />
+                            </div>
+                          )
+                        )}
+                        {video && (
+                          <VideoPlayer
+                            src={resolveRecipeVideoSrc(slug, video)}
+                            title={`Video: ${name}`}
+                            className="object-cover absolute w-full h-full inset-0"
+                            /* A recipe from a several-recipe video starts at its
                        chapter (36e): YouTube's `t=` is not read by the
                        embed, its `start` player parameter is; Vimeo's
                        `#t=` is not read either, so the player seeks
                        there (38c). */
-                          {...(videoStartSeconds(video) === undefined
-                            ? {}
-                            : isYouTubeUrl(video)
-                              ? {
-                                  config: {
-                                    youtube: {
-                                      start: videoStartSeconds(video),
+                            {...(videoStartSeconds(video) === undefined
+                              ? {}
+                              : isYouTubeUrl(video)
+                                ? {
+                                    config: {
+                                      youtube: {
+                                        start: videoStartSeconds(video),
+                                      },
                                     },
-                                  },
-                                }
-                              : { start: videoStartSeconds(video) })}
-                        />
+                                  }
+                                : { start: videoStartSeconds(video) })}
+                          />
+                        )}
+                      </div>
+                    )}
+                    <div className="flex-1 max-w-xl mx-auto lg:mx-0 print:max-w-full">
+                      <div className="flex flex-row items-start justify-between mt-4 mb-6">
+                        <h1 className="text-3xl font-bold mr-4">{name}</h1>
+                        <div className="flex flex-row items-center gap-2 print:hidden">
+                          <FocusViewButton
+                            name={name}
+                            slug={slug}
+                            drink={recipe.drink}
+                            isDrink={isDrink}
+                            ingredients={ingredients}
+                            instructions={instructions}
+                            uses={stepLines}
+                            notes={notes}
+                          />
+                          <BookmarkButton
+                            recipe={{ slug, date, name, image }}
+                          />
+                        </div>
+                      </div>
+                      {tags && tags.length > 0 && (
+                        <div
+                          className="flex flex-row flex-wrap items-center gap-1.5 mb-4 print:hidden"
+                          aria-label="Tags"
+                        >
+                          {tags.map((tag) => (
+                            <Badge key={tag} asChild variant="secondary">
+                              <Link href={tagSearchHref(tag)}>{tag}</Link>
+                            </Badge>
+                          ))}
+                        </div>
                       )}
-                    </div>
-                  )}
-                  <div className="flex-1 max-w-xl mx-auto lg:mx-0 print:max-w-full">
-                    <div className="flex flex-row items-start justify-between mt-4 mb-6">
-                      <h1 className="text-3xl font-bold mr-4">{name}</h1>
-                      <div className="flex flex-row items-center gap-2 print:hidden">
-                        <FocusViewButton
-                          name={name}
-                          slug={slug}
-                          drink={recipe.drink}
-                          isDrink={isDrink}
-                          ingredients={ingredients}
-                          instructions={instructions}
-                          uses={stepLines}
-                          notes={notes}
-                        />
-                        <BookmarkButton recipe={{ slug, date, name, image }} />
-                      </div>
-                    </div>
-                    {tags && tags.length > 0 && (
-                      <div
-                        className="flex flex-row flex-wrap items-center gap-1.5 mb-4 print:hidden"
-                        aria-label="Tags"
-                      >
-                        {tags.map((tag) => (
-                          <Badge key={tag} asChild variant="secondary">
-                            <Link href={tagSearchHref(tag)}>{tag}</Link>
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                    {description && (
-                      <div className="my-2">
-                        <Markdown>{description}</Markdown>
-                      </div>
-                    )}
-                    <SourceLine source={recipe.source} />
-                    {/* Canonical meta strip — Prep · Cook · Total · Yield. Yield scales
+                      {description && (
+                        <div className="my-2">
+                          <Markdown>{description}</Markdown>
+                        </div>
+                      )}
+                      <SourceLine source={recipe.source} />
+                      {/* Canonical meta strip — Prep · Cook · Total · Yield. Yield scales
                   in place with the Ingredients-header scaler (both share the
                   MultiplierProvider). Fills the hero's formerly-dead right half. */}
-                    <MetaBar
-                      items={[
-                        ...timeCell("prepTime", "Prep", prepTime || 0),
-                        ...timeCell("cookTime", "Cook", cookTime || 0),
-                        ...timeCell("totalTime", "Total", totalTime),
-                        ...(recipe.recipeYield || hasOptionYield
-                          ? [
-                              {
-                                label: "Yield",
-                                value: (
-                                  <PathYield recipeYield={recipe.recipeYield} />
-                                ),
-                              },
-                            ]
-                          : []),
-                      ]}
-                    />
-                    <DrinkSpecBar drink={recipe.drink} />
-                    {/* 45e: its count follows the reader's path, as the
+                      <MetaBar
+                        items={[
+                          ...timeCell("prepTime", "Prep", prepTime || 0),
+                          ...timeCell("cookTime", "Cook", cookTime || 0),
+                          ...timeCell("totalTime", "Total", totalTime),
+                          ...(recipe.recipeYield || hasOptionYield
+                            ? [
+                                {
+                                  label: "Yield",
+                                  value: (
+                                    <PathYield
+                                      recipeYield={recipe.recipeYield}
+                                    />
+                                  ),
+                                },
+                              ]
+                            : []),
+                        ]}
+                      />
+                      <DrinkSpecBar drink={recipe.drink} />
+                      {/* 45e: its count follows the reader's path, as the
                         steps do; the server renders the default's. */}
-                    <PathJumpLinks
-                      headings={(ingredients ?? []).map(
-                        ({ type }) => type === "heading",
-                      )}
-                      entrySteps={choices.entrySteps}
-                    />
-                  </div>
-                </div>
-                {/*
-                 * The recipe in cooking order (42c1, canvas B): the ingredients a
-                 * sticky rail beside the steps from `lg`, each step with what it
-                 * uses, and the heads-up above them. At 1600px and wider (unless
-                 * the reader turned it off) a third column takes the heads-up,
-                 * the cook schedule and "Appears in" (canvas C). One DOM for
-                 * every layout; the grid areas in `recipe.css` place it.
-                 */}
-                <div className="recipe-body w-full p-2 print:block print:w-full print:max-w-full">
-                  {timelines && timelines.length > 0 && (
-                    <div className="recipe-area-schedule min-w-0">
-                      <RecipeSchedule timelines={timelines} />
+                      <PathJumpLinks
+                        headings={(ingredients ?? []).map(
+                          ({ type }) => type === "heading",
+                        )}
+                        entrySteps={choices.entrySteps}
+                      />
                     </div>
-                  )}
-                  <PathHeadsUpNotes
-                    candidates={headsUps}
-                    entrySteps={choices.entrySteps}
-                    className="recipe-area-headsup mx-auto mb-3 w-full max-w-xl lg:max-w-none"
-                  />
-                  {/* The scaler used to sit in a full-width sticky bar here; it now
+                  </div>
+                  {/*
+                   * The recipe in cooking order (42c1, canvas B): the ingredients a
+                   * sticky rail beside the steps from `lg`, each step with what it
+                   * uses, and the heads-up above them. At 1600px and wider (unless
+                   * the reader turned it off) a third column takes the heads-up,
+                   * the cook schedule and "Appears in" (canvas C). One DOM for
+                   * every layout; the grid areas in `recipe.css` place it.
+                   */}
+                  <div className="recipe-body w-full p-2 print:block print:w-full print:max-w-full">
+                    {timelines && timelines.length > 0 && (
+                      <div className="recipe-area-schedule min-w-0">
+                        <RecipeSchedule timelines={timelines} />
+                      </div>
+                    )}
+                    <PathHeadsUpNotes
+                      candidates={headsUps}
+                      entrySteps={choices.entrySteps}
+                      className="recipe-area-headsup mx-auto mb-3 w-full max-w-xl lg:max-w-none"
+                    />
+                    {/* The scaler used to sit in a full-width sticky bar here; it now
                 lives in the Ingredients header (PR 11), where recipe sites put
                 it. */}
-                  <Ingredients
-                    ingredients={ingredients}
-                    drink={recipe.drink}
-                    actions={ingredientActions}
-                    className="recipe-area-ingredients"
-                  />
-                  {/* 47j: the notes follow the steps in their column; a
+                    <Ingredients
+                      ingredients={ingredients}
+                      drink={recipe.drink}
+                      actions={ingredientActions}
+                      className="recipe-area-ingredients"
+                    />
+                    {/* 47j: the notes follow the steps in their column; a
                       recipe without them renders exactly as before. */}
-                  {notes.length > 0 ? (
-                    <div className="recipe-area-steps min-w-0">
+                    {notes.length > 0 ? (
+                      <div className="recipe-area-steps min-w-0">
+                        <Instructions
+                          instructions={instructions}
+                          ingredients={ingredients}
+                          uses={stepLines}
+                          noteCount={notes.length}
+                        />
+                        <RecipeNotes notes={notes} />
+                      </div>
+                    ) : (
                       <Instructions
                         instructions={instructions}
                         ingredients={ingredients}
                         uses={stepLines}
-                        noteCount={notes.length}
+                        className="recipe-area-steps"
                       />
-                      <RecipeNotes notes={notes} />
-                    </div>
-                  ) : (
-                    <Instructions
-                      instructions={instructions}
-                      ingredients={ingredients}
-                      uses={stepLines}
-                      className="recipe-area-steps"
-                    />
-                  )}
-                  {/* After the recipe itself, because it is about the recipe rather
+                    )}
+                    {/* After the recipe itself, because it is about the recipe rather
                 than part of it, and because it is the one block here that
                 reads a *different* content type's derived state (22b/D4). */}
-                  <div className="recipe-area-appears min-w-0">
-                    <AppearsIn slug={slug} />
+                    <div className="recipe-area-appears min-w-0">
+                      <AppearsIn slug={slug} />
+                    </div>
                   </div>
                 </div>
-              </div>
-              <TimerTray variant="floating" />
-            </ChoicesProvider>
-          </TimersProvider>
-        </VideoPlayerProvider>
+                <TimerTray variant="floating" />
+              </ChoicesProvider>
+            </TimersProvider>
+          </VideoPlayerProvider>
+        </ViewGramsProvider>
       </UnitProvider>
     </MultiplierProvider>
   );

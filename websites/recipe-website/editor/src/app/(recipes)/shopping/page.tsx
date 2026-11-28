@@ -23,6 +23,8 @@ import {
   updateShoppingListSettings,
 } from "recipe-editor/controller/actions/shopping";
 import { readInventory } from "recipe-editor/controller/curation/inventory";
+import { readGramsBank } from "recipe-editor/controller/curation/conversions";
+import { gramsBankOrSeed } from "recipe-website-common/controller/data/readGramsBank";
 import {
   readShopping,
   readShoppingLists,
@@ -80,8 +82,13 @@ export default async function ShoppingListPage({
   }
   const listId = scope.id;
   const ctx = { ...base, shoppingList: listId };
-  const [{ items, settings, merges, layers, rules, list }, inventory] =
-    await Promise.all([readShopping(ctx), readInventory(ctx)]);
+  const [{ items, settings, merges, layers, rules, list }, inventory, grams] =
+    await Promise.all([
+      readShopping(ctx),
+      readInventory(ctx),
+      /* 51f: the totals' densities; a failed read is the built-in seed, logged. */
+      readGramsBank(ctx).catch(gramsBankOrSeed),
+    ]);
   const [plans, tidyModels, tidyRuns, lists, groups] = await Promise.all([
     readShoppingPlanNames(ctx, items),
     readTidyModels(),
@@ -115,6 +122,7 @@ export default async function ShoppingListPage({
             layers,
             rules,
             list,
+            ...(grams.length ? { grams } : {}),
           }}
           actions={{
             load: loadShoppingList.bind(null, listId),

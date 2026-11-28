@@ -2,6 +2,21 @@
 
 import type { LinkedLineMark } from "../../../util/linkedLines";
 import {
+  SAVE_TO_BANK_MIN_CUPS,
+  holdsSave,
+  linkLineMarks,
+  placeGramMarks,
+  type LineMark,
+  type PlacedGramMark,
+} from "../../../util/lineMarks";
+import { gramsTableOf } from "../../../util/gramsBank";
+import type { GramsSuggestion } from "../../../util/suggestGrams";
+import { useHoldSave } from "../saveHold";
+import { useGramsSurface } from "./gramsContext";
+import { GramsPanel } from "./GramsPanel";
+import { nextGramMarkId, useGramMarks } from "./gramMarks";
+import { LineMarkNote } from "./LineMarkNote";
+import {
   Fragment,
   useId,
   useMemo,
@@ -243,18 +258,24 @@ function IngredientRow({
   tieChoices = [],
   renamed,
   onTie,
-  linkMark,
-  onKeepLink,
-  onUndoLink,
+  mark,
+  onKeepMark,
+  onUndoMark,
+  onSaveToBank,
 }: {
   index: number;
   count: number;
   line: Ingredient;
   sourceUrl?: string;
-  /** 50e: the import linked this line to a recipe its page links. */
-  linkMark?: LinkedLineMark;
-  onKeepLink?: (mark: LinkedLineMark) => void;
-  onUndoLink?: (mark: LinkedLineMark) => void;
+  /**
+   * The form changed this line for a look (51f's `LineMark`): 50e's link
+   * to a recipe the import's page links, or a gram from "Add grams".
+   */
+  mark?: LineMark;
+  onKeepMark?: () => void;
+  onUndoMark?: () => void;
+  /** 51f: "Save to the bank", for a pasted or model gram on a measured line. */
+  onSaveToBank?: () => Promise<string>;
   /** A heading's tie to an option of a set (45e2), when the recipe has sets. */
   tie?: HeadingTie;
   tieChoices?: TieOption[];
@@ -374,7 +395,7 @@ function IngredientRow({
       className={cn(
         "border-b border-border",
         heading ? "pt-3 pb-1.5" : "",
-        flags.length || linkMark ? "pb-2.5" : "",
+        flags.length || mark ? "pb-2.5" : "",
       )}
       data-testid="ingredient-row"
       data-heading={heading ? "true" : undefined}
@@ -458,48 +479,14 @@ function IngredientRow({
           onTie={onTie}
         />
       ) : null}
-      {linkMark ? (
-        <div
-          className="mt-1 flex flex-col gap-1.5 border-l-2 border-warning pl-2 text-sm sm:ml-[1.875rem]"
-          data-testid="linked-line-mark"
-        >
-          <p>
-            The import linked this line to{" "}
-            <a
-              href={`/recipe/${encodeURIComponent(linkMark.slug)}`}
-              target="_blank"
-              rel="noreferrer"
-              className="underline underline-offset-2"
-            >
-              {linkMark.name}
-            </a>{" "}
-            —{" "}
-            {linkMark.how === "link"
-              ? "the page links it here"
-              : "the line names what it makes"}
-            . It read “{plainLine(linkMark.before)}”.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="max-sm:h-11"
-              aria-label={`Keep the link on ingredient ${number}`}
-              onClick={() => onKeepLink?.(linkMark)}
-            >
-              Keep the link
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="max-sm:h-11"
-              aria-label={`Undo the link on ingredient ${number}`}
-              onClick={() => onUndoLink?.(linkMark)}
-            >
-              Undo
-            </Button>
-          </div>
-        </div>
+      {mark ? (
+        <LineMarkNote
+          number={number}
+          mark={mark}
+          onKeep={() => onKeepMark?.()}
+          onUndo={() => onUndoMark?.()}
+          onSaveToBank={onSaveToBank}
+        />
       ) : null}
       {flags.includes("note-mark") ? (
         <p
@@ -749,11 +736,117 @@ export function IngredientsSection({
   /* 50e: a linked line stays marked while it holds what the import wrote
    * and nobody kept it; an edit, Keep or Undo takes the mark away. */
   const [keptLinks, setKeptLinks] = useState<readonly string[]>([]);
-  const linkMarkOf = (index: number): LinkedLineMark | undefined => {
+  const linkMarks = useMemo(() => linkLineMarks(linked), [linked]);
+  const linkMarkOf = (index: number): LineMark | undefined => {
     const stored = lines[index]?.ingredient;
-    return linked.find(
+    return linkMarks.find(
       (mark) => mark.after === stored && !keptLinks.includes(mark.after),
     );
+  };
+
+  /* 51f: "Add grams" (the edit page's surface) and the lines it marked. A
+   * gram mark shows while its row holds what it wrote; Keep quiets it, Undo
+   * puts the line back (and that step won't propose it again). The marks
+   * are the page's, above the form's keyed shell (`GramMarksProvider`), so
+   * a remount keeps them and Save's hold (review finding 2); each has its
+   * own id, so identical lines keep their own (finding 3). */
+  const gramsSurface = useGramsSurface();
+  const {
+    marks: gramMarks,
+    setMarks: setGramMarks,
+    undone: undoneGrams,
+    setUndone: setUndoneGrams,
+    saved: savedEntries,
+    setSaved: setSavedEntries,
+    open: gramsOpen,
+    setOpen: setGramsOpen,
+  } = useGramMarks();
+  const bankEntries = gramsSurface?.entries;
+  const gramsTable = useMemo(
+    () => gramsTableOf([...(bankEntries ?? []), ...savedEntries]),
+    [bankEntries, savedEntries],
+  );
+  const placedGrams = useMemo(
+    () => placeGramMarks(gramMarks, lines),
+    [gramMarks, lines],
+  );
+  const gramMarkOf = (index: number): PlacedGramMark | undefined =>
+    placedGrams[index];
+  const liveGramMarks = placedGrams.filter(
+    (mark): mark is PlacedGramMark => mark !== undefined,
+  );
+  const pendingGrams = liveGramMarks.filter(holdsSave).length;
+  useHoldSave(
+    "grams",
+    pendingGrams
+      ? `Keep or undo the ${pendingGrams} marked gram line${pendingGrams === 1 ? "" : "s"} before saving.`
+      : undefined,
+  );
+  const applyGrams = (suggestions: GramsSuggestion[]): number => {
+    const next = [...form.state.values.ingredients];
+    const marks: PlacedGramMark[] = [];
+    for (const suggestion of suggestions) {
+      if (next[suggestion.line]?.ingredient !== suggestion.before) continue;
+      if (undoneGrams.has(`${suggestion.source}|${suggestion.before}`)) {
+        continue;
+      }
+      next[suggestion.line] = {
+        ...next[suggestion.line],
+        ingredient: suggestion.after,
+      };
+      marks.push({
+        id: nextGramMarkId(),
+        at: suggestion.line,
+        source: suggestion.source,
+        before: suggestion.before,
+        after: suggestion.after,
+        grams: suggestion.grams,
+        why: suggestion.why,
+        ...(suggestion.gramsPerCup !== undefined
+          ? { gramsPerCup: suggestion.gramsPerCup }
+          : {}),
+        ...(suggestion.key ? { key: suggestion.key } : {}),
+      });
+    }
+    if (marks.length > 0) {
+      setLines(next);
+      /* The marks still on a row stay; one whose row has gone goes. */
+      setGramMarks((old) => {
+        const still = new Set(
+          placeGramMarks(old, next).flatMap((mark) => (mark ? [mark.id] : [])),
+        );
+        return [...old.filter((mark) => still.has(mark.id)), ...marks];
+      });
+    }
+    return marks.length;
+  };
+  const markOf = (index: number): LineMark | undefined =>
+    gramMarkOf(index) ?? linkMarkOf(index);
+  const saveToBankOf = (mark: LineMark | undefined) => {
+    const save = gramsSurface?.saveToBank;
+    if (
+      !save ||
+      !mark ||
+      mark.source === "link" ||
+      mark.source === "bank" ||
+      !mark.key ||
+      !mark.gramsPerCup ||
+      /* A teaspoon's rounding, times 48, is no cup's weight (finding 7). */
+      mark.grams / mark.gramsPerCup < SAVE_TO_BANK_MIN_CUPS
+    ) {
+      return undefined;
+    }
+    const { key, gramsPerCup } = mark;
+    return async () => {
+      const saved = await save({ name: key, gramsPerCup });
+      if (!saved.entry) return saved.message ?? "Not saved.";
+      const entry = saved.entry;
+      setSavedEntries((old) => [
+        ...old.filter((each) => each.key !== entry.key),
+        entry,
+      ]);
+      return `Saved: ${entry.key}, ${Math.round(entry.gramsPerCup * 10) / 10} g a cup.`;
+    };
   };
 
   const aside: ReactNode = (
@@ -845,16 +938,41 @@ export function IngredientsSection({
                     setLines(next);
                   }}
                   onRemove={() => setLines(lines.filter((_, i) => i !== index))}
-                  linkMark={linkMarkOf(index)}
-                  onKeepLink={(mark) =>
-                    setKeptLinks((old) => [...old, mark.after])
-                  }
-                  onUndoLink={(mark) =>
+                  mark={markOf(index)}
+                  onKeepMark={() => {
+                    const gram = gramMarkOf(index);
+                    if (gram) {
+                      setGramMarks((old) =>
+                        old.map((each) =>
+                          each.id === gram.id
+                            ? { ...each, kept: true, at: index }
+                            : each,
+                        ),
+                      );
+                      return;
+                    }
+                    const mark = linkMarkOf(index);
+                    if (mark) setKeptLinks((old) => [...old, mark.after]);
+                  }}
+                  onUndoMark={() => {
+                    const mark = markOf(index);
+                    if (!mark) return;
                     setLine(index, (old) => ({
                       ...old,
                       ingredient: mark.before,
-                    }))
-                  }
+                    }));
+                    const gram = gramMarkOf(index);
+                    if (gram) {
+                      setGramMarks((old) =>
+                        old.filter((each) => each.id !== gram.id),
+                      );
+                      setUndoneGrams(
+                        (old) =>
+                          new Set([...old, `${mark.source}|${mark.before}`]),
+                      );
+                    }
+                  }}
+                  onSaveToBank={saveToBankOf(markOf(index))}
                   tie={ties.get(index)}
                   tieChoices={tieChoices}
                   renamed={renamedNote(index)}
@@ -894,6 +1012,24 @@ export function IngredientsSection({
             Amounts are read from the line as you type: “3/4 cup (170g) butter”
             scales without any markup. Click a row to edit it.
           </p>
+          {gramsSurface && gramsOpen ? (
+            <div id="recipe-form-grams">
+              <GramsPanel
+                surface={gramsSurface}
+                table={gramsTable}
+                lines={lines}
+                currentLines={() => form.state.values.ingredients}
+                apply={applyGrams}
+                marked={pendingGrams}
+                kept={liveGramMarks.length - pendingGrams}
+                onKeepAll={() =>
+                  setGramMarks((old) =>
+                    old.map((mark) => ({ ...mark, kept: true })),
+                  )
+                }
+              />
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
@@ -915,6 +1051,17 @@ export function IngredientsSection({
             >
               Add a heading
             </Button>
+            {gramsSurface ? (
+              <Button
+                variant="ghost"
+                className="max-sm:h-11"
+                aria-expanded={gramsOpen}
+                aria-controls={gramsOpen ? "recipe-form-grams" : undefined}
+                onClick={() => setGramsOpen((open) => !open)}
+              >
+                {gramsOpen ? "Hide Add grams" : "Add grams"}
+              </Button>
+            ) : null}
           </div>
         </>
       )}

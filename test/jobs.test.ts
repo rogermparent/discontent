@@ -555,6 +555,8 @@ describe("the registry", () => {
         "fill",
         /* 46f: the model looks for alternatives in a recipe's steps. */
         "choices",
+        /* 51f: a recipe's lines weighed in grams by a model. */
+        "grams",
         /* 47i: "Edit with AI" — a request, or step uses. */
         "edit",
         /* 49b: the shopping list's merges asked of a model. */

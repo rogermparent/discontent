@@ -2711,6 +2711,10 @@ const ALLOWED: RegExp[] = [
    * recipe's steps in the order every reader does (`flatSteps`): pure
    * functions over `util/*` and type imports, no React, no Next API. */
   /^recipe-website-common\/components\/Form\/Instructions\/stepChecks$/,
+  /* The ingredient rows' plain reading joined at 51f, so `recipes grams`
+   * says a line as a person reads it (`plainLine`): pure functions over
+   * `util/*` and the form's types, no React, no Next API. */
+  /^recipe-website-common\/components\/Form\/Ingredients\/ingredientRows$/,
   /* The settings store joined at 41i: the editor's saved staples
    * (`settings.makeStaples`), read with `fs-extra` — no Next API. */
   /^@discontent\/cms\/settings$/,

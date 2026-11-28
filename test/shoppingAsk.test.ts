@@ -309,8 +309,11 @@ describe("the revise check (Db1)", () => {
         "the list can't give garlic in grams: 5 cloves is a count, not a weight or a volume",
     });
     /* Cups of a name with no density on file: no grams either. */
-    const nuts = [item("1 cup walnuts"), item("1/2 cup walnut halves")];
-    const walnut = ["walnut", "walnut half"];
+    const nuts = [
+      item("1 cup hickory nuts"),
+      item("1/2 cup hickory nut halves"),
+    ];
+    const walnut = ["hickory nut", "hickory nut half"];
     expect(
       checkReviseAnswer(
         merge({ unit: "g", name: "" }),
@@ -319,7 +322,7 @@ describe("the revise check (Db1)", () => {
           keys: walnut,
           merged: false,
           rows: proposalRowsFor(nuts, SETTINGS, walnut),
-          line: "1½ cups walnuts",
+          line: "1½ cups hickory nuts",
         },
         { items: nuts, settings: SETTINGS, merges: [] },
         "use grams",
@@ -328,7 +331,7 @@ describe("the revise check (Db1)", () => {
       status: "refused",
       cannotConvert: true,
       problem:
-        "the list can't give walnut in grams: it has no weight for a cup of walnut on file, so 1½ cups can't be converted",
+        "the list can't give hickory nut in grams: it has no weight for a cup of hickory nut on file, so 1½ cups can't be converted",
     });
     expect(
       checkReviseAnswer(merge({ unit: "pinch" }), target, ask, "x"),
