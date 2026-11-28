@@ -495,8 +495,11 @@ export function CuratorApp({
         </Button>
       </header>
 
+      {/* Its own height, not stretched to the side column's: the recent
+       * runs grow with every run, and the column (and its screenshot)
+       * would grow with them (51d, CI's curator-finished). */}
       <div
-        className="flex min-w-0 flex-col gap-6 [grid-area:main]"
+        className="flex min-w-0 flex-col gap-6 self-start [grid-area:main]"
         data-testid="curator-main"
       >
         {run ? (

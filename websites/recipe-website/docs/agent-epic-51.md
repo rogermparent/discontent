@@ -1213,6 +1213,14 @@ On `73a2aac7` (origin/main `cf4617c9`, 51e's #369, merged in):
 - **`opacity` on a card fails contrast.** Muted text at 12 px is close to
   AA already, and dimming the card takes it under. Mark a state with
   words and a chip, not by fading.
+- **A grid item that spans rows stretches to the tallest track** (#370's
+  CI). `curator-main` spans the head and side rows. Stretched, it took the
+  side column's height, and the recent runs grow with every run: a retry,
+  or an earlier test in the shard, so `curator-finished` came out 1,030,
+  then 1,084, then 1,154 px. It is `self-start` now, its own height
+  (1,011 px), and the baseline moved to match. In Docker, curator.spec ran
+  24/24 in dev mode with `--repeat-each=3`, and both specs ran 14/14 in
+  production.
 - **A taller idle page meets the tab bar.** At phone width, whatever
   straddles the fold under the pinned tab bar is "partially obscured" for
   axe. Release the sticky chrome for the sweep (41f Tf2).
