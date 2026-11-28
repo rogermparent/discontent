@@ -50,6 +50,7 @@ import {
   agentAvailable,
   agentUnavailableMessage,
   checkAgentPrompt,
+  CURATOR_MODEL_IDS,
   curatorModelFor,
   type CuratorModelId,
 } from "./job";
@@ -287,12 +288,12 @@ export async function startAgentRun(
   if (input.hold !== undefined && typeof input.hold !== "boolean") {
     throw new UsageError("hold is true or false.");
   }
+  /* 51d (Dd2): "import" too, as the route's schema takes it. */
   if (
     input.model !== undefined &&
-    input.model !== "local" &&
-    input.model !== "claude"
+    !(CURATOR_MODEL_IDS as readonly unknown[]).includes(input.model)
   ) {
-    throw new UsageError('model is "local" or "claude".');
+    throw new UsageError('model is "local", "import" or "claude".');
   }
   if (input.intent !== undefined && !isAgentIntentChoice(input.intent)) {
     throw new UsageError(

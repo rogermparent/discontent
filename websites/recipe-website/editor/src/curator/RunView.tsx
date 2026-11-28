@@ -648,7 +648,10 @@ export function RunView({
     poll.refresh();
   };
 
-  if (poll.error && records.length === 0) {
+  /* 51d: a run shown from its job's spec alone (a model still deciding
+   * its intent, no transcript record yet) keeps its view on a read error. */
+  const shownAtAll = records.length > 0 || meta !== undefined;
+  if (poll.error && !shownAtAll) {
     return (
       <section aria-labelledby="curator-run-heading">
         <h2
@@ -932,7 +935,7 @@ export function RunView({
             </Link>
           </span>
         </div>
-        {poll.error && records.length > 0 && (
+        {poll.error && shownAtAll && (
           <p
             role="alert"
             data-testid="curator-poll-error"

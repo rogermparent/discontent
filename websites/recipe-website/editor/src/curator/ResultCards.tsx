@@ -318,10 +318,13 @@ function PageLink({ url, name }: { url: string; name: string }) {
       href={url}
       target="_blank"
       rel="noopener noreferrer nofollow"
-      aria-label={`${name} on ${siteOf(url) ?? "its site"} (opens in a new tab)`}
       className="inline-flex min-h-6 items-center gap-1 font-mono text-xs break-all text-muted-foreground underline-offset-2 hover:underline"
     >
+      {/* The name starts with what it shows (axe's label-content-name-mismatch). */}
       {shown}
+      <span className="sr-only">
+        : {name}, on {siteOf(url) ?? "its site"} (opens in a new tab)
+      </span>
       <ExternalLink aria-hidden className="size-3 shrink-0" />
     </a>
   );
