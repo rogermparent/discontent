@@ -181,7 +181,7 @@ export const MISSING_INDEX_WARNING =
  * "none of these are here" unless it is said (epic 34's 34e: a scratch clone
  * without a reindex marked nothing `existing`).
  */
-async function existingBySource(
+export async function existingBySource(
   ctx: CurationContext,
   urls: string[],
 ): Promise<{ found: Map<string, string>; warnings: string[] }> {

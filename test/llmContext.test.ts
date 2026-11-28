@@ -37,6 +37,10 @@ import {
   buildRecipeUserPrompt,
   extractionContext,
 } from "../websites/recipe-website/editor/controller/llm/extractRecipe";
+import {
+  agentNumCtxFor,
+  withAgentModel,
+} from "../websites/recipe-website/editor/controller/llm/agentContext";
 import { applyLlm } from "../websites/recipe-website/editor/controller/llm/importWithLlm";
 import { memoryJobLog } from "../websites/recipe-website/editor/controller/jobs/log";
 import {
@@ -722,5 +726,42 @@ describe("RECIPE_LLM_API=openai against Ollama's /v1 (40a, Da5)", () => {
     expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url))).toEqual([
       "http://127.0.0.1:11434/v1/chat/completions",
     ]);
+  });
+});
+
+describe("an import inside an agent run (51a, Da2)", () => {
+  const config = { ...LOCAL, url: "http://model.test:11434" };
+  const force = {
+    source: { text: TEXT },
+    mapped: undefined,
+    mode: "force" as const,
+    config,
+  };
+
+  it("asks for the run's num_ctx on the agent's own model, so Ollama does not reload it", async () => {
+    const { bodies } = stubOllama();
+    await withAgentModel({ model: "qwen3:8b", numCtx: 12_288 }, () =>
+      applyLlm(force),
+    );
+    expect(bodies[0].options).toEqual({ num_ctx: 12_288, temperature: 0 });
+  });
+
+  it("keeps its own context for another model, an anthropic one, or no run", async () => {
+    const { bodies } = stubOllama();
+    await withAgentModel({ model: "qwen3.5:9b", numCtx: 12_288 }, () =>
+      applyLlm(force),
+    );
+    await applyLlm(force);
+    expect(bodies.map((body) => body.options)).toEqual([
+      { num_ctx: 4_096, temperature: 0 },
+      { num_ctx: 4_096, temperature: 0 },
+    ]);
+    expect(agentNumCtxFor(config)).toBeUndefined();
+    withAgentModel({ model: "qwen3:8b", numCtx: 16_384 }, () => {
+      expect(agentNumCtxFor(config)).toBe(16_384);
+      expect(
+        agentNumCtxFor({ model: "qwen3:8b", api: "anthropic" }),
+      ).toBeUndefined();
+    });
   });
 });

@@ -70,6 +70,7 @@ import {
 } from "./client";
 import type { YtdlpComment, YtdlpMetadata } from "../ytdlp";
 import type { ExtractMeta, LlmExtraction, LlmStats } from "./extractRecipe";
+import { agentNumCtxFor } from "./agentContext";
 import { DEFAULT_LLM_MODE, type LlmMode } from "./mode";
 import { readerLabel, readerNoun } from "./readerLabel";
 import type { ChapterRef } from "./chapterTime";
@@ -494,10 +495,14 @@ export async function applyLlm({
    * the one-dish question, each slice and the single reading — chosen from
    * the whole text, so Ollama loads the model once for it.
    */
-  const numCtx = extractionContext(text, {
-    url: urlInPrompt ? url : undefined,
-    meta: extractMeta,
-  });
+  /* 51a (Da2): inside an agent run on this model, the run's own, so the
+   * model is not reloaded between the agent's turns and the import. */
+  const numCtx =
+    agentNumCtxFor(config) ??
+    extractionContext(text, {
+      url: urlInPrompt ? url : undefined,
+      meta: extractMeta,
+    });
 
   let several: SeveralReading | undefined;
   if (split) {

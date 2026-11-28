@@ -7,7 +7,7 @@
  *
  *   pnpm --filter recipe-editor exec tsx scripts/agent-measure.ts \
  *     --content-dir /scratch/content-clone --model qwen3:8b \
- *     [--think] [--num-ctx 12288|16384] [--asks a,b,c,d] [--repeat N] \
+ *     [--think] [--num-ctx 12288|16384] [--asks a,b,c,d,e,f,g,h] [--cases file.json] [--repeat N] \
  *     [--max-turns N] [--newer-web-tools] [--jobs-dir DIR] [--out runs.jsonl] [--verbose]
  *
  * The asks (`agentMeasure.ts`): (a) gochujang, a read; (b) tahini →
@@ -80,6 +80,8 @@ import { runJob } from "../controller/jobs/run";
 import { llmConfig } from "../controller/llm/client";
 import { setFetchGuardTesting } from "../controller/urlGuard";
 import { tagSlug } from "recipe-website-common/controller/tagSlug";
+import { sourceUrlKey } from "recipe-website-common/util/roundupPage";
+import { existingBySource } from "../controller/curation/importList";
 import {
   ASK_IDS,
   FIXTURE_FILE,
@@ -89,12 +91,17 @@ import {
   TAHINI_TERM,
   askPrompt,
   callRecords,
+  caseFileFaults,
+  checkAnswerSlugs,
   checkGochujang,
+  checkHeldGroup,
   checkImport,
+  checkNewImports,
   askSkipped,
   checkSallysList,
   checkTahini,
   contentDirectoryRefusal,
+  parseCases,
   positiveInt,
   prepareCorpus,
   slugsFromPaths,
@@ -103,6 +110,7 @@ import {
   type AskId,
   type CheckResult,
   type CorpusCounts,
+  type CuratorCase,
   type ImportedRecipe,
 } from "./agentMeasure";
 
@@ -110,6 +118,8 @@ const run = promisify(execFile);
 const EDITOR = path.resolve(__dirname, "..");
 const ROOT = path.resolve(EDITOR, "../../..");
 const FIXTURES = path.join(ROOT, "test/fixtures/agent");
+/** 51a: the case file (`--cases` picks another). */
+const DEFAULT_CASES = path.join(EDITOR, "scripts/curator-cases.json");
 const FIXTURE_IMAGE = path.join(
   EDITOR,
   "playwright/fixtures/images/recipe-6-test-image.png",
@@ -288,6 +298,21 @@ async function countCorpus(
   };
 }
 
+/** Every recipe's slug and name: what "already have" is compared with (51a). */
+async function recipeBank(
+  backend: Backend,
+): Promise<Array<{ slug: string; name: string }>> {
+  const bank: Array<{ slug: string; name: string }> = [];
+  for (let offset = 0; ; offset += 100) {
+    const page = await backend.listRecipes({ limit: 100, offset });
+    bank.push(
+      ...page.recipes.map((row) => ({ slug: row.slug, name: row.name })),
+    );
+    if (page.recipes.length === 0 || bank.length >= page.total) break;
+  }
+  return bank;
+}
+
 async function tagsOf(backend: Backend, slug: string): Promise<string[]> {
   try {
     return (await backend.getRecipe(slug)).recipe.tags ?? [];
@@ -307,6 +332,8 @@ interface Settings {
   origin: string;
   start: string;
   maxTurns?: number;
+  /** 51a: the case file's cases by id; they run with writes held. */
+  cases: ReadonlyMap<string, CuratorCase>;
   /** 46d: Claude's newer web tools for every run (`--newer-web-tools`). */
   newerWebTools: boolean;
   verbose: boolean;
@@ -342,13 +369,16 @@ async function putBack(settings: Settings): Promise<boolean> {
 }
 
 async function measure(
-  ask: AskId,
+  ask: string,
   index: number,
   settings: Settings,
 ): Promise<Record<string, unknown>> {
   const { backend, ctx } = settings;
   const fixtureUrl = `${settings.origin}${FIXTURE_PATH}`;
-  const prompt = askPrompt(ask, fixtureUrl);
+  const curatorCase = settings.cases.get(ask);
+  const prompt = curatorCase?.ask ?? askPrompt(ask as AskId, fixtureUrl);
+  /* 51a: the case's corpus facts, from before the run. */
+  const bank = curatorCase ? await recipeBank(backend) : [];
 
   /* Before: what the corpus says the answer is. */
   const expected =
@@ -372,6 +402,7 @@ async function measure(
     kind: "agent",
     contentDirectory: ctx.contentDirectory,
     prompt,
+    ...(curatorCase ? { hold: true } : {}),
     ...(settings.maxTurns ? { maxTurns: settings.maxTurns } : {}),
     ...(settings.newerWebTools ? { newerWebTools: true } : {}),
   };
@@ -411,7 +442,50 @@ async function measure(
   const text = outcome?.result.text ?? "";
 
   let check: CheckResult & { checkedTerm?: boolean };
-  if (ask === "a") {
+  if (curatorCase) {
+    const faults = caseFileFaults(
+      curatorCase,
+      new Set(bank.map((recipe) => recipe.slug)),
+    );
+    let scored: CheckResult;
+    if (curatorCase.kind === "new-imports") {
+      const urls = calls
+        .map((call) => (call.input as { url?: unknown } | undefined)?.url)
+        .filter((url): url is string => typeof url === "string");
+      const { found, warnings } = await existingBySource(ctx, urls);
+      scored = checkNewImports({
+        calls,
+        count: curatorCase.count,
+        sourceKey: (url) => (URL.canParse(url) ? sourceUrlKey(url) : undefined),
+        existing: found,
+        bank,
+        commits: facts.commits,
+      });
+      /* No index to ask (a clone not reindexed) means "already have" was
+       * not checked: fail, never pass. */
+      scored.notes.push(...warnings);
+      if (warnings.length > 0) scored.matched = false;
+    } else if (curatorCase.kind === "answer") {
+      scored = checkAnswerSlugs({
+        text,
+        include: curatorCase.include,
+        exclude: curatorCase.exclude,
+        commits: facts.commits,
+      });
+    } else {
+      scored = checkHeldGroup({
+        calls,
+        tag: curatorCase.tag,
+        require: curatorCase.require,
+        minItems: curatorCase.minItems,
+        commits: facts.commits,
+      });
+    }
+    check = {
+      matched: scored.matched && faults.length === 0,
+      notes: [...faults, ...scored.notes],
+    };
+  } else if (ask === "a") {
     check = checkGochujang({ expected, text, commits: facts.commits });
   } else if (ask === "b") {
     const tagsAfter: Record<string, string[]> = {};
@@ -553,6 +627,8 @@ async function main() {
 
   /* The run's settings win over editor/.env; the model's URL comes from it. */
   process.env.RECIPE_LLM_MODEL = model;
+  /* 51a: RECIPE_AGENT_MODEL (editor/.env) would win for the curator. */
+  process.env.RECIPE_AGENT_MODEL = model;
   process.env.RECIPE_AGENT_NUM_CTX = String(numCtx);
   process.env.RECIPE_AGENT_THINK = has("think") ? "1" : "0";
   process.env.RECIPE_JOBS_DIR = jobsDir;
@@ -566,12 +642,29 @@ async function main() {
       "no model configured: set RECIPE_LLM_URL (editor/.env) or the Claude API",
     );
 
-  const asks = (flag("asks") ?? "a,b,c,d")
+  /* 51a: the case file's cases (e–h) beside the built-in asks (a–d). */
+  const casesFile = path.resolve(flag("cases") ?? DEFAULT_CASES);
+  const caseList = await readFile(casesFile, "utf8")
+    .then((text) => parseCases(JSON.parse(text)))
+    .catch((error) => {
+      if (!flag("cases") && (error as NodeJS.ErrnoException).code === "ENOENT")
+        return [];
+      return fail(
+        `${casesFile}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+  const cases = new Map(caseList.map((entry) => [entry.id, entry] as const));
+  const asks = (
+    flag("asks") ??
+    (flag("cases") ? caseList.map((entry) => entry.id).join(",") : "a,b,c,d")
+  )
     .split(",")
     .map((id) => id.trim())
-    .filter(Boolean) as AskId[];
+    .filter(Boolean);
   for (const id of asks) {
-    if (!ASK_IDS.includes(id)) fail(`unknown ask ${id} (a, b, c or d)`);
+    if (!(ASK_IDS as readonly string[]).includes(id) && !cases.has(id)) {
+      fail(`unknown ask ${id} (${[...ASK_IDS, ...cases.keys()].join(", ")})`);
+    }
   }
   const repeat = positiveInt(flag("repeat") ?? "1", 100);
   if (repeat === undefined) fail("--repeat takes a whole number from 1 to 100");
@@ -615,6 +708,7 @@ async function main() {
     jobsDir,
     origin,
     start,
+    cases,
     ...(maxTurns ? { maxTurns } : {}),
     newerWebTools: has("newer-web-tools"),
     verbose: has("verbose"),
@@ -627,7 +721,9 @@ async function main() {
     for (const ask of asks) {
       for (let index = 0; index < repeat; index += 1) {
         let line: Record<string, unknown>;
-        const skipped = askSkipped(ask, config.api, process.env);
+        const skipped = cases.has(ask)
+          ? undefined
+          : askSkipped(ask as AskId, config.api, process.env);
         if (skipped) {
           line = {
             at: new Date().toISOString(),
