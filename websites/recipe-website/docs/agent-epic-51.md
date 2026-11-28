@@ -713,6 +713,68 @@ on 127.0.0.1, several servers standing for several sites.
     `agent` kind's handler never passes it, as with `testing`.
   - `hostOf` keeps a URL's port, so loopback servers count as sites.
   - `llm.intent` has a `/jobs` title.
+- **Db11 — a yield counts servings, or it doesn't count** (review 1).
+  `yieldCount` takes a number tied to servings, people, portions, slices
+  or pieces, or after "serves" / "feeds" (a number word too: "Serves
+  four"), or a yield that is only a number. "1 9x13-inch pan", "4 dozen
+  cookies", "Makes 2 loaves", "One 9-inch pie" and "12 cookies" are what a
+  recipe makes: no scale, and the line says "its yield, “4 dozen
+  cookies”, isn't in servings". "Dozen" is never multiplied out.
+- **Db12 — recipe pages before videos** (real-run miss 10). A YouTube or
+  Vimeo result (`isVideoUrl`) is read after every page
+  (`readingOrder`), and only while the pages read so far leave fewer than
+  N. An ask that says "video", "YouTube" or "Vimeo" keeps the search
+  order. The pick's list marks a video "(a video)".
+- **Db13 — a course in general is a course, never a name to resolve**
+  (real-run miss 9). The model put "simple side" among g's dishes, the
+  words stage matched "Korean Spinach Side Dish", and the menu was never
+  read. Now `courseRequest` reads a dish whose words are a course's name
+  ("side", "side dish", "dessert", "breakfast", "drink" …) with only
+  describing words round it ("simple", "quick", "vegetarian") as that
+  course with a note, before any name matching. A dish that names no
+  recipe but ends in a course's name ("a showstopper side") becomes the
+  course too, rather than "couldn't find". The read's prompt says so as
+  well. "Drink" is a plan course: the candidates are the menu's drinks
+  (by style), else `tag:drink`. A course picked this way gets the plan's
+  servings, not the per-dish servings the model attached ("2 servings of
+  the tart plus a simple side": the 2 is the tart's).
+- **Db14 — a named dish several recipes answer** (review 2). The read's
+  dishes carry a `course`. Among the recipes one stage finds, the one on
+  the menu of the dish's course wins, else the one on the menu, else the
+  one of its course (the menu's grouping, else a course tag). When none of
+  those singles one out, the pick is the name whose last word is the
+  dish's ("the turkey" → Roast Turkey, not Turkey Gravy), then fewer extra
+  words, then the shorter name, and the answer's Heads up names the pick
+  and the others: "“the christmas sugar cookies” could be more than one of
+  your recipes: I took Drop-Style …; the other is Christmas Sugar Cookies
+  Recipe with Easy Icing." The outcome carries `ambiguous`.
+- **Db15 — no recipe index, no plan** (review 3). An unbuilt index reads as
+  empty, so online would propose what you have, mine find nothing and plan
+  resolve nothing. All three plans (not only online) stop before any call
+  with `NO_INDEX_ANSWER` ("I can't tell what you already have … Reindex
+  and ask again"). Online's notes are said once each.
+- **Db16 — a tool or condition in the ask is judged as what suits it**
+  (real-run miss 8). The mine read asks for a criterion that says what
+  works well with the tool, "never that a recipe must use or mention it".
+  The judge's prompt (all callers) adds: judge whether the recipe would
+  work well with it or suits it, not whether its text mentions it; "a mug
+  or two of hot milk suits a milk frother … a pot for ten does not suit a
+  small batch". Mine's judge reads the criterion and then "The person
+  asked: …", so a strict criterion can't stand alone.
+- **Db17 — the held preview says when notes wait for the approval**
+  (review 7). The held dry run marks the context when it skipped a notes
+  learning (a Notes heading and no learned selector:
+  `markNotesHeldBack`), the bridge's held answer then carries
+  `notesOnApproval` and a sentence in its note, `heldPreview` copies it,
+  and the review's detail line adds "its notes are read when you approve
+  it". A page whose notes were read, or had none, says nothing.
+- **Db4, measured** (the real run). The one `llm.*` step under a
+  `recipe_import` in the e runs was run 1's YouTube video dry run
+  (`call_plan_12`, job `01M8GG4JD7KSYQ5FE8CRKPWHZY`): `llm.extract` on
+  **qwen3.5:9b at `num_ctx` 12288**, loadMs 34, 5.6 s, found nothing. That
+  is the agent's own model at the run's context (Da2), so no swap. Runs 2
+  and 3 had no model step under an import. With Db12 the video is not read
+  on e at all.
 
 #### Traps (51b)
 
@@ -723,6 +785,79 @@ on 127.0.0.1, several servers standing for several sites.
 - **The sandbox refused** a shell command whose text held the word
   "source" (it reads as the shell builtin) and a heredoc it couldn't
   verify. Use Edit and Python with literal paths.
+- **A store a job sets and an import reads lives on `globalThis`**
+  (review 6). Next bundles a module once per route, so a module-level
+  `AsyncLocalStorage` set by the agent's job is not the one an import in
+  another bundle reads. `agentContext.ts` keeps both of its stores the way
+  `queue.ts` keeps its holds, and a test loads the module twice
+  (`vi.resetModules`) to pin it.
+
+#### Real run (after 51b, first build)
+
+The orchestrator's run, 2026-11-28: qwen3.5:9b, scratch clone `e9f34a56`,
+`--intent auto --repeat 3`, on `afe56a42` (before the fixes below).
+
+| Case | Intent guessed | Score                                                      | Time              |
+| ---- | -------------- | ---------------------------------------------------------- | ----------------- |
+| e    | online (rules) | 3 / 3                                                      | 55–97 s, 12 calls |
+| f    | mine (rules)   | 0 / 3: `hot-chocolate-acouplecooks` judged "no" every time | 48–70 s           |
+| g    | plan (rules)   | 3 / 3 by the scorer, but the side was wrong (miss 9)       | 4–5 s, 2 calls    |
+| h    | plan (rules)   | 3 / 3                                                      | 41–64 s           |
+
+- **e:** all three runs held a YouTube video as one of the 3 (miss 10,
+  Db12).
+- **f:** the criterion came back as "must … utilize a handheld milk
+  frother", and the judge turned down Hot Chocolate and Gingerbread Hot
+  Chocolate for never saying "frother" (miss 8, Db16).
+- **g:** "a simple side" held `sigeumchi-namul` as "named in your ask"
+  (miss 9, Db13).
+- **h:** right; its dessert was scaled from "makes 12" (now Db11's "isn't
+  in servings").
+- Thanksgiving 2027 as g's name is right: 2026's has passed.
+
+#### Fixes after the review and the first real run
+
+The read-only review of `afe56a42` (findings 1–7, no blockers) and the
+real run's misses 8–10, each with a test (`test/curatorIntents.test.ts`,
+19 → 32 tests):
+
+1. A yield that isn't servings is not scaled (Db11). Negative tests: the
+   pan, the dozen, the loaves, the pie, "12 cookies"; case h's gingerbread
+   yields "4 dozen cookies" end to end.
+2. A tied named dish says so (Db14). Units with the real two Christmas
+   sugar cookies and the turkey and its gravy; a plan run end to end with
+   the Heads up.
+3. No recipe index stops every plan (Db15): online, mine and plan each
+   answer `NO_INDEX_ANSWER` with no tool or model call; online's notes are
+   said once.
+4. The classify call is handed the job's signal: a cancel during it
+   rejects, not "the open loop runs".
+5. The start answer names the intent the run will take: `intentAtStart`
+   (`guess.ts`, shared by `startAgentRun`) puts the job's own
+   `fellBack` (`ONLINE_NO_SEARCH`) on online where `webSearchConfigured()`
+   is false.
+6. `agentContext.ts`'s stores are on `globalThis` (the Trap above).
+7. A held import whose dry run left notes unread says so in the review
+   (Db17); the online run's tacos page has a Notes heading and its held
+   preview carries `notesOnApproval`, the others don't.
+8. Mine's criterion and the judge read a tool as what suits it (Db16): the
+   prompts' wording is pinned, and the stand-in run checks the judge reads
+   "works well with …" plus the person's ask.
+9. A generic course is a course (Db13): g's exact wording, with the model
+   putting "simple side" in the dishes and a "Korean Spinach Side Dish" in
+   the bank, picks the menu's judged side, never the spinach.
+10. Videos after pages (Db12): a YouTube result first in the search is
+    never read when the pages are enough; `readingOrder` and
+    `asksForVideo` units.
+
+**UI:** one detail line in `src/curator/ReviewPanel.tsx` (7). No layout
+moved; `curator.spec` runs in Docker (production mode).
+
+**Gates (after the fixes, on `c5054d4e`; origin/main unmoved at
+`1855f4b6`):** `recipe-editor` typecheck clean; `recipe-website` `tsc
+--noEmit` clean; full `vitest run` 208 files, 4514 tests passed
+(`curatorIntents` 32); `curator.spec` in Docker: started, result in the
+orchestrator's report.
 
 #### The real check (the orchestrator's, GPU etiquette)
 
@@ -736,6 +871,11 @@ pnpm exec tsx scripts/agent-measure.ts \
   --jobs-dir $CLAUDE_JOB_DIR/tmp/51/51b/jobs-9b \
   --out $CLAUDE_JOB_DIR/tmp/51/51b/qwen3.5-9b.jsonl
 ```
+
+The second run, after the fixes, writes beside the first:
+`--jobs-dir $CLAUDE_JOB_DIR/tmp/51/51b/jobs-9b-2 --out
+$CLAUDE_JOB_DIR/tmp/51/51b/qwen3.5-9b-2.jsonl`, the rest the same. The
+scratch clone needs its index built (Db15 stops every plan without one).
 
 **Roger to confirm (51b):**
 
@@ -753,6 +893,17 @@ pnpm exec tsx scripts/agent-measure.ts \
   servings" in the note.
 - b08: a plan with no holiday or dish is "Day 1…N" from the judged search.
 - b09: a follow-up is always the loop (Db2).
+- b10: a yield in cookies, loaves or pans is not scaled, and the plan says
+  its yield isn't in servings (Db11); "dozen" is never multiplied out.
+- b11: a video is read only when the recipe pages leave fewer than asked
+  for, unless the ask says video (Db12).
+- b12: a named dish several recipes answer takes the one whose last word
+  is the dish's, and says the others in a Heads up (Db14).
+- b13: with no recipe index, every plan stops and asks for a reindex
+  (Db15), rather than only online.
+- b14: a course picked for "a simple side" gets the plan's servings, not
+  the per-dish servings the model gave it (Db13); "a drink" picks from the
+  menu's drinks.
 
 ## 51f — Metric conversions (M–L)
 
