@@ -1029,8 +1029,14 @@ updatedAt}]}`).
   pasted letters end with (else contain), the longest name first, then the
   first unused line in order. That is the mock-up's algorithm on name keys
   instead of names, so "2egg" finds "2 eggs".
-- `pastedGrams` reads "400 gbrown sugar", "400g", "(400 g)", "1.2 kg" and
-  "200 grams".
+  - When no key fits, it tries the line's own name the same way ("200 g
+    sugar" is "1 cup sugar", whose key is `granulated sugar`), then the
+    key's last word when that is the whole pasted name ("1 tbspflour" is "1
+    tbsp all-purpose flour"; "50 g cocoa powder" is not "2 tsp baking
+    powder"). Review finding 6.
+- `pastedGrams` reads "400 gbrown sugar", "400g", "(400 g)", "1.2 kg",
+  "200 grams" and "1,000 g" (a comma before exactly three digits is
+  thousands; "1,5 kg" is a decimal, finding 5).
 - `bankGramsOf` uses `parseAmount` and `gramsOfVolume`, a new export beside
   `amountInUnit` in `shoppingMerges.ts`. It weighs volumes only, all parts
   US or metric volume, and answers its arithmetic: "213 g a cup × 2 cups
@@ -1083,6 +1089,11 @@ board's icon).
   - Undo puts the line back. That step then won't propose it again on that
     page.
   - A link mark reads and behaves as in 50e.
+- The marks are the page's, not the section's (Df11, review findings 2
+  and 3): `GramMarksProvider` (`Form/Ingredients/gramMarks.tsx`) sits
+  above the edit page's keyed `RecipeFormShell`. Each mark has an id and
+  its row, and `placeGramMarks` puts it on that row while the row holds
+  what it wrote. After Keep, focus moves to the line's Undo.
 - Save waits for every gram mark (Df5). `SaveHoldProvider`
   (`Form/saveHold.tsx`, in `RecipeFormShell`) collects the holds.
   - The rail disables Save and Overwrite and says "Keep or undo the N
@@ -1117,10 +1128,18 @@ Site, after Pages.
 - `recipes grams <slug> [--paste file] [--model] [--dry-run]` and `POST
 /api/recipe/<slug>/grams {paste?, model?, dryRun?}` share one seat,
   `controller/curation/gramsRecipe.ts` (`gramsForRecipe`).
-- It runs the paste, then the bank, then the model with `--model` only
-  (Df7). It writes one update (one commit), or with `--dry-run` only says
-  each line's from → to and where its grams came from.
-- A dry run is read-scoped, and a write needs a write token.
+- It runs the paste, then the bank. It writes one update (one commit), or
+  with `--dry-run` only says each line's from → to and where its grams
+  came from.
+- With `--model` it asks the model for the rest, and **never writes the
+  model's lines** (Df7, review finding 1): they come back as `suggested`,
+  printed under "the model suggests (not written; keep them on the edit
+  page, Add grams)".
+- The write reads the recipe again first, and writes only the lines that
+  still say what their grams were worked out from (finding 4). The others
+  are `changed`, and a warning names them.
+- A dry run is read-scoped, and a write needs a write token. `model` needs
+  a write token too, dry run or not: it spends a model's time or money.
 - There is no MCP tool: 59 / 45 are unchanged.
 
 #### Decisions (51f)
@@ -1166,10 +1185,15 @@ Site, after Pages.
   the export only on opt-in). The export reads `conversions/grams.json` at
   build time, as it reads the recipes. A change to the bank shows on the
   export after its next build.
-- **Df7 — the CLI asks the model only with `--model`.** On the edit page
-  each model answer waits for Keep. On the CLI, `--model` is the person
-  saying so for every line at once. Its lines are listed as "≈ model" with
-  the model's reason, and `--dry-run` shows them first.
+- **Df7 — the CLI asks the model only with `--model`, and never writes
+  its answers** (revised after the review, finding 1). Roger's standing
+  rule is that every model-made change is marked and approved by a person
+  before it is saved, and only the edit page marks a line. So `--model`
+  and the route's `model` show the model's grams as suggestions, and write
+  only the paste's and the bank's. The first build wrote them (`--model`
+  as the person saying yes to every line at once); the review refused
+  that. Each suggested line is listed as "≈ model" with the model's
+  reason.
 - **Df8 — a step proposes a line only once a page.** Undo on a pasted line
   means "not that number"; matching the paste again must not put it back.
   The same holds for the bank and the model, keyed by source and the line's
@@ -1177,8 +1201,36 @@ Site, after Pages.
 - **Df9 — "Save to the bank" saves under the line's grams key** with
   grams per cup worked out from the line ("160 g for ½ cup maple syrup" is
   320 g a cup). It is offered only for a pasted or model value on a
-  measured line. A counted line has no cup, and a bank value is the bank's
-  already.
+  measured line of about ¼ cup or more (review finding 7: a teaspoon's
+  half-gram rounding, times 48, is no cup's weight). A counted line has no
+  cup, and a bank value is the bank's already.
+- **Df10 — a bad bank file is read around, never written over** (review
+  finding 7). Only a missing `conversions/grams.json` is an empty bank.
+  - A hand edit gone wrong (not JSON, no `entries` list, an entry that
+    isn't a name with 3–500 g a cup) is read as its good entries over the
+    seed. Settings › Conversions says the problem above the list, and
+    `recipes grams` warns. `setGrams` and `resetGrams` refuse it
+    (validation), so the person's file is never overwritten.
+  - Any other read error (EISDIR, EACCES) is thrown in curation
+    (`readShoppingView`, `recipes grams`, the writes, Settings). The
+    recipe, edit and shopping pages fall back to the seed and log it
+    (`gramsBankOrSeed`): an estimate is not worth an error page.
+- **Df11 — the gram marks live above the form's remounts** (review
+  findings 2 and 3). "Edit with AI" and "Fill gaps from the source"
+  remount `RecipeFormShell` with the values as they are, grams included.
+  With the marks in the Ingredients section, a remount dropped them and
+  Save's hold, and the unreviewed grams could be saved.
+  - Now `GramMarksProvider` holds the marks, what was undone (Df8), what
+    was saved to the bank and whether the panel is open, above the shell.
+    The new section finds each mark again, and the hold comes back.
+  - Each mark has an id and the row it was made on. `placeGramMarks` puts
+    a mark on its own row while that row holds its `after`, else on the
+    first other row with that text that no mark has (a row moved, a line
+    put in above). With neither, the mark is gone: the line was edited by
+    hand. Two identical "½ cup butter" lines are kept and undone one at a
+    time; keyed by `after` alone, one Undo unmarked both.
+  - The reviewer's other way, turning off Fill and Edit with AI while a
+    gram waits, was not needed.
 
 #### Traps (51f)
 
@@ -1203,14 +1255,55 @@ Site, after Pages.
 - f01: the 10 house values kept over the chart (above). Water stays 237;
   the chart's 227 would be one line in `HOUSE_GRAMS_PER_CUP`.
 - f02: the preparation words that keep their own grams key (Df2).
-- f03: `--model` on the CLI writes the model's grams without a review
-  (Df7). The other way would be to always dry-run the model's lines.
+- f03 (revised after the review): the model's grams are never written
+  outside the edit page. `recipes grams --model` and the route's `model`
+  only show them, as suggestions to keep on the edit page (Df7).
 - f04: a kept gram stays marked "Kept · …" with Undo until Save (Df5).
 - f05: the export shows "Show grams" (Df6).
 - f06: "Add grams" sits under the Ingredients rows, beside "Add a heading",
   not in a side column as the mock-up drew it: the edit form's sections
   are one column.
 - f07: Settings › Conversions sits under Site, after Pages.
+
+#### Review fixes (51f)
+
+The review of `8f6de960` had eight findings, two of them blockers. Each
+fix is its own commit with its tests.
+
+1. **Blocker: the CLI and HTTP wrote the model's grams unreviewed.** They
+   now write only the paste's and the bank's lines, and answer the
+   model's as `suggested` (Df7, f03 revised). `model` needs a write token,
+   dry run or not. Tests: the seat on a stand-in model; the route with a
+   read token (403 on `model`) and a write token (suggested, not stored),
+   `test/gramsRoute.test.ts`.
+2. **Blocker: a remount dropped the marks and Save's hold, and kept the
+   grams.** The marks live above the keyed shell now (Df11). Test:
+   `grams.spec` pastes, asks Edit with AI, and finds the 7 marks and the
+   hold still there.
+3. **Identical lines shared one mark.** Each mark has an id and its row
+   (`placeGramMarks`). Tests: unit cases, and `grams.spec`'s two "½ cup
+   butter" lines kept and undone one at a time.
+4. **The CLI's write could overwrite edits made during the model run.**
+   It reads the recipe again and writes only unchanged lines (`changed`
+   otherwise). Test: a stand-in model that edits two lines meanwhile.
+5. **"1,000 g" read as 1.** A comma before exactly three digits is
+   thousands now. Tests: "1,000 g", "(1,250 g)", "2,500.5 g", and "1,5 kg"
+   still a decimal.
+6. **"200 g sugar" missed "1 cup sugar", "1 tbspflour" missed all-purpose
+   flour.** The line's own name, then the key's last word as the whole
+   pasted name. Roger's paste still matches 13 of 13; "50 g cocoa powder"
+   does not take the baking powder.
+7. **Minor:**
+   - a bank or pasted suggestion that rounds to 0 g is dropped;
+   - `checkModelGrams` caps a measure with no cup at 10 kg;
+   - a bad bank file is read around and never written over, and other read
+     errors are thrown (Df10);
+   - after Keep, focus moves to the line's Undo;
+   - "Save to the bank" only from about ¼ cup up (Df9).
+8. **Tests added:** a corrupt and a hand-edited `grams.json` and a
+   directory in its place; Enter refused while Save is held; findings 2
+   and 3; a model line on the CLI and HTTP paths, not written; walnuts in
+   cups and grams adding up to "≈ 2 cups" on the shopping list.
 
 #### Gates (51f)
 
@@ -1242,6 +1335,43 @@ exec tsc --noEmit` are clean.
   Undo and Save held, Save to the bank, Show grams, Settings › Conversions,
   axe on each) and `settings-nav.spec.ts` (gains Conversions). Docker
   production, dev mode once, and the moved baselines wait for the review.
+
+After the review fixes, with origin/main merged in (51g, #374, `c19d88fb`,
+a clean merge):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit` are clean.
+- `pnpm exec vitest run`: 4,630 of 4,630 passed (218 files). The grams
+  files are `suggestGrams.test.ts` 33, `gramsBankWrites.test.ts` 21 and
+  the new `gramsRoute.test.ts` 2.
+  - A run before the merge had one timeout,
+    `editFormRoundTrip.test.tsx`'s "cleared and retyped, its headings
+    follow once, on blur" at 5.5 s against the 5 s limit, under the full
+    suite's load. Alone the file passes 17 of 17 and that test takes 1.9
+    s. The run after the merge passed it.
+- Docker production, one run over `grams.spec`, `settings-nav.spec` and
+  the 15 specs with recipe-page, edit-form, shopping, visual and mobile
+  baselines: 174 passed, 10 failed. Nine were moved baselines and one was
+  axe on `grams.spec`: "Save to the bank" was named "Save ingredient 1's
+  grams to the bank", which `label-content-name-mismatch` refuses. It is
+  "Save to the bank: ingredient 1's grams" now.
+- Baselines regenerated in Docker (production, `--update-snapshots`),
+  each opened. Nine moved:
+  - **the recipe page's "As written · Show grams" toggle** under the
+    scaler: `alternatives-desktop-e2e`, `alternatives-phone-mobile`,
+    `recipe-wide-columns-e2e`, `recipe-6-multiplied-e2e`,
+    `recipe-detail-signed-in-e2e`, `recipe-detail-signed-out-e2e`,
+    `recipe-mobile-mobile`;
+  - **the edit form's "Add grams" button**, on its own row on a phone:
+    `edit-form-mobile-mobile` (52 px taller);
+  - **Settings' nav gains Conversions** under Site: `git-page-e2e`.
+  - The shopping specs' baselines did not move. 51g's three curator
+    baselines are its own and were not touched.
+  - That run found `grams.spec`'s "Keep the grams on ingredient 1" also
+    matching ingredients 10–13; the Keep and Undo names are exact now.
+- Docker production, `grams.spec` and `settings-nav.spec` after the
+  fixes: 15 of 15.
+- Dev mode once (Docker, `next dev`), `grams.spec`: 6 of 6.
 
 ## 51d — /curator redesign (L)
 
