@@ -41,6 +41,7 @@ import {
   unfeatureCommand,
 } from "./commands/featured";
 import { fillCommand } from "./commands/fill";
+import { gramsCommand } from "./commands/grams";
 import { linkedCommand } from "./commands/linked";
 import { reviseCommand } from "./commands/revise";
 import { gitCommands } from "./commands/git";
@@ -95,6 +96,8 @@ const COMMANDS: Record<string, CommandDef<unknown>> = {
   update: updateCommand,
   /* A recipe's gaps from its source, written nowhere (45b). */
   fill: fillCommand,
+  /* A recipe's lines given grams (51f). */
+  grams: gramsCommand,
   /* "Edit with AI" from the command line, written nowhere (47i). */
   revise: reviseCommand,
   /* The recipes existing recipes' pages link to (50e). */
@@ -205,6 +208,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   fill <slug> [--no-estimate] [--uses | --no-uses] [--all-uses]
        [--out patch.json] [--verbose]
   revise <slug> "<request>" [--claude] [--out patch.json] [--verbose]
+  grams <slug> [--paste file] [--model] [--dry-run]
   linked --scan [--slug s …] [--limit n] [--dry-run] [--llm auto|force|off]
   notes migrate [--dry-run]
   image <slug> (--url <image-url> | --file <path> | --clear)
@@ -449,6 +453,15 @@ says what was done (a dry run, what would be). --linked off imports the
 page's recipe alone. \`linked --scan [--slug s] [--dry-run]\` does the same for
 recipes already here: each one's source page read again (politely; local
 only), its links matched against the stored lines.
+
+Grams: \`grams <slug>\` gives a recipe's lines grams in the house form,
+"2 cups (400g) brown sugar" (the grams scale with the recipe). A pasted
+metric list (--paste file, any shape: "400 gbrown sugar" is fine) wins; the
+gram bank (Settings › Conversions: King Arthur's chart built in, your own
+values over it) fills the cups and spoons it leaves; --model asks the
+configured model for the rest, one line at a time. Counted lines ("2 eggs")
+take a paste or the model; a pinch or "to taste" never get grams. One
+commit; --dry-run says what it would write.
 
 Filling gaps: \`fill <slug>\` reads the recipe's source link (or its video) as
 \`import --dry-run\` would and fills only what is empty — the description,

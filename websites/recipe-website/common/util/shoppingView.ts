@@ -58,6 +58,8 @@ import {
   countsAs,
   equivalenceOf,
   gramsPerCupFor,
+  withGramsTable,
+  type GramsPerCupTable,
   type ShoppingMerge,
 } from "./shoppingMerges";
 import {
@@ -1149,7 +1151,7 @@ function applyOp(
  * id order, each op to the rows its item ids reach. Without it the view is
  * the base and 49a's merges, as it always was.
  */
-export function buildShoppingView(
+function composeShoppingView(
   items: ShoppingItem[],
   settings: ShoppingSettings,
   inventory: string[] = [],
@@ -1511,6 +1513,26 @@ export function buildShoppingView(
       ...(compose ? { leftOff: leftOff.length } : {}),
     },
   };
+}
+
+/**
+ * The list, from the stored items and settings (`composeShoppingView`).
+ * 51f: `grams` is the gram bank the densities come from (the person's
+ * `conversions/grams.json` over King Arthur's chart, `gramsBank.ts`); the
+ * built-in seed without it.
+ */
+export function buildShoppingView(
+  items: ShoppingItem[],
+  settings: ShoppingSettings,
+  inventory: string[] = [],
+  staples: string[] = DEFAULT_STAPLES,
+  merges: readonly ShoppingMerge[] = [],
+  compose?: ShoppingCompose,
+  grams?: GramsPerCupTable,
+): ShoppingView {
+  return withGramsTable(grams, () =>
+    composeShoppingView(items, settings, inventory, staples, merges, compose),
+  );
 }
 
 /**

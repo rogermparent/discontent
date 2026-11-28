@@ -13,9 +13,12 @@ import {
 import { readerLabel } from "recipe-editor/controller/llm/readerLabel";
 import { usesModelAsked } from "recipe-editor/controller/llm/suggestUses";
 import {
+  editModelFor,
   editModels as editModelsOf,
   usesModelFor,
 } from "recipe-editor/controller/llm/askEdit";
+import { readGramsBank } from "recipe-editor/controller/curation/conversions";
+import { curationContextFor } from "recipe-editor/controller/apiContext";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +70,12 @@ export default async function Recipe({
   /* 47i: who answers "Edit with AI", and who "Suggest step uses" asks. */
   const models = editModelsOf();
   const uses = usesModelFor(models);
+  /* 51f: "Add grams" — the bank, and who the model step asks. */
+  const email = user.user?.email;
+  const gramsEntries = email
+    ? await readGramsBank(curationContextFor(email)).catch(() => [])
+    : [];
+  const gramsModel = editModelFor(undefined, models);
   return (
     <PageMain>
       {/* 43e1: the form draws its own frame — heading, rail and sections. */}
@@ -90,6 +99,14 @@ export default async function Recipe({
         editModels={{
           ...(models.local ? { local: readerLabel(models.local) } : {}),
           ...(models.claude ? { claude: readerLabel(models.claude) } : {}),
+        }}
+        grams={{
+          entries: gramsEntries,
+          ...("config" in gramsModel
+            ? { model: readerLabel(gramsModel.config) }
+            : {
+                unavailable: `No model is set up in this editor, so none can be asked (${gramsModel.problem}).`,
+              }),
         }}
         usesAsk={
           "config" in uses

@@ -34,6 +34,7 @@ import {
   type Amount,
   type AmountPart,
 } from "./ingredientAmount";
+import { BUILT_IN_GRAMS_PER_CUP } from "./gramsChart";
 
 // --- decisions -------------------------------------------------------------
 
@@ -366,64 +367,89 @@ export function equivalenceOf(key: string): ShoppingEquivalence | undefined {
 // --- amounts ---------------------------------------------------------------
 
 /**
- * Grams in one US cup of a baking staple (Da3), by name key: what turns "1
- * cup + 120 g" of flour into "≈ 2 cups". King Arthur's ingredient weight
- * chart, rounded; spooned and levelled, not packed (brown sugar is packed,
- * as recipes mean it).
+ * Grams in one US cup (Da3), by name key: what turns "1 cup + 120 g" of
+ * flour into "≈ 2 cups". Since 51f this is the gram bank's built-in seed —
+ * King Arthur's whole ingredient weight chart (`gramsChart.ts`), with 49a's
+ * and 50a's own values kept where they differ (water 237 g, granulated
+ * sugar 200 g…) — and a person's bank (`conversions/grams.json`) lays its
+ * edits over it (`gramsTableOf`, `gramsBank.ts`). Spooned and levelled, not
+ * packed (brown sugar is packed, as recipes mean it).
  */
-export const GRAMS_PER_CUP: Readonly<Record<string, number>> = {
-  "all purpose flour": 120,
-  "bread flour": 120,
-  "wheat flour": 120,
-  flour: 120,
-  "granulated sugar": 200,
-  "brown sugar": 213,
-  "light brown sugar": 213,
-  "dark brown sugar": 213,
-  "powdered sugar": 120,
-  butter: 227,
-  "unsalted butter": 227,
-  "salted butter": 227,
-  rice: 185,
-  "rolled oats": 90,
-  "semisweet chocolate chip": 170,
-  /*
-   * 50a: dairy and water, so "1¾ cups + 135 g heavy cream" adds up. King
-   * Arthur's chart gives a cup of each as 227 g (8 oz); water is its
-   * physical 237 g.
-   */
-  "heavy cream": 227,
-  "whipping cream": 227,
-  "light cream": 227,
-  "half and half": 227,
-  milk: 227,
-  "whole milk": 227,
-  buttermilk: 227,
-  "sour cream": 227,
-  "cream cheese": 227,
-  yogurt: 227,
-  "greek yogurt": 227,
-  water: 237,
-};
+export const GRAMS_PER_CUP: Readonly<Record<string, number>> =
+  BUILT_IN_GRAMS_PER_CUP;
+
+/** Grams in a cup by key: the built-in seed, or a bank laid over it (51f). */
+export type GramsPerCupTable = Readonly<Record<string, number>>;
+
+/* 51f: the bank a list is being built with (`withGramsTable`). */
+let scopedTable: GramsPerCupTable | undefined;
+
+/**
+ * Run `build` with `table` as every `gramsPerCupFor`'s default (51f): the
+ * list's builders are synchronous and reach the densities a dozen helpers
+ * deep, so the bank is set for the call and put back after it, rather than
+ * threaded through each. Without a table, the built-in seed.
+ */
+export function withGramsTable<T>(
+  table: GramsPerCupTable | undefined,
+  build: () => T,
+): T {
+  if (!table) return build();
+  const before = scopedTable;
+  scopedTable = table;
+  try {
+    return build();
+  } finally {
+    scopedTable = before;
+  }
+}
 
 /**
  * The density a merged row converts with: its own name's, else one every
- * one of its names shares. None when they disagree or none has one.
+ * one of its names shares. None when they disagree or none has one. 51f:
+ * `table` is the bank the list reads — the one `withGramsTable` set, else
+ * the built-in seed.
  */
 export function gramsPerCupFor(
   key: string,
   keys: readonly string[] = [],
+  table: GramsPerCupTable = scopedTable ?? GRAMS_PER_CUP,
 ): number | undefined {
-  const own = GRAMS_PER_CUP[key];
+  const of = (name: string) =>
+    Object.hasOwn(table, name) ? table[name] : undefined;
+  const own = of(key);
   if (own !== undefined) return own;
   const known = new Set(
-    keys.flatMap((each) =>
-      GRAMS_PER_CUP[each] !== undefined ? [GRAMS_PER_CUP[each]] : [],
-    ),
+    keys.flatMap((each) => (of(each) !== undefined ? [of(each)!] : [])),
   );
-  return known.size === 1 && keys.every((each) => GRAMS_PER_CUP[each])
+  return known.size === 1 && keys.every((each) => of(each))
     ? [...known][0]
     : undefined;
+}
+
+/**
+ * 51f: the grams in a volume at a density — every part a US or metric
+ * volume, or none: a count, a container or a weight part answers
+ * `undefined` (the bank is grams per cup; Roger's answer 4). Unrounded.
+ */
+export function gramsOfVolume(
+  amount: Amount,
+  gramsPerCup: number,
+): number | undefined {
+  const parts = amount.parts.filter((part) => part.qty > 0);
+  if (parts.length === 0 || !(gramsPerCup > 0)) return undefined;
+  let grams = 0;
+  for (const part of parts) {
+    if (!isVolume(part)) return undefined;
+    grams +=
+      part.qty * unitSize(part.unit) * gramsPerBase(part.family, gramsPerCup)!;
+  }
+  return grams;
+}
+
+/** 51f: US cups in a volume amount, for "213 g a cup × 2 cups". */
+export function cupsOfVolume(amount: Amount): number | undefined {
+  return gramsOfVolume(amount, 1);
 }
 
 const ML_PER_CUP = 236.588;

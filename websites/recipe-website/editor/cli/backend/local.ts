@@ -299,6 +299,13 @@ export function createLocalBackend({
         run,
       );
     },
+    /* 51f: a dry run writes nothing — no identity then. */
+    async gramsForRecipe(slug, options = {}) {
+      if (!options.dryRun) await guard();
+      const { gramsForRecipe } =
+        await import("../../controller/curation/gramsRecipe");
+      return gramsForRecipe(ctx, slug, options);
+    },
     /* 47i: reads the recipe, asks a model, writes nothing — no identity. */
     async reviseRecipe(slug, options, run) {
       const { storedEditSpec } = await import("../../controller/llm/askEdit");

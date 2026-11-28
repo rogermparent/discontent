@@ -946,6 +946,301 @@ scratch clone needs its index built (Db15 stops every plan without one).
 
 Scope: the plan's 51f. Starts once its mock-up is answered.
 
+Roger answered the mock-up's seven questions on 2026-11-28, all OK, no
+notes (https://claude.ai/artifact/V3hxRb6AG3eaZR11zndKBd; its source is
+`orchestrator/grams-51f.html`). The answers are the decisions:
+
+1. **The house form:** `2 cups (<Multiplyable baseNumber="400" />g) brown
+sugar`, with "g" straight after. A counted line takes its grams after
+   the name: `2 eggs (<Multiplyable baseNumber="100" />g)`.
+2. **A paste wins over the bank.** The bank fills only the lines the paste
+   leaves, and the model only what the bank can't.
+3. **The seed is King Arthur's whole chart**, shown as "Built in". Roger's
+   edits override it, and Reset restores it.
+4. **Teaspoons and tablespoons get grams too**: whole grams, or halves under
+   5 g. Never a pinch, "to taste" or a splash. A counted line gets grams
+   only from a paste or the model.
+5. **The model's grams are marked "≈ Model" until kept.** It is asked one
+   line at a time, local first. A kept value never reaches the bank on its
+   own: "Save to the bank" is per line.
+6. **"Show grams" on the recipe page**, at view time. Stored grams always
+   show.
+7. **The bank's editor is Settings › Conversions.** The CLI is `recipes
+grams`, and there is no new MCP tool (59 / 45 stay).
+
+### Results (51f)
+
+**The seed** is `common/util/gramsChart.ts`.
+
+- King Arthur's chart was fetched once on 2026-11-28: one request, HTTP 200,
+  326 rows. It was transcribed by hand, and nothing reads it at runtime.
+- There are 208 rows, each with the chart's own name, volume and grams. The
+  grams in a cup are worked out from the row, so a teaspoon row stays exact:
+  baking powder is 4 g a teaspoon, so 192 g a cup, so 2½ tsp is 10 g again.
+- Each row names the keys a recipe line reaches it by (Df2). A test checks
+  every key is what a typed "1 cup <key>" line keys as.
+- `HOUSE_GRAMS_PER_CUP` keeps epic 49's values where the chart differs, each
+  with its reason:
+  - water 237 (the chart says 227);
+  - granulated sugar 200 (198);
+  - powdered sugar 120 (113, unsifted);
+  - wheat flour 120 (113);
+  - rice 185 (the chart lists long-grain only);
+  - rolled oats 90 (89);
+  - butter, salted and unsalted, 227 (226);
+  - whole milk and whipping cream 227 (as milk and heavy cream).
+- `GRAMS_PER_CUP` (`shoppingMerges.ts`) is now this seed. Every one of 49a's
+  and 50a's 27 names still has a density, and the test lists them.
+
+**The bank** is `common/util/gramsBank.ts`, with the person's entries in
+`conversions/grams.json` (`{"entries": [{key, name, gramsPerCup,
+updatedAt}]}`).
+
+- `gramsTableOf(entries)` lays the entries over the seed. Each key is
+  `built-in`, `yours`, or `changed` with its `builtIn` value.
+- `gramsKeyOf(text)` is the shopping key, `shoppingNameOf`, with the line's
+  preparation words put back (Df2).
+- Writes are `controller/curation/conversions.ts` (`setGrams`,
+  `resetGrams`), in `patchInventory`'s pattern: the write lock, an atomic
+  write, one commit. The commits read "Add grams: ground cardamom, 96 g a
+  cup", "Update grams: brown sugar, 213 g a cup → 200 g a cup" and "Reset
+  grams: brown sugar, back to the built-in 213 g a cup".
+- `conversions` is in `UNINDEXED_DIRECTORIES`.
+- The reads are `common/controller/data/readGramsBank.ts`, used by both
+  apps' recipe pages, the edit page, Settings, `/shopping` and the CLI seat.
+  Its fs calls carry `/*turbopackIgnore: true*/` (#269).
+
+**Shopping totals read the same bank.**
+
+- `buildShoppingView`, `findShoppingProposals` and `mergedAmountInUnit` take
+  an optional `grams` table, and `gramsPerCupFor` an optional `table`.
+- The view's builders reach the densities a dozen private helpers deep, so
+  `withGramsTable(table, build)` sets the table for one synchronous build
+  and restores it after (Df3).
+- `/shopping` gets the entries as `initial.grams`. The server-side view
+  (`shopping_get`, the CLI's `shopping`) reads the bank itself.
+
+**`suggestGrams`** is `common/util/suggestGrams.ts`, all pure.
+
+- `alignPaste` matches each pasted line to a recipe line. It compares the
+  letters alone, so glued text is fine. It picks the line whose name key the
+  pasted letters end with (else contain), the longest name first, then the
+  first unused line in order. That is the mock-up's algorithm on name keys
+  instead of names, so "2egg" finds "2 eggs".
+- `pastedGrams` reads "400 gbrown sugar", "400g", "(400 g)", "1.2 kg" and
+  "200 grams".
+- `bankGramsOf` uses `parseAmount` and `gramsOfVolume`, a new export beside
+  `amountInUnit` in `shoppingMerges.ts`. It weighs volumes only, all parts
+  US or metric volume, and answers its arithmetic: "213 g a cup × 2 cups
+  (built in)".
+- Rounding is `roundGrams` (answer 4): whole grams, halves under 5 g. It
+  is not `roundMetric`, which rounds to 5 g and 10 g for the shopping list
+  (Df4).
+- `readLine` sorts each line: `has-grams`, `as-needed` (a pinch, a dash, "to
+  taste": what `parseAmount` reads as needed), `volume`, `counted`, `other`.
+- `withGrams` writes the house form: after a volume unit, or after a
+  counted line's name, before its first comma, bracket or dash. On
+  "2 cups brown sugar" its output is byte for byte what a typed "2 cups
+  (400g) brown sugar" stores. A line whose amount isn't the house markup is
+  left alone.
+- `checkModelGrams` checks a model's answer: a finite positive number. On a
+  measured line, a cup of it must weigh 3–500 g. A counted line is at most
+  10 kg.
+- `suggestGrams(lines, {paste, table})` runs the paste, then the bank, and
+  answers the lines left for the model. `viewGrams` gives the recipe page's
+  numbers.
+
+**The model step** is `controller/llm/gramsModel.ts` (`askGrams`), run as
+a new `grams` job kind (`kinds.ts`, `listing.ts`, `attention.ts`, the Jobs
+board's icon).
+
+- Each line is one `llm.grams` step and one `chatJson` call with a JSON
+  schema (`{grams: number|null, why}`), no tools, and one `num_ctx` for
+  every line.
+- The reference table is the bank's rows that share a word with the line,
+  plus six staples to calibrate with (water, flour, sugar, butter, milk,
+  honey), at most 12 rows. It is never the whole bank.
+- Who is asked is `editModelFor`: the local model, or Claude when there is
+  none (47i).
+- A refused answer is that line's problem, said, and the other lines stand.
+  Nothing is written.
+
+**The edit page.**
+
+- "Add grams" is a button under the Ingredients rows that opens
+  `GramsPanel`. It has three steps, as the mock-up drew them: 1 · Paste
+  ("Match to lines"), 2 · From the bank ("Fill from the bank"), and 3 · The
+  model ("Ask the model for the rest"). The tally reads "N kept · M marked
+  to review", with "Keep all marked".
+- 50e's `LinkedLineMark` is now one case of `LineMark`
+  (`common/util/lineMarks.ts`), whose `source` is `link`, `paste`, `bank`
+  or `model`. The row's note is `LineMarkNote`.
+  - A gram shows its chip (Pasted, Bank, ≈ Model, or Kept · Pasted after
+    Keep), the grams and why, Keep, Undo, and, for a pasted or model value
+    on a measured line, "Save to the bank".
+  - Undo puts the line back. That step then won't propose it again on that
+    page.
+  - A link mark reads and behaves as in 50e.
+- Save waits for every gram mark (Df5). `SaveHoldProvider`
+  (`Form/saveHold.tsx`, in `RecipeFormShell`) collects the holds.
+  - The rail disables Save and Overwrite and says "Keep or undo the N
+    marked gram lines before saving."
+  - The form refuses a submit while any hold stands, Enter in a field
+    included: a capture listener on the form runs before React's.
+- The edit page passes the bank's entries and who the model step asks
+  (`GramsProvider`). Its actions are `gramsActions.ts`: start and result,
+  as `choicesActions` does them, and `saveGramsToBankAction`.
+
+**The recipe page's "Show grams"** (`common/components/View/Grams`) is an
+"As written · Show grams" toggle beside the scaler.
+
+- With it on, a measured line that stores no grams shows "≈ 426g" after it,
+  scaled with the multiplier and marked "about" for a screen reader.
+- The numbers are worked out on the server (`viewGrams` in `RecipeView`),
+  so the bank never ships to the browser. The choice is kept in this
+  browser (`recipe-show-grams`), as the units' is.
+- The toggle hides when no line has an estimate.
+- The export gets it too (Df6): its recipe page reads the bank at build
+  time.
+
+**Settings › Conversions** (`/settings/conversions`) is its own page under
+Site, after Pages.
+
+- Every key is a row. You can search, change a value and Save, Reset a
+  changed built-in, add a name with its grams in a cup, and Remove your own.
+- Each change is one commit, and the status line says what was done.
+
+**The CLI and HTTP.**
+
+- `recipes grams <slug> [--paste file] [--model] [--dry-run]` and `POST
+/api/recipe/<slug>/grams {paste?, model?, dryRun?}` share one seat,
+  `controller/curation/gramsRecipe.ts` (`gramsForRecipe`).
+- It runs the paste, then the bank, then the model with `--model` only
+  (Df7). It writes one update (one commit), or with `--dry-run` only says
+  each line's from → to and where its grams came from.
+- A dry run is read-scoped, and a write needs a write token.
+- There is no MCP tool: 59 / 45 are unchanged.
+
+#### Decisions (51f)
+
+- **Df1 — what the seed leaves out.**
+  - King Arthur's own branded products and mixes: Climate Blend, Baker's
+    Special Sugar, Harvest Grains Blend and the like.
+  - Rows given as a range ("140 to 170"): fresh blueberries, rhubarb, the
+    gluten-free starters.
+  - Counted rows: an egg, an egg white or yolk, a head of garlic. The bank
+    is grams per cup.
+  - Kosher salt: 8 g (Diamond Crystal) or 16 g (Morton's) a tablespoon,
+    too far apart for one value.
+  - The fetch did not fail, so nothing was seeded from memory.
+- **Df2 — the grams key keeps a preparation the shopping key drops.**
+  - `shoppingNameOf` buys almonds whether sliced or whole: "1 cup sliced
+    almonds" keys as `almond`. But a cup of sliced almonds is 86 g and a
+    cup of whole ones 142 g.
+  - So `gramsKeyOf` puts these words back in front, A–Z: sliced, slivered,
+    chopped (= diced), grated (= shredded), minced, crushed, ground, mashed,
+    purée, dried (= dry), powdered, cooked, popped, toasted and candied.
+    "1 cup sliced almonds" keys as `sliced almond`, "½ cup dried
+    cranberries" as `dried cranberry`.
+  - Only an entry with that key fills such a line. The chart rows carry
+    both forms where the chart names the preparation: "Walnuts (chopped)"
+    is `chopped walnut`; "Walnuts (whole)" is `walnut`.
+  - The shopping list's keys are unchanged.
+- **Df3 — a scoped table, not a parameter through every helper.** The
+  shopping view's density lookups sit a dozen private functions deep.
+  `withGramsTable` sets the bank for one synchronous build and restores it
+  in a `finally`, so a nested or a later build sees its own.
+- **Df4 — the recipe's grams round to whole grams** (halves under 5 g,
+  answer 4), not `roundMetric`'s 5 g and 10 g steps. A recipe line is
+  measured; a shopping total is bought. The shopping list keeps
+  `roundMetric`.
+- **Df5 — every gram mark holds Save; a link mark still doesn't.** 50e's
+  De7 marks never blocked Save. Answer 5 and the mock-up's Save ("Keep or
+  undo every marked line first") make a gram different, whether it came
+  from a paste, the bank or the model. A kept mark stays visible with Undo
+  until Save.
+- **Df6 — the export shows "Show grams" too.** The bank is conversion
+  arithmetic, not anything personal (unlike the inventory, which reaches
+  the export only on opt-in). The export reads `conversions/grams.json` at
+  build time, as it reads the recipes. A change to the bank shows on the
+  export after its next build.
+- **Df7 — the CLI asks the model only with `--model`.** On the edit page
+  each model answer waits for Keep. On the CLI, `--model` is the person
+  saying so for every line at once. Its lines are listed as "≈ model" with
+  the model's reason, and `--dry-run` shows them first.
+- **Df8 — a step proposes a line only once a page.** Undo on a pasted line
+  means "not that number"; matching the paste again must not put it back.
+  The same holds for the bank and the model, keyed by source and the line's
+  text.
+- **Df9 — "Save to the bank" saves under the line's grams key** with
+  grams per cup worked out from the line ("160 g for ½ cup maple syrup" is
+  320 g a cup). It is offered only for a pasted or model value on a
+  measured line. A counted line has no cup, and a bank value is the bank's
+  already.
+
+#### Traps (51f)
+
+- **The sandbox refuses inline scripts** with template literals or
+  heredocs ("too complex to verify"). Write the script to a scratch file,
+  then run it with `python3 -I <file>`. A bash double-quoted `python3 -c`
+  whose text has backticks is read as command substitution, and the
+  sandbox stops it before it runs.
+- **`parseAmount` reads only a line's first measure.** "2 cups (400g)
+  brown sugar" is 2 cups, so `hasStoredGrams` reads the plain line with its
+  own regex: a number, then g, grams, gr, kg or kilos.
+- **A seed name in an old test.** Tests that used an ingredient as "no
+  density on file" break when the seed covers it (walnuts did). Pick a name
+  the chart lacks (hickory nuts), not a chart name.
+- **A counted line's name ends before its remark:** "2 large eggs (100g),
+  beaten". `withGrams` puts the grams before the first comma, bracket or
+  dash after the amount. A line with an odd shape may take them somewhere
+  less tidy. Each one is marked, so a person sees it before Save.
+
+#### Roger to confirm (51f)
+
+- f01: the 10 house values kept over the chart (above). Water stays 237;
+  the chart's 227 would be one line in `HOUSE_GRAMS_PER_CUP`.
+- f02: the preparation words that keep their own grams key (Df2).
+- f03: `--model` on the CLI writes the model's grams without a review
+  (Df7). The other way would be to always dry-run the model's lines.
+- f04: a kept gram stays marked "Kept · …" with Undo until Save (Df5).
+- f05: the export shows "Show grams" (Df6).
+- f06: "Add grams" sits under the Ingredients rows, beside "Add a heading",
+  not in a side column as the mock-up drew it: the edit form's sections
+  are one column.
+- f07: Settings › Conversions sits under Site, after Pages.
+
+#### Gates (51f)
+
+Before the review (stop point 1):
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit` are clean.
+- `pnpm exec vitest run`: 4,591 of 4,597 passed (215 files) on the first
+  full run. The six failures were this phase's, and all are fixed. A rerun
+  of the seven files they were in passes 287 of 287.
+  - Two in the D8 boundary (`curation.test.ts`). `conversions.ts` now reads
+    its file itself, as `inventory.ts` does, instead of importing a common
+    `data/` module. `Form/Ingredients/ingredientRows` (`plainLine`) joins
+    the allow-list, as `stepChecks` did in 51c.
+  - `jobs.test.ts`' kind list gains `grams`.
+  - Three shopping tests used walnuts as "a name with no weight for a cup
+    on file": `shoppingAsk` (Db1's refusal), `shoppingLayers` (Da4's
+    "in g" refused) and `shoppingView` ("1 lb + 2 cups"). The seed has
+    walnuts now (King Arthur: 128 g a cup whole, 113 g chopped), so each
+    names hickory nuts instead and still tests the no-density path. That
+    is the one changed shopping expectation, and it is what answer 3 means:
+    walnuts on a list now add up, as "≈".
+- New: `test/suggestGrams.test.ts` (24: the aligner on Roger's paste, the
+  house form, the bank against every chart row, the model check, Show
+  grams) and `test/gramsBankWrites.test.ts` (14: the bank's commits in a
+  scratch repo, the shopping list reading the bank, the model step on a
+  stand-in, `recipes grams` dry run and write).
+- Playwright: `grams.spec.ts` (new: the edit page's three steps with Keep,
+  Undo and Save held, Save to the bank, Show grams, Settings › Conversions,
+  axe on each) and `settings-nav.spec.ts` (gains Conversions). Docker
+  production, dev mode once, and the moved baselines wait for the review.
+
 ## 51d — /curator redesign (L)
 
 Scope: the plan's 51d.

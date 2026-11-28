@@ -9,6 +9,7 @@ import {
   type TickSyncStorage,
 } from "../../util/shoppingTickSync";
 import type { ShoppingMerge } from "../../util/shoppingMerges";
+import type { GramsBankEntry } from "../../util/gramsBank";
 import type { ShoppingLayer, ShoppingRule } from "../../util/shoppingLayers";
 import type { ShoppingItem, ShoppingSettings } from "../../util/shoppingTypes";
 import { MAIN_SHOPPING_LIST, listStorageKey } from "../../util/shoppingLists";
@@ -50,6 +51,12 @@ export interface ShoppingListState {
     plan?: string;
     archived?: true;
   };
+  /**
+   * 51f: the person's gram bank entries (`conversions/grams.json`), which
+   * the totals' densities come from over the built-in seed. Read once with
+   * the page; no list action changes it.
+   */
+  grams?: GramsBankEntry[];
 }
 
 /** 50a: what a layer write answers. */

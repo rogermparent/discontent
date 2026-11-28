@@ -278,12 +278,12 @@ describe("the composition: base → rules → layers (Da4, Da5)", () => {
     expect(row.estimated).toBe(true);
     expect(row.changes?.[0].text).toBe("in g: ≈ 240 g");
 
-    const walnuts = item("1 1/2 cups walnuts");
-    const asked = layer([{ op: "amount", ids: [walnuts.id], unit: "g" }]);
-    const [nuts] = rows(compose([walnuts], [asked]));
-    expect(nuts.label).toBe("1½ cups walnuts");
+    const nuts0 = item("1 1/2 cups hickory nuts");
+    const asked = layer([{ op: "amount", ids: [nuts0.id], unit: "g" }]);
+    const [nuts] = rows(compose([nuts0], [asked]));
+    expect(nuts.label).toBe("1½ cups hickory nuts");
     expect(nuts.changes?.[0].skipped).toBe(
-      "no weight for a cup of walnut on file, so 1½ cups can't be converted",
+      "no weight for a cup of hickory nut on file, so 1½ cups can't be converted",
     );
 
     /* Within a kind no density is needed: 2 lb → 32 oz exactly. */

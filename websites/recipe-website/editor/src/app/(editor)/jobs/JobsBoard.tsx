@@ -122,6 +122,7 @@ function KindIcon({ kind, className }: { kind: string; className?: string }) {
     kind === "agent" ||
     kind === "fill" ||
     kind === "choices" ||
+    kind === "grams" ||
     kind === "edit" ||
     kind === "shopping-merge" ||
     kind === "shopping-tidy"

@@ -33,6 +33,8 @@ import {
   countsAs,
   equivalenceOf,
   gramsPerCupFor,
+  withGramsTable,
+  type GramsPerCupTable,
   knownDifferentPair,
   mergeIdOf,
   normalizeMergeKeys,
@@ -159,9 +161,18 @@ function proposalRowOf(
 /**
  * The open proposals for a list: one per curated set with two or more of
  * the list's rows in it, unless a decision answered it. In the order their
- * first line was added.
+ * first line was added. 51f: `grams`, the gram bank its sums read.
  */
 export function findShoppingProposals(
+  items: readonly ShoppingItem[],
+  settings: ShoppingSettings,
+  merges: readonly ShoppingMerge[] = [],
+  grams?: GramsPerCupTable,
+): ShoppingProposal[] {
+  return withGramsTable(grams, () => proposalsFor(items, settings, merges));
+}
+
+function proposalsFor(
   items: readonly ShoppingItem[],
   settings: ShoppingSettings,
   merges: readonly ShoppingMerge[] = [],
@@ -410,9 +421,21 @@ function mergedNameOf(
  * counts (scaled, a counted name's container as the view reads it, ticked
  * ones too, as the merged row's whole amount does); the density is the
  * curated set's, else `nameKey`'s (the name the row is called), else one
- * every name shares (`gramsPerCupFor`).
+ * every name shares (`gramsPerCupFor`) — in `grams`, the gram bank (51f).
  */
 export function mergedAmountInUnit(
+  items: readonly ShoppingItem[],
+  keys: readonly string[],
+  unit: AskableUnit,
+  nameKey?: string,
+  grams?: GramsPerCupTable,
+): InUnit {
+  return withGramsTable(grams, () =>
+    amountInUnitOf(items, keys, unit, nameKey),
+  );
+}
+
+function amountInUnitOf(
   items: readonly ShoppingItem[],
   keys: readonly string[],
   unit: AskableUnit,

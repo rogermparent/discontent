@@ -7,6 +7,7 @@ import { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
 import { TagPickerProvider } from "./Tags";
 import type { TagPickerData } from "./Tags/tagPicker";
 import { RevealProvider } from "./drinkShown";
+import { SaveHoldProvider } from "./saveHold";
 
 /**
  * Owns the TanStack Form instance for the recipe form and shares it with the
@@ -43,14 +44,17 @@ export function RecipeFormShell({
     <RecipeFormProvider value={form}>
       <TagPickerProvider data={tagPicker}>
         <RevealProvider>
-          <FormShell
-            id="recipe-form"
-            className={className}
-            action={action}
-            form={form}
-          >
-            {children}
-          </FormShell>
+          {/* 51f: what Save waits for (the grams marked for review). */}
+          <SaveHoldProvider formId="recipe-form">
+            <FormShell
+              id="recipe-form"
+              className={className}
+              action={action}
+              form={form}
+            >
+              {children}
+            </FormShell>
+          </SaveHoldProvider>
         </RevealProvider>
       </TagPickerProvider>
     </RecipeFormProvider>

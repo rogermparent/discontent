@@ -3,6 +3,7 @@ import { recipeItems } from "recipe-website-common/controller/data/readRecipeIte
 import { RecipeView } from "recipe-website-common/components/View";
 import { readAllRecipeIds } from "recipe-website-common/controller/data/readRecipePages";
 import { recipeContentConfig } from "recipe-website-common/controller/recipeContentConfig";
+import { readGramsBankEntries } from "recipe-website-common/controller/data/readGramsBank";
 import { recipesByDate } from "recipe-website-common/controller/paginationConfigs";
 import { staticSlugParams } from "../../../../staticSlugParams";
 import {
@@ -29,11 +30,13 @@ export default async function Recipe({
   const { slug } = await params;
   const recipe = await recipeItems.read(slug);
   if (!recipe) notFound();
+  /* 51f: "Show grams" from the gram bank, read at build time (Df6). */
+  const gramsBank = await readGramsBankEntries().catch(() => []);
 
   return (
     <PageMain>
       <PageSection maxWidth="none" className="py-0" grow>
-        <RecipeView recipe={recipe} slug={slug} />
+        <RecipeView recipe={recipe} slug={slug} gramsBank={gramsBank} />
       </PageSection>
     </PageMain>
   );

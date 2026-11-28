@@ -55,6 +55,10 @@ import type {
   LinkedScanOptions,
   LinkedScanResult,
 } from "../../controller/curation/linkedImport";
+import type {
+  GramsRecipeOptions,
+  GramsRecipeResult,
+} from "../../controller/curation/gramsRecipe";
 import type { LinkedMode } from "../../controller/curation/linkedMode";
 import type { JobContext } from "../../controller/jobs/context";
 import type { EditResult } from "../../controller/llm/askEdit";
@@ -396,6 +400,15 @@ export interface CuratorBackend {
     options?: Pick<FillOptions, "estimate" | "uses" | "usesAll">,
     run?: SeatRun,
   ): Promise<FillResult>;
+  /**
+   * 51f: the recipe's lines given grams in the house form — a pasted list,
+   * then the gram bank, then (with `model`) the model, one line at a time;
+   * one update (one commit), or none with `dryRun`.
+   */
+  gramsForRecipe(
+    slug: string,
+    options?: GramsRecipeOptions,
+  ): Promise<GramsRecipeResult>;
   /**
    * `recipes linked --scan` (50e): recipes already here, their source pages
    * read again for the recipes they link — imported or linked, the lines

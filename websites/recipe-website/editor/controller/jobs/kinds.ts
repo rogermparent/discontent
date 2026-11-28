@@ -40,6 +40,7 @@ import type {
 import type { FillResult } from "../curation/fillRecipe";
 import type { LinkedMode, LinkedScanResult } from "../curation/linkedImport";
 import type { DetectChoicesResult } from "../llm/detectChoices";
+import type { GramsModelLine, GramsModelResult } from "../llm/gramsModel";
 import type { EditResult, EditSpec } from "../llm/askEdit";
 import type { ShoppingAskSpec } from "../llm/shoppingAsk";
 import type { ShoppingTidySpec } from "../llm/shoppingTidy";
@@ -236,6 +237,19 @@ export type JobSpec =
       outline: OutlineEntry[];
     }
   /**
+   * 51f: the edit page's "Ask the model for the rest", and `recipes grams
+   * --model` — grams for the lines a paste and the bank left, one model
+   * call a line with the gram bank as its reference table. Reads the bank,
+   * writes nothing: the form marks each answer "≈ Model" until it is kept.
+   */
+  | (CorpusSpec & {
+      kind: "grams";
+      slug: string;
+      lines: GramsModelLine[];
+      /** 47i's choice: the local model (Claude without one), or Claude. */
+      backend?: "local" | "claude";
+    })
+  /**
    * "Edit with AI" on the edit page (47i), and `recipes revise`: a request
    * ("remove the parentheses from the ingredients") or "Suggest step uses",
    * over the form's values as the spec holds them — one model call with no
@@ -312,6 +326,7 @@ export interface JobResults {
   agent: AgentJobResult;
   fill: FillResult;
   choices: DetectChoicesResult;
+  grams: GramsModelResult;
   edit: EditResult;
   "shopping-merge": ShoppingAskResult;
   "shopping-tidy": ShoppingTidyResult;
@@ -560,6 +575,20 @@ export const JOB_HANDLERS: { [K in JobKind]: Handler<K> } = {
     const { detectChoices } = await import("../llm/detectChoices");
     return detectChoices(spec.name, spec.outline, { job });
   },
+  async grams(spec, { ctx, job }) {
+    const { askGrams } = await import("../llm/gramsModel");
+    const { editModelFor } = await import("../llm/askEdit");
+    const { readGramsBank } = await import("../curation/conversions");
+    const { gramsTableOf } =
+      await import("recipe-website-common/util/gramsBank");
+    const chosen = editModelFor(spec.backend);
+    const table = gramsTableOf(await readGramsBank(contextFor(spec, ctx)));
+    return askGrams(spec.lines, {
+      ...("config" in chosen ? { config: chosen.config } : {}),
+      table,
+      job,
+    });
+  },
   async edit(spec, { job }) {
     const { runEdit } = await import("../llm/askEdit");
     return runEdit(spec, { job });
@@ -752,6 +781,8 @@ export function jobLabel(spec: JobSpec): string {
       return `fill ${spec.slug} from its source${spec.estimate === false ? " (no estimate)" : ""}${spec.uses === false ? " (no uses)" : ""}`;
     case "choices":
       return `look for alternatives in ${spec.slug}`;
+    case "grams":
+      return `weigh ${spec.lines.length} line${spec.lines.length === 1 ? "" : "s"} of ${spec.slug} in grams${spec.backend === "claude" ? " (Claude)" : ""}`;
     case "edit":
       return spec.task === "uses"
         ? `suggest what each step of ${spec.slug} uses`
@@ -828,6 +859,8 @@ export function jobResources(spec: JobSpec): string[] {
       return ["gpu"];
     /* 47i: a local model's call takes the GPU line; the Claude API none. */
     case "edit":
+    /* 51f: the same, for a line's grams. */
+    case "grams":
     /* 49b: the same, for the shopping list's asks. */
     case "shopping-merge":
       return spec.backend === "claude" ? [] : ["gpu"];

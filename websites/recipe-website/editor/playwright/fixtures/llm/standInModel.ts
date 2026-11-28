@@ -57,6 +57,8 @@ export interface StandInOptions {
   shopping?: unknown;
   /** A tidy run's answer (50b) in place of the stand-in's own. */
   tidy?: unknown;
+  /** A line's grams answer (51f) in place of the stand-in's own. */
+  grams?: unknown;
 }
 
 /**
@@ -475,6 +477,22 @@ export function shoppingTidyAnswer(user: string): {
   return { suggestions: out };
 }
 
+/**
+ * A line's grams (51f, `GRAMS_SYSTEM_PROMPT`), by rule on the line: eggs
+ * are 50 g each (the mock-up's example answer), anything else has no
+ * answer. Never a real model.
+ */
+function gramsAnswer(user: string): { grams: number | null; why: string } {
+  const line = /^Line: "(.*)"/m.exec(user)?.[1] ?? "";
+  const eggs = /^(\d+)\s+(?:large\s+)?eggs?\b/i.exec(line);
+  return eggs
+    ? {
+        grams: Number(eggs[1]) * 50,
+        why: "A large egg out of its shell is about 50 g.",
+      }
+    : { grams: null, why: "Nothing to weigh." };
+}
+
 export function standInChat(
   body: {
     model?: string;
@@ -520,6 +538,18 @@ export function standInChat(
       done: true,
       prompt_eval_count: 400,
       eval_count: 60,
+    };
+  }
+  if (system.startsWith("You weigh one ingredient line")) {
+    return {
+      model: body.model ?? "qwen3:8b",
+      message: {
+        role: "assistant",
+        content: JSON.stringify(options.grams ?? gramsAnswer(user)),
+      },
+      done: true,
+      prompt_eval_count: 120,
+      eval_count: 20,
     };
   }
   if (system.startsWith("You change a recipe the way a person asks")) {
