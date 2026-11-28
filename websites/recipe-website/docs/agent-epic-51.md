@@ -789,6 +789,10 @@ on 127.0.0.1, several servers standing for several sites.
   maybes), excludes the slow-cooker hot chocolate and the panna cotta from
   both. No scorer change was needed. Tests pin the prompt text, the guard
   and a stand-in mine run; the real check is the case runner on f and i.
+  **Real run** (qwen3.5:9b, scratch clone e9f34a56, `--intent auto`): f 3/3
+  (46–77 s) and i 3/3 (47–54 s); the criterion is now "A recipe for a few
+  servings of a hot or frothed milk drink". Regression check, e, g and h
+  once each: all 1/1.
 - **Db4, measured** (the real run). The one `llm.*` step under a
   `recipe_import` in the e runs was run 1's YouTube video dry run
   (`call_plan_12`, job `01M8GG4JD7KSYQ5FE8CRKPWHZY`): `llm.extract` on
