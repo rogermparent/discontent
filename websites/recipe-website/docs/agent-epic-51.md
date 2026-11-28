@@ -1425,4 +1425,13 @@ agent note`, the curator-drive skill and `POST /api/agent/<id>/note`. A
 
 #### Gates (51e2)
 
-See the PR.
+On `c55d68ef`, through the heavy slot:
+
+- Typecheck clean for `recipe-editor`, and `recipe-website` `tsc --noEmit`.
+- The full `vitest run`: 213 files, 4,555 tests, all passed
+  (`curatorReviewNotes` 3 new, `curatorNotes` +1).
+- Docker production, `curator-intents.spec` and `curator.spec`: 15 passed
+  (e2e and mobile projects), the new notes case included, axe clean.
+- Docker dev mode, `curator-intents.spec`: 7 passed.
+- No baseline moved or was added (the working tree stayed clean after the
+  runs); the notes case takes no screenshot.
