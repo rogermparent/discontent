@@ -280,19 +280,25 @@ async function stubRun(
   run: RunStub,
   {
     progress,
+    refuseOnce = [],
   }: {
     progress?: (read: number) => {
       lines: number;
       open: boolean;
       ended: boolean;
     };
+    /** Calls whose first decision the editor refuses (400), as it would a
+     * call another tab decided first. */
+    refuseOnce?: string[];
   } = {},
 ) {
+  const refusing = new Set(refuseOnce);
   const states = new Map<string, string>(
     run.held.map((call) => [call.id, "pending"]),
   );
   const posted: unknown[] = [];
   let reads = 0;
+  let reviewReads = 0;
   const review = (live: boolean) => ({
     calls: run.held.map((call) => ({
       id: call.id,
@@ -324,9 +330,33 @@ async function stubRun(
             decisions: { call: string; apply: boolean }[];
           };
           posted.push(body);
+          /* As `applyReview` does: every decision checked before any runs;
+           * a call not held, or already decided, is 400 and nothing runs. */
+          const refused = body.decisions.find(
+            (decision) =>
+              refusing.has(decision.call) ||
+              states.get(decision.call) !== "pending",
+          );
+          if (refused) {
+            refusing.delete(refused.call);
+            await route.fulfill({
+              status: 400,
+              json: {
+                error: {
+                  code: "validation",
+                  message: states.has(refused.call)
+                    ? `${refused.call} was already reviewed.`
+                    : `${refused.call} is not a held change of this run.`,
+                },
+              },
+            });
+            return;
+          }
           for (const decision of body.decisions) {
             states.set(decision.call, decision.apply ? "applied" : "discarded");
           }
+        } else {
+          reviewReads += 1;
         }
         await route.fulfill({ json: review(false) });
         return;
@@ -357,7 +387,7 @@ async function stubRun(
       });
     },
   );
-  return { posted, states };
+  return { posted, states, reviewReads: () => reviewReads };
 }
 
 /* Three held imports' worth of online run (two picks held, one close). */
@@ -524,6 +554,12 @@ test.describe("Curator by intent", () => {
     await expect(page.getByTestId("curator-intents-why")).toContainText(
       "You picked Search my recipes. The guess was Plan meals: it sounds like a plan.",
     );
+    /* Use the guess is beside the line, not read as the group's description. */
+    await expect(
+      row.getByRole("group", { name: "What kind of ask" }),
+    ).toHaveAccessibleDescription(
+      "You picked Search my recipes. The guess was Plan meals: it sounds like a plan.",
+    );
     await axeClean(page);
     await row
       .getByRole("button", { name: "Use the guess", exact: true })
@@ -560,6 +596,10 @@ test.describe("Curator by intent", () => {
 
     /* The run says what it took, pressed in the same row. */
     const ran = runIntents(page);
+    /* Its own name: two intent groups on one page don't share one. */
+    await expect(
+      ran.getByRole("group", { name: "This run's kind of ask" }),
+    ).toBeVisible();
     await expect(intentButton(ran, "Anything")).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -696,6 +736,43 @@ test.describe("Curator by intent", () => {
     await expect(results).toContainText("2 decided");
     await expect(cards.getByRole("button")).toHaveCount(0);
     await axeClean(page);
+  });
+
+  test("online: a refused decision says why on its card and applies nothing", async ({
+    page,
+  }) => {
+    const { posted, states, reviewReads } = await stubRun(page, ONLINE, {
+      refuseOnce: ["call_plan_6"],
+    });
+    await signInAndOpen(page, `/curator?run=${ONLINE.id}`);
+    await expect(status(page)).toHaveText("Finished", { timeout: RUN });
+    const card = page.getByTestId("curator-online-card").nth(0);
+    const importFirst = card.getByRole("button", {
+      name: "Import Easy slow cooker BBQ pulled pork",
+    });
+    await expectHydrated(importFirst);
+    await expect.poll(reviewReads).toBeGreaterThan(0);
+    const readsBefore = reviewReads();
+    await importFirst.click();
+    await expect(card.getByRole("alert")).toHaveText(
+      "call_plan_6 was already reviewed.",
+    );
+    /* Nothing applied: the card still waits, and the review is read again. */
+    await expect(card).toHaveAttribute("data-state", "pending");
+    expect(states.get("call_plan_6")).toBe("pending");
+    await expect.poll(reviewReads).toBeGreaterThan(readsBefore);
+    await expect(importFirst).toBeEnabled();
+    await axeClean(page);
+    /* A second try goes through. */
+    await importFirst.click();
+    await expect(card.getByTestId("curator-card-state")).toHaveText(
+      "Imported. Open it",
+    );
+    await expect(card.getByRole("alert")).toHaveCount(0);
+    expect(posted).toEqual([
+      { decisions: [{ call: "call_plan_6", apply: true }] },
+      { decisions: [{ call: "call_plan_6", apply: true }] },
+    ]);
   });
 
   test("mine: Fits, Maybe and Close-but-no, each with Open and Add to shopping list", async ({

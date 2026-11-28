@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Checkbox } from "@discontent/component-library/components/ui/checkbox";
 import type {
@@ -99,7 +105,8 @@ function guessLine(
   guess: { id: AgentIntent; why: string } | undefined,
   onUseGuess: () => void,
   typed: boolean,
-) {
+): { line: ReactNode; action?: ReactNode } {
+  /* Beside the line, not in the group's description (51d review 6). */
   const back = (
     <Button
       type="button"
@@ -112,38 +119,40 @@ function guessLine(
     </Button>
   );
   if (picked) {
-    return guess && guess.id !== picked ? (
-      <>
-        <span>
-          You picked <IntentName id={picked} />. The guess was{" "}
-          <IntentName id={guess.id} />: {guess.why}.
-        </span>{" "}
-        {back}
-      </>
-    ) : (
-      <>
-        <span>
-          You picked <IntentName id={picked} />.
-        </span>
-        {!guess && back}
-      </>
-    );
+    return guess && guess.id !== picked
+      ? {
+          line: (
+            <>
+              You picked <IntentName id={picked} />. The guess was{" "}
+              <IntentName id={guess.id} />: {guess.why}.
+            </>
+          ),
+          action: back,
+        }
+      : {
+          line: (
+            <>
+              You picked <IntentName id={picked} />.
+            </>
+          ),
+          ...(guess ? {} : { action: back }),
+        };
   }
   if (guess) {
-    return (
-      <span>
-        Looks like <IntentName id={guess.id} />, guessed from your words:{" "}
-        {guess.why}. Pick another to change it.
-      </span>
-    );
+    return {
+      line: (
+        <>
+          Looks like <IntentName id={guess.id} />, guessed from your words:{" "}
+          {guess.why}. Pick another to change it.
+        </>
+      ),
+    };
   }
-  return (
-    <span>
-      {typed
-        ? "No guess from these words: the model decides when you ask, or pick one."
-        : "Pick what kind of ask it is, or just ask: it guesses from your words."}
-    </span>
-  );
+  return {
+    line: typed
+      ? "No guess from these words: the model decides when you ask, or pick one."
+      : "Pick what kind of ask it is, or just ask: it guesses from your words.",
+  };
 }
 
 /** The ask's box with who answers, the newer-tools toggle and the examples. */
@@ -216,7 +225,7 @@ function AskPanel({
           <IntentRow
             value={intent ?? guess?.id}
             onPick={onPickIntent}
-            line={guessLine(intent, guess, onUseGuess, draft.trim() !== "")}
+            {...guessLine(intent, guess, onUseGuess, draft.trim() !== "")}
             testId={compact ? "curator-side-intents" : "curator-intents"}
           />
         }
@@ -402,7 +411,8 @@ export function CuratorApp({
   const reask = async (text: string, next: AgentIntent): Promise<boolean> => {
     setReasking(true);
     setReaskError(undefined);
-    const spec = poll.meta?.spec as { model?: unknown } | undefined;
+    const spec = poll.meta?.spec as
+      { model?: unknown; newerWebTools?: unknown } | undefined;
     const runModel =
       spec?.model === "local" ||
       spec?.model === "import" ||
@@ -411,6 +421,8 @@ export function CuratorApp({
         : undefined;
     const answer = await startRun(text.trim(), {
       intent: next,
+      /* 51d review 4: the run's own newer web tools come along too. */
+      ...(spec?.newerWebTools === true ? { newerWebTools: true } : {}),
       ...(runModel && (setup.models?.length ?? 0) > 1
         ? { model: runModel }
         : {}),

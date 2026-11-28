@@ -66,7 +66,12 @@ import { PromptForm } from "./PromptForm";
 import { IntentRow, settledLine } from "./IntentRow";
 import { PlanSteps } from "./PlanSteps";
 import { ReviewPanel, useReview } from "./ReviewPanel";
-import { cardCallIds, ResultCards, type CuratorShopping } from "./ResultCards";
+import {
+  cardCallIds,
+  ResultCards,
+  type CuratorShopping,
+  type Held,
+} from "./ResultCards";
 import {
   BudgetMeter,
   DidList,
@@ -409,6 +414,7 @@ function RunIntent({
           if (intent !== choice?.id) onPick?.(intent);
         }}
         line={line}
+        label="This run's kind of ask"
         disabled={!onPick || live || busy}
         testId="curator-run-intents"
       />
@@ -529,6 +535,8 @@ export function RunView({
   const ended = loaded && !live;
   const shownHere = poll.shown === id;
   const [savedTimes, setSavedTimes] = useState(0);
+  /* 51d review 2: one of the cards and the panel saves at a time. */
+  const [deciding, setDeciding] = useState<"cards" | "panel">();
   const reviewState = useReview(
     shownHere ? id : undefined,
     `${heldCount}:${ended}`,
@@ -714,6 +722,15 @@ export function RunView({
     /* The runs list (server-rendered) now says Saved, not Review. */
     router.refresh();
   };
+  /* 51d review 3: a run that held nothing has no review to wait for; one
+   * that didn't hold at all (the CLI's) wrote what its cards show. */
+  const specHold = (meta?.spec as { hold?: unknown } | undefined)?.hold;
+  const held: Held =
+    ended && heldCount === 0
+      ? specHold === true
+        ? "none"
+        : "written"
+      : "held";
   /* The cards apply their own held calls; the panel keeps the rest. */
   const consumed = outcome ? cardCallIds(outcome, review) : new Set<string>();
   const panelReview =
@@ -805,7 +822,13 @@ export function RunView({
               id={id}
               outcome={outcome}
               {...(review ? { review } : {})}
-              onReviewed={onReviewed}
+              cardReview={{
+                onReviewed,
+                onFailed: reviewState.reload,
+                blocked: deciding === "panel",
+                onBusy: (busy) => setDeciding(busy ? "cards" : undefined),
+              }}
+              held={held}
               model={model}
               live={live}
               headsUps={headsUps}
@@ -853,6 +876,9 @@ export function RunView({
           review={panelReview}
           model={model}
           onSaved={onReviewed}
+          onFailed={reviewState.reload}
+          blocked={deciding === "cards"}
+          onBusy={(busy) => setDeciding(busy ? "panel" : undefined)}
         />
       ) : null}
 

@@ -15,12 +15,17 @@ import {
  * group, the one in force pressed (`aria-pressed`), and a line under it
  * saying why — the guess from the words, the person's pick, or how a run
  * settled it. `disabled` keeps the row in view without letting it start
- * anything (a run still working).
+ * anything (a run still working). `label` names the group: the ask's row
+ * and an open run's row are two groups on one page (51d review 6), so they
+ * don't share a name. `action` (Use the guess) sits beside the line, not
+ * in the group's description.
  */
 export function IntentRow({
   value,
   onPick,
   line,
+  action,
+  label = "What kind of ask",
   disabled,
   testId = "curator-intents",
 }: {
@@ -29,6 +34,10 @@ export function IntentRow({
   onPick: (intent: AgentIntent) => void;
   /** The line under the row: why this one. */
   line: ReactNode;
+  /** A control beside the line (Use the guess), outside its description. */
+  action?: ReactNode;
+  /** The group's name. */
+  label?: string;
   disabled?: boolean;
   testId?: string;
 }) {
@@ -37,7 +46,7 @@ export function IntentRow({
   return (
     <div className="flex flex-col gap-2" data-testid={testId}>
       <p id={labelId} className="text-sm font-semibold">
-        What kind of ask
+        {label}
       </p>
       <div
         role="group"
@@ -64,13 +73,12 @@ export function IntentRow({
           );
         })}
       </div>
-      <p
-        id={lineId}
-        data-testid={`${testId}-why`}
-        className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground"
-      >
-        {line}
-      </p>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+        <p id={lineId} data-testid={`${testId}-why`}>
+          {line}
+        </p>
+        {action}
+      </div>
     </div>
   );
 }

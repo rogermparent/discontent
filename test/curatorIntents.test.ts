@@ -149,6 +149,12 @@ describe("the guess (rules)", () => {
       id: "any",
       why: "it names a page",
     });
+    /* 51d review 5: the example's address not typed yet still names a page. */
+    expect(
+      guessIntent(
+        "Import this recipe and tag it by course and cuisine: https://",
+      ),
+    ).toMatchObject({ id: "any", why: "it names a page" });
     expect(guessIntent("I bought eggs")?.id).toBe("any");
     expect(guessIntent("find new soup recipes online")?.id).toBe("online");
     expect(guessIntent("what can I make with leeks")?.id).toBe("mine");

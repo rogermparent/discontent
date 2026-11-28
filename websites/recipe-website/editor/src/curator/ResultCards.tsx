@@ -82,6 +82,14 @@ export function cardCallIds(
 
 type Tone = "good" | "warn" | "bad" | "plain" | "done";
 
+/**
+ * How a run stands on held writes, for its cards (51d review 3): `held`
+ * (they wait in the review, read once it ends), `none` (it held nothing:
+ * no review to wait for), `written` (`hold` off — the CLI's runs — so what
+ * it proposed was written as it ran).
+ */
+export type Held = "held" | "none" | "written";
+
 /** A small marked label: its colour is the border, its words the ink. */
 function Chip({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (
@@ -125,14 +133,26 @@ function GroupHeading({ children }: { children: ReactNode }) {
 const card =
   "flex min-w-0 flex-col gap-1.5 rounded-lg border border-border bg-card p-3.5";
 
+/** What a card's decision tells the run view (51d review 2). */
+export interface CardReview {
+  onReviewed: (review: CuratorReview) => void;
+  /** A decision refused: read the review again. */
+  onFailed?: () => void;
+  /** The review panel is saving: wait for it. */
+  blocked?: boolean;
+  /** A card saving, or done. */
+  onBusy?: (busy: boolean) => void;
+}
+
 /**
  * One call decided at a time through the review API (48b's): apply or
  * skip, the review as it now stands handed up, and focus moved to the
- * card's state line (its buttons are gone).
+ * card's state line (its buttons are gone). A refusal says why on the card
+ * and reads the review again (51d review 2).
  */
 function useDecide(
   id: string,
-  onReviewed: (review: CuratorReview) => void,
+  { onReviewed, onFailed, onBusy }: CardReview,
 ): {
   busy?: string;
   errors: Record<string, string>;
@@ -142,11 +162,14 @@ function useDecide(
   const [errors, setErrors] = useState<Record<string, string>>({});
   const decide = async (call: string, apply: boolean, focusId: string) => {
     setBusy(call);
+    onBusy?.(true);
     setErrors(({ [call]: _gone, ...rest }) => rest);
     const answer = await postReview(id, [{ call, apply }]);
     setBusy(undefined);
+    onBusy?.(false);
     if ("error" in answer) {
       setErrors((before) => ({ ...before, [call]: answer.error }));
+      onFailed?.();
       return;
     }
     onReviewed(answer.review);
@@ -183,6 +206,8 @@ function HeldActions({
   opened,
   live,
   loaded,
+  written,
+  blocked,
   decider,
   stateId,
 }: {
@@ -195,6 +220,10 @@ function HeldActions({
   live: boolean;
   /** The review has been read (a card with no call then holds nothing). */
   loaded: boolean;
+  /** The run held nothing (`hold` off, the CLI's): it wrote as it ran. */
+  written: boolean;
+  /** The review panel is saving. */
+  blocked: boolean;
   decider: ReturnType<typeof useDecide>;
   stateId: string;
 }) {
@@ -205,10 +234,10 @@ function HeldActions({
         id={stateId}
         tabIndex={-1}
         data-testid="curator-card-state"
-        data-state={call?.state ?? "none"}
+        data-state={call?.state ?? (written ? "written" : "none")}
         className="text-sm empty:hidden"
       >
-        {call?.state === "applied" ? (
+        {call?.state === "applied" || (!call && written) ? (
           <>
             <span className="font-semibold">{appliedWords}.</span>{" "}
             {opened ? (
@@ -252,7 +281,7 @@ function HeldActions({
             type="button"
             size="sm"
             className="min-h-9"
-            disabled={live || decider.busy !== undefined}
+            disabled={live || blocked || decider.busy !== undefined}
             aria-label={`${applyWords} ${name}`}
             onClick={() => void decider.decide(call.id, true, stateId)}
           >
@@ -263,7 +292,7 @@ function HeldActions({
             size="sm"
             variant="outline"
             className="min-h-9"
-            disabled={live || decider.busy !== undefined}
+            disabled={live || blocked || decider.busy !== undefined}
             aria-label={`Skip ${name}`}
             onClick={() => void decider.decide(call.id, false, stateId)}
           >
@@ -316,18 +345,21 @@ function OnlineResults({
   id,
   outcome,
   review,
-  onReviewed,
+  cardReview,
+  held,
   model,
   live,
 }: {
   id: string;
   outcome: OnlineOutcome;
   review?: CuratorReview;
-  onReviewed: (review: CuratorReview) => void;
+  cardReview: CardReview;
+  held: Held;
   model: string;
   live: boolean;
 }) {
-  const decider = useDecide(id, onReviewed);
+  const decider = useDecide(id, cardReview);
+  const written = held === "written";
   const prefix = useId();
   const calls = outcome.proposed.map((item) => importCallFor(review, item.url));
   const decided = calls.filter(
@@ -340,7 +372,9 @@ function OnlineResults({
         <GroupHeading>
           {outcome.proposed.length === 0
             ? `No new “${outcome.subject}” recipes`
-            : `${short ? `${outcome.proposed.length} of ${outcome.count}` : outcome.proposed.length} new, held for your OK · ${decided} decided`}
+            : written
+              ? `Imported ${short ? `${outcome.proposed.length} of ${outcome.count}` : outcome.proposed.length} new`
+              : `${short ? `${outcome.proposed.length} of ${outcome.count}` : outcome.proposed.length} new, held for your OK · ${decided} decided`}
         </GroupHeading>
         {outcome.proposed.length > 0 && <SuggestedBy model={model} />}
       </div>
@@ -348,17 +382,22 @@ function OnlineResults({
         <ul className="flex flex-col gap-2.5" aria-label="New recipes, held">
           {outcome.proposed.map((item, index) => {
             const call = calls[index];
-            const state = call ? decidedWords(call, "Imported") : undefined;
+            const state = call
+              ? decidedWords(call, "Imported")
+              : written
+                ? { tone: "done" as const, words: "Imported" }
+                : undefined;
             const slug = call?.held.slug ?? item.slug;
             const detail = call ? detailLine(call) : undefined;
             return (
               <li
                 key={item.url}
                 data-testid="curator-online-card"
-                data-state={call?.state ?? "none"}
+                data-state={call?.state ?? (written ? "written" : "none")}
                 className={cn(
                   card,
-                  call && call.state !== "pending" && "opacity-80",
+                  ((call && call.state !== "pending") || written) &&
+                    "opacity-80",
                 )}
               >
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -389,7 +428,9 @@ function OnlineResults({
                     ? { opened: { href: `/recipe/${slug}`, words: "Open it" } }
                     : {})}
                   live={live}
-                  loaded={review !== undefined}
+                  loaded={review !== undefined || held !== "held"}
+                  written={written}
+                  blocked={cardReview.blocked === true}
                   decider={decider}
                   stateId={`${prefix}-state-${index}`}
                 />
@@ -627,7 +668,8 @@ function PlanResult({
   id,
   outcome,
   review,
-  onReviewed,
+  cardReview,
+  held,
   model,
   live,
   headsUps,
@@ -636,16 +678,22 @@ function PlanResult({
   id: string;
   outcome: PlanOutcome;
   review?: CuratorReview;
-  onReviewed: (review: CuratorReview) => void;
+  cardReview: CardReview;
+  held: Held;
   model: string;
   live: boolean;
   headsUps: string[];
   known: LinkKnown;
 }) {
-  const decider = useDecide(id, onReviewed);
+  const decider = useDecide(id, cardReview);
   const stateId = useId();
+  const written = held === "written";
   const call = planCallFor(review, outcome);
-  const state = call ? decidedWords(call, "Saved") : undefined;
+  const state = call
+    ? decidedWords(call, "Saved")
+    : written
+      ? { tone: "done" as const, words: "Saved" }
+      : undefined;
   const date = planDate(outcome.date);
   if (!outcome.proposed) {
     return (
@@ -664,12 +712,14 @@ function PlanResult({
       data-testid="curator-plan-result"
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <GroupHeading>A meal plan, held for your OK</GroupHeading>
+        <GroupHeading>
+          {written ? "Made the meal plan" : "A meal plan, held for your OK"}
+        </GroupHeading>
         <SuggestedBy model={model} />
       </div>
       <article
         data-testid="curator-plan-card"
-        data-state={call?.state ?? "none"}
+        data-state={call?.state ?? (written ? "written" : "none")}
         aria-labelledby={`${stateId}-name`}
         className={cn(card, "gap-3 p-4")}
       >
@@ -759,7 +809,9 @@ function PlanResult({
               }
             : {})}
           live={live}
-          loaded={review !== undefined}
+          loaded={review !== undefined || held !== "held"}
+          written={written}
+          blocked={cardReview.blocked === true}
           decider={decider}
           stateId={stateId}
         />
@@ -778,7 +830,8 @@ export function ResultCards({
   id,
   outcome,
   review,
-  onReviewed,
+  cardReview,
+  held,
   model,
   live,
   headsUps,
@@ -788,7 +841,9 @@ export function ResultCards({
   id: string;
   outcome: IntentOutcome;
   review?: CuratorReview;
-  onReviewed: (review: CuratorReview) => void;
+  cardReview: CardReview;
+  /** How the run stands on held writes (see `Held`). */
+  held: Held;
   model: string;
   live: boolean;
   /** The answer's heads-ups (the plan's go on its card). */
@@ -811,7 +866,8 @@ export function ResultCards({
           id={id}
           outcome={outcome}
           {...(review ? { review } : {})}
-          onReviewed={onReviewed}
+          cardReview={cardReview}
+          held={held}
           model={model}
           live={live}
         />
@@ -822,7 +878,8 @@ export function ResultCards({
           id={id}
           outcome={outcome}
           {...(review ? { review } : {})}
-          onReviewed={onReviewed}
+          cardReview={cardReview}
+          held={held}
           model={model}
           live={live}
           headsUps={headsUps}

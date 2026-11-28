@@ -99,7 +99,9 @@ interface IntentRule {
  */
 const RULES: readonly IntentRule[] = [
   {
-    test: /\bhttps?:\/\/\S+/,
+    /* 51d review 5: the scheme alone, so the example "… https://" with its
+     * address still to type is the loop's too, not online's. */
+    test: /\bhttps?:\/\//,
     id: "any",
     why: "it names a page",
   },

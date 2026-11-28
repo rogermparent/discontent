@@ -55,12 +55,14 @@ export default async function CuratorPage({
   const setup = curatorSetup();
   if (!setup) notFound();
   const query = await searchParams;
-  const runs = await listCuratorRuns({ limit: RECENT_RUNS });
   /* 51d: a mine card adds a recipe to a list (50d's picker, as the recipe
-   * page's); a failed read offers the main list. */
-  const lists = await readShoppingLists(
-    curationContextFor(session.user.email),
-  ).catch(() => undefined);
+   * page's); a failed read offers the main list. Read beside the runs. */
+  const [runs, lists] = await Promise.all([
+    listCuratorRuns({ limit: RECENT_RUNS }),
+    readShoppingLists(curationContextFor(session.user.email)).catch(
+      () => undefined,
+    ),
+  ]);
   const run = param(query.run);
   const prompt = param(query.prompt);
   const show = param(query.show);
