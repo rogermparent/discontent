@@ -667,7 +667,11 @@ function itemNotes(item: PlanOutcome["items"][number]): string[] {
   if (item.how === "named") notes.push("named in your ask");
   if (item.servings) {
     notes.push(`${item.servings} serving${item.servings === 1 ? "" : "s"}`);
-    if (item.yields) notes.push(`it makes ${item.yields}`);
+    if (item.yieldHow) {
+      notes.push(
+        `${item.yieldHow}${item.yieldEstimate ? " (an estimate)" : ""}`,
+      );
+    } else if (item.yields) notes.push(`it makes ${item.yields}`);
     else if (item.yieldText) {
       notes.push(
         `its yield, “${item.yieldText}”, isn't in servings: not scaled`,

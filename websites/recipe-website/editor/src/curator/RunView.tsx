@@ -851,7 +851,11 @@ export function RunView({
         </div>
       )}
 
-      <ReviewNotes notes={poll.reviewNotes} />
+      <ReviewNotes
+        notes={poll.reviewNotes}
+        {...(id ? { id } : {})}
+        canAdd={ended && shownHere}
+      />
 
       <ol aria-label="Asks" className="flex flex-col gap-6">
         {segments.map((segment, index) => (

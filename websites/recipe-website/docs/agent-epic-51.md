@@ -99,14 +99,15 @@ Plan page and mock-up: https://claude.ai/artifact/V9LtB7eAeAf7DLaoQWpcLD.
 
 ## Roadmap
 
-| Phase | Branch                        | Size | Status        | What                                                                                                                             |
-| ----- | ----------------------------- | ---- | ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| 51a   | `agent/51a-curator-cases`     | S–M  | ✅ #366       | `RECIPE_AGENT_MODEL`; the case file and cases e–h in the harness; the `num_ctx` reload; the baseline.                            |
-| 51c   | `agent/51c-deep-search-judge` | M    | ✅ #367       | `searchRecipeText` over steps and notes (`recipe_search` `deep`), and `judgeRecipes` (fit / maybe / no).                         |
-| 51b   | `agent/51b-intents`           | L    | ✅ #368, #372 | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any. |
-| 51f   | `agent/51f-grams`             | M–L  | ⏸️ answers    | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                        |
-| 51d   | `agent/51d-curator-ui`        | L    | ✅ #370       | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                  |
-| 51e   | `agent/51e-curator-drive`     | M    | ✅ #369, #371 | Claude Code drives the curator: a skill, review notes on runs, the case runner.                                                  |
+| Phase | Branch                        | Size | Status        | What                                                                                                                                           |
+| ----- | ----------------------------- | ---- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| 51a   | `agent/51a-curator-cases`     | S–M  | ✅ #366       | `RECIPE_AGENT_MODEL`; the case file and cases e–h in the harness; the `num_ctx` reload; the baseline.                                          |
+| 51c   | `agent/51c-deep-search-judge` | M    | ✅ #367       | `searchRecipeText` over steps and notes (`recipe_search` `deep`), and `judgeRecipes` (fit / maybe / no).                                       |
+| 51b   | `agent/51b-intents`           | L    | ✅ #368, #372 | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any.               |
+| 51f   | `agent/51f-grams`             | M–L  | ⏸️ answers    | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                                      |
+| 51d   | `agent/51d-curator-ui`        | L    | ✅ #370       | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                                |
+| 51e   | `agent/51e-curator-drive`     | M    | ✅ #369, #371 | Claude Code drives the curator: a skill, review notes on runs, the case runner.                                                                |
+| 51g   | `agent/51g-confirm-changes`   | S–M  | 🟡            | Roger's confirm-page changes: preferred sources as a setting (b03), counted and whole-item yields scale (b10), Add a note on `/curator` (e06). |
 
 Order: **51a + 51c** in parallel → **51b** (with **51f** in parallel once its
 mock-up is answered) → **51d** → **51e**. At most two workers at once; one PR
@@ -713,7 +714,8 @@ on 127.0.0.1, several servers standing for several sites.
     `agent` kind's handler never passes it, as with `testing`.
   - `hostOf` keeps a URL's port, so loopback servers count as sites.
   - `llm.intent` has a `/jobs` title.
-- **Db11 — a yield counts servings, or it doesn't count** (review 1).
+- **Db11 — a yield counts servings, or it doesn't count** (review 1;
+  amended by Dg1 in 51g: counted pieces and whole items now scale).
   `yieldCount` takes a number tied to servings, people, portions, slices
   or pieces, or after "serves" / "feeds" (a number word too: "Serves
   four"), or a yield that is only a number. "1 9x13-inch pan", "4 dozen
@@ -1461,6 +1463,74 @@ On `c55d68ef`, through the heavy slot:
 - No baseline moved or was added (the working tree stayed clean after the
   runs); the notes case takes no screenshot.
 
+## 51g — Roger's confirm-page changes (S–M)
+
+Scope: Roger answered the confirm page on 2026-11-28 (34 of 38 items OK).
+Three of the four others are built here; c01 is a backlog row.
+
+### Results (51g)
+
+- **b03: the preferred sources are a setting.** `settings.json` gets
+  `preferredSources` (per instance, never sent to a mirror): an ordered list
+  of registrable domains, absent meaning today's one site (Sally's), `[]`
+  allowed. `controller/agent/preferredSourcesCheck.ts` is the browser-safe
+  check (a typed site or page URL cut to its registrable domain with
+  `paceKey`, deduped keeping the first, at most 10, `PreferredSourcesError`
+  naming what is wrong); `preferredSources.ts` reads and writes it under the
+  settings lock. `PREFERRED_SITES` is gone: `runAgentJob` reads the setting
+  and hands it to the plan as `IntentRun.preferredSites` (a test passes its
+  own through `standIn.preferredSites`). Settings → Tools has a "Preferred
+  sources" card (add, remove, move up or down, Save; the card's own
+  component and action, so the 51f Conversions section merges cleanly), and
+  `GET` / `PUT /api/settings/preferred-sources` answer `{sources, default}`
+  (session or token; `PUT` needs write scope). **No CLI command and no MCP
+  tool** (Dg3).
+- **b10: counted and whole-item yields scale (Dg1).** `yieldReading` in
+  `intents/text.ts` replaces the servings-only rule; `yieldCount` is its
+  `count`. Servings forms are read first, as before. Then counted pieces:
+  "12 cookies", "24 chocolate chip cookies", sandwiches, bars, muffins,
+  rolls, buns, biscuits, pieces, slices, squares, truffles, balls are one
+  serving each, and "N dozen" is N × 12. Then whole items from one table
+  (`WHOLE_SERVINGS` with its source in the comment: loaf 10, pie 8, tart 8,
+  cake 12, casserole 8, quiche 6, batch 8), times the count in front ("Makes
+  2 loaves" is 20); a pan or dish counts only with a size it knows
+  (`PAN_SERVINGS`: 9x13 is 12, 8x8 and 9x9 are 9, read in either order, with
+  or without "-inch"). A plan item carries `yieldHow` ("12 cookies, 1 a
+  serving", "1 9x13-inch pan, about 12 servings") and `yieldEstimate` for a
+  whole item; the plan's line and `/curator`'s card say "an estimate". A
+  yield it still can't read (a pan with no size, "a big pot") keeps the old
+  "isn't in servings" note.
+- **e06: Add a note on `/curator`.** `ReviewNotes` takes the run's `id` and
+  `canAdd` (the run has ended and is the one shown); an "Add a note" button
+  opens a form (the four verdicts as radios with `reviewNotes.ts`'s labels,
+  a textarea capped at 4,000 characters). It checks with the server's own
+  `ReviewNoteInputSchema` (so the refusal of tags reads the same), posts
+  `{verdict, text, by: "you"}` to `POST /api/agent/<id>/note`, and shows
+  the returned notes without a reload. The control is absent while a run is
+  live. With no notes the section is headed "Notes".
+- **c01:** a backlog row (steps-and-notes search on `/search`).
+
+Decisions:
+
+- **Dg1 — a yield counts servings, pieces or an estimate** (amends Db11).
+  See b10 above. Roger: "I don't see a reason why these shouldn't be
+  multiplied?"
+- **Dg2 — a whole item's servings are an estimate, and say so.** The table
+  is one object in `text.ts`, so a number is a one-line change.
+- **Dg3 — preferred sources have an HTTP route but no CLI command.** Owner
+  settings (`ytdlpPath`, `mirrors`, the theme) are exposed nowhere in the
+  CLI, which talks to content-repository state; adding a `settings`
+  command with its two backends for one key is more than the brief's "where
+  settings are already exposed". The HTTP route is the one place.
+
+#### Roger to confirm (51g)
+
+- g01: the whole-item serving table (loaf 10, pie and tart 8, cake 12,
+  casserole 8, quiche 6, batch 8; pan 9x13 12, 8x8 and 9x9 9). The batch
+  figure is a guess.
+- g02: a pan with no size, or a size not in the table, still isn't scaled.
+- g03: no CLI command for the preferred sources (Dg3).
+
 ## Close-out (2026-11-28)
 
 51a–51e are merged and deployed. 51f stays open: its mock-up and 7 questions
@@ -1520,6 +1590,16 @@ with no regressions on e, g and h.
 - Optional (x03): pre-approve `.claude/skills/curator-drive/drive.sh` so the
   skill runs without prompts.
 - The epic 50 confirm page (s01–s05, f01, g01–g04) still has no answers.
+
+### Roger's answers (2026-11-28)
+
+- The 51f mock-up: all 7 questions OK.
+- The confirm page: 34 of 38 items OK. Four came back as changes or notes:
+  b03 (preferred sources should be configurable), b10 (counted and
+  whole-item yields should scale), e06 (UI to write a note) and c01 (search
+  steps and notes from the search UI, deferred to the backlog); all four are
+  handled in 51g.
+- x02's note: "more liberal with the curator once it's more proven out".
 
 ### Left open
 

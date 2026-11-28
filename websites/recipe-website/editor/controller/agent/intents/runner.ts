@@ -75,6 +75,8 @@ export interface IntentRunOptions {
   maxCostUsd?: number;
   /** The model call; `chatJson` unless a test scripts one. */
   chat?: IntentChat;
+  /** The preferred sites the online plan asks first (51g, b03). */
+  preferredSites?: readonly string[];
   now?: Date;
   /** The wall-time budget (the loop's default). */
   maxWallMs?: number;
@@ -134,6 +136,8 @@ function contextTokensOf(config: LlmConfig, numCtx?: number): number {
 
 export class IntentRun {
   readonly ctx: CurationContext;
+  /** The preferred sites the online plan asks first, in order (51g). */
+  readonly preferredSites: readonly string[];
   readonly prompt: string;
   readonly config: LlmConfig;
   readonly job: JobContext;
@@ -169,6 +173,7 @@ export class IntentRun {
     if (this.local && options.numCtx) this.numCtx = options.numCtx;
     this.tools = new Map(options.tools.map((tool) => [tool.name, tool]));
     this.chat = options.chat ?? chatJson;
+    this.preferredSites = options.preferredSites ?? [];
     this.resultCap = Math.max(
       TOOL_RESULT_MIN_CHARS,
       Math.floor(

@@ -51,7 +51,7 @@ import {
   cleanText,
   resolveDish,
   servingsScale,
-  yieldCount,
+  yieldReading,
   type NamedRecipe,
 } from "./text";
 
@@ -151,8 +151,12 @@ export interface PlanItem {
   why?: string;
   scale?: string;
   servings?: number;
-  /** The servings its yield says (`yieldCount`), when it says them. */
+  /** The servings its yield says or counts to (`yieldReading`). */
   yields?: number;
+  /** How a yield that is not servings was read ("12 cookies, 1 a serving"). */
+  yieldHow?: string;
+  /** True when `yields` is an estimate for a whole item (Dg1). */
+  yieldEstimate?: true;
   /** Its yield as written, when that is not a count of servings. */
   yieldText?: string;
 }
@@ -170,7 +174,17 @@ export interface PlanOutcome {
    * came from (`PlanItem`'s), for `/curator`'s plan card.
    */
   items: ({ slug: string; label: string; scale?: string } & Partial<
-    Pick<PlanItem, "name" | "how" | "why" | "servings" | "yields" | "yieldText">
+    Pick<
+      PlanItem,
+      | "name"
+      | "how"
+      | "why"
+      | "servings"
+      | "yields"
+      | "yieldText"
+      | "yieldHow"
+      | "yieldEstimate"
+    >
   >)[];
   /** 51d (Dd1): the date the plan is held for (the holiday's next one). */
   date?: string;
@@ -704,10 +718,15 @@ export async function runPlan(run: IntentRun): Promise<{
       (detail) => detail.recipe,
       () => undefined,
     );
-    const yields = yieldCount(recipe?.recipeYield);
-    if (yields) item.yields = yields;
-    else {
-      /* "4 dozen cookies": not servings, so no scale (51b review 1). */
+    const reading = yieldReading(recipe?.recipeYield);
+    const yields = reading?.count;
+    if (reading) {
+      item.yields = reading.count;
+      /* "12 cookies, 1 a serving", "a 9x13 pan, about 12 servings" (Dg1). */
+      if (reading.how) item.yieldHow = cleanText(reading.how, 80);
+      if (reading.estimate) item.yieldEstimate = true;
+    } else {
+      /* A yield it still can't read: no scale (51b review 1). */
       const written = cleanText(recipe?.recipeYield, 40);
       if (written) item.yieldText = written;
     }
@@ -752,6 +771,8 @@ export async function runPlan(run: IntentRun): Promise<{
       ...(item.servings ? { servings: item.servings } : {}),
       ...(item.yields ? { yields: item.yields } : {}),
       ...(item.yieldText ? { yieldText: item.yieldText } : {}),
+      ...(item.yieldHow ? { yieldHow: item.yieldHow } : {}),
+      ...(item.yieldEstimate ? { yieldEstimate: true as const } : {}),
     })),
     ...(menu?.date ? { date: menu.date } : {}),
     unresolved,
@@ -824,9 +845,9 @@ export function planAnswer(
     lines.push("");
     for (const item of items) {
       const scaled = item.scale
-        ? ` ×${item.scale} (${item.servings} servings${item.yields ? `; it makes ${item.yields}` : ""})`
+        ? ` ×${item.scale} (${item.servings} servings${item.yieldHow ? `; ${item.yieldHow}${item.yieldEstimate ? ", an estimate" : ""}` : item.yields ? `; it makes ${item.yields}` : ""})`
         : item.servings
-          ? ` (${item.servings} servings${item.yields ? "" : item.yieldText ? `; its yield, “${item.yieldText}”, isn't in servings` : "; its yield doesn't say how many"})`
+          ? ` (${item.servings} servings${item.yieldHow ? `; ${item.yieldHow}${item.yieldEstimate ? ", an estimate" : ""}` : item.yields ? "" : item.yieldText ? `; its yield, “${item.yieldText}”, isn't in servings` : "; its yield doesn't say how many"})`
           : "";
       lines.push(
         `- ${item.label}: [${item.name.replace(/[[\]]/g, "")}](/recipe/${item.slug})${scaled}${item.why ? ` — ${item.why}` : ""}`,

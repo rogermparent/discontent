@@ -6,7 +6,7 @@
  *    the model's is bounded to 1–10; three when neither says.
  * 2. **What you have** — `recipe_search` for the subject (shown in the
  *    answer), and every recipe's name for the close-name check.
- * 3. **Search the web** — SearXNG's `web_search`: the preferred site first
+ * 3. **Search the web** — SearXNG's `web_search`: the preferred sites first
  *    (Sally's, Roger 2026-10-13; a result counts only when its title holds
  *    every word of the subject), then the open web, then a second query when
  *    too few are left.
@@ -53,8 +53,7 @@ export const ONLINE_INSPECT_MAX = 6;
 /** The count when the ask names none. */
 export const ONLINE_DEFAULT_COUNT = 3;
 
-/** Sites asked first (Roger, 2026-10-13: Sally's Baking Addiction). */
-export const PREFERRED_SITES = ["sallysbakingaddiction.com"] as const;
+/* The preferred sites are a setting now (51g, b03): `run.preferredSites`. */
 
 export const ONLINE_READ_SCHEMA = {
   type: "object",
@@ -276,7 +275,7 @@ export async function runOnline(run: IntentRun): Promise<{
     }
   };
   run.say("Searching the web, your preferred site first.");
-  for (const site of PREFERRED_SITES) {
+  for (const site of run.preferredSites) {
     await searchFor({ query: [subject, ...constraints].join(" "), site }, true);
   }
   await searchFor({ query }, false);

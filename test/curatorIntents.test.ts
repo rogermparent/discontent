@@ -67,6 +67,7 @@ import {
   servingsScale,
   titleDish,
   yieldCount,
+  yieldReading,
 } from "../websites/recipe-website/editor/controller/agent/intents/text";
 import { ORGANIZE_NOTE } from "../websites/recipe-website/editor/controller/agent/prompt";
 import {
@@ -323,16 +324,33 @@ describe("the small readings", () => {
     expect(yieldCount("6-8 people")).toBe(6);
     expect(yieldCount("One 9-inch pie, 8 slices")).toBe(8);
     expect(yieldCount("a big pot")).toBeUndefined();
-    /* What a recipe makes is not how many it serves (51b review 1). */
-    for (const made of [
-      "1 9x13-inch pan",
-      "4 dozen cookies",
-      "Makes 2 loaves",
-      "One 9-inch pie",
-      "12 cookies",
-      "1 (9-inch) tart",
-    ]) {
-      expect(yieldCount(made), made).toBeUndefined();
+    /* Counted pieces: one is one serving; N dozen is N x 12 (Dg1). */
+    expect(yieldCount("12 cookies")).toBe(12);
+    expect(yieldCount("4 dozen cookies")).toBe(48);
+    expect(yieldCount("A dozen rolls")).toBe(12);
+    expect(yieldCount("24 chocolate chip cookies")).toBe(24);
+    expect(yieldCount("12 sandwiches")).toBe(12);
+    expect(yieldReading("12 cookies")).toEqual({
+      count: 12,
+      how: "12 cookies, 1 a serving",
+      estimate: false,
+    });
+    /* Whole items: a per-kind estimate, marked as one (Dg1). */
+    expect(yieldCount("Makes 2 loaves")).toBe(20);
+    expect(yieldCount("One 9-inch pie")).toBe(8);
+    expect(yieldCount("1 (9-inch) tart")).toBe(8);
+    expect(yieldReading("1 9x13-inch pan")).toEqual({
+      count: 12,
+      how: "1 9x13-inch pan, about 12 servings",
+      estimate: true,
+    });
+    expect(yieldCount("1 (13x9 inch) baking pan")).toBe(12);
+    expect(yieldCount("an 8x8 pan")).toBe(9);
+    expect(yieldCount("1 casserole")).toBe(8);
+    expect(yieldCount("1 quiche")).toBe(6);
+    /* What it still can't read stays unscaled. */
+    for (const unread of ["a pan", "1 12x18 pan", "1 big pot", "some soup"]) {
+      expect(yieldCount(unread), unread).toBeUndefined();
     }
     expect(servingsScale(2, 8)).toBe("1/4");
     expect(servingsScale(6, 8)).toBe("3/4");
@@ -850,7 +868,8 @@ async function run(
         job,
         dir,
         testing: { allowHosts: ["127.0.0.1"] },
-        standIn,
+        /* Never the real settings: no preferred site unless a test names one. */
+        standIn: { preferredSites: [], ...standIn },
       }),
     { dir, mirror: null },
   );
@@ -962,7 +981,7 @@ describe("online: new recipes from the web (D2, D3)", () => {
     const { result, records } = await run(
       "3 pulled pork recipes I don't already have",
       "auto",
-      { chat },
+      { chat, preferredSites: ["sallysbakingaddiction.com"] },
     );
 
     expect(result.stopReason).toBe("done");
@@ -1093,6 +1112,53 @@ describe("online: new recipes from the web (D2, D3)", () => {
     }
     expect(searchQueries).toEqual([]);
     expect(calls).toEqual([]);
+  });
+
+  it("asks the preferred sites it is given, in order, and none when the list is empty (51g, b03)", async () => {
+    const searchQueries: string[] = [];
+    const search = await serve({
+      "/search": (url) => {
+        searchQueries.push(url.searchParams.get("q") ?? "");
+        return {
+          type: "application/json",
+          body: JSON.stringify({ results: [] }),
+        };
+      },
+    });
+    vi.stubEnv("RECIPE_SEARCH_URL", search);
+    await createRecipe(ctx, { name: "Pulled Pork", date: 1_000 });
+    for (const [sites, expected] of [
+      [
+        ["kingarthurbaking.com", "seriouseats.com"],
+        ["site:kingarthurbaking.com", "site:seriouseats.com"],
+      ],
+      [[], []],
+    ] as const) {
+      searchQueries.length = 0;
+      const { chat } = standInChat({
+        intent_online_ask: {
+          subject: "pulled pork",
+          count: 3,
+          constraints: [],
+        },
+      });
+      const { result } = await run(
+        "3 pulled pork recipes I don't already have",
+        "online",
+        { chat, preferredSites: sites },
+      );
+      expect(result.stopReason).toBe("done");
+      /* One search a preferred site, in order, then the open web (and its
+       * second query when too few are left). */
+      const restricted = searchQueries.filter((query) =>
+        query.includes("site:"),
+      );
+      expect(restricted).toHaveLength(expected.length);
+      expected.forEach((site, index) =>
+        expect(restricted[index]).toContain(site),
+      );
+      expect(searchQueries[expected.length]).not.toContain("site:");
+    }
   });
 
   it("says a note once", () => {
@@ -1506,11 +1572,16 @@ describe("plan: a meal plan in code, held", () => {
         scale: "3/4",
         note: "6 servings",
       },
-      /* "4 dozen cookies" is not servings: no scale (51b review 1). */
-      { recipe: "gingerbread", label: "Dessert", note: "6 servings" },
+      /* "4 dozen cookies" is 48 pieces, 1 a serving: 6 of 48 (Dg1). */
+      {
+        recipe: "gingerbread",
+        label: "Dessert",
+        scale: "1/8",
+        note: "6 servings",
+      },
     ]);
     expect(result.text).toContain(
-      "Gingerbread](/recipe/gingerbread) (6 servings; its yield, “4 dozen cookies”, isn't in servings)",
+      "Gingerbread](/recipe/gingerbread) ×1/8 (6 servings; 4 dozen cookies, 1 a serving)",
     );
   });
 });

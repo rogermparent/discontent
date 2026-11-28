@@ -26,6 +26,12 @@ import type { ContactLinks } from "recipe-website-common/config/site";
  */
 export interface Settings extends ThemedSettings {
   ytdlpPath?: string;
+  /**
+   * 51g: the sites the curator's online plan asks first, in order, as
+   * registrable domains. Absent: the default (Sally's); `[]`: none. Per
+   * instance, never sent to a mirror.
+   */
+  preferredSources?: string[];
   /** Optional owner footer note, shown in the footer colophon (PR 13). */
   footerNote?: string;
   /** Owner social/contact links rendered in the footer brand block (PR 13). */
