@@ -99,14 +99,14 @@ Plan page and mock-up: https://claude.ai/artifact/V9LtB7eAeAf7DLaoQWpcLD.
 
 ## Roadmap
 
-| Phase | Branch                        | Size | Status                                             | What                                                                                                                             |
-| ----- | ----------------------------- | ---- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| 51a   | `agent/51a-curator-cases`     | S–M  | ✅ #366                                            | `RECIPE_AGENT_MODEL`; the case file and cases e–h in the harness; the `num_ctx` reload; the baseline.                            |
-| 51c   | `agent/51c-deep-search-judge` | M    | ✅ #367                                            | `searchRecipeText` over steps and notes (`recipe_search` `deep`), and `judgeRecipes` (fit / maybe / no).                         |
-| 51b   | `agent/51b-intents`           | L    | ✅ #368                                            | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any. |
-| 51f   | `agent/51f-grams`             | M–L  | 📝                                                 | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                        |
-| 51d   | `agent/51d-curator-ui`        | L    | 🟡                                                 | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                  |
-| 51e   | `agent/51e-curator-drive`     | M    | ✅ #369 (backend; the review-note display follows) | Claude Code drives the curator: a skill, review notes on runs, the case runner.                                                  |
+| Phase | Branch                        | Size | Status        | What                                                                                                                             |
+| ----- | ----------------------------- | ---- | ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| 51a   | `agent/51a-curator-cases`     | S–M  | ✅ #366       | `RECIPE_AGENT_MODEL`; the case file and cases e–h in the harness; the `num_ctx` reload; the baseline.                            |
+| 51c   | `agent/51c-deep-search-judge` | M    | ✅ #367       | `searchRecipeText` over steps and notes (`recipe_search` `deep`), and `judgeRecipes` (fit / maybe / no).                         |
+| 51b   | `agent/51b-intents`           | L    | ✅ #368       | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any. |
+| 51f   | `agent/51f-grams`             | M–L  | 📝            | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                        |
+| 51d   | `agent/51d-curator-ui`        | L    | 🟡            | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                  |
+| 51e   | `agent/51e-curator-drive`     | M    | ✅ #369, #371 | Claude Code drives the curator: a skill, review notes on runs, the case runner.                                                  |
 
 Order: **51a + 51c** in parallel → **51b** (with **51f** in parallel once its
 mock-up is answered) → **51d** → **51e**. At most two workers at once; one PR
@@ -1412,3 +1412,51 @@ through `heavy.sh`:
 - e03: the skill runs only when you ask for the curator (De9), not for every curation ask.
 - e04: a note's markup is refused, not escaped (De3).
 - e05: `recipes agent --hold` and `--claude` are new; without `--hold` the CLI still writes at once.
+
+### Results (51e2: the notes on `/curator`)
+
+The page half of 51e, built on 51d's `/curator`.
+
+- **"Reviewed by Claude Code"** (`src/curator/ReviewNotes.tsx`) is a section
+  of a run's view, below the result cards and above the transcript's asks.
+  Notes come from the run's own API answer: `useAgentRun` keeps
+  `reviewNotes` from each read (whole on every read, none when absent).
+  - Each note shows a verdict chip (the label from `reviewNotes.ts`), who
+    wrote it, when (`When`, a `<time>` with an ISO `dateTime`: UTC from the
+    server, the reader's zone once hydrated) and its text, newest first.
+    The cases a miss became are listed as plain text.
+  - The text is a React text node in a `whitespace-pre-wrap` paragraph:
+    line breaks kept, no Markdown, no HTML, no links made from it.
+  - The heading is "Reviewed by Claude Code" when every note is Claude
+    Code's, "Your note(s)" when every note is yours, "Review notes" when
+    mixed. It is an `h2`, a sibling of "What changed".
+  - The chip is a bordered pill in `foreground` on the card, so no
+    dimming (51d's AA trap).
+- **Runs list:** `CuratorRunRow.reviewed` (set when the conversation's
+  newest run has a note by Claude Code) shows a small "Reviewed" mark on
+  the row (`curator-run-reviewed`).
+
+#### Decisions (51e2)
+
+- **De2-1 — nothing writes a note from the page.** Notes come from `recipes
+agent note`, the curator-drive skill and `POST /api/agent/<id>/note`. A
+  form is a later phase if Roger wants one.
+- **De2-2 — a note that lands after a run has ended shows on reload.** A
+  finished run stops polling, so a note written after Roger opened it shows
+  on the next visit or reload.
+- **De2-3 — the "Reviewed" mark reads the newest run only,** as De5 puts a
+  note on one run, and a row stands for the conversation's newest. A note
+  only Roger wrote does not mark the row.
+
+#### Gates (51e2)
+
+On `c55d68ef`, through the heavy slot:
+
+- Typecheck clean for `recipe-editor`, and `recipe-website` `tsc --noEmit`.
+- The full `vitest run`: 213 files, 4,555 tests, all passed
+  (`curatorReviewNotes` 3 new, `curatorNotes` +1).
+- Docker production, `curator-intents.spec` and `curator.spec`: 15 passed
+  (e2e and mobile projects), the new notes case included, axe clean.
+- Docker dev mode, `curator-intents.spec`: 7 passed.
+- No baseline moved or was added (the working tree stayed clean after the
+  runs); the notes case takes no screenshot.
