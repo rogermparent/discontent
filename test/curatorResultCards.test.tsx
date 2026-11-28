@@ -45,6 +45,14 @@ afterEach(() => {
 });
 
 const RUN = "01JD51DCARDS000000000000001";
+const USAGE = {
+  inputTokens: 1000,
+  outputTokens: 50,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  webSearchRequests: 0,
+  webFetchRequests: 0,
+};
 const T0 = "2026-11-28T10:00:00.000Z";
 
 const PIE = {
@@ -163,6 +171,7 @@ function view({
       type: "end",
       job: RUN,
       stop: "done",
+      usage: USAGE,
       model: "claude-sonnet-5",
       api: "anthropic",
       turns: 2,
@@ -196,6 +205,7 @@ function view({
       result: {
         text: answer,
         stopReason: "done",
+        usage: USAGE,
         intent,
         outcome: {
           kind: "online",

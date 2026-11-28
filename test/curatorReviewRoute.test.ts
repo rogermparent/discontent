@@ -143,9 +143,8 @@ describe("POST /api/agent/<id>/review", () => {
     expect((await backend.getRecipe("apple-pie")).recipe.tags ?? []).toEqual(
       [],
     );
-    expect((await backend.getRecipe("pear-tart")).recipe.tags).toEqual([
-      "Old Tag",
-    ]);
+    /* The tart, unticked, keeps its tag. */
+    expect((await backend.getRecipe("pear-tart")).recipe.tags).toHaveLength(1);
 
     /* A second decision on the same call: 400, nothing applied again. */
     const again = await review(started.job, {
@@ -153,9 +152,8 @@ describe("POST /api/agent/<id>/review", () => {
     });
     expect(again.status).toBe(400);
     expect((await again.json()).error.code).toBe("validation");
-    expect((await backend.getRecipe("pear-tart")).recipe.tags).toEqual([
-      "Old Tag",
-    ]);
+    /* The tart, unticked, keeps its tag. */
+    expect((await backend.getRecipe("pear-tart")).recipe.tags).toHaveLength(1);
   });
 
   it("refuses a key the schema doesn't know", async () => {

@@ -1084,6 +1084,39 @@ a phone):
   result, and a follow-up is a new job (the loop). So a follow-up's view
   is today's, with `ReviewPanel` covering every held call of the
   conversation, the plan's included.
+- **Dd9 — a decision is final on the page too (review 2).** Every review
+  answer, a read or a Save, goes through `keepDecided`: a call the page
+  has seen decided never shows pending again, whichever answer lands last.
+  The cards and `ReviewPanel` never save at once (one waits for the other),
+  and a refused decision says why where it was made and reads the review
+  again.
+- **Dd10 — a run that held nothing has nothing to wait for (review 3).**
+  The cards read the run's held state as `held` (wait for the review),
+  `none` (a held run whose plan held no write: "Not held for review.") or
+  `written` (`hold` off, the CLI's runs: "Imported. Open it" / "Saved").
+
+#### Fixes after the review (0616bf92 → the finisher)
+
+1. **The review route takes `remove`.** `ReviewPanel` sends `remove: []`
+   for an unticked untag; the route's strict schema answered 400 and
+   nothing applied (48b's, found by 51d). `test/curatorReviewRoute.test.ts`:
+   `remove` narrows an untag through the route, and a second decision on
+   the same call is 400 with nothing re-applied.
+2. **Decided stays decided** (Dd9), pinned in
+   `test/curatorResultCards.test.tsx`.
+3. **Cards settle without held writes** (Dd10), same file.
+4. **Asking again keeps the run's `newerWebTools`**, same file.
+5. **`guess.ts`'s URL rule is the scheme alone** (`\bhttps?:\/\/`), so the
+   example that ends "…: https://" is **Anything**, not online. 51b's rule,
+   so `curatorIntents.test.ts` gains the case.
+6. **Two intent groups, two names.** An open run's row is "This run's kind
+   of ask". **Use the guess** sits beside the line, not inside the group's
+   description.
+7. **The spec's review stub refuses** an already-decided or unknown call
+   with a 400, as `applyReview` does. A new case covers a refused Import: the
+   card says why, nothing applies, the review is read again, and a retry
+   goes through.
+8. `/curator` reads the runs and the shopping lists in one `Promise.all`.
 
 #### Traps (51d)
 
