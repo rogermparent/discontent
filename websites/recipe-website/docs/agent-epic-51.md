@@ -18,7 +18,7 @@
 
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded · 📝 proposed.
 
-**Now:** 51a–51e closed and deployed 2026-11-28 (`7d63da33`); see the Close-out. 51f (gram conversions) waits on its mock-up's answers (https://claude.ai/artifact/V3hxRb6AG3eaZR11zndKBd).
+**Now:** closed 2026-11-28 — all of 51a–51g merged and deployed to both machines (`356f5d3b`); see the Close-out. The confirm page's round 2 (f01–f07, g01–g03) awaits Roger.
 
 ## Context
 
@@ -104,10 +104,10 @@ Plan page and mock-up: https://claude.ai/artifact/V9LtB7eAeAf7DLaoQWpcLD.
 | 51a   | `agent/51a-curator-cases`     | S–M  | ✅ #366       | `RECIPE_AGENT_MODEL`; the case file and cases e–h in the harness; the `num_ctx` reload; the baseline.                                          |
 | 51c   | `agent/51c-deep-search-judge` | M    | ✅ #367       | `searchRecipeText` over steps and notes (`recipe_search` `deep`), and `judgeRecipes` (fit / maybe / no).                                       |
 | 51b   | `agent/51b-intents`           | L    | ✅ #368, #372 | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any.               |
-| 51f   | `agent/51f-grams`             | M–L  | ⏸️ answers    | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                                      |
+| 51f   | `agent/51f-grams`             | M–L  | ✅ #375       | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                                      |
 | 51d   | `agent/51d-curator-ui`        | L    | ✅ #370       | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                                |
 | 51e   | `agent/51e-curator-drive`     | M    | ✅ #369, #371 | Claude Code drives the curator: a skill, review notes on runs, the case runner.                                                                |
-| 51g   | `agent/51g-confirm-changes`   | S–M  | 🟡            | Roger's confirm-page changes: preferred sources as a setting (b03), counted and whole-item yields scale (b10), Add a note on `/curator` (e06). |
+| 51g   | `agent/51g-confirm-changes`   | S–M  | ✅ #374       | Roger's confirm-page changes: preferred sources as a setting (b03), counted and whole-item yields scale (b10), Add a note on `/curator` (e06). |
 
 Order: **51a + 51c** in parallel → **51b** (with **51f** in parallel once its
 mock-up is answered) → **51d** → **51e**. At most two workers at once; one PR
@@ -2071,4 +2071,23 @@ with no regressions on e, g and h.
 
 - The 51d worktree (`agent-a9c2d3c8174767006`) and the case-i worktree are
   locked by the harness; remove them once it lets go.
-- 51f, gated on its answers.
+- c01 (steps-and-notes search on `/search`) is in `backlog.md`.
+
+### After the first close-out (2026-11-28, later)
+
+- Roger answered the 51f mock-up (all 7 OK) and the confirm page's round 1
+  (34 of 38 OK; b03, b10, c01 and e06 became 51g; x02's note recorded).
+- **#374, 51g:** preferred sources as a setting, counted and whole-item
+  yields scaled, notes written from `/curator`, the `savePreset` race fixed.
+- **#375, 51f:** gram conversions — the King Arthur seed and the bank in
+  `conversions/grams.json`, paste / bank / model on the edit page with every
+  gram marked until kept (model grams never written outside the edit page),
+  Show grams on the recipe page and the export, Settings › Conversions,
+  `recipes grams`. Its review found two blockers (CLI/HTTP writing model
+  grams; a remount dropping the marks), both fixed before merge.
+- **Deploys:** the workstation and the Pi both run `356f5d3b` (indexes fresh).
+- **Vivaldi:** `pouding-chomeur-vivaldi`'s seven gram lines rewritten to the
+  house form `(<Multiplyable baseNumber="400" />g)` through the workstation
+  editor (`recipes --remote … update`, dry run first), content commit
+  `da788504`.
+- The confirm page (same URL) gained **round 2**: f01–f07 and g01–g03.

@@ -294,9 +294,14 @@ survives a cleared context.
   guess, live steps, result cards) and Claude Code driving the curator
   (51e: the `curator-drive` skill, review notes on runs, a `BUILT_FROM`
   stamp). Cases e–i pass 3/3 on qwen3.5:9b (before, on the open loop, only the
-  frother case passed). Deployed to
-  both machines 2026-11-28 (`7d63da33`); 51f (gram conversions) waits on
-  its mock-up's answers. The confirm page is linked in the Close-out.
+  frother case passed). Then 51g (Roger's confirm changes: preferred
+  sources as a setting, yields in pieces, dozens and whole items scaled,
+  notes from `/curator`) and 51f (gram conversions: a King Arthur seed and a
+  bank in `conversions/grams.json`, paste / bank / model on the edit page,
+  every gram marked until kept, Show grams, Settings › Conversions,
+  `recipes grams`). Closed and deployed to both machines 2026-11-28
+  (`356f5d3b`); the confirm page (round 2: f01–f07, g01–g03) is linked in
+  the Close-out.
   SearXNG is permanent on the workstation.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
