@@ -1065,7 +1065,20 @@ approve` writes to the real content repository, so Roger's permission
 
 #### Gates (51e)
 
-(filled after the review)
+After the review fixes, on `00007994` (origin/main unmoved at `7ca82714`),
+through `heavy.sh`:
+
+- The `recipe-editor` typecheck is clean, and so is the `recipe-website`
+  `tsc --noEmit`.
+- The full `vitest run`: 209 files, 4,533 tests, 4,532 passed
+  (`curatorNotes` 19).
+  - The one failure was `editFormRoundTrip.test.tsx`'s "cleared and
+    retyped, its headings follow once, on blur", a 5 s timeout under the
+    machine's load. It is in a module 51e doesn't touch.
+  - That file run again beside `curatorNotes`: 2 files, 36 tests passed.
+- `bash -n` is clean on `drive.sh` and `workstation-editor.sh`.
+- `drive.sh check` was dry-checked against the live workstation.
+- No Playwright: this pass has no UI.
 
 #### Roger to confirm (51e)
 
