@@ -133,16 +133,35 @@ export function withGrams(stored: string, grams: number): string | undefined {
 
 // --- 1 · the paste ----------------------------------------------------------
 
-/** "400 gbrown sugar" → 400; "1.2 kg flour" → 1200; none for "1 tbspflour". */
+/**
+ * A pasted number: "1,000" and "1,250.5" are thousands (a comma before
+ * exactly three digits, then no more), "1,5" and "1.5" a decimal.
+ */
+const PASTED_NUMBER = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d+)?(?![\d,])|\d+(?:[.,]\d+)?`;
+
+function pastedNumber(text: string): number {
+  return /^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(text)
+    ? Number(text.replace(/,/g, ""))
+    : Number(text.replace(",", "."));
+}
+
+const PASTED_LEAD = new RegExp(
+  String.raw`^\s*(${PASTED_NUMBER})\s*(kg|kilos?|kilograms?|grams?|gr|g)(?![a-z])|^\s*(${PASTED_NUMBER})\s*(kg|g)(?=[a-z]{2,})`,
+  "i",
+);
+const PASTED_ANYWHERE = new RegExp(
+  String.raw`(${PASTED_NUMBER})\s*(kg|kilos?|kilograms?|grams?|g)\b`,
+  "i",
+);
+
+/**
+ * "400 gbrown sugar" → 400; "1.2 kg flour" → 1200; "1,000 g flour" → 1000;
+ * none for "1 tbspflour".
+ */
 export function pastedGrams(line: string): number | undefined {
-  const lead =
-    /^\s*(\d+(?:[.,]\d+)?)\s*(kg|kilos?|kilograms?|grams?|gr|g)(?![a-z])|^\s*(\d+(?:[.,]\d+)?)\s*(kg|g)(?=[a-z]{2,})/i.exec(
-      line,
-    );
-  const anywhere =
-    lead ?? /(\d+(?:[.,]\d+)?)\s*(kg|kilos?|kilograms?|grams?|g)\b/i.exec(line);
+  const anywhere = PASTED_LEAD.exec(line) ?? PASTED_ANYWHERE.exec(line);
   if (!anywhere) return undefined;
-  const value = Number((anywhere[1] ?? anywhere[3]).replace(",", "."));
+  const value = pastedNumber(anywhere[1] ?? anywhere[3]);
   const unit = (anywhere[2] ?? anywhere[4]).toLowerCase();
   if (!(value > 0)) return undefined;
   return unit.startsWith("k") ? value * 1000 : value;
@@ -170,23 +189,51 @@ export interface PasteAlignment {
   unmatched: string[];
 }
 
+/** A line's own name, as written: "1 cup sugar" → "sugar" (no amount, unit or remark). */
+function ownNameOf(stored: string): string {
+  const plain = plainLine(stored)
+    .replace(/^[\s\d/.,½⅓⅔¼¾⅛⅜⅝⅞-]+(?:(?:to|-|–)\s*[\d/.,½⅓⅔¼¾⅛⅜⅝⅞]+)?/i, "")
+    .replace(VOLUME_UNIT_RE, "")
+    .replace(/^\s*(?:g|grams?|kg|oz|ounces?|lbs?|pounds?)\b/i, "");
+  return plain.split(/[,(;]|\s[-–—]\s/)[0] ?? "";
+}
+
+/** A pasted line's name, its amount and unit taken off, each way it may be glued. */
+function pastedNamesOf(pasted: string): string[] {
+  const rest = pasted.replace(/^[\s\d/.,½⅓⅔¼¾⅛⅜⅝⅞-]+/, "");
+  return [
+    rest,
+    rest.replace(VOLUME_UNIT_RE, ""),
+    rest.replace(/^\s*(?:kg|kilos?|kilograms?|grams?|gr|g)/i, ""),
+  ].map(lettersOf);
+}
+
 /**
  * Each pasted line to the recipe line it is (51f): glued text is fine
  * ("400 gbrown sugar", "2egg", "a pinchsalt", "2½ tspbaking powder"), as
  * the letters are compared alone. A pasted line matches the line whose name
  * key its letters end with — else contain — the longest such name first,
- * then the first unused line in order (Pouding Chômeur's two butters). A
- * line with no name key is never matched.
+ * then the first unused line in order (Pouding Chômeur's two butters).
+ *
+ * When no key fits (review finding 6), the line's own name is tried the
+ * same way — "200 g sugar" is "1 cup sugar", whose key is `granulated
+ * sugar` — and last the key's last word, when it is the whole pasted name
+ * — "1 tbspflour" is "1 tbsp all-purpose flour", "50 g cocoa powder" is not
+ * "2 tsp baking powder". A line with no name key is never matched.
  */
 export function alignPaste(
   lines: readonly { ingredient: string; type?: string }[],
   paste: string,
 ): PasteAlignment {
-  const names = lines.map((line) => {
+  const keys = lines.map((line) => {
     if (line.type === "heading") return "";
     const key = shoppingNameOf(line.ingredient).key;
-    return key.startsWith("text:") ? "" : lettersOf(key);
+    return key.startsWith("text:") ? "" : key;
   });
+  const ownNames = lines.map((line, index) =>
+    keys[index] ? lettersOf(ownNameOf(line.ingredient)) : "",
+  );
+  const lastWords = keys.map((key) => lettersOf(key.split(" ").at(-1) ?? ""));
   const used = new Set<number>();
   const matches: PasteMatch[] = [];
   const unmatched: string[] = [];
@@ -194,20 +241,30 @@ export function alignPaste(
     const pasted = raw.trim();
     if (!pasted) continue;
     const letters = lettersOf(pasted);
+    const ends = (name: string) => letters.endsWith(name);
+    const holds = (name: string) => letters.includes(name);
+    /* The last word only when it is the pasted name entire: "1 tbspflour"
+     * is all-purpose flour, "50 gcocoa powder" is not baking powder. */
+    const bare = pastedNamesOf(pasted);
+    const isBare = (name: string) => bare.includes(name);
+    const tiers: [readonly string[], ((name: string) => boolean)[]][] = [
+      [keys.map(lettersOf), [ends, holds]],
+      [ownNames, [ends, holds]],
+      [lastWords, [isBare]],
+    ];
     let best = -1;
-    for (const test of [
-      (name: string) => letters.endsWith(name),
-      (name: string) => letters.includes(name),
-    ]) {
-      let length = 0;
-      names.forEach((name, index) => {
-        if (!name || used.has(index) || !test(name)) return;
-        if (name.length > length) {
-          best = index;
-          length = name.length;
-        }
-      });
-      if (best >= 0) break;
+    search: for (const [names, tests] of tiers) {
+      for (const test of tests) {
+        let length = 0;
+        names.forEach((name, index) => {
+          if (!name || used.has(index) || !test(name)) return;
+          if (name.length > length) {
+            best = index;
+            length = name.length;
+          }
+        });
+        if (best >= 0) break search;
+      }
     }
     if (best < 0) {
       unmatched.push(pasted);
@@ -245,7 +302,8 @@ export function bankGramsOf(
   if (!density) return undefined;
   const grams = gramsOfVolume(read.amount, density.gramsPerCup);
   const cups = cupsOfVolume(read.amount);
-  if (grams === undefined || cups === undefined || !(grams > 0)) {
+  /* A suggestion that rounds to 0 g says nothing (review finding 7). */
+  if (grams === undefined || cups === undefined || !(roundGrams(grams) > 0)) {
     return undefined;
   }
   const perCup = Math.round(density.gramsPerCup * 10) / 10;
@@ -271,8 +329,8 @@ export type ModelGramsCheck =
 /**
  * A model's grams for a line, checked (answer 5): a number, positive, and
  * sane for the line — on a measured line, a cup of it between 3 g (popped
- * corn) and 500 g; on a counted one, at most 10 kg. Rounded as the house
- * writes grams.
+ * corn) and 500 g; on a counted one (or a measure no cup is had from), at
+ * most 10 kg. Rounded as the house writes grams.
  */
 export function checkModelGrams(
   stored: string,
@@ -287,18 +345,20 @@ export function checkModelGrams(
   if (!weighable(read)) {
     return { ok: false, problem: "this line has nothing to weigh" };
   }
-  if (read.kind === "volume" && read.amount) {
-    const cups = cupsOfVolume(read.amount);
-    if (cups && cups > 0) {
-      const perCup = value / cups;
-      if (perCup < MODEL_PER_CUP_MIN || perCup > MODEL_PER_CUP_MAX) {
-        return {
-          ok: false,
-          problem: `${Math.round(perCup)} g a cup is not a weight any ingredient has`,
-        };
-      }
+  const cups =
+    read.kind === "volume" && read.amount
+      ? cupsOfVolume(read.amount)
+      : undefined;
+  if (cups && cups > 0) {
+    const perCup = value / cups;
+    if (perCup < MODEL_PER_CUP_MIN || perCup > MODEL_PER_CUP_MAX) {
+      return {
+        ok: false,
+        problem: `${Math.round(perCup)} g a cup is not a weight any ingredient has`,
+      };
     }
   } else if (value > MODEL_COUNTED_MAX) {
+    /* A counted line, or a measure with no cup to compare against. */
     return { ok: false, problem: "more than 10 kg for this line" };
   }
   const grams = roundGrams(value);
@@ -341,7 +401,7 @@ export function gramsSuggestion(
   why: string,
 ): GramsSuggestion | undefined {
   const before = lines[line]?.ingredient;
-  if (before === undefined) return undefined;
+  if (before === undefined || !(roundGrams(grams) > 0)) return undefined;
   const after = withGrams(before, grams);
   if (after === undefined) return undefined;
   const read = readLine(before);

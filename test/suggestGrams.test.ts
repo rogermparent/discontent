@@ -134,6 +134,51 @@ describe("the paste aligner (Roger's paste on Vivaldi's lines)", () => {
     expect(pastedGrams("2egg")).toBeUndefined();
     expect(pastedGrams("2½ tspbaking powder")).toBeUndefined();
   });
+
+  /* Review finding 5: a comma before exactly three digits is thousands. */
+  it("reads a thousands comma as thousands, and a decimal comma as a decimal", () => {
+    expect(pastedGrams("1,000 g flour")).toBe(1000);
+    expect(pastedGrams("1,000 gall-purpose flour")).toBe(1000);
+    expect(pastedGrams("flour (1,250 g)")).toBe(1250);
+    expect(pastedGrams("2,500.5 g water")).toBe(2500.5);
+    expect(pastedGrams("1,5 kg flour")).toBe(1500);
+    expect(pastedGrams("0,5 kg sugar")).toBe(500);
+    const { matches } = alignPaste(
+      [{ ingredient: stored("8 cups all-purpose flour") }],
+      "1,000 g all-purpose flour",
+    );
+    expect(matches).toEqual([
+      { line: 0, pasted: "1,000 g all-purpose flour", grams: 1000 },
+    ]);
+  });
+
+  /* Review finding 6: the line's own name, then the key's last word. */
+  it("matches by the line's own name, then the key's last word, when no key fits", () => {
+    const lines = [
+      { ingredient: stored("1 cup sugar") },
+      { ingredient: stored("1 tbsp all-purpose flour") },
+      { ingredient: stored("1 cup brown sugar") },
+    ];
+    /* `1 cup sugar` keys as granulated sugar; `all-purpose flour` as all purpose flour. */
+    const { matches, unmatched } = alignPaste(
+      lines,
+      "200 g sugar\n1 tbspflour\n213 gbrown sugar",
+    );
+    expect(unmatched).toEqual([]);
+    expect(
+      matches.map((match) => [match.pasted, match.line, match.grams]),
+    ).toEqual([
+      ["200 g sugar", 0, 200],
+      ["1 tbspflour", 1, undefined],
+      ["213 gbrown sugar", 2, 213],
+    ]);
+    /* A key that fits still wins over a fallback: brown sugar first. */
+    expect(
+      alignPaste(lines, "213 gbrown sugar\n200 g sugar").matches.map(
+        (match) => match.line,
+      ),
+    ).toEqual([2, 0]);
+  });
 });
 
 describe("the house form (answer 1)", () => {
@@ -370,6 +415,39 @@ describe("the model's answer, checked (answer 5)", () => {
     expect(checkModelGrams(stored("a pinch salt"), 1)).toMatchObject({
       ok: false,
     });
+  });
+
+  /* Review finding 7: the 10 kg cap holds when no cup can be had. */
+  it("caps a measure with no cup to compare at 10 kg too", () => {
+    expect(
+      checkModelGrams("some flour", 50_000, { kind: "volume" }),
+    ).toMatchObject({ ok: false, problem: "more than 10 kg for this line" });
+    expect(checkModelGrams("some flour", 500, { kind: "volume" })).toEqual({
+      ok: true,
+      grams: 500,
+    });
+  });
+});
+
+describe("nothing that rounds to 0 g (review finding 7)", () => {
+  it("drops a bank suggestion that rounds to 0 g", () => {
+    const table = gramsTableOf([
+      { key: "saffron", name: "saffron", gramsPerCup: 3 },
+    ]);
+    /* ⅛ tsp at 3 g a cup is 0.008 g. */
+    expect(bankGramsOf(stored("1/8 tsp saffron"), table)).toBeUndefined();
+    const plan = suggestGrams([{ ingredient: stored("1/8 tsp saffron") }], {
+      table,
+    });
+    expect(plan.suggestions).toEqual([]);
+  });
+
+  it("drops a pasted 0.2 g", () => {
+    const plan = suggestGrams([{ ingredient: stored("1/8 tsp saffron") }], {
+      paste: "0.2 g saffron",
+      table: gramsTableOf(),
+    });
+    expect(plan.suggestions).toEqual([]);
   });
 });
 
