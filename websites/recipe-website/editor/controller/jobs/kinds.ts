@@ -201,7 +201,7 @@ export type JobSpec =
       /** 51b (D1): what the ask is for, or `auto` (`AgentJobSpec.intent`). */
       intent?: AgentIntentChoice;
       /** 48b: who answers, where the editor has both (`curatorModels`). */
-      model?: "local" | "claude";
+      model?: "local" | "import" | "claude";
     })
   /**
    * A recipe's gaps filled from its source (45b): the edit page's "Fill gaps

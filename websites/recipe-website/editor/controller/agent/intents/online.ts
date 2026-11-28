@@ -143,6 +143,8 @@ export interface OnlineOutcome {
   proposed: { url: string; name: string; slug?: string; why?: string }[];
   close: { url: string; name: string; like: { slug: string; name: string } }[];
   had: { url: string; slug: string; name?: string }[];
+  /** 51d (Dd1): your recipes the bank search found for the subject ("You have"). */
+  yours?: { slug: string; name: string }[];
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -236,6 +238,7 @@ export async function runOnline(run: IntentRun): Promise<{
         ? [{ slug: String(row.slug), name: String(row.name) }]
         : [],
     );
+  if (yours.length > 0) outcome.yours = yours.slice(0, 10);
   const bank: NamedRecipe[] = (await readAllRecipeRows(run.ctx)).map((row) => ({
     slug: row.slug,
     name: row.name,

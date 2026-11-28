@@ -357,20 +357,65 @@ export function AddRecipeToShopping({
   lists?: ShoppingListSummary[];
   createList?: CreateList;
 }) {
-  const router = useRouter();
   const [{ multiplier }] = useMultiplier();
   /* 45e: the reader's pick among the recipe's alternatives goes with it. */
   const choices = useChoices();
   const picks =
     choices && hasChoices(choices.choices) ? choices.path.picks : undefined;
+  /* A zero or negative scale (typed into the scaler) adds nothing: say so. */
+  const invalid = multiplier !== undefined && !(multiplier.valueOf() > 0);
+  const scale = multiplier && !invalid ? multiplier.toFraction() : undefined;
+  return (
+    <AddRecipeToList
+      recipe={recipe}
+      add={add}
+      {...(lists ? { lists } : {})}
+      {...(createList ? { createList } : {})}
+      {...(scale ? { scale } : {})}
+      {...(picks ? { picks } : {})}
+      invalid={invalid}
+    />
+  );
+}
+
+/**
+ * One recipe onto a shopping list — 50d's picker with more than one list —
+ * at the scale given: the recipe page's button above, and 51d's curator
+ * cards ("Add to shopping list", outside any `MultiplierProvider`).
+ */
+export function AddRecipeToList({
+  recipe,
+  name,
+  add,
+  lists,
+  createList,
+  scale,
+  picks,
+  invalid = false,
+  label,
+}: {
+  recipe: string;
+  /** The recipe's name: the button's accessible name says it, in a list of them. */
+  name?: string;
+  add: AddToList;
+  lists?: ShoppingListSummary[];
+  createList?: CreateList;
+  scale?: string;
+  /** 45e: the reader's picks among the recipe's alternatives. */
+  picks?: unknown;
+  /** A scale the reader typed that adds nothing (zero or below). */
+  invalid?: boolean;
+  /** The button's words ("Add to list", or "Add ×2 to list", by default). */
+  label?: string;
+}) {
+  const router = useRouter();
   const [said, setSaid] = useState<{ message: string; list: string }>();
   const [busy, setBusy] = useState(false);
   const [newName, setNewName] = useState("");
   const { chosen, setPicked, ordered } = useListChoice(lists);
   const target = targetOf(chosen, newName, lists, createList);
-  /* A zero or negative scale (typed into the scaler) adds nothing: say so. */
-  const invalid = multiplier !== undefined && !(multiplier.valueOf() > 0);
-  const scale = multiplier && !invalid ? multiplier.toFraction() : undefined;
+  const words =
+    label ?? (scale && scale !== "1" ? `Add ×${scale} to list` : "Add to list");
   return (
     <div className="flex flex-col gap-1 print:hidden">
       <div className="flex flex-wrap items-center gap-2">
@@ -380,6 +425,7 @@ export function AddRecipeToShopping({
           variant="secondary"
           className="self-start"
           disabled={busy || invalid || !target}
+          {...(name ? { "aria-label": `${words}: ${name}` } : {})}
           onClick={async () => {
             if (!target) return;
             setBusy(true);
@@ -405,7 +451,7 @@ export function AddRecipeToShopping({
           }}
         >
           <ShoppingCart aria-hidden className="size-4" />
-          {scale && scale !== "1" ? `Add ×${scale} to list` : "Add to list"}
+          {words}
         </Button>
         {lists && lists.length > 1 && (
           <ListPicker

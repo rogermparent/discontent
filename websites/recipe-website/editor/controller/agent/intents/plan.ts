@@ -164,7 +164,16 @@ export interface PlanOutcome {
   name: string;
   slug: string;
   tags: string[];
-  items: { slug: string; label: string; scale?: string }[];
+  /**
+   * The plan's dishes. 51d (Dd1): each also says how it came in, its
+   * recipe's name, why it was picked, and the servings and yield its scale
+   * came from (`PlanItem`'s), for `/curator`'s plan card.
+   */
+  items: ({ slug: string; label: string; scale?: string } & Partial<
+    Pick<PlanItem, "name" | "how" | "why" | "servings" | "yields" | "yieldText">
+  >)[];
+  /** 51d (Dd1): the date the plan is held for (the holiday's next one). */
+  date?: string;
   /** Dishes the ask named that match no recipe. */
   unresolved: string[];
   /**
@@ -737,7 +746,14 @@ export async function runPlan(run: IntentRun): Promise<{
       slug: item.slug,
       label: item.label,
       ...(item.scale ? { scale: item.scale } : {}),
+      name: item.name,
+      how: item.how,
+      ...(item.why ? { why: item.why } : {}),
+      ...(item.servings ? { servings: item.servings } : {}),
+      ...(item.yields ? { yields: item.yields } : {}),
+      ...(item.yieldText ? { yieldText: item.yieldText } : {}),
     })),
+    ...(menu?.date ? { date: menu.date } : {}),
     unresolved,
     ambiguous,
     empty,

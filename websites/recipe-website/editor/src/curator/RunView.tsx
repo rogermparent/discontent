@@ -27,6 +27,19 @@ import {
   type Conversation,
 } from "recipe-editor/controller/agent/conversation";
 import type { CuratorRunChanges } from "recipe-editor/controller/agent/curator";
+import type { CuratorReview } from "recipe-editor/controller/agent/review";
+import type { AgentJobResult } from "recipe-editor/controller/agent/job";
+import type {
+  AgentIntent,
+  IntentChoice,
+} from "recipe-editor/controller/agent/intents/guess";
+import type { IntentOutcome } from "recipe-editor/controller/agent/intents";
+import {
+  currentStep,
+  hasLivePlan,
+  planProgress,
+  type PlanStepView,
+} from "recipe-editor/controller/agent/planSteps";
 import {
   askSegments,
   callCount,
@@ -50,7 +63,15 @@ import { ChangesCard } from "./ChangesCard";
 import { CuratorMarkdown } from "./CuratorMarkdown";
 import { hostsOf, siteSlugsOf, type LinkKnown } from "./links";
 import { PromptForm } from "./PromptForm";
+import { IntentRow, settledLine } from "./IntentRow";
+import { PlanSteps } from "./PlanSteps";
 import { ReviewPanel, useReview } from "./ReviewPanel";
+import {
+  cardCallIds,
+  ResultCards,
+  type CuratorShopping,
+  type Held,
+} from "./ResultCards";
 import {
   BudgetMeter,
   DidList,
@@ -114,6 +135,8 @@ function statusLine(
   poll: AgentRunPoll,
   conversation: Conversation,
   meta: JobRecord | undefined,
+  /** 51d: an intent's plan, its step running now — said here, the page's one live line. */
+  step?: PlanStepView,
 ): string {
   if (!poll.loaded) return "Opening the run…";
   if (poll.live) {
@@ -122,6 +145,7 @@ function statusLine(
         ? `${capitalized(describeWaiting(meta.waiting))}.`
         : "Waiting to start…";
     }
+    if (step) return `Working: ${step.title.toLowerCase()}…`;
     return conversation.turns === 0
       ? "Working: the first turn…"
       : `Working: ${conversation.turns} ${conversation.turns === 1 ? "turn" : "turns"} so far…`;
@@ -194,6 +218,7 @@ function Segment({
   conversation,
   onImportAll,
   following,
+  cards = false,
 }: {
   segment: AskSegment;
   first: boolean;
@@ -205,6 +230,11 @@ function Segment({
   conversation: Conversation;
   onImportAll: (urls: string[]) => void;
   following: boolean;
+  /**
+   * 51d: an intent's plan shows its result as cards: the answer in words
+   * is folded away, and its heads-up and found pages are the cards' own.
+   */
+  cards?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const callsId = useId();
@@ -212,13 +242,14 @@ function Segment({
   const calls = callCount(segment.turns);
   const answer = segmentAnswer(segment);
   const { headsUps, rest } = splitHeadsUp(answer);
-  const found = newest
-    ? foundRecipes(answer, {
-        hosts: known.hosts,
-        ...(origin ? { origin } : {}),
-        imported: importedUrls(conversation),
-      })
-    : [];
+  const found =
+    newest && !cards
+      ? foundRecipes(answer, {
+          hosts: known.hosts,
+          ...(origin ? { origin } : {}),
+          imported: importedUrls(conversation),
+        })
+      : [];
   let lastWithTools = -1;
   segment.turns.forEach((turn, index) => {
     if (turn.tools.length + turn.serverTools.length > 0) lastWithTools = index;
@@ -288,8 +319,20 @@ function Segment({
           </ol>
         </section>
       )}
-      <HeadsUpCallout notes={headsUps} model={model} known={known} />
-      {rest && (
+      {!cards && (
+        <HeadsUpCallout notes={headsUps} model={model} known={known} />
+      )}
+      {rest && cards && (
+        <details data-testid="curator-answer-words" className="min-w-0 text-sm">
+          <summary className="inline-flex min-h-6 cursor-pointer items-center text-muted-foreground underline underline-offset-2">
+            The answer in words
+          </summary>
+          <div data-testid="curator-answer" className="mt-2 min-w-0">
+            <CuratorMarkdown known={known}>{rest}</CuratorMarkdown>
+          </div>
+        </details>
+      )}
+      {rest && !cards && (
         <div data-testid="curator-answer" className="min-w-0">
           <p className="font-mono text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
             {model}
@@ -325,6 +368,66 @@ function Segment({
 }
 
 /**
+ * A run's intent (51d, D1): what it took and how that was settled, pressed
+ * in the same row as the ask's. Another one asks the same again with it —
+ * a new run, not a follow-up — once this one has ended.
+ */
+function RunIntent({
+  choice,
+  live,
+  onPick,
+  busy,
+  error,
+}: {
+  /** Absent while the model is still deciding (`auto`, `intentPending`). */
+  choice?: IntentChoice;
+  live: boolean;
+  onPick?: (intent: AgentIntent) => void;
+  busy: boolean;
+  error?: string;
+}) {
+  const line = choice ? (
+    <>
+      <span>{settledLine(choice)}</span>{" "}
+      {onPick && (
+        <span>
+          {live
+            ? "Once it ends, pick another to ask again with it."
+            : busy
+              ? "Starting…"
+              : "Pick another to ask again with it: a new run, not a follow-up."}
+        </span>
+      )}
+    </>
+  ) : (
+    <span>
+      {live
+        ? "Deciding what kind of ask it is…"
+        : "It ended before deciding what kind of ask it was."}
+    </span>
+  );
+  return (
+    <div className="flex flex-col gap-1">
+      <IntentRow
+        value={choice?.id}
+        onPick={(intent) => {
+          if (intent !== choice?.id) onPick?.(intent);
+        }}
+        line={line}
+        label="This run's kind of ask"
+        disabled={!onPick || live || busy}
+        testId="curator-run-intents"
+      />
+      {error && (
+        <p role="alert" className="border-l-2 border-destructive pl-2 text-sm">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
  * One run (44d; variant B, 48b): its title (the conversation's first
  * ask), Ask → Working → Review, the budget moving per turn, each ask with
  * what it did, the model's heads-up and its answer, the held writes'
@@ -349,6 +452,10 @@ export function RunView({
   carryFrom,
   focusOnOpen,
   newAsk,
+  onReask,
+  reasking = false,
+  reaskError,
+  shopping,
 }: {
   id: string;
   /** Where focus goes when this run opens (a run or follow-up just started here). */
@@ -363,6 +470,15 @@ export function RunView({
   following: boolean;
   /** The "New ask" link, beside the title. */
   newAsk?: ReactNode;
+  /**
+   * 51d (D1): ask the same again with another intent — a new run, not a
+   * follow-up. Absent: the intent row only says what the run took.
+   */
+  onReask?: (prompt: string, intent: AgentIntent) => Promise<boolean>;
+  reasking?: boolean;
+  reaskError?: string;
+  /** 51d: a mine card's "Add to shopping list" (50d's picker). */
+  shopping?: CuratorShopping;
 }) {
   const router = useRouter();
   const { meta, live, loaded, records } = poll;
@@ -419,6 +535,8 @@ export function RunView({
   const ended = loaded && !live;
   const shownHere = poll.shown === id;
   const [savedTimes, setSavedTimes] = useState(0);
+  /* 51d review 2: one of the cards and the panel saves at a time. */
+  const [deciding, setDeciding] = useState<"cards" | "panel">();
   const reviewState = useReview(
     shownHere ? id : undefined,
     `${heldCount}:${ended}`,
@@ -463,7 +581,41 @@ export function RunView({
     durationMs,
     ...(conversation.end ? { end: conversation.end } : {}),
   });
-  const status = statusLine(poll, conversation, meta);
+  /* 51d (D1): the run's intent — its start record's, else its result's —
+   * and, for a plan in code on a run of its own, the plan's steps. */
+  const result = meta?.result as Partial<AgentJobResult> | undefined;
+  const runIntent: IntentChoice | undefined =
+    conversation.start?.intent ?? result?.intent;
+  const specIntent = (meta?.spec as { intent?: unknown } | undefined)?.intent;
+  const followUpRun =
+    conversation.start?.continues !== undefined || segments.length > 1;
+  const plannedIntent =
+    runIntent &&
+    !runIntent.fellBack &&
+    hasLivePlan(runIntent.id) &&
+    !followUpRun
+      ? runIntent.id
+      : undefined;
+  const outcome: IntentOutcome | undefined =
+    plannedIntent && ended && result?.outcome?.kind === plannedIntent
+      ? result.outcome
+      : undefined;
+  const steps = useMemo(
+    () =>
+      plannedIntent
+        ? planProgress(plannedIntent, poll.lines, {
+            ended,
+            done: conversation.end?.stop === "done",
+          })
+        : undefined,
+    [plannedIntent, poll.lines, ended, conversation.end?.stop],
+  );
+  const status = statusLine(
+    poll,
+    conversation,
+    meta,
+    steps ? currentStep(steps) : undefined,
+  );
   const model = modelName(conversation);
 
   /* The run ended under the reader — or, started here, had ended by its
@@ -496,7 +648,10 @@ export function RunView({
     poll.refresh();
   };
 
-  if (poll.error && records.length === 0) {
+  /* 51d: a run shown from its job's spec alone (a model still deciding
+   * its intent, no transcript record yet) keeps its view on a read error. */
+  const shownAtAll = records.length > 0 || meta !== undefined;
+  if (poll.error && !shownAtAll) {
     return (
       <section aria-labelledby="curator-run-heading">
         <h2
@@ -558,6 +713,41 @@ export function RunView({
   ];
   const maxCostUsd = conversation.start?.maxCostUsd;
   const costSoFar = conversation.costSoFar ?? conversation.end?.costEstimate;
+  /* 51d: the ask, before its first record (a guess still being settled). */
+  const specPrompt = (meta?.spec as { prompt?: unknown } | undefined)?.prompt;
+  const askText =
+    firstAsk?.text ?? (typeof specPrompt === "string" ? specPrompt : undefined);
+  const showIntent =
+    !followUpRun && (runIntent !== undefined || specIntent !== undefined);
+  const onReviewed = (next: CuratorReview) => {
+    reviewState.set(next);
+    setSavedTimes((count) => count + 1);
+    /* The runs list (server-rendered) now says Saved, not Review. */
+    router.refresh();
+  };
+  /* 51d review 3: a run that held nothing has no review to wait for; one
+   * that didn't hold at all (the CLI's) wrote what its cards show. */
+  const specHold = (meta?.spec as { hold?: unknown } | undefined)?.hold;
+  const held: Held =
+    ended && heldCount === 0
+      ? specHold === true
+        ? "none"
+        : "written"
+      : "held";
+  /* The cards apply their own held calls; the panel keeps the rest. */
+  const consumed = outcome ? cardCallIds(outcome, review) : new Set<string>();
+  const panelReview =
+    review && consumed.size > 0
+      ? {
+          ...review,
+          calls: review.calls.filter((call) => !consumed.has(call.id)),
+          pending: review.calls.filter(
+            (call) => !consumed.has(call.id) && call.state === "pending",
+          ).length,
+        }
+      : review;
+  const answerText = segments.length > 0 ? segmentAnswer(segments[0]) : "";
+  const headsUps = outcome ? splitHeadsUp(answerText).headsUps : [];
 
   return (
     <section
@@ -588,18 +778,32 @@ export function RunView({
               </>
             ) : null}
           </p>
-          {firstAsk ? (
+          {askText ? (
             <p
               data-testid="curator-ask"
               className="font-display text-xl leading-snug font-semibold tracking-tight whitespace-pre-wrap [overflow-wrap:anywhere] sm:text-2xl"
             >
               <span className="sr-only">You asked: </span>
-              {firstAsk.text}
+              {askText}
             </p>
           ) : null}
         </div>
         {newAsk ? <div className="flex shrink-0 gap-2">{newAsk}</div> : null}
       </div>
+
+      {showIntent && (
+        <RunIntent
+          choice={runIntent}
+          live={live}
+          {...(onReask && askText
+            ? {
+                onPick: (intent: AgentIntent) => void onReask(askText, intent),
+              }
+            : {})}
+          busy={reasking}
+          {...(reaskError ? { error: reaskError } : {})}
+        />
+      )}
 
       <StageStrip stages={stages} />
       <BudgetMeter
@@ -609,6 +813,42 @@ export function RunView({
         maxTurns={budget}
         live={live}
       />
+
+      {steps && (
+        <div
+          data-testid="curator-plan-split"
+          className="grid min-w-0 items-start gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]"
+        >
+          <PlanSteps steps={steps} heading="The plan" />
+          {outcome ? (
+            <ResultCards
+              id={id}
+              outcome={outcome}
+              {...(review ? { review } : {})}
+              cardReview={{
+                onReviewed,
+                onFailed: reviewState.reload,
+                blocked: deciding === "panel",
+                onBusy: (busy) => setDeciding(busy ? "cards" : undefined),
+              }}
+              held={held}
+              model={model}
+              live={live}
+              headsUps={headsUps}
+              known={known}
+              {...(shopping ? { shopping } : {})}
+            />
+          ) : live ? (
+            <p
+              data-testid="curator-results-waiting"
+              className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground"
+            >
+              The results show here as cards when it ends. Nothing is written
+              until you say so.
+            </p>
+          ) : null}
+        </div>
+      )}
 
       <ol aria-label="Asks" className="flex flex-col gap-6">
         {segments.map((segment, index) => (
@@ -623,6 +863,7 @@ export function RunView({
             {...(origin ? { origin } : {})}
             conversation={conversation}
             following={following}
+            cards={outcome !== undefined}
             onImportAll={(urls) =>
               void onFollowUp(
                 `Import these recipes:\n${urls.map((url) => `- ${url}`).join("\n")}`,
@@ -632,17 +873,15 @@ export function RunView({
         ))}
       </ol>
 
-      {review && review.calls.length > 0 ? (
+      {panelReview && panelReview.calls.length > 0 ? (
         <ReviewPanel
           id={id}
-          review={review}
+          review={panelReview}
           model={model}
-          onSaved={(next) => {
-            reviewState.set(next);
-            setSavedTimes((count) => count + 1);
-            /* The runs list (server-rendered) now says Saved, not Review. */
-            router.refresh();
-          }}
+          onSaved={onReviewed}
+          onFailed={reviewState.reload}
+          blocked={deciding === "cards"}
+          onBusy={(busy) => setDeciding(busy ? "panel" : undefined)}
         />
       ) : null}
 
@@ -696,7 +935,7 @@ export function RunView({
             </Link>
           </span>
         </div>
-        {poll.error && records.length > 0 && (
+        {poll.error && shownAtAll && (
           <p
             role="alert"
             data-testid="curator-poll-error"

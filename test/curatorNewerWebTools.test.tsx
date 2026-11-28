@@ -93,6 +93,8 @@ describe("the newer web tools toggle (46d)", () => {
     /* 48b: the page's runs hold their writes for review. */
     expect(sentBody(fetchMock)).toEqual({
       prompt: "find two cookies I don't have yet",
+      /* 51d (Dd3): no pick, so the guess: `auto`. */
+      intent: "auto",
       hold: true,
     });
     expect(pushed).toEqual(["/curator?run=01RUN"]);
@@ -109,6 +111,8 @@ describe("the newer web tools toggle (46d)", () => {
     expect(sentBody(fetchMock, 1)).toEqual({
       prompt: "find two more",
       newerWebTools: true,
+      /* 51d (Dd3): no pick, so the guess: `auto`. */
+      intent: "auto",
       hold: true,
     });
   });
@@ -122,6 +126,8 @@ describe("the newer web tools toggle (46d)", () => {
     await ask("find a braise");
     expect(sentBody(fetchMock)).toEqual({
       prompt: "find a braise",
+      /* 51d (Dd3): no pick, so the guess: `auto`. */
+      intent: "auto",
       hold: true,
     });
   });
@@ -135,6 +141,8 @@ describe("the newer web tools toggle (46d)", () => {
     await ask("find a braise");
     expect(sentBody(fetchMock)).toEqual({
       prompt: "find a braise",
+      /* 51d (Dd3): no pick, so the guess: `auto`. */
+      intent: "auto",
       hold: true,
     });
   });

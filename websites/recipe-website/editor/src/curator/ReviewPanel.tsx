@@ -15,7 +15,48 @@ import type {
 import { detailText } from "./links";
 import { ReviewThumb } from "./RunParts";
 
-/** `GET /api/agent/<id>/review`, read when `key` changes while `enabled`. */
+/**
+ * A review answer laid over the one shown (51d review 2): a decision is
+ * final (Dd6), so a later answer that still says pending — a read or a Save
+ * that left before another landed — never moves a decided call back.
+ */
+export function keepDecided(
+  before: CuratorReview | undefined,
+  next: CuratorReview,
+): CuratorReview {
+  if (!before) return next;
+  const was = new Map(before.calls.map((call) => [call.id, call]));
+  let kept = false;
+  const calls = next.calls.map((call) => {
+    const old = was.get(call.id);
+    if (call.state !== "pending" || !old || old.state === "pending") {
+      return call;
+    }
+    kept = true;
+    return old;
+  });
+  return kept
+    ? {
+        ...next,
+        calls,
+        pending: calls.filter((call) => call.state === "pending").length,
+      }
+    : next;
+}
+
+/** The state update that lays `review` over what `id` shows. */
+function laidOver(id: string, review: CuratorReview) {
+  return (before: { id: string; review: CuratorReview } | undefined) => ({
+    id,
+    review: keepDecided(before?.id === id ? before.review : undefined, review),
+  });
+}
+
+/**
+ * `GET /api/agent/<id>/review`, read when `key` changes while `enabled`,
+ * and again on `reload` (after a refused decision, 51d review 2). Every
+ * answer goes through `keepDecided`.
+ */
 export function useReview(
   id: string | undefined,
   key: string,
@@ -23,8 +64,10 @@ export function useReview(
 ): {
   review?: CuratorReview;
   set: (review: CuratorReview) => void;
+  reload: () => void;
 } {
   const [state, setState] = useState<{ id: string; review: CuratorReview }>();
+  const [reads, setReads] = useState(0);
   useEffect(() => {
     if (!id || !enabled) return;
     const controller = new AbortController();
@@ -36,15 +79,58 @@ export function useReview(
         response.ok ? (response.json() as Promise<CuratorReview>) : undefined,
       )
       .then((review) => {
-        if (review && !controller.signal.aborted) setState({ id, review });
+        if (review && !controller.signal.aborted)
+          setState(laidOver(id, review));
       })
       .catch(() => undefined);
     return () => controller.abort();
-  }, [id, key, enabled]);
+  }, [id, key, enabled, reads]);
   return {
     ...(state && state.id === id ? { review: state.review } : {}),
-    set: (review) => id && setState({ id, review }),
+    set: (review) => {
+      if (id) setState(laidOver(id, review));
+    },
+    reload: () => setReads((count) => count + 1),
   };
+}
+
+/**
+ * `POST /api/agent/<id>/review` (48b): apply or skip held calls. The
+ * review as it now stands, or the editor's own words for why not. 51d's
+ * result cards decide one call at a time through it.
+ */
+export async function postReview(
+  id: string,
+  decisions: {
+    call: string;
+    apply: boolean;
+    add?: string[];
+    remove?: string[];
+  }[],
+): Promise<{ review: CuratorReview } | { error: string }> {
+  try {
+    const response = await fetch(
+      `/api/agent/${encodeURIComponent(id)}/review`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decisions }),
+      },
+    );
+    const body = (await response.json().catch(() => undefined)) as
+      (CuratorReview & { error?: { message?: string } }) | undefined;
+    if (!response.ok || !body?.calls) {
+      return {
+        error:
+          body?.error?.message ?? `The editor answered ${response.status}.`,
+      };
+    }
+    return { review: body };
+  } catch (failure) {
+    return {
+      error: `Couldn't reach the editor: ${failure instanceof Error ? failure.message : String(failure)}`,
+    };
+  }
 }
 
 /** The recipes a held `term_assign` would change: not already tagged. */
@@ -66,7 +152,7 @@ function termOf(call: CuratorReviewCall): string {
 }
 
 /** One held call's detail line, in words. */
-function detailLine(call: CuratorReviewCall): string | undefined {
+export function detailLine(call: CuratorReviewCall): string | undefined {
   const input = (call.input ?? {}) as Record<string, unknown>;
   const held = call.held;
   switch (call.tool) {
@@ -197,12 +283,21 @@ export function ReviewPanel({
   review,
   model,
   onSaved,
+  onFailed,
+  blocked = false,
+  onBusy,
 }: {
   id: string;
   review: CuratorReview;
   /** Who suggested them, by name ("Claude Sonnet 5"). */
   model: string;
   onSaved: (review: CuratorReview) => void;
+  /** A Save refused: read the review again (51d review 2). */
+  onFailed?: () => void;
+  /** A result card is saving: wait for it (51d review 2). */
+  blocked?: boolean;
+  /** This panel saving, or done. */
+  onBusy?: (busy: boolean) => void;
 }) {
   const pending = review.calls.filter((call) => call.state === "pending");
   /* Unticked calls, and unticked recipes of a tagging call ("call\0slug"). */
@@ -243,6 +338,7 @@ export function ReviewPanel({
 
   const send = async (applyTicked: boolean) => {
     setSaving(true);
+    onBusy?.(true);
     setError(undefined);
     const decisions = pending.map((call) => {
       if (!applyTicked) return { call: call.id, apply: false };
@@ -266,22 +362,13 @@ export function ReviewPanel({
       return { call: call.id, apply: !off.has(call.id) };
     });
     try {
-      const response = await fetch(
-        `/api/agent/${encodeURIComponent(id)}/review`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ decisions }),
-        },
-      );
-      const body = (await response.json().catch(() => undefined)) as
-        (CuratorReview & { error?: { message?: string } }) | undefined;
-      if (!response.ok || !body?.calls) {
-        setError(
-          body?.error?.message ?? `The editor answered ${response.status}.`,
-        );
+      const answer = await postReview(id, decisions);
+      if ("error" in answer) {
+        setError(answer.error);
+        onFailed?.();
         return;
       }
+      const body = answer.review;
       const decided = body.calls.filter((call) =>
         pending.some((before) => before.id === call.id),
       );
@@ -299,12 +386,9 @@ export function ReviewPanel({
       );
       onSaved(body);
       requestAnimationFrame(() => statusRef.current?.focus());
-    } catch (failure) {
-      setError(
-        `Couldn't reach the editor: ${failure instanceof Error ? failure.message : String(failure)}`,
-      );
     } finally {
       setSaving(false);
+      onBusy?.(false);
     }
   };
 
@@ -553,7 +637,7 @@ export function ReviewPanel({
               <Button
                 type="button"
                 className="min-h-11"
-                disabled={saving}
+                disabled={saving || blocked}
                 onClick={() => void send(true)}
               >
                 {saving
@@ -567,7 +651,7 @@ export function ReviewPanel({
                   type="button"
                   variant="ghost"
                   className="min-h-11"
-                  disabled={saving}
+                  disabled={saving || blocked}
                   onClick={() => void send(false)}
                 >
                   Skip all

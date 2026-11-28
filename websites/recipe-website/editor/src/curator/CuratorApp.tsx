@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Checkbox } from "@discontent/component-library/components/ui/checkbox";
 import type {
@@ -10,7 +16,16 @@ import type {
   CuratorRunRow,
   CuratorSetup,
 } from "recipe-editor/controller/agent/curator";
+import {
+  guessIntent,
+  type AgentIntent,
+  type AgentIntentChoice,
+} from "recipe-editor/controller/agent/intents/guess";
+import { planPreview } from "recipe-editor/controller/agent/planSteps";
+import { IntentName, IntentRow } from "./IntentRow";
 import { ModelChoice } from "./ModelChoice";
+import { PlanSteps } from "./PlanSteps";
+import type { CuratorShopping } from "./ResultCards";
 import { PromptForm } from "./PromptForm";
 import { RecentRuns, type RunFilter } from "./RecentRuns";
 import { RunView } from "./RunView";
@@ -18,14 +33,17 @@ import { StageStrip } from "./RunParts";
 import { useAgentRun } from "./useAgentRun";
 
 /**
- * Asks that show what the curator does, true to its tools: a search of the
- * web and the corpus, an import that tags, and a corpus read that tags.
- * The import's box ends at the URL, for the person to paste one.
+ * Asks that show what the curator does, one per intent (51d, the mock-up's
+ * two first): new recipes from the web, which of yours fit, a holiday's
+ * plan, a tagging read, and an import (the open loop) whose box ends at the
+ * URL, for the person to paste one.
  */
 export const CURATOR_EXAMPLES = [
-  "Find three pork shoulder braises I don't have yet",
-  "Import this recipe and tag it by course and cuisine: https://",
+  "3 pulled pork recipes I don't already have",
+  "Recipes that work well in small batches with a milk frother",
+  "Plan Christmas dinner from its menu",
   "Which of my recipes use gochujang? Tag the Korean ones korean",
+  "Import this recipe and tag it by course and cuisine: https://",
 ] as const;
 
 /**
@@ -39,12 +57,15 @@ export async function startRun(
     runId,
     newerWebTools,
     model,
+    intent,
   }: {
     runId?: string;
     /** 46d: Claude's newer web tools for this run (a follow-up keeps its own). */
     newerWebTools?: boolean;
     /** 48b: who answers, where the editor has both (a follow-up keeps its own). */
     model?: CuratorModelOption["id"];
+    /** 51d (D1): the intent picked, or `auto` for the guess; a follow-up none. */
+    intent?: AgentIntentChoice;
   } = {},
 ): Promise<{ job: string } | { error: string }> {
   try {
@@ -56,6 +77,7 @@ export async function startRun(
         ...(runId ? { runId } : {}),
         ...(newerWebTools ? { newerWebTools: true } : {}),
         ...(model ? { model } : {}),
+        ...(intent ? { intent } : {}),
         hold: true,
       }),
     });
@@ -70,6 +92,67 @@ export async function startRun(
       error: `Couldn't reach the editor: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
+}
+
+/**
+ * The line under the intent row (51d, D1; the mock-up's): the guess from
+ * the words and why, or the person's pick beside the guess, with a way
+ * back to the guess. Read from `guess.ts`, the server's own rules, so the
+ * page and the run never disagree; nothing is stored (no `localStorage`).
+ */
+function guessLine(
+  picked: AgentIntent | undefined,
+  guess: { id: AgentIntent; why: string } | undefined,
+  onUseGuess: () => void,
+  typed: boolean,
+): { line: ReactNode; action?: ReactNode } {
+  /* Beside the line, not in the group's description (51d review 6). */
+  const back = (
+    <Button
+      type="button"
+      variant="link"
+      size="sm"
+      className="h-auto min-h-6 px-0"
+      onClick={onUseGuess}
+    >
+      {guess ? "Use the guess" : "Let it guess"}
+    </Button>
+  );
+  if (picked) {
+    return guess && guess.id !== picked
+      ? {
+          line: (
+            <>
+              You picked <IntentName id={picked} />. The guess was{" "}
+              <IntentName id={guess.id} />: {guess.why}.
+            </>
+          ),
+          action: back,
+        }
+      : {
+          line: (
+            <>
+              You picked <IntentName id={picked} />.
+            </>
+          ),
+          ...(guess ? {} : { action: back }),
+        };
+  }
+  if (guess) {
+    return {
+      line: (
+        <>
+          Looks like <IntentName id={guess.id} />, guessed from your words:{" "}
+          {guess.why}. Pick another to change it.
+        </>
+      ),
+    };
+  }
+  return {
+    line: typed
+      ? "No guess from these words: the model decides when you ask, or pick one."
+      : "Pick what kind of ask it is, or just ask: it guesses from your words.",
+  };
 }
 
 /** The ask's box with who answers, the newer-tools toggle and the examples. */
@@ -88,6 +171,9 @@ function AskPanel({
   inputRef,
   compact,
   onExample,
+  intent,
+  onPickIntent,
+  onUseGuess,
 }: {
   setup: CuratorSetup;
   draft: string;
@@ -104,10 +190,15 @@ function AskPanel({
   /** In the side column beside an open run: no examples. */
   compact: boolean;
   onExample: (example: string) => void;
+  /** 51d: the intent the person picked; none, the guess from the words. */
+  intent: AgentIntent | undefined;
+  onPickIntent: (intent: AgentIntent) => void;
+  onUseGuess: () => void;
 }) {
   const chosen =
     setup.models?.find((option) => option.id === model) ?? setup.models?.[0];
   const newer = chosen ? chosen.newerWebTools : setup.newerWebTools;
+  const guess = draft.trim() ? guessIntent(draft) : undefined;
   return (
     <section
       aria-label={compact ? "New ask" : undefined}
@@ -130,6 +221,14 @@ function AskPanel({
         rows={compact ? 3 : 4}
         placeholder="Find, fetch, import, tag — in plain words"
         {...(startError ? { error: startError } : {})}
+        beforeForm={
+          <IntentRow
+            value={intent ?? guess?.id}
+            onPick={onPickIntent}
+            {...guessLine(intent, guess, onUseGuess, draft.trim() !== "")}
+            testId={compact ? "curator-side-intents" : "curator-intents"}
+          />
+        }
         beforeSubmit={
           <ModelChoice setup={setup} value={model} onChange={setModel} />
         }
@@ -208,6 +307,7 @@ export function CuratorApp({
   filter,
   maxPrompt,
   maxTurns,
+  shopping,
 }: {
   setup: CuratorSetup;
   runs: CuratorRunRow[];
@@ -216,6 +316,8 @@ export function CuratorApp({
   filter?: RunFilter;
   maxPrompt: number;
   maxTurns: number;
+  /** 51d: a mine card's "Add to shopping list" (50d's picker, the lists). */
+  shopping?: CuratorShopping;
 }) {
   const router = useRouter();
   const [draft, setDraft] = useState(prompt ?? "");
@@ -227,6 +329,10 @@ export function CuratorApp({
   const [model, setModel] = useState<CuratorModelOption["id"] | undefined>(
     setup.models?.[0]?.id,
   );
+  /* 51d (D1): the intent picked for the next ask; none, the guess (`auto`). */
+  const [intent, setIntent] = useState<AgentIntent>();
+  const [reasking, setReasking] = useState(false);
+  const [reaskError, setReaskError] = useState<string>();
   const [following, setFollowing] = useState(false);
   const [followError, setFollowError] = useState<string>();
   /* A follow-up just started from this run: keep it on screen meanwhile. */
@@ -267,6 +373,9 @@ export function CuratorApp({
         (chosen ? chosen.newerWebTools : setup.newerWebTools) && newerWebTools,
       /* Only where there is a choice: else the editor's own model. */
       ...((setup.models?.length ?? 0) > 1 && model ? { model } : {}),
+      /* 51d: the pick, else the guess: `auto`, so the server's rules (the
+       * same `guess.ts`) or its model decide, never a second copy here. */
+      intent: intent ?? "auto",
     });
     setStarting(false);
     if ("error" in answer) {
@@ -274,6 +383,7 @@ export function CuratorApp({
       return;
     }
     setDraft("");
+    setIntent(undefined);
     setFocusFor({ id: answer.job, where: "heading" });
     router.push(`/curator?run=${answer.job}`);
   };
@@ -296,8 +406,41 @@ export function CuratorApp({
     return true;
   };
 
+  /* 51d (D1): the same ask again with another intent: a new run on the
+   * same model, not a follow-up (a follow-up is the loop, 51b Db2). */
+  const reask = async (text: string, next: AgentIntent): Promise<boolean> => {
+    setReasking(true);
+    setReaskError(undefined);
+    const spec = poll.meta?.spec as
+      { model?: unknown; newerWebTools?: unknown } | undefined;
+    const runModel =
+      spec?.model === "local" ||
+      spec?.model === "import" ||
+      spec?.model === "claude"
+        ? spec.model
+        : undefined;
+    const answer = await startRun(text.trim(), {
+      intent: next,
+      /* 51d review 4: the run's own newer web tools come along too. */
+      ...(spec?.newerWebTools === true ? { newerWebTools: true } : {}),
+      ...(runModel && (setup.models?.length ?? 0) > 1
+        ? { model: runModel }
+        : {}),
+    });
+    setReasking(false);
+    if ("error" in answer) {
+      setReaskError(answer.error);
+      return false;
+    }
+    setFocusFor({ id: answer.job, where: "heading" });
+    router.push(`/curator?run=${answer.job}`);
+    return true;
+  };
+
   const fill = (example: string) => {
     setDraft(example);
+    /* 51d: an example is guessed afresh, as the mock-up does. */
+    setIntent(undefined);
     const input = inputRef.current;
     if (!input) return;
     input.focus();
@@ -322,6 +465,9 @@ export function CuratorApp({
       inputRef={inputRef}
       compact={compact}
       onExample={fill}
+      intent={intent}
+      onPickIntent={setIntent}
+      onUseGuess={() => setIntent(undefined)}
     />
   );
   const waiting = runs.filter((row) => row.review > 0).length;
@@ -349,8 +495,11 @@ export function CuratorApp({
         </Button>
       </header>
 
+      {/* Its own height, not stretched to the side column's: the recent
+       * runs grow with every run, and the column (and its screenshot)
+       * would grow with them (51d, CI's curator-finished). */}
       <div
-        className="flex min-w-0 flex-col gap-6 [grid-area:main]"
+        className="flex min-w-0 flex-col gap-6 self-start [grid-area:main]"
         data-testid="curator-main"
       >
         {run ? (
@@ -364,6 +513,10 @@ export function CuratorApp({
             {...(carryFrom ? { carryFrom } : {})}
             {...(focusFor?.id === run ? { focusOnOpen: focusFor.where } : {})}
             {...(followError ? { followError } : {})}
+            onReask={reask}
+            reasking={reasking}
+            {...(reaskError ? { reaskError } : {})}
+            {...(shopping ? { shopping } : {})}
             newAsk={
               <Button asChild variant="outline" size="sm">
                 <Link href="/curator">New ask</Link>
@@ -373,6 +526,16 @@ export function CuratorApp({
         ) : (
           <>
             {ask(false)}
+            <PlanSteps
+              steps={planPreview(
+                intent ??
+                  (draft.trim() ? guessIntent(draft)?.id : undefined) ??
+                  "any",
+              )}
+              heading="What it will do"
+              headingLevel={2}
+              preview
+            />
             <section
               aria-labelledby="curator-how"
               className="flex flex-col gap-2"

@@ -735,7 +735,20 @@ test.describe("Curator", () => {
       const box = await button.boundingBox();
       expect(box?.height ?? 0).toBeGreaterThanOrEqual(24);
     }
+    /* 51d: the idle page (the intent row) now runs past the fold, and the
+     * pinned tab bar covers whatever straddles it, which axe's target-size
+     * counts (41f's Tf2): release the chrome for the sweep, then put it back. */
+    const chrome = await page.evaluate(() => {
+      const was = document.documentElement.dataset.stickyChrome;
+      document.documentElement.dataset.stickyChrome = "off";
+      return was;
+    });
     await axeClean(page);
+    await page.evaluate((was) => {
+      if (was === undefined)
+        delete document.documentElement.dataset.stickyChrome;
+      else document.documentElement.dataset.stickyChrome = was;
+    }, chrome);
 
     await start(page, "Find a pork shoulder braise I don't have yet");
     await expect(status(page)).toHaveText("Finished", { timeout: RUN });

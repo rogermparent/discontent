@@ -149,6 +149,12 @@ describe("the guess (rules)", () => {
       id: "any",
       why: "it names a page",
     });
+    /* 51d review 5: the example's address not typed yet still names a page. */
+    expect(
+      guessIntent(
+        "Import this recipe and tag it by course and cuisine: https://",
+      ),
+    ).toMatchObject({ id: "any", why: "it names a page" });
     expect(guessIntent("I bought eggs")?.id).toBe("any");
     expect(guessIntent("find new soup recipes online")?.id).toBe("online");
     expect(guessIntent("what can I make with leeks")?.id).toBe("mine");
@@ -981,6 +987,10 @@ describe("online: new recipes from the web (D2, D3)", () => {
       count: 3,
       close: [{ url: at.proper, like: { slug: "pulled-pork" } }],
       had: [{ url: at.mine, slug: "pork-bowls" }],
+      /* 51d (Dd1): "You have", for the page's cards. */
+      yours: expect.arrayContaining([
+        expect.objectContaining({ slug: "pulled-pork" }),
+      ]),
     });
     expect(result.text).toContain("held for your OK");
     expect(result.text).toContain("**Close to yours**");
@@ -1159,6 +1169,23 @@ describe("mine: which of my recipes fit (D8, D9)", () => {
       fit: expect.arrayContaining(["london-fog", "hot-chocolate"]),
       no: ["slow-cooker-hot-chocolate"],
     });
+    /* 51d (Dd1): each judged recipe's name and why, and how many were read. */
+    const mine = result.outcome as {
+      checked?: number;
+      reasons?: Record<string, { name: string; why: string }>;
+    };
+    expect(mine.checked).toBeGreaterThanOrEqual(3);
+    expect(Object.keys(mine.reasons ?? {})).toEqual(
+      expect.arrayContaining([
+        "london-fog",
+        "hot-chocolate",
+        "slow-cooker-hot-chocolate",
+      ]),
+    );
+    expect(mine.reasons?.["london-fog"]).toMatchObject({
+      name: expect.any(String),
+      why: expect.any(String),
+    });
     expect(result.text).toContain("**Fits**");
     expect(result.text).toContain("**Close, but no:**");
     /* Case f's scorer passes on the plan's fits. */
@@ -1277,6 +1304,28 @@ describe("plan: a meal plan in code, held", () => {
     ).toBe(true);
     expect(result.text).toContain("held for your OK");
     expect(result.text).toContain("×1/4 (2 servings; it makes 8)");
+    /* 51d (Dd1): the outcome carries what the plan card shows. */
+    expect(result.outcome).toMatchObject({
+      kind: "plan",
+      tags: ["thanksgiving"],
+      date: group.date,
+      items: [
+        { slug: "green-beans", label: "Side", how: "picked" },
+        {
+          slug: "cranberry-curd-tart",
+          label: "Dessert",
+          scale: "1/4",
+          how: "named",
+          servings: 2,
+          yields: 8,
+        },
+      ],
+    });
+    expect(
+      (result.outcome as { items: { name?: string }[] }).items.every(
+        (item) => typeof item.name === "string" && item.name.length > 0,
+      ),
+    ).toBe(true);
     /* Nothing written. */
     await expect(
       createLocalBackend({ contentDirectory, inProcess: true }).getGroup(

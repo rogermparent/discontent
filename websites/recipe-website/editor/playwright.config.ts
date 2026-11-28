@@ -115,6 +115,10 @@ export default defineConfig({
        * curator spec expects it shown disabled. */
       RECIPE_LLM_CLAUDE_API_KEY: "",
       RECIPE_LLM_CLAUDE_MODEL: "",
+      /* 51d: nor the curator's own local model — the picker would offer a
+       * second local model; `curator-intents.spec` turns one on through
+       * `/settings/test-llm?…&agent=`. */
+      RECIPE_AGENT_MODEL: "",
       /* 38e: nor a vision model — `photo-import.spec` turns one on through
        * `/settings/test-llm?vision=`, read by its loopback stand-in. */
       RECIPE_LLM_VISION_MODEL: "",

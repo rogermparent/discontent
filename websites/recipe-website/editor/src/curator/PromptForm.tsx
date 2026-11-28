@@ -30,6 +30,7 @@ export function PromptForm({
   inputRef,
   testId,
   rows = 3,
+  beforeForm,
   beforeSubmit,
   children,
 }: {
@@ -46,6 +47,8 @@ export function PromptForm({
   inputRef?: RefObject<HTMLTextAreaElement | null>;
   testId: string;
   rows?: number;
+  /** Above the box's label (51d: what kind of ask). */
+  beforeForm?: ReactNode;
   /** Between the box and its button (48b: who answers). */
   beforeSubmit?: ReactNode;
   /** Below the box, beside the button: the examples. */
@@ -77,6 +80,7 @@ export function PromptForm({
         submit();
       }}
     >
+      {beforeForm}
       <label htmlFor={id} className="text-sm font-semibold">
         {label}
       </label>

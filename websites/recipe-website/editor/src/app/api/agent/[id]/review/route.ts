@@ -6,10 +6,10 @@
  *   what its dry run said, how it stands (`pending`, `applied`,
  *   `discarded`, `failed`), and for a `term_assign` each recipe it adds as
  *   the content stands now (and the tagging post-check, 48a). Read scope.
- * - `POST` `{decisions: [{call, apply, add?}]}` — Save: apply the ticked
- *   (`apply: true`) in the model's order, each as its own commit, and skip
- *   the rest; `add` narrows a `term_assign` to the recipes left ticked
- *   (never wider than the model asked). Answers the review as it now
+ * - `POST` `{decisions: [{call, apply, add?, remove?}]}` — Save: apply the
+ *   ticked (`apply: true`) in the model's order, each as its own commit, and
+ *   skip the rest; `add` and `remove` narrow a `term_assign` to the recipes
+ *   left ticked (never wider than the model asked). Answers the review as it now
  *   stands. A call already decided, or not this conversation's, is 400
  *   `validation`; a run still working is 409 `job_live`. Write scope: a
  *   signed-in session or a write token.
@@ -35,6 +35,8 @@ const ReviewRequestSchema = z.strictObject({
         call: z.string().min(1).max(200),
         apply: z.boolean(),
         add: z.array(z.string().min(1).max(200)).max(500).optional(),
+        /* 51d: an untag left unticked is `remove: []` (ReviewPanel's). */
+        remove: z.array(z.string().min(1).max(200)).max(500).optional(),
       }),
     )
     .min(1)

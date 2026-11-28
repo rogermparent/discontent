@@ -1,6 +1,7 @@
 import {
   llmConfig,
   publicLlmConfig,
+  setAgentModelOverride,
   setLlmUrlOverride,
   type LlmConfig,
 } from "recipe-editor/controller/llm/client";
@@ -25,6 +26,10 @@ import { setLocalUsesOverride } from "recipe-editor/controller/llm/suggestUses";
  * `&uses=1` (47g) has a fill ask the stand-in what each step uses, as it
  * asks the Claude API: a local model is not asked otherwise. No `uses`
  * turns it off again.
+ *
+ * `&agent=<model>` (51d) gives the curator a local model of its own, as
+ * `RECIPE_AGENT_MODEL` does, so `/curator`'s picker offers it first and the
+ * stand-in's own model (the import model) second. No `agent` clears it.
  */
 export async function GET(request: Request) {
   if (!process.env.TEST_MODE) {
@@ -45,9 +50,17 @@ export async function GET(request: Request) {
       { status: 400 },
     );
   }
+  const agent = params.get("agent");
+  if (agent !== null && !/^[\w.:-]{1,64}$/.test(agent)) {
+    return Response.json(
+      { error: `Not a model name: "${agent}"` },
+      { status: 400 },
+    );
+  }
   setLlmUrlOverride(url ?? undefined);
   setVisionModelOverride(url ? (vision ?? undefined) : undefined);
   setLocalUsesOverride(url ? params.get("uses") === "1" : undefined);
+  setAgentModelOverride(url ? (agent ?? undefined) : undefined);
   return Response.json(
     {
       model: publicConfig(llmConfig()),

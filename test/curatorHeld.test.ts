@@ -707,4 +707,18 @@ describe("who answers (Db5)", () => {
     ]);
     expect(JSON.stringify(setup)).not.toContain("sk-ant");
   });
+
+  it("takes the import model as a run's choice (51d, Dd2), and names all three", async () => {
+    /* No curator model of its own here: "import" is understood, and refused
+     * for what it is — not as an unknown name. */
+    await expect(
+      startAgentRun(ctx, { prompt: "say hello", model: "import" }),
+    ).rejects.toThrow(/no local model of its own/);
+    await expect(
+      startAgentRun(ctx, {
+        prompt: "say hello",
+        model: "gpt" as unknown as "local",
+      }),
+    ).rejects.toThrow('model is "local", "import" or "claude".');
+  });
 });

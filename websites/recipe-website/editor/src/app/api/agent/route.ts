@@ -5,7 +5,8 @@
  * review on the curator page (`/api/agent/<id>/review` applies them); it
  * defaults to **true** here, and `recipes agent --remote` sends false.
  * **`model`** (48b, Db5) picks `claude` or `local` where the editor has
- * both; a follow-up keeps its conversation's. **`intent`** (51b, D1) is
+ * both — or `import` (51d, Dd2), the import model, where the curator has a
+ * local model of its own; a follow-up keeps its conversation's. **`intent`** (51b, D1) is
  * `online`, `mine`, `plan`, `organize`, `any` or `auto` (a guess): the
  * first three run as plans in code, the answer carries the intent as it
  * stands (`intent`, or `intentPending` when the model will classify it);
@@ -50,7 +51,10 @@ import {
   toErrorObject,
 } from "recipe-editor/controller/curation/errors";
 import { parseInput } from "recipe-editor/controller/curation/schema";
-import { AGENT_PROMPT_MAX } from "recipe-editor/controller/agent/job";
+import {
+  AGENT_PROMPT_MAX,
+  CURATOR_MODEL_IDS,
+} from "recipe-editor/controller/agent/job";
 import { DEFAULT_AGENT_BUDGETS } from "recipe-editor/controller/agent/loop";
 import {
   ConversationTooLongError,
@@ -72,8 +76,9 @@ const AgentRequestSchema = z.strictObject({
   newerWebTools: z.boolean().optional(),
   /* 48b: hold the run's writes for review (the default here, Db9). */
   hold: z.boolean().optional(),
-  /* 48b: who answers, where this editor has both (a follow-up keeps its own). */
-  model: z.enum(["local", "claude"]).optional(),
+  /* 48b: who answers, where this editor has both (a follow-up keeps its own);
+   * 51d (Dd2): `import`, the import model beside the curator's own. */
+  model: z.enum(CURATOR_MODEL_IDS).optional(),
   /* 51b (D1): what the ask is for, or `auto` for a guess; unset is the loop. */
   intent: z.enum(AGENT_INTENT_CHOICES).optional(),
 });

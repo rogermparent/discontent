@@ -130,8 +130,11 @@ export function curatorSetup(
 ): CuratorSetup | undefined {
   const models = curatorModels(env);
   if (!models.primary) return undefined;
+  /* 51d (Dd2): the curator's own model, then the import model, then Claude. */
   const order: CuratorModelId[] =
-    models.primary === "claude" ? ["claude", "local"] : ["local", "claude"];
+    models.primary === "claude"
+      ? ["claude", "local"]
+      : ["local", "import", "claude"];
   const options = order.flatMap((id) => {
     const config = models[id];
     return config ? [modelOption(id, config, env)] : [];

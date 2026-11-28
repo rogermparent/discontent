@@ -14,7 +14,15 @@ import { dollarText } from "recipe-editor/controller/llm/cost";
  * "Searches the web · runs here cost $0.04–$0.31 · stops at $1.00"; a
  * local model "Free · reads and single imports · no web search".
  */
-export function modelNote(option: CuratorModelOption): string {
+export function modelNote(
+  option: CuratorModelOption,
+  {
+    twoLocal = false,
+  }: {
+    /** 51d (Dd2): the curator's own local model is offered beside the import model. */
+    twoLocal?: boolean;
+  } = {},
+): string {
   if (option.api === "anthropic") {
     const range = option.costRange;
     return [
@@ -31,7 +39,11 @@ export function modelNote(option: CuratorModelOption): string {
   }
   return [
     "Free",
-    "best for reads and single imports",
+    option.id === "import"
+      ? "the import model: best for reads and single imports"
+      : twoLocal
+        ? "the curator's own model"
+        : "best for reads and single imports",
     option.search ? "searches the web" : "no web search",
   ].join(" · ");
 }
@@ -54,6 +66,7 @@ export function ModelChoice({
   const name = useId();
   const models = setup.models ?? [];
   const unavailable = setup.unavailable ?? [];
+  const twoLocal = models.some((option) => option.id === "import");
   if (models.length < 2 && unavailable.length === 0) {
     const only = models[0];
     return (
@@ -108,7 +121,7 @@ export function ModelChoice({
                 {option.words}
               </span>
               <span className="text-xs text-muted-foreground">
-                {modelNote(option)}
+                {modelNote(option, { twoLocal })}
               </span>
             </span>
           </label>
