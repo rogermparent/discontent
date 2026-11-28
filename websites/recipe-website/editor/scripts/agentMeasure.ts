@@ -889,6 +889,21 @@ export function checkNewImports(facts: {
   return result(notes);
 }
 
+/**
+ * The text an "answer" case is scored on (51b): a `mine` plan's fits and
+ * maybes (its prose also names the near misses it left out, under "Close,
+ * but no"), else the answer as written.
+ */
+export function answeredText(text: string, outcome: unknown): string {
+  if (!isObject(outcome) || outcome.kind !== "mine") return text;
+  const slugs = [outcome.fit, outcome.maybe].flatMap((list) =>
+    Array.isArray(list)
+      ? list.filter((slug): slug is string => typeof slug === "string")
+      : [],
+  );
+  return slugs.join("\n");
+}
+
 /** Whether `slug` appears in `text` as a link or a bare word. */
 export function mentionsSlug(text: string, slug: string): boolean {
   const escaped = slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

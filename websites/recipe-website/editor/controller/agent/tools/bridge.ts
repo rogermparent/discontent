@@ -39,12 +39,14 @@ import { tagSlug } from "recipe-website-common/controller/tagSlug";
 import {
   DRY_RUN_TOOLS,
   HELD_NOTE,
+  HELD_NOTES_NOTE,
   PAGE_TEXT_DRY_RUNS,
   isHeldAnswer,
   isHeldTool,
 } from "../held";
 import { webFetchTool, type WebFetchOptions } from "./webFetch";
 import { webSearchTool, type WebSearchOptions } from "./webSearch";
+import { notesHeldBack } from "../../llm/agentContext";
 
 /**
  * Tools whose results are page text (E7): `page_inspect` and
@@ -295,9 +297,13 @@ async function heldAnswer(
       },
     );
     if (dry && typeof dry === "object" && "error" in dry) return dry;
+    /* 51b review 7: a plan's held dry run left the page's notes unread
+     * (Db4); the approved import reads them, so the preview says so. */
+    const notes = name === "recipe_import" && notesHeldBack();
     return {
       held: true,
-      note: HELD_NOTE,
+      note: notes ? `${HELD_NOTE} ${HELD_NOTES_NOTE}` : HELD_NOTE,
+      ...(notes ? { notesOnApproval: true } : {}),
       dryRun: local ? localResult(name, dry) : dry,
     };
   }

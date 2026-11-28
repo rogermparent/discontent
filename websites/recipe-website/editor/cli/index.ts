@@ -262,7 +262,7 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   git revert <hash> [--yes]
   git restore <type> <slug> <rev> [--yes]
   git push [<remote>] [--set-upstream]
-  agent "<ask>" [--run <id>] [--max-turns 1-40] [--newer-web-tools] [--verbose]
+  agent "<ask>" [--run <id>] [--max-turns 1-40] [--newer-web-tools] [--intent <id>] [--verbose]
 
 Globals: --json  --content-dir <dir>  --author "Name <email>"  --help
 Remote:  --remote <url>  |  --notify [--editor-url <url>]
@@ -561,7 +561,11 @@ follows up on a run with its conversation as history; \`--max-turns\` lowers
 the 40-turn budget. A Claude run stops at its cost budget
 (RECIPE_AGENT_MAX_COST_USD, default $1); \`--newer-web-tools\` gives it
 Claude's newer web search (dynamic filtering) on a model that has it (4.6 or
-later, not Haiku), kept on its follow-ups and ignored elsewhere. With --remote the editor runs it and this follows it (a
+later, not Haiku), kept on its follow-ups and ignored elsewhere.
+\`--intent\` says what the ask is for: online (new recipes from the web, what
+you already have left out, imports), mine (which of your recipes fit, judged
+by the model), plan (a meal plan from a holiday's menu and the dishes you
+name), organize (tags) or any (the open loop, the default); auto guesses it. With --remote the editor runs it and this follows it (a
 Ctrl-C stops following, not the run: \`jobs cancel <id>\`). --json prints one
 object at the end; exit 1 when the run failed, 130 when it was cancelled.
 

@@ -84,6 +84,13 @@ export const PAGE_TEXT_DRY_RUNS: ReadonlySet<string> = new Set([
 export const HELD_NOTE =
   "Held for the person's review: nothing was written. It runs exactly as you asked when they approve it on the curator page. Treat it as proposed, not done: don't call it again, and don't read it back — a recipe it would make does not exist yet.";
 
+/**
+ * Said with a held import whose dry run left the page's notes unread (51b
+ * review 7, Db4): what is approved may carry notes the preview did not.
+ */
+export const HELD_NOTES_NOTE =
+  "The page's notes were not read for this preview; the import reads them when it is approved.";
+
 /** The held answer's mark: `{held: true, note, dryRun?, …}`. */
 export function isHeldAnswer(value: unknown): value is {
   held: true;
@@ -172,6 +179,12 @@ export function heldPreview(
       });
       if (recipes.length) out.recipes = recipes.slice(0, PREVIEW_RECIPES_MAX);
     }
+  }
+  if (
+    isHeldAnswer(answer) &&
+    (answer as { notesOnApproval?: unknown }).notesOnApproval === true
+  ) {
+    out.notesOnApproval = true;
   }
   if (tool === "term_assign" && isHeldAnswer(answer)) {
     const split = answer as unknown as Record<string, unknown>;

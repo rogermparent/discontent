@@ -8,7 +8,14 @@
  *   pnpm --filter recipe-editor exec tsx scripts/agent-measure.ts \
  *     --content-dir /scratch/content-clone --model qwen3:8b \
  *     [--think] [--num-ctx 12288|16384] [--asks a,b,c,d,e,f,g,h] [--cases file.json] [--repeat N] \
- *     [--max-turns N] [--newer-web-tools] [--jobs-dir DIR] [--out runs.jsonl] [--verbose]
+ *     [--max-turns N] [--newer-web-tools] [--intent online|mine|plan|organize|any|auto]
+ *     [--jobs-dir DIR] [--out runs.jsonl] [--verbose]
+ *
+ * `--intent` (51b) runs every ask with that intent (`auto`: guessed, as the
+ * curator page will); unset, the open loop as before. A line then carries
+ * the intent the run took and its plan's `outcome`; an "answer" case of a
+ * `mine` run is scored on the plan's fits and maybes (`answeredText`), not
+ * the answer's prose, which also lists the near misses it left out.
  *
  * The asks (`agentMeasure.ts`): (a) gochujang, a read; (b) tahini →
  * `middle-eastern` if the term exists, a read and a conditional write; (c)
@@ -83,6 +90,11 @@ import { tagSlug } from "recipe-website-common/controller/tagSlug";
 import { sourceUrlKey } from "recipe-website-common/util/roundupPage";
 import { existingBySource } from "../controller/curation/importList";
 import {
+  AGENT_INTENT_CHOICES,
+  isAgentIntentChoice,
+  type AgentIntentChoice,
+} from "../controller/agent/intents/guess";
+import {
   ASK_IDS,
   FIXTURE_FILE,
   FIXTURE_IMAGE_PATH,
@@ -92,6 +104,7 @@ import {
   askPrompt,
   callRecords,
   caseFileFaults,
+  answeredText,
   checkAnswerSlugs,
   checkGochujang,
   checkHeldGroup,
@@ -336,6 +349,8 @@ interface Settings {
   cases: ReadonlyMap<string, CuratorCase>;
   /** 46d: Claude's newer web tools for every run (`--newer-web-tools`). */
   newerWebTools: boolean;
+  /** 51b: every run's intent (`--intent`); unset, the loop. */
+  intent?: AgentIntentChoice;
   verbose: boolean;
 }
 
@@ -405,6 +420,7 @@ async function measure(
     ...(curatorCase ? { hold: true } : {}),
     ...(settings.maxTurns ? { maxTurns: settings.maxTurns } : {}),
     ...(settings.newerWebTools ? { newerWebTools: true } : {}),
+    ...(settings.intent ? { intent: settings.intent } : {}),
   };
   const began = Date.now();
   let outcome: { job: string; result: AgentJobResult } | undefined;
@@ -467,7 +483,7 @@ async function measure(
       if (warnings.length > 0) scored.matched = false;
     } else if (curatorCase.kind === "answer") {
       scored = checkAnswerSlugs({
-        text,
+        text: answeredText(text, outcome?.result.outcome),
         include: curatorCase.include,
         exclude: curatorCase.exclude,
         commits: facts.commits,
@@ -585,6 +601,8 @@ async function measure(
     ...(check.checkedTerm !== undefined
       ? { checkedTerm: check.checkedTerm }
       : {}),
+    ...(result?.intent ? { intent: result.intent } : {}),
+    ...(result?.outcome ? { outcome: result.outcome } : {}),
     matched: check.matched,
     notes: check.notes,
     text: text.length > 2_000 ? `${text.slice(0, 2_000)}…` : text,
@@ -601,7 +619,7 @@ async function main() {
   const model = flag("model");
   if (!given || !model) {
     fail(
-      "usage: tsx scripts/agent-measure.ts --content-dir <clone> --model <name> [--think] [--num-ctx N] [--asks a,b,c,d] [--repeat N] [--max-turns N] [--newer-web-tools] [--jobs-dir DIR] [--out file.jsonl] [--verbose]",
+      "usage: tsx scripts/agent-measure.ts --content-dir <clone> --model <name> [--think] [--num-ctx N] [--asks a,b,c,d] [--repeat N] [--max-turns N] [--newer-web-tools] [--intent <id|auto>] [--jobs-dir DIR] [--out file.jsonl] [--verbose]",
     );
   }
   const contentDirectory = await checkedContentDirectory(given);
@@ -675,6 +693,10 @@ async function main() {
   if (maxTurnsText !== undefined && maxTurns === undefined) {
     fail("--max-turns takes a whole number from 1 to 40");
   }
+  const intent = flag("intent");
+  if (intent !== undefined && !isAgentIntentChoice(intent)) {
+    fail(`--intent takes ${AGENT_INTENT_CHOICES.join(", ")}`);
+  }
   const out = flag("out") ? path.resolve(flag("out")!) : undefined;
   if (out) await mkdir(path.dirname(out), { recursive: true });
 
@@ -711,6 +733,7 @@ async function main() {
     cases,
     ...(maxTurns ? { maxTurns } : {}),
     newerWebTools: has("newer-web-tools"),
+    ...(intent ? { intent } : {}),
     verbose: has("verbose"),
   };
   console.error(

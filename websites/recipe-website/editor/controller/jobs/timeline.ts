@@ -216,6 +216,11 @@ export function stepTitle(node: Pick<StepNode, "step" | "data">): string {
     /* 51c: the curator's judge — do these recipes fit the ask? */
     case "llm.judge":
       return `Model judges the recipes${part}`;
+    /* 51b: an intent plan's small model calls (the guess, the reading, the pick). */
+    case "llm.intent":
+      return data.task === "classify"
+        ? "Model guesses what the ask is for"
+        : `Model: ${typeof data.task === "string" ? data.task : "a step of the plan"}`;
     case "llm.reload":
       return "Reload the model";
     case "llm.unload":

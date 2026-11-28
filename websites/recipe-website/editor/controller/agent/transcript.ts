@@ -30,6 +30,7 @@
 import { appendFileSync } from "node:fs";
 import { open, readFile, stat, type FileHandle } from "node:fs/promises";
 import type { LlmApi } from "../llm/client";
+import type { IntentChoice } from "./intents/guess";
 import { scrubSecretValues } from "../jobs/log";
 import { transcriptPath } from "../jobs/store";
 import type {
@@ -58,6 +59,11 @@ export interface TranscriptStart {
   maxCostUsd?: number;
   /** The run's writes were held for the person's review (48b, Db1). */
   hold?: true;
+  /**
+   * 51b: the intent the run took and how it was settled (asked, the rules,
+   * the model, or the default), and a plan that fell back to the loop.
+   */
+  intent?: IntentChoice;
 }
 
 export interface TranscriptMessage {

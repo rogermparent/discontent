@@ -5,7 +5,11 @@
  * review on the curator page (`/api/agent/<id>/review` applies them); it
  * defaults to **true** here, and `recipes agent --remote` sends false.
  * **`model`** (48b, Db5) picks `claude` or `local` where the editor has
- * both; a follow-up keeps its conversation's.
+ * both; a follow-up keeps its conversation's. **`intent`** (51b, D1) is
+ * `online`, `mine`, `plan`, `organize`, `any` or `auto` (a guess): the
+ * first three run as plans in code, the answer carries the intent as it
+ * stands (`intent`, or `intentPending` when the model will classify it);
+ * unset is the open loop, as before. A follow-up takes `any` or `auto`.
  * `newerWebTools: true` (46d) gives a Claude run the newer server web tools
  * (dynamic filtering) on a model that takes them (`takesNewerWebTools`); a
  * follow-up of such a run keeps them, and any other model — a Haiku, a
@@ -53,6 +57,7 @@ import {
   startAgentRun,
 } from "recipe-editor/controller/agent/runs";
 import { listCuratorRuns } from "recipe-editor/controller/agent/curator";
+import { AGENT_INTENT_CHOICES } from "recipe-editor/controller/agent/intents/guess";
 
 const AgentRequestSchema = z.strictObject({
   prompt: z.string(),
@@ -69,6 +74,8 @@ const AgentRequestSchema = z.strictObject({
   hold: z.boolean().optional(),
   /* 48b: who answers, where this editor has both (a follow-up keeps its own). */
   model: z.enum(["local", "claude"]).optional(),
+  /* 51b (D1): what the ask is for, or `auto` for a guess; unset is the loop. */
+  intent: z.enum(AGENT_INTENT_CHOICES).optional(),
 });
 
 /**

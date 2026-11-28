@@ -25,6 +25,7 @@ import {
 import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
 import { jobContext, type JobRun } from "../jobs/context";
 import type { LlmMode } from "../llm/mode";
+import { markNotesHeldBack, notesLearningHeld } from "../llm/agentContext";
 import type { EditModels } from "../llm/askEdit";
 import type { SelectorAttempt } from "../llm/notesSelector";
 import {
@@ -147,6 +148,17 @@ async function findNotes(
       why:
         missed ??
         "a “Notes” heading, but no learned selector and no model asked",
+    };
+  }
+  /* 51b (Db4): a curator plan's held dry run asks no model here. */
+  if (notesLearningHeld()) {
+    markNotesHeldBack();
+    return {
+      path: "none",
+      notes: [],
+      why:
+        missed ??
+        "a “Notes” heading, but no learned selector: the curator's held dry run asks no model (the approved import learns one)",
     };
   }
   /* 47j review: a site that taught nothing lately is not asked again. */

@@ -171,6 +171,17 @@ export const MISSING_INDEX_WARNING =
   "The recipes index is missing, so `existing` is empty — every item reads as new. Reindex first (recipes reindex).";
 
 /**
+ * Whether the recipe index is built (F30: an unbuilt one reads as empty,
+ * which looks like "you have none"). 51b's plans stop on it rather than
+ * propose what you may already have.
+ */
+export function recipeIndexExists(ctx: CurationContext): boolean {
+  return environmentExists(
+    getIndexDirectory(recipeContentConfig, ctx.contentDirectory),
+  );
+}
+
+/**
  * `source.url` key → recipe slug, for the recipes from `urls`' hosts, and a
  * warning when there is no recipe index to ask.
  *
@@ -186,11 +197,7 @@ export async function existingBySource(
   urls: string[],
 ): Promise<{ found: Map<string, string>; warnings: string[] }> {
   const found = new Map<string, string>();
-  if (
-    !environmentExists(
-      getIndexDirectory(recipeContentConfig, ctx.contentDirectory),
-    )
-  ) {
+  if (!recipeIndexExists(ctx)) {
     return { found, warnings: [MISSING_INDEX_WARNING] };
   }
   /* Every YouTube host is one (46b): a `youtu.be` link finds the recipe

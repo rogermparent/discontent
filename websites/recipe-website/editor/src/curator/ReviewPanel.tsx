@@ -79,6 +79,10 @@ function detailLine(call: CuratorReviewCall): string | undefined {
         held.recipes?.length && held.recipes.length > 1
           ? held.recipes.map((recipe) => recipe.name).join(" · ")
           : undefined,
+        /* 51b review 7: the approved import reads the notes the preview didn't. */
+        held.notesOnApproval
+          ? "its notes are read when you approve it"
+          : undefined,
       ].filter(Boolean);
       return parts.length ? parts.join(" · ") : undefined;
     }
