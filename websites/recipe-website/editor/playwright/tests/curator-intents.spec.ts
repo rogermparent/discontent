@@ -299,6 +299,8 @@ async function stubRun(
     run.held.map((call) => [call.id, "pending"]),
   );
   const posted: unknown[] = [];
+  /** 51g: the notes the page posted. */
+  const written: Record<string, unknown>[] = [];
   let reads = 0;
   let reviewReads = 0;
   const review = (live: boolean) => ({
@@ -319,6 +321,23 @@ async function stubRun(
     async (route: Route) => {
       const url = new URL(route.request().url());
       const tail = url.pathname.split(`/api/agent/${run.id}`)[1] ?? "";
+      if (tail === "/note" && route.request().method() === "POST") {
+        /* 51g: the note the page writes, kept as the server would. */
+        const body = route.request().postDataJSON() as Record<string, unknown>;
+        const note = {
+          id: `01JD51G0NOTE00000000000${String(written.length + 1).padStart(3, "0")}`,
+          by: body.by,
+          at: iso(9_000 + written.length),
+          verdict: body.verdict,
+          text: body.text,
+        };
+        written.push(body);
+        await route.fulfill({
+          status: 201,
+          json: { job: run.id, note, notes: [note] },
+        });
+        return;
+      }
       if (tail === "/changes") {
         await route.fulfill({
           status: 404,
@@ -390,7 +409,7 @@ async function stubRun(
       });
     },
   );
-  return { posted, states, reviewReads: () => reviewReads };
+  return { posted, written, states, reviewReads: () => reviewReads };
 }
 
 /* Three held imports' worth of online run (two picks held, one close). */
@@ -818,6 +837,66 @@ test.describe("Curator by intent", () => {
     await axeClean(page);
   });
 
+  test("a finished run: Add a note writes your own, shown at once, markup refused", async ({
+    page,
+  }) => {
+    const stub = await stubRun(page, ONLINE);
+    await signInAndOpen(page, `/curator?run=${ONLINE.id}`);
+    await expect(status(page)).toHaveText("Finished", { timeout: RUN });
+    await expectHydrated(
+      page
+        .getByTestId("curator-notes")
+        .getByRole("button", { name: "Add a note" }),
+    );
+
+    const notes = page.getByTestId("curator-notes");
+    await expect(notes.getByRole("heading", { name: "Notes" })).toBeVisible();
+    await notes.getByRole("button", { name: "Add a note" }).click();
+    const form = page.getByTestId("curator-note-form");
+    await expect(form).toBeVisible();
+
+    /* Markup is refused with the server's words, and nothing is sent. */
+    await form.getByLabel("Your note", { exact: true }).fill("<b>bold</b>");
+    await form.getByRole("button", { name: "Save note" }).click();
+    await expect(page.getByTestId("curator-note-error")).toHaveText(
+      "A note is plain text: no HTML tags.",
+    );
+    expect(stub.written).toEqual([]);
+
+    /* A verdict and plain text post as you, and the note shows at once. */
+    await form.getByLabel("A miss", { exact: true }).check();
+    await form
+      .getByLabel("Your note", { exact: true })
+      .fill("It missed the near duplicate.");
+    await form.getByRole("button", { name: "Save note" }).click();
+    const note = notes.getByTestId("curator-note");
+    await expect(note).toHaveCount(1);
+    await expect(note).toBeFocused();
+    await expect(note.getByTestId("curator-note-verdict")).toHaveText("A miss");
+    await expect(note.getByTestId("curator-note-text")).toHaveText(
+      "It missed the near duplicate.",
+    );
+    await expect(
+      notes.getByRole("heading", { name: "Your note" }),
+    ).toBeVisible();
+    expect(stub.written).toEqual([
+      { verdict: "miss", text: "It missed the near duplicate.", by: "you" },
+    ]);
+    await expect(
+      notes.getByRole("button", { name: "Add a note" }),
+    ).toBeVisible();
+    await axeClean(page);
+
+    /* The form open, with its error showing, is clean too. */
+    await notes.getByRole("button", { name: "Add a note" }).click();
+    await page
+      .getByTestId("curator-note-form")
+      .getByRole("button", { name: "Save note" })
+      .click();
+    await expect(page.getByTestId("curator-note-error")).toBeVisible();
+    await axeClean(page);
+  });
+
   test("online: a refused decision says why on its card and applies nothing", async ({
     page,
   }) => {
@@ -1113,6 +1192,10 @@ test.describe("Curator by intent", () => {
       "todo",
     );
     await expect(page.getByTestId("curator-results-waiting")).toBeVisible();
+    /* 51g: no Add a note while the run is live (the server says 409). */
+    await expect(page.getByRole("button", { name: "Add a note" })).toHaveCount(
+      0,
+    );
     /* The steps say where it is without a live region of their own. */
     const plan = page.getByTestId("curator-plan");
     await expect(
@@ -1124,6 +1207,10 @@ test.describe("Curator by intent", () => {
       "done",
     );
     await expect(page.getByTestId("curator-online-card")).toHaveCount(2);
+    /* Ended: the control is there. */
+    await expect(
+      page.getByRole("button", { name: "Add a note" }),
+    ).toBeVisible();
   });
 });
 

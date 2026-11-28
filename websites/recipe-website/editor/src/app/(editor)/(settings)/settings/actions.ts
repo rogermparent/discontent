@@ -7,9 +7,7 @@ import type { ContactLinks } from "recipe-website-common/config/site";
 import { isMirror, mirrorRefusal } from "recipe-website-common/config/role";
 import { auth } from "@/auth";
 import {
-  readSettings,
   updateSettings as updateSettingsLocked,
-  writeSettings,
   type NamedPreset,
   type Settings,
 } from "@/settings";
@@ -139,15 +137,15 @@ export async function savePreset(
     return { success: false, message: "Invalid theme data." };
   }
 
-  const existing = await readSettings();
   const preset: NamedPreset = { id: randomUUID(), name: trimmed, theme };
-  const next: Settings = {
-    ...existing,
-    presets: [...(existing.presets ?? []), preset],
-  };
 
   try {
-    await writeSettings(next);
+    /* Under the settings lock: a save of another key (preferred sources,
+     * a learned notes selector) meanwhile is kept, not overwritten (51g). */
+    await updateSettingsLocked((existing) => ({
+      ...existing,
+      presets: [...(existing.presets ?? []), preset],
+    }));
     revalidatePath("/", "layout");
     settingsSaved();
     return { success: true };
@@ -165,14 +163,11 @@ export async function deletePreset(id: string): Promise<PresetActionResult> {
 
   if (isMirror()) return { success: false, message: MIRROR_REFUSAL() };
 
-  const existing = await readSettings();
-  const next: Settings = {
-    ...existing,
-    presets: (existing.presets ?? []).filter((p) => p.id !== id),
-  };
-
   try {
-    await writeSettings(next);
+    await updateSettingsLocked((existing) => ({
+      ...existing,
+      presets: (existing.presets ?? []).filter((p) => p.id !== id),
+    }));
     revalidatePath("/", "layout");
     settingsSaved();
     return { success: true };

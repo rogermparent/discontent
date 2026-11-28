@@ -10,6 +10,8 @@ import { SettingsCard } from "../../SettingsCard";
 import { SettingsForm } from "../SettingsForm";
 import { LocalModelStatus } from "./LocalModelStatus";
 import { NoteSelectors } from "./NoteSelectors";
+import { PreferredSources } from "./PreferredSources";
+import { readPreferredSources } from "recipe-editor/controller/agent/preferredSources";
 
 export default async function ToolsPage() {
   const user = await auth();
@@ -17,6 +19,7 @@ export default async function ToolsPage() {
     return redirectToLogin(`/settings/tools`);
   }
   const settings = await readSettings();
+  const preferredSources = await readPreferredSources();
   return (
     <PageMain>
       <PageSection maxWidth="4xl" grow>
@@ -39,6 +42,12 @@ export default async function ToolsPage() {
             description="Where a site with no known recipe-card plugin keeps a recipe's notes, as a selector the model picked once (47j). Forget one and the next import from that site learns it again."
           >
             <NoteSelectors />
+          </SettingsCard>
+          <SettingsCard
+            title="Preferred sources"
+            description="Sites the curator's “find new recipes online” plan searches first, in this order, before the open web (a result counts only when its title names the dish). An empty list searches the open web only."
+          >
+            <PreferredSources initial={preferredSources} />
           </SettingsCard>
           <SettingsCard
             title="Import jobs"

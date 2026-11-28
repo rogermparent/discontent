@@ -202,6 +202,15 @@ export function paceKey(raw: string): string | undefined {
   return host.name.replace(/^www\.(?=[^.]+\.)/, "");
 }
 
+/**
+ * A bare host name's registrable domain by the public-suffix list's ICANN
+ * section, or `undefined` for an IP address, a single label or a public
+ * suffix itself (51g: the preferred-sources check).
+ */
+export function registrableDomain(host: string): string | undefined {
+  return getDomain(host, { extractHostname: false }) ?? undefined;
+}
+
 /** Path segments that name an archive, an account page or a utility, not a recipe. */
 const SKIP_SEGMENTS = new Set([
   "about",

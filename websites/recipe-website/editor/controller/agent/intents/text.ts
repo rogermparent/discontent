@@ -305,15 +305,11 @@ const BARE = new RegExp(`^(?:yields?:?\\s*)?${YIELD_NUMBER}${YIELD_RANGE}$`);
  * number tied to servings, people, portions, slices or pieces, or after
  * "serves" or "feeds", counts: "1 9x13-inch pan", "4 dozen cookies",
  * "Makes 2 loaves" and "One 9-inch pie" are what a recipe makes, not how
- * many it serves, so they read as `undefined` and the plan does not scale
- * them. A range reads as its low end. `undefined` too for 0 or past 200.
+ * many it serves; `yieldReading` (Dg1) reads those as counted pieces or
+ * whole items. A range reads as its low end. `undefined` too for 0 or past
+ * 200.
  */
-export function yieldCount(text: string | undefined): number | undefined {
-  if (!text) return undefined;
-  const plain = fold(text)
-    .replace(/\(.*?\)/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+function servingsCount(plain: string): number | undefined {
   const match =
     plain.match(COUNTED) ?? plain.match(SERVES) ?? plain.match(BARE);
   if (!match) return undefined;
@@ -321,6 +317,170 @@ export function yieldCount(text: string | undefined): number | undefined {
   return Number.isFinite(value) && value > 0 && value <= 200
     ? value
     : undefined;
+}
+
+/** Counted pieces: one is one serving (Dg1). */
+const PIECE_NOUNS =
+  "cookies?|cupcakes?|sandwich(?:es)?|bars?|muffins?|rolls?|buns?|biscuits?|pieces?|slices?|squares?|truffles?|balls?";
+const PIECES = new RegExp(
+  `\\b${YIELD_NUMBER}${YIELD_RANGE}\\s+(?:[a-z-]+\\s+){0,3}?(?:${PIECE_NOUNS})\\b`,
+);
+/** "a dozen", "4 dozen", "3 to 4 dozen" (its low end); never the end of "1/2". */
+const DOZEN = new RegExp(
+  `(?<![\\d/.])(?:${YIELD_NUMBER}${YIELD_RANGE}|an?)\\s+dozen\\b`,
+);
+/** "1/2 dozen", "1 1/2 dozen". */
+const DOZEN_FRACTION = /(?<![\d/.])(?:(\d+)\s+)?(\d+)\/(\d+)\s+dozen\b/;
+const DOZEN_HALF = /\bhalf\s+(?:a\s+)?dozen\b/;
+
+/**
+ * Whole items and the servings one is taken to make (Dg1): an estimate, kept
+ * in this one table. Source: the usual home-baking cutting charts (a standard
+ * loaf cuts to 10 slices, a 9-inch pie or tart to 8, a layer cake to 12, a
+ * casserole to 8, a quiche to 6); a "batch" is a guess of 8. Change the
+ * numbers here.
+ */
+export const WHOLE_SERVINGS: readonly {
+  pattern: RegExp;
+  servings: number;
+}[] = [
+  { pattern: /\b(?:loaf|loaves)\b/, servings: 10 },
+  { pattern: /\bpies?\b/, servings: 8 },
+  { pattern: /\btarts?\b/, servings: 8 },
+  { pattern: /\bcakes?\b/, servings: 12 },
+  { pattern: /\bcasseroles?\b/, servings: 8 },
+  { pattern: /\bquiches?\b/, servings: 6 },
+  { pattern: /\bbatch(?:es)?\b/, servings: 8 },
+];
+
+/** A pan by its size (longer side first): a 9x13 cuts to 12, an 8x8 to 9. */
+export const PAN_SERVINGS: Readonly<Record<string, number>> = {
+  "13x9": 12,
+  "9x9": 9,
+  "8x8": 9,
+};
+
+const SIZE =
+  /(\d+)\s*(?:x|×|by)\s*(\d+)(?:[- ]?(?:inch(?:es)?|in\b|"))?|\d+[- ]?(?:inch(?:es)?|in\b|")/g;
+
+/** What a yield says it makes, and how many servings that counts as. */
+export interface YieldReading {
+  /** Servings the plan scales by. */
+  count: number;
+  /**
+   * How it was read when the yield is not servings: "12 cookies, 1 a
+   * serving", "1 9x13-inch pan, about 12 servings". Absent for servings.
+   */
+  how?: string;
+  /** True when the count is an estimate (a whole item), not the yield's own. */
+  estimate: boolean;
+}
+
+/**
+ * A yield read as servings (Db11, amended by Dg1), in order:
+ * 1. **Servings**: a number tied to servings, people, portions, slices or
+ *    pieces, or after "serves" / "feeds", or a bare number.
+ * 2. **Counted pieces**: "12 cookies", "24 bars": one piece is one serving;
+ *    "N dozen" is N × 12.
+ * 3. **Whole items**: "2 loaves", "One 9-inch pie", "1 9x13-inch pan": a
+ *    per-kind estimate (`WHOLE_SERVINGS`, `PAN_SERVINGS`), marked as one. A
+ *    pan counts only with a size it knows.
+ * `undefined` when none reads, or for 0 or past 200.
+ */
+export function yieldReading(
+  text: string | undefined,
+): YieldReading | undefined {
+  if (!text) return undefined;
+  const written = text.replace(/\s+/g, " ").trim();
+  const folded = fold(written);
+  const plain = folded
+    .replace(/\(.*?\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const sane = (n: number) => Number.isFinite(n) && n > 0 && n <= 200;
+  const number = (word: string) => YIELD_NUMBER_WORDS[word] ?? Number(word);
+  const piecesHow = `${written}, 1 a serving`;
+
+  const servings = servingsCount(plain);
+  if (servings !== undefined) return { count: servings, estimate: false };
+
+  const fraction = plain.match(DOZEN_FRACTION);
+  const dozen = fraction ? null : plain.match(DOZEN);
+  const dozens = fraction
+    ? Number(fraction[1] ?? 0) + Number(fraction[2]) / Number(fraction[3])
+    : DOZEN_HALF.test(plain)
+      ? 0.5
+      : dozen
+        ? dozen[1]
+          ? number(dozen[1])
+          : 1
+        : undefined;
+  if (dozens !== undefined) {
+    const value = Math.round(dozens * 12);
+    return sane(value)
+      ? { count: value, how: piecesHow, estimate: false }
+      : undefined;
+  }
+  const pieces = plain.match(PIECES);
+  if (pieces) {
+    const value = number(pieces[1]);
+    return sane(value)
+      ? { count: value, how: piecesHow, estimate: false }
+      : undefined;
+  }
+
+  /* Whole items: sizes are read first, then dropped so "9-inch" is no count. */
+  const sizes: string[] = [];
+  const bare = folded
+    .replace(SIZE, (_all, a?: string, b?: string) => {
+      if (a && b) {
+        sizes.push([Number(a), Number(b)].sort((x, y) => y - x).join("x"));
+      }
+      return " ";
+    })
+    .replace(/\(.*?\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const quantity = (noun: RegExp): number | undefined => {
+    const match = bare.match(
+      new RegExp(
+        `(?:\\b${YIELD_NUMBER}\\s+)?(?:[a-z-]+\\s+){0,2}?${noun.source}`,
+      ),
+    );
+    if (!match) return undefined;
+    return match[1] ? number(match[1]) : 1;
+  };
+  const whole = (qty: number, each: number): YieldReading | undefined => {
+    /* "12 cakes", "24 cupcakes": a big count is pieces, not 12 x 12. */
+    if (qty > 4) {
+      return sane(qty)
+        ? { count: qty, how: piecesHow, estimate: false }
+        : undefined;
+    }
+    const value = qty * each;
+    return sane(value)
+      ? {
+          count: value,
+          how: `${written}, about ${value} servings`,
+          estimate: true,
+        }
+      : undefined;
+  };
+  for (const kind of WHOLE_SERVINGS) {
+    const qty = quantity(kind.pattern);
+    if (qty !== undefined) return whole(qty, kind.servings);
+  }
+  const pans = quantity(/\b(?:pans?|dish(?:es)?)\b/);
+  if (pans !== undefined) {
+    const each = sizes.map((size) => PAN_SERVINGS[size]).find(Boolean);
+    if (each) return whole(pans, each);
+  }
+  return undefined;
+}
+
+/** A yield's count of servings (`yieldReading`'s `count`). */
+export function yieldCount(text: string | undefined): number | undefined {
+  return yieldReading(text)?.count;
 }
 
 /** The scales under one a plan writes, as the group page reads them. */
