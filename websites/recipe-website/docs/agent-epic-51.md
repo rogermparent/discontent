@@ -403,7 +403,7 @@ free. The numbers are wall times of single calls, three runs each.
 - `hot-chocolate-acouplecooks` (case f) says no "frother" anywhere, so
   `mine` must search expansions (51b's `chatJson` step), not the bare word.
 
-#### Gates (51c, before review)
+#### Gates (51c)
 
 - `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
 exec tsc --noEmit` are clean.
@@ -411,7 +411,10 @@ exec tsc --noEmit` are clean.
   was `editFormRoundTrip.test.tsx` "cleared and retyped…", a 5 s timeout
   under load (51a's suite was in the slot beside it). Alone it passes,
   17/17. It touches nothing here.
-- New: `test/searchText.test.ts` (15) and `test/judge.test.ts` (15).
+- After the review fixes and merging main with 51a (#366): both typechecks
+  are clean and vitest passes 4,482 of 4,482 (207 files).
+- New: `test/searchText.test.ts` (16) and `test/judge.test.ts` (15), plus
+  one guard in `test/agentLocal.test.ts`.
   `test/curation.test.ts`' D8 allow-list gains `Form/Instructions/stepChecks`
   (`flatSteps`).
 - No Playwright spec covers this phase: no UI changed (`/search` is
