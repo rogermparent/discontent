@@ -458,10 +458,12 @@ Grams: \`grams <slug>\` gives a recipe's lines grams in the house form,
 "2 cups (400g) brown sugar" (the grams scale with the recipe). A pasted
 metric list (--paste file, any shape: "400 gbrown sugar" is fine) wins; the
 gram bank (Settings › Conversions: King Arthur's chart built in, your own
-values over it) fills the cups and spoons it leaves; --model asks the
-configured model for the rest, one line at a time. Counted lines ("2 eggs")
-take a paste or the model; a pinch or "to taste" never get grams. One
-commit; --dry-run says what it would write.
+values over it) fills the cups and spoons it leaves. Counted lines ("2
+eggs") take a paste or the model; a pinch or "to taste" never get grams. One
+commit; --dry-run says what it would write. --model asks the configured
+model for the rest, one line at a time, and only shows its grams: they are
+never written here (keep them on the edit page, Add grams, where each is
+marked until you keep it). Over --remote, --model needs a write token.
 
 Filling gaps: \`fill <slug>\` reads the recipe's source link (or its video) as
 \`import --dry-run\` would and fills only what is empty — the description,

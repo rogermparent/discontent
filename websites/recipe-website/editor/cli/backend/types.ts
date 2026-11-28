@@ -402,8 +402,9 @@ export interface CuratorBackend {
   ): Promise<FillResult>;
   /**
    * 51f: the recipe's lines given grams in the house form — a pasted list,
-   * then the gram bank, then (with `model`) the model, one line at a time;
-   * one update (one commit), or none with `dryRun`.
+   * then the gram bank; one update (one commit), or none with `dryRun`.
+   * With `model` the model is asked for the rest, one line at a time, and
+   * its grams come back as `suggested`, never written.
    */
   gramsForRecipe(
     slug: string,

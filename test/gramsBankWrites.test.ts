@@ -28,6 +28,7 @@ import { gramsForRecipe } from "../websites/recipe-website/editor/controller/cur
 import {
   createRecipe,
   getRecipe,
+  updateRecipe,
 } from "../websites/recipe-website/editor/controller/curation/recipes";
 import { UNINDEXED_DIRECTORIES } from "../websites/recipe-website/editor/controller/curation/unindexed";
 import {
@@ -371,6 +372,117 @@ describe("recipes grams (the CLI's seat)", () => {
     const again = await gramsForRecipe(ctx, "pouding-chomeur-vivaldi", {});
     expect(again.lines).toEqual([]);
     expect(again.had).toBe(11);
+  });
+
+  /* Review finding 1: the model's grams are never written outside the edit
+   * page — every model-made change is approved by a person first. */
+  it("with --model, writes the paste and the bank and only suggests the model's", async () => {
+    const asked: string[][] = [];
+    const before = (await messages()).length;
+    const result = await gramsForRecipe(
+      ctx,
+      "pouding-chomeur-vivaldi",
+      { paste: PASTE, model: true },
+      {
+        askModel: async (lines) => {
+          asked.push(lines.map((line) => line.text));
+          return {
+            answers: lines.map((line) => ({
+              line: line.line,
+              grams: 100,
+              why: "two large eggs",
+            })),
+            model: "stand-in (local)",
+            warnings: [],
+            job: "job-1",
+          };
+        },
+      },
+    );
+    expect(asked).toEqual([['<Multiplyable baseNumber="2" /> eggs']]);
+    expect(result.written).toBe(true);
+    expect(result.lines).toHaveLength(11);
+    expect(result.lines.every((line) => line.source !== "model")).toBe(true);
+    expect(result.suggested).toEqual([
+      {
+        line: 10,
+        from: "2 eggs",
+        to: "2 eggs (100g)",
+        grams: 100,
+        source: "model",
+        why: "two large eggs",
+      },
+    ]);
+    expect(result.warnings.join(" ")).toMatch(/suggestions only/);
+    expect((await messages()).length).toBe(before + 1);
+    const { recipe } = await getRecipe(ctx, "pouding-chomeur-vivaldi");
+    expect(recipe.ingredients?.[9].ingredient).toBe(
+      '<Multiplyable baseNumber="2" /> eggs',
+    );
+    const text = gramsCommand.format(result);
+    expect(text).toContain(
+      "the model suggests (not written; keep them on the edit page, Add grams):\n  10. 2 eggs (100g)  (≈ model: two large eggs)",
+    );
+  });
+
+  it("with --model and nothing else to write, writes nothing", async () => {
+    await gramsForRecipe(ctx, "pouding-chomeur-vivaldi", { paste: PASTE });
+    const before = (await messages()).length;
+    const result = await gramsForRecipe(
+      ctx,
+      "pouding-chomeur-vivaldi",
+      { model: true },
+      {
+        askModel: async (lines) => ({
+          answers: lines.map((line) => ({ line: line.line, grams: 100 })),
+          warnings: [],
+        }),
+      },
+    );
+    expect(result.written).toBe(false);
+    expect(result.lines).toEqual([]);
+    expect(result.suggested).toHaveLength(1);
+    expect((await messages()).length).toBe(before);
+  });
+
+  /* Review finding 4: a line edited while the model was asked is the person's. */
+  it("writes only the lines that still say what they said, read again at write time", async () => {
+    const result = await gramsForRecipe(
+      ctx,
+      "pouding-chomeur-vivaldi",
+      { model: true },
+      {
+        askModel: async (lines) => {
+          /* Meanwhile, someone edits the brown sugar and the milk. */
+          const { recipe } = await getRecipe(ctx, "pouding-chomeur-vivaldi");
+          const next = (recipe.ingredients ?? []).map((line) => ({ ...line }));
+          next[0].ingredient = "2 cups dark brown sugar";
+          next[10].ingredient = "1 cup milk";
+          await updateRecipe(ctx, "pouding-chomeur-vivaldi", {
+            ingredients: next,
+          });
+          return {
+            answers: lines.map((line) => ({ line: line.line })),
+            warnings: [],
+          };
+        },
+      },
+    );
+    expect(result.written).toBe(true);
+    expect(result.changed).toEqual([
+      { line: 1, text: "2 cups brown sugar" },
+      { line: 11, text: "3/4 cup milk" },
+    ]);
+    expect(result.lines.map((line) => line.line)).not.toContain(1);
+    expect(result.warnings.join(" ")).toMatch(
+      /2 lines changed while the grams were worked out/,
+    );
+    const { recipe } = await getRecipe(ctx, "pouding-chomeur-vivaldi");
+    expect(recipe.ingredients?.[0].ingredient).toBe("2 cups dark brown sugar");
+    expect(recipe.ingredients?.[10].ingredient).toBe("1 cup milk");
+    expect(recipe.ingredients?.[1].ingredient).toContain(
+      '(<Multiplyable baseNumber="356" />g)',
+    );
   });
 
   it("prints what it did", async () => {

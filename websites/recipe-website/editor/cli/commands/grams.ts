@@ -4,10 +4,14 @@
  *
  * A pasted metric list (`--paste file`) wins; the gram bank (Settings ›
  * Conversions: King Arthur's chart and your own values) fills the cups and
- * spoons it leaves; with `--model` the model is asked for the rest, one
- * line at a time. One update, one commit — or with `--dry-run` only the
+ * spoons it leaves. One update, one commit — or with `--dry-run` only the
  * lines it would change. Counted lines ("2 eggs") take a paste or the
  * model; a pinch, a dash or "to taste" never get grams.
+ *
+ * With `--model` the model is asked for the rest, one line at a time, and
+ * its grams are **shown, never written**: every model-made change is
+ * approved by a person before it is saved, so keep them on the edit page
+ * (Add grams), where each is marked "≈ Model" until kept.
  */
 import { readFile } from "node:fs/promises";
 import { UsageError } from "../../controller/curation/errors";
@@ -52,12 +56,15 @@ export const gramsCommand: CommandDef<GramsRecipeResult> = {
       : result.dryRun
         ? "would write"
         : "nothing to write";
+    const shown = (line: GramsRecipeResult["lines"][number]) =>
+      `  ${line.line}. ${line.to}  (${SOURCE_TEXT[line.source]}: ${line.why})`;
     return [
       `${result.slug}: ${verb}${result.lines.length ? ` ${result.lines.length} line${result.lines.length === 1 ? "" : "s"}` : ""}`,
-      ...result.lines.map(
-        (line) =>
-          `  ${line.line}. ${line.to}  (${SOURCE_TEXT[line.source]}: ${line.why})`,
-      ),
+      ...result.lines.map(shown),
+      result.suggested.length
+        ? `the model suggests (not written; keep them on the edit page, Add grams):`
+        : undefined,
+      ...result.suggested.map(shown),
       result.left.length
         ? `left without grams: ${result.left
             .map(

@@ -5,6 +5,11 @@
  * gram bank leave, and whether to write — and the answer is
  * `GramsRecipeResult` (each line's from → to, where its grams came from,
  * what was left). A write is one commit; a dry run is read-scoped.
+ *
+ * The model's grams are never written here, only answered as `suggested`
+ * (every model-made change is approved by a person before it is saved: on
+ * the edit page). Asking the model needs a write token all the same, dry
+ * run or not: it spends a model's time, or Claude's money.
  */
 import { requireCurationContext } from "recipe-editor/controller/apiContext";
 import {
@@ -32,6 +37,11 @@ export async function POST(
       GramsBodySchema,
       (await readJsonBody(request, { optional: true })) ?? {},
     );
+    if (body.model && ctx.scope !== "write") {
+      throw new ForbiddenError(
+        "This API token is read-only, and asking the model spends its time or money. Use a write token.",
+      );
+    }
     if (!body.dryRun && ctx.scope !== "write") {
       throw new ForbiddenError(
         "This API token is read-only, and this request writes. Pass dryRun, or use a write token.",
