@@ -54,6 +54,11 @@ import {
   type CuratorModelId,
 } from "./job";
 import { readTranscript, readableRecord, transcriptSize } from "./transcript";
+import {
+  guessIntent,
+  isAgentIntentChoice,
+  type IntentChoice,
+} from "./intents/guess";
 
 export type {
   AgentRunInput,
@@ -291,6 +296,50 @@ export async function startAgentRun(
   ) {
     throw new UsageError('model is "local" or "claude".');
   }
+  if (input.intent !== undefined && !isAgentIntentChoice(input.intent)) {
+    throw new UsageError(
+      'intent is "online", "mine", "plan", "organize", "any" or "auto".',
+    );
+  }
+  /* 51b (Db2): a follow-up continues the open loop. */
+  if (
+    input.runId !== undefined &&
+    input.intent !== undefined &&
+    input.intent !== "any" &&
+    input.intent !== "auto"
+  ) {
+    throw new UsageError(
+      `A follow-up continues the conversation in the open loop: intent "${input.intent}" applies to a new ask (leave runId out).`,
+    );
+  }
+  /* 51b: the intent as it stands now, for the page; `auto` the rules guess. */
+  const intentNow = (
+    followUp: boolean,
+  ): {
+    intent?: IntentChoice;
+    intentPending?: true;
+  } => {
+    if (input.intent === undefined) return {};
+    if (followUp) {
+      return {
+        intent:
+          input.intent === "any"
+            ? { id: "any", by: "asked" }
+            : {
+                id: "any",
+                by: "default",
+                why: "a follow-up continues the conversation",
+              },
+      };
+    }
+    if (input.intent !== "auto") {
+      return { intent: { id: input.intent, by: "asked" } };
+    }
+    const ruled = guessIntent(prompt);
+    return ruled
+      ? { intent: { id: ruled.id, by: "rules", why: ruled.why } }
+      : { intentPending: true };
+  };
 
   const start = async (
     continues: string | undefined,
@@ -313,6 +362,7 @@ export async function startAgentRun(
         ...(newerWebTools ? { newerWebTools: true } : {}),
         ...(input.hold === true ? { hold: true } : {}),
         ...(model ? { model } : {}),
+        ...(input.intent !== undefined ? { intent: input.intent } : {}),
       },
       { ctx, dir },
     );
@@ -321,6 +371,7 @@ export async function startAgentRun(
       job: started.job,
       status: "running" as const,
       ...(continues ? { continues } : {}),
+      ...intentNow(continues !== undefined),
       done: started.done,
     };
   };

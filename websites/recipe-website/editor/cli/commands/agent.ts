@@ -15,6 +15,9 @@
  * - `--newer-web-tools` (46d) gives a Claude run the newer server web
  *   tools (dynamic filtering) on a model that takes them; a follow-up keeps
  *   its conversation's, and any other model ignores it (the job log says so).
+ * - `--intent online|mine|plan|organize|any|auto` (51b, D1): what the ask is
+ *   for — the first three run as plans in code — or `auto` for a guess.
+ *   Unset: the open loop, as before.
  *
  * A Claude run stops at its cost budget (46d: `RECIPE_AGENT_MAX_COST_USD`,
  * default $1) with `stopReason: "budget:cost"`.
@@ -30,6 +33,11 @@ import {
   type AgentRunView,
 } from "../../controller/agent/follow";
 import type { TranscriptRecord } from "../../controller/agent/transcript";
+import {
+  AGENT_INTENT_CHOICES,
+  INTENT_LABELS,
+  isAgentIntentChoice,
+} from "../../controller/agent/intents/guess";
 import { formatJobLine } from "../../controller/jobs/log";
 import {
   VERBOSE_OPTION,
@@ -116,9 +124,10 @@ function usageLine(outcome: AgentRunOutcome): string | undefined {
 export const agentCommand: CommandDef<AgentRunOutcome> = {
   name: "agent",
   usage:
-    'recipes agent "<ask>" [--run <id>] [--max-turns 1-40] [--newer-web-tools] [--verbose] [--json]',
+    'recipes agent "<ask>" [--run <id>] [--max-turns 1-40] [--newer-web-tools] [--intent online|mine|plan|organize|any|auto] [--verbose] [--json]',
   options: {
     run: { type: "string" },
+    intent: { type: "string" },
     "max-turns": { type: "string" },
     "newer-web-tools": { type: "boolean" },
     ...VERBOSE_OPTION,
@@ -145,6 +154,12 @@ export const agentCommand: CommandDef<AgentRunOutcome> = {
       throw new UsageError("--max-turns takes a whole number from 1 to 40.");
     }
     const runId = stringOption(options, "run");
+    const intent = stringOption(options, "intent");
+    if (intent !== undefined && !isAgentIntentChoice(intent)) {
+      throw new UsageError(
+        `--intent takes ${AGENT_INTENT_CHOICES.join(", ")} — not "${intent}".`,
+      );
+    }
     return backend.runAgent(
       {
         prompt,
@@ -153,6 +168,7 @@ export const agentCommand: CommandDef<AgentRunOutcome> = {
         ...(booleanOption(options, "newer-web-tools")
           ? { newerWebTools: true }
           : {}),
+        ...(intent ? { intent } : {}),
       },
       json
         ? {}
@@ -179,6 +195,18 @@ export const agentCommand: CommandDef<AgentRunOutcome> = {
     }
     const usage = usageLine(outcome);
     if (usage) lines.push(usage);
+    /* 51b: the intent the run took, and how it was settled. */
+    if (outcome.intent) {
+      const how =
+        outcome.intent.by === "asked"
+          ? "as asked"
+          : outcome.intent.by === "default"
+            ? "the default"
+            : `guessed by the ${outcome.intent.by === "model" ? "model" : "rules"}`;
+      lines.push(
+        `intent: ${INTENT_LABELS[outcome.intent.id]} (${how}${outcome.intent.why ? `: ${outcome.intent.why}` : ""})${outcome.intent.fellBack ? ` — ${outcome.intent.fellBack}` : ""}`,
+      );
+    }
     lines.push(
       `run ${outcome.job}${outcome.model ? ` (${outcome.model})` : ""} — follow up: recipes agent --run ${outcome.job} "…"`,
     );

@@ -75,13 +75,18 @@ import type {
  * One call's answer: what the model reads, a write's summary (44d), and a
  * search's rows for the tagging post-check (48a).
  */
-interface CallOutcome {
+export interface CallOutcome {
   content: string;
   isError: boolean;
   summary?: AgentWriteSummary;
   found?: AgentFound;
   /** 48b: a write held for review, and what the review shows of it. */
   held?: AgentHeld;
+  /**
+   * 51b: the tool's answer, uncut — what an intent's plan reads (its rows,
+   * a held dry run). Never put on a message: the loop picks its fields.
+   */
+  raw?: unknown;
 }
 
 /**
@@ -272,7 +277,7 @@ function cap(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-function errorContent(message: string): string {
+export function errorContent(message: string): string {
   return JSON.stringify({ error: cap(message, TOOL_ERROR_MAX_CHARS) });
 }
 
@@ -503,7 +508,7 @@ const BUDGET_WORDS: Record<AgentBudgetName, string> = {
 };
 
 /** A tool still running when the run stopped: what became of it (Ea12). */
-class StoppedWhileRunning extends Error {
+export class StoppedWhileRunning extends Error {
   constructor(readonly outcome: CallOutcome) {
     super("stopped while a tool was running");
     this.name = "StoppedWhileRunning";
@@ -806,7 +811,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentResult> {
           stepName.name,
           { turn, id: call.id, ...stepName.data },
           async (step) => {
-            const ran = await runCall(call, toolsByName, signal, {
+            const ran = await runToolCall(call, toolsByName, signal, {
               job,
               resultCap: capChars,
               settleMs: options.toolSettleMs ?? TOOL_SETTLE_GRACE_MS,
@@ -915,9 +920,11 @@ async function settleWithin<T>(
  * failure is a result — an unserializable one too — except a stop: when
  * `signal` aborts while the tool runs, it gets `settleMs` to settle (a seat
  * that ignores the signal may be finishing a write) and `StoppedWhileRunning`
- * carries its real result, or `UNKNOWN_OUTCOME` (Ea12).
+ * carries its real result, or `UNKNOWN_OUTCOME` (Ea12). 51b's intent plans
+ * call it too, so a tool they run is checked, capped, wrapped and previewed
+ * exactly as the model's are.
  */
-async function runCall(
+export async function runToolCall(
   call: AgentToolCall,
   tools: Map<string, AgentTool>,
   signal: AbortSignal,
@@ -992,6 +999,7 @@ async function runCall(
       ...(summary ? { summary } : {}),
       ...(found ? { found } : {}),
       ...(held ? { held } : {}),
+      raw: result,
     };
   };
   const failed = (error: unknown) => {

@@ -51,6 +51,7 @@ import type { ReindexResult } from "../curation/reindex";
 import type { SyncResult } from "../curation/sync";
 import type { RecipeActionState } from "../formImport";
 import type { AgentJobResult } from "../agent/job";
+import type { AgentIntentChoice } from "../agent/intents/guess";
 import type { LlmMode } from "../llm/mode";
 import type { JobContext } from "./context";
 import { NOT_RETRIED_KINDS, type JOB_KIND_NAMES } from "./listing";
@@ -197,6 +198,8 @@ export type JobSpec =
       newerWebTools?: boolean;
       /** 48b: hold the run's writes for the person's review (the curator page). */
       hold?: boolean;
+      /** 51b (D1): what the ask is for, or `auto` (`AgentJobSpec.intent`). */
+      intent?: AgentIntentChoice;
       /** 48b: who answers, where the editor has both (`curatorModels`). */
       model?: "local" | "claude";
     })

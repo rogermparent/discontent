@@ -43,16 +43,32 @@ import {
   type LlmConfig,
 } from "../llm/client";
 import { withAgentModel } from "../llm/agentContext";
-import { DEFAULT_AGENT_MAX_COST_USD, modelPrice } from "../llm/cost";
+import {
+  DEFAULT_AGENT_MAX_COST_USD,
+  claudeCostEstimate,
+  modelPrice,
+} from "../llm/cost";
+import { chatJson } from "../llm/client";
+import { addUsage, emptyUsage } from "../llm/tools";
 import { AGENT_PROMPT_MAX } from "./follow";
 import { decisionsNote, heldCalls } from "./held";
-import { runAgent } from "./loop";
+import { runAgent, type RunAgentOptions } from "./loop";
 import {
   LOCAL_AGENT_TOOLS,
+  ORGANIZE_NOTE,
   claudeSystemPrompt,
   localSystemPrompt,
 } from "./prompt";
 import { agentTools } from "./tools";
+import type { AgentToolName } from "./tools/names";
+import {
+  PLANNED_INTENTS,
+  type AgentIntentChoice,
+  type IntentChoice,
+} from "./intents/guess";
+import { settleIntent } from "./intents/classify";
+import type { IntentChat } from "./intents/runner";
+import type { IntentOutcome, PlannedIntent } from "./intents";
 import { readDecisions } from "./reviewStore";
 import {
   historyOf,
@@ -62,6 +78,7 @@ import {
 } from "./transcript";
 import type {
   AgentMessage,
+  AgentResult,
   AgentStopReason,
   AgentUsage,
   ServerTool,
@@ -97,6 +114,13 @@ export interface AgentJobSpec {
    * (`RECIPE_LLM_*`), as before.
    */
   model?: CuratorModelId;
+  /**
+   * What the ask is for (51b, D1): a plan in code (`online`, `mine`,
+   * `plan`), the loop with a short note (`organize`), or the loop (`any`);
+   * `auto` guesses it (the rules, then one small model call). Unset: the
+   * loop, exactly as before. A follow-up runs the loop whatever it says.
+   */
+  intent?: AgentIntentChoice;
 }
 
 /** Who may run the curator: the local model, or the Claude API (48b). */
@@ -194,6 +218,10 @@ export interface AgentJobResult {
   newerWebTools?: true;
   /** The run's writes were held for review (48b). */
   hold?: true;
+  /** 51b: the intent the run took, and how it was settled. */
+  intent?: IntentChoice;
+  /** 51b: what an intent's plan proposed, for the page and the harness. */
+  outcome?: IntentOutcome;
 }
 
 /** Why there is no agent: no model is configured (the route's 400, the CLI's usage). */
@@ -378,6 +406,39 @@ export function agentToolset(
   };
 }
 
+/**
+ * The recipes tools an intent's plan calls (51b): the searches, a page's
+ * read, the import, the holiday's menu, the plan. Their full view (not the
+ * local one): the plan's code reads their answers, not a small model.
+ */
+export const INTENT_PLAN_TOOLS = [
+  "recipe_search",
+  "page_inspect",
+  "recipe_import",
+  "holiday_get",
+  "group_create",
+] as const satisfies readonly AgentToolName[];
+
+/**
+ * The tools an intent's plan runs (51b): `INTENT_PLAN_TOOLS` through the
+ * same bridge — held when the run holds (48b) — and SearXNG's `web_search`
+ * when `RECIPE_SEARCH_URL` is set, for every model (the plan calls it, not
+ * Claude's server search). No `web_fetch`: no step reads a page as text.
+ */
+export function intentToolset(
+  ctx: CurationContext,
+  testing?: AgentToolsetTesting,
+  { hold = false }: { hold?: boolean } = {},
+): ReturnType<typeof agentTools> {
+  const backend = createLocalBackend({ ...ctx, inProcess: true });
+  return agentTools(backend, {
+    only: INTENT_PLAN_TOOLS,
+    hold,
+    webFetch: false,
+    ...(testing ? { guard: { allowHosts: [...testing.allowHosts] } } : {}),
+  });
+}
+
 /** The system prompt a run's model gets (E4): Claude's whole skill, or the local one. */
 export function agentSystemPrompt(
   api: LlmApi,
@@ -410,6 +471,7 @@ export async function runAgentJob(
     job,
     dir,
     testing,
+    standIn,
   }: {
     ctx: CurationContext;
     job: JobContext;
@@ -419,6 +481,16 @@ export async function runAgentJob(
      * the `agent` kind's handler passes `{ctx, job, dir}` and nothing more.
      */
     testing?: AgentToolsetTesting;
+    /**
+     * **Tests only** (D11): a scripted model — the loop's
+     * (`RunAgentOptions.model`) and an intent plan's schema-bound calls
+     * (`chat`, `chatJson`'s shape). The `agent` kind's handler never passes
+     * it.
+     */
+    standIn?: {
+      model?: RunAgentOptions["model"];
+      chat?: IntentChat;
+    };
   },
 ): Promise<AgentJobResult> {
   if (!llmConfig()) throw new UsageError(agentUnavailableMessage());
@@ -452,16 +524,67 @@ export async function runAgentJob(
     writer.copy(earlier);
   }
 
-  const { tools, serverTools } = agentToolset(ctx, config.api, testing, {
-    hold,
+  const local = config.api === "anthropic" ? undefined : agentLocalOptions();
+  const cost = agentCostBudget(config);
+  const chat = standIn?.chat ?? chatJson;
+
+  /* 51b (D1): the intent — as asked, or guessed (the rules, then one small
+   * call) — before the run's start record, which names it. */
+  let before = emptyUsage();
+  let beforeTurns = 0;
+  let beforeMs = 0;
+  const intent = await settleIntent(spec.intent, prompt, {
+    config,
+    job,
+    chat,
+    ...(local ? { numCtx: local.numCtx } : {}),
+    followUp: spec.continues !== undefined,
+    onUsage: ({ promptTokens = 0, outputTokens = 0, durationMs }) => {
+      const priced =
+        config.api === "anthropic"
+          ? claudeCostEstimate(config.model, {
+              inputTokens: promptTokens,
+              outputTokens,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              webSearchRequests: 0,
+            })
+          : undefined;
+      before = addUsage(before, {
+        ...emptyUsage(),
+        inputTokens: promptTokens,
+        outputTokens,
+        ...(priced !== undefined ? { costEstimateUsd: priced } : {}),
+      });
+      beforeTurns += 1;
+      beforeMs = durationMs;
+    },
   });
+  let planned: PlannedIntent | undefined =
+    intent && PLANNED_INTENTS.has(intent.id)
+      ? (intent.id as PlannedIntent)
+      : undefined;
+  const planTools = planned ? intentToolset(ctx, testing, { hold }) : undefined;
+  if (
+    intent &&
+    planned === "online" &&
+    !planTools?.some((tool) => tool.name === "web_search")
+  ) {
+    /* No SearXNG here (the Pi): the loop, with Claude's own search. */
+    intent.fellBack =
+      "there is no web search for the plan here (RECIPE_SEARCH_URL): the open loop runs instead";
+    planned = undefined;
+  }
+
+  const { tools, serverTools } = planned
+    ? { tools: planTools!, serverTools: [] }
+    : agentToolset(ctx, config.api, testing, { hold });
   const search = toolsetSearches({ tools, serverTools });
   const system = [
     agentSystemPrompt(config.api, { now: new Date(), search, hold }),
+    ...(intent?.id === "organize" ? ["", ORGANIZE_NOTE] : []),
     ...(reviewed ? ["", reviewed] : []),
   ].join("\n");
-  const local = config.api === "anthropic" ? undefined : agentLocalOptions();
-  const cost = agentCostBudget(config);
   /* 46d: Claude's newer server tools, per run, on a model that takes them;
    * a local model has no server tools at all. */
   const newerTaken = takesNewerWebTools(config.model);
@@ -481,7 +604,17 @@ export async function runAgentJob(
     ...(newerWebTools ? { newerWebTools: true as const } : {}),
     ...(cost.maxCostUsd !== undefined ? { maxCostUsd: cost.maxCostUsd } : {}),
     ...(hold ? { hold: true as const } : {}),
+    ...(intent ? { intent } : {}),
   });
+  if (beforeTurns > 0) {
+    writer.write({
+      type: "turn",
+      job: jobId ?? "",
+      turn: beforeTurns,
+      usage: before,
+      durationMs: beforeMs,
+    });
+  }
   job.log.info(
     "agent.start",
     `${config.api === "anthropic" ? "Claude API" : "local model"} ${config.model}: ${tools.length} tools${serverTools.length ? ` + server ${serverTools.map((tool) => tool.kind).join(", ")}` : ""}`,
@@ -494,8 +627,16 @@ export async function runAgentJob(
       ...(newerWebTools ? { newerWebTools: true } : {}),
       ...(cost.maxCostUsd !== undefined ? { maxCostUsd: cost.maxCostUsd } : {}),
       ...(hold ? { hold: true } : {}),
+      ...(intent
+        ? {
+            intent: intent.id,
+            intentBy: intent.by,
+            ...(planned ? { plan: true } : {}),
+          }
+        : {}),
     },
   );
+  if (intent?.fellBack) job.log.warn("intent", intent.fellBack);
   for (const setting of [
     ...(local?.ignored ?? []),
     ...(cost.ignored ? [cost.ignored] : []),
@@ -514,6 +655,7 @@ export async function runAgentJob(
 
   const loop = () =>
     runAgent({
+      ...(standIn?.model ? { model: standIn.model } : {}),
       system,
       prompt,
       history,
@@ -541,17 +683,69 @@ export async function runAgentJob(
           writer.write({
             type: "turn",
             job: jobId ?? "",
-            turn: event.turn,
+            turn: beforeTurns + event.turn,
             usage: event.usage,
             durationMs: event.durationMs,
           });
         }
       },
     });
+  /* 51b: an intent's plan, in code, writing the same records. */
+  const plan = async () => {
+    const { runIntentPlan } = await import("./intents");
+    const ran = await runIntentPlan(planned!, {
+      ctx,
+      prompt,
+      config,
+      job,
+      tools,
+      hold,
+      chat,
+      ...(local ? { numCtx: local.numCtx, think: local.think } : {}),
+      ...(cost.maxCostUsd !== undefined
+        ? {
+            maxCostUsd: Math.max(
+              0,
+              cost.maxCostUsd - (before.costEstimateUsd ?? 0),
+            ),
+          }
+        : {}),
+      onMessage: (message) =>
+        writer.write({ type: "message", job: jobId ?? "", message }),
+      onTurn: (turn, usage, durationMs) =>
+        writer.write({
+          type: "turn",
+          job: jobId ?? "",
+          turn: beforeTurns + turn,
+          usage,
+          durationMs,
+        }),
+    });
+    return { ...ran, trimmed: 0 };
+  };
+  const work: () => Promise<
+    Pick<
+      AgentResult,
+      | "text"
+      | "stopReason"
+      | "error"
+      | "usage"
+      | "turns"
+      | "toolCalls"
+      | "trimmed"
+      | "durationMs"
+    > & { outcome?: IntentOutcome }
+  > = planned ? plan : loop;
   /* 51a (Da2): an import a tool starts asks for this run's `num_ctx`. */
-  const result = local
-    ? await withAgentModel({ model: config.model, numCtx: local.numCtx }, loop)
-    : await loop();
+  const ran = local
+    ? await withAgentModel({ model: config.model, numCtx: local.numCtx }, work)
+    : await work();
+  const outcome = ran.outcome;
+  const result = {
+    ...ran,
+    usage: addUsage(before, ran.usage),
+    turns: beforeTurns + ran.turns,
+  };
 
   /* 46d: a budget's stop is said in the job's own log, not only its result. */
   if (result.stopReason.startsWith("budget:") && result.error) {
@@ -596,5 +790,7 @@ export async function runAgentJob(
     ...(cost.maxCostUsd !== undefined ? { maxCostUsd: cost.maxCostUsd } : {}),
     ...(newerWebTools ? { newerWebTools: true as const } : {}),
     ...(hold ? { hold: true as const } : {}),
+    ...(intent ? { intent } : {}),
+    ...(outcome ? { outcome } : {}),
   };
 }

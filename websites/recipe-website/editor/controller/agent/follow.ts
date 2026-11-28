@@ -7,6 +7,7 @@
  * job store, the loop or the tools.
  */
 import type { JobView } from "../jobs/views";
+import type { AgentIntentChoice, IntentChoice } from "./intents/guess";
 import type { AgentJobResult } from "./job";
 import type { TranscriptRecord } from "./transcript";
 
@@ -36,6 +37,12 @@ export interface AgentRunInput {
    * A follow-up keeps its conversation's model.
    */
   model?: "local" | "claude";
+  /**
+   * What the ask is for (51b, D1): `online`, `mine`, `plan`, `organize`,
+   * `any`, or `auto` for a guess. Unset: the open loop, as before. A
+   * follow-up takes `any` or `auto` only (it continues the loop).
+   */
+  intent?: AgentIntentChoice;
 }
 
 export interface AgentStartResult {
@@ -44,6 +51,14 @@ export interface AgentStartResult {
   status: "running";
   /** The run it continues. */
   continues?: string;
+  /**
+   * 51b: the intent as it stands at the start — asked, or the rules' guess —
+   * for the page to show (and the person to change). Absent with
+   * `intentPending` when the rules could not place it: the run's model
+   * classifies it, and the run's start record says what it chose.
+   */
+  intent?: IntentChoice;
+  intentPending?: true;
 }
 
 export interface AgentRunView extends JobView {

@@ -1055,6 +1055,7 @@ export function createHttpBackend({
           ...(input.runId ? { runId: input.runId } : {}),
           ...(input.maxTurns ? { maxTurns: input.maxTurns } : {}),
           ...(input.newerWebTools ? { newerWebTools: true } : {}),
+          ...(input.intent ? { intent: input.intent } : {}),
           /* 48b (Db9): the CLI writes as Claude Code does; the editor's
            * route holds a run's writes unless told not to. */
           hold: false,

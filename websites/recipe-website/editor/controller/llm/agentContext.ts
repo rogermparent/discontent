@@ -35,3 +35,23 @@ export function agentNumCtxFor(config: {
   if (!agent || config.api === "anthropic") return undefined;
   return agent.model === config.model ? agent.numCtx : undefined;
 }
+
+/**
+ * 51b (Db4): a curator plan's held dry run reads a page without teaching
+ * the site's notes selector. Learning asks the edit model (`RECIPE_LLM_MODEL`,
+ * qwen3:8b beside a qwen3.5:9b curator: a model swap on an 8 GB card, 51a's
+ * baseline e run 1) and stores the selector in the settings, a write during
+ * a dry run. The held dry run's preview never shows notes; the import the
+ * person approves runs outside this and learns as ever.
+ */
+const notesStore = new AsyncLocalStorage<true>();
+
+/** Run `work` with notes learning held back (a plan's held dry run). */
+export function withoutNotesLearning<T>(work: () => T): T {
+  return notesStore.run(true, work);
+}
+
+/** Whether an import here must not ask a model to learn a notes selector. */
+export function notesLearningHeld(): boolean {
+  return notesStore.getStore() === true;
+}

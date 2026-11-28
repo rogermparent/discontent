@@ -18,7 +18,7 @@
 
 Status vocabulary: ✅ done · 🟡 next / in progress · ⏸️ deferred · ⤴️ superseded · 📝 proposed.
 
-**Now:** 51a and 51c in progress (2026-11-27); 51f waits on its mock-up's answers.
+**Now:** 51b in progress (2026-11-28); 51f waits on its mock-up's answers (https://claude.ai/artifact/V3hxRb6AG3eaZR11zndKBd).
 
 ## Context
 
@@ -102,8 +102,8 @@ Plan page and mock-up: https://claude.ai/artifact/V9LtB7eAeAf7DLaoQWpcLD.
 | Phase | Branch                        | Size | Status  | What                                                                                                                             |
 | ----- | ----------------------------- | ---- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | 51a   | `agent/51a-curator-cases`     | S–M  | ✅ #366 | `RECIPE_AGENT_MODEL`; the case file and cases e–h in the harness; the `num_ctx` reload; the baseline.                            |
-| 51c   | `agent/51c-deep-search-judge` | M    | 🟡      | `searchRecipeText` over steps and notes (`recipe_search` `deep`), and `judgeRecipes` (fit / maybe / no).                         |
-| 51b   | `agent/51b-intents`           | L    | 📝      | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any. |
+| 51c   | `agent/51c-deep-search-judge` | M    | ✅ #367 | `searchRecipeText` over steps and notes (`recipe_search` `deep`), and `judgeRecipes` (fit / maybe / no).                         |
+| 51b   | `agent/51b-intents`           | L    | 🟡      | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any. |
 | 51f   | `agent/51f-grams`             | M–L  | 📝      | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                        |
 | 51d   | `agent/51d-curator-ui`        | L    | 📝      | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                  |
 | 51e   | `agent/51e-curator-drive`     | M    | 📝      | Claude Code drives the curator: a skill, review notes on runs, the case runner.                                                  |
@@ -498,6 +498,261 @@ exec tsc --noEmit` are clean.
 ## 51b — Intents as code-run plans (L)
 
 Scope: the plan's 51b. Starts after 51a and 51c merge.
+
+### Results (51b)
+
+**Plumbing.**
+
+- `intent?: "online" | "mine" | "plan" | "organize" | "any" | "auto"` is on
+  `AgentJobSpec`, `AgentRunInput`, `POST /api/agent` (zod enum), the job
+  kind's spec, the HTTP backend and `recipes agent --intent`. **Unset is
+  today's loop, byte for byte**: no intent record, no outcome, the same
+  prompt and tools. `any` is the loop too, with its intent recorded.
+- `auto` asks for a guess. `startAgentRun` answers it with the job:
+  `intent: {id, by: "asked" | "rules", why?}`, or `intentPending: true`
+  when the rules can't decide and the run's model will. Inside the job,
+  `settleIntent` (`intents/classify.ts`) settles it before the start
+  record. The rules come first. Otherwise one `chatJson` call runs
+  (`intent_classify`, an enum schema, the answer checked), and a failure or
+  an unknown answer is `{id: "any", by: "default"}`. The transcript's
+  `start` record and the job's result carry the `IntentChoice`, and the
+  result also carries the plan's `outcome`.
+- `intents/guess.ts` is pure and browser-safe, so 51d can import it:
+  `AGENT_INTENTS`, `INTENT_LABELS`, `guessIntent`. It is the mock-up's
+  `guessIntent`, tightened to whole words (so "plantain" and "New England"
+  don't match), plus two rules: an ask that names a URL, and the
+  lists/pantry/homepage, both go to `any`. The rules place e/f/g/h as
+  online/mine/plan/plan.
+- `runAgentJob` branches before `runAgent`. `online`, `mine` and `plan` run
+  `runIntentPlan` (`intents/index.ts`). `organize` is the loop with
+  `ORGANIZE_NOTE` after the system prompt. `any` is the loop.
+
+**How a plan runs (`intents/runner.ts`, `IntentRun`).**
+
+- Code chooses the steps. The model is asked small schema-bound questions
+  (`run.json`, an `llm.intent` step whose `task` names it; `/jobs` says
+  "Model: read the ask"), and the judge (`run.judge` → 51c's
+  `judgeRecipes`, on the run's model and `num_ctx`, given what is left of
+  the cost cap).
+- Every tool a plan uses is a call in the conversation. It runs through
+  the loop's own `runToolCall`, now exported, so it gets the same schema
+  check, cap, E7 wrapping, write summary, `found` and held preview. It is
+  logged as a step named by the tool (`plan: true` in its data).
+- Writes go through the bridge's held branch, unchanged (`hold`). So
+  `RunView`, `ReviewPanel`, a follow-up's history and the harness read an
+  intent run exactly as they read a loop run:
+  - `user` (the ask);
+  - per step an `assistant` message (what the plan is doing as its text,
+    one `call_plan_<n>` call), then its `tool` result;
+  - a `turn` record per model call;
+  - the answer as the last `assistant` message;
+  - `end`.
+- Budgets are the loop's wall time (20 min) and a Claude run's cost cap.
+  A cancel stops at the next step.
+
+**online** (`intents/online.ts`):
+
+1. Read the ask with `{subject, count, constraints}`. The ask's own number
+   wins (`askedCount`); otherwise the model's, bounded to 1–10; otherwise 3.
+2. `recipe_search` the subject (for the answer's "You have: …"), and read
+   every recipe's name for the close-name check.
+3. Search with SearXNG's `web_search`: Sally's first (a result counts only
+   when its title holds every subject word), then `<subject> recipe
+<constraints>`, then `best <subject> recipe` when too few are left.
+4. Drop, in code:
+   - pins, forums and shops (`notRecipeHost`);
+   - lists (`looksLikeRoundup`);
+   - the same page (`existingBySource`): **Already yours**;
+   - a title close to one of yours (`closeRecipeName` on `titleDish`):
+     **Close to yours**, listed and **not held and not counted** (D2);
+   - a second page from one site.
+5. `page_inspect` at most 6, one at a time, with `llm: "off"` (Db4). Drop
+   a partial page. Check the read name for closeness again, and check a
+   redirect's final URL against your sources.
+6. When more are left than asked for, the model picks N, each with a
+   reason (`intent_online_pick`). `checkPicks` keeps only numbers it was
+   shown, each once, at most N. Then backfill in search order.
+7. Make held `recipe_import` × N, each dry run inside `withoutNotesLearning`
+   (Db4). A failed dry run gives way to the next page.
+
+The answer lists the N with links and reasons, then "Close to yours",
+"Already yours", "You have", and a **Heads up** when it found fewer than N
+or a page failed.
+
+**mine** (`intents/mine.ts`):
+
+1. Read the ask with `{criterion, searches}`. The system prompt tells the
+   model to name what a tool makes or does, not just the tool.
+2. The ask's own content words are always the first search
+   (`askSearch`: "milk frother"). Quotes and `field:` prefixes are
+   stripped. At most 8 searches.
+3. Run `recipe_search` `deep: true` for each, with limit 30.
+4. `interleave` the result lists, rank by rank, deduped, to at most 30.
+5. `judgeRecipes`.
+6. Answer **Fits**, **Maybe**, and **Close, but no** (the five best-ranked
+   "no"s). A failed judge lists what was found, with a Heads up.
+
+**plan** (`intents/plan.ts`):
+
+1. Find the holiday in code first: `holidayIn` takes the longest
+   label/slug/alias match from `holidayList`. Otherwise use the model's
+   pick, kept only if it is a real holiday.
+2. Read the ask with `{name, holiday, servings, dishes, courses, count,
+subject}`:
+   - courses are an enum of `MENU_COURSE_ORDER`;
+   - at most 8 dishes and 6 courses;
+   - servings run 1–50;
+   - when the call fails, the courses are read from the ask's words
+     (`coursesIn`).
+3. Read the menu with `holiday_get`.
+4. **Resolve named dishes by name in code** (`resolveDish`), in this
+   order: the folded name; a recipe whose name holds every word ("the
+   pernil" → "Pernil (Puerto Rican Roast Pork)"); then `closeRecipeName`.
+   The menu's recipe wins a tie. An unresolved dish is said in a Heads up,
+   never guessed.
+5. Pick a dish per course asked, for each course a named dish doesn't
+   already cover:
+   - with no courses and no dishes, a main, a side and a dessert from the
+     menu;
+   - the candidates are the menu's dishes of that course, else
+     `recipe_search tag:<course>`, up to 16;
+   - judge them against "A simple side for a Thanksgiving meal. The person
+     asked: …";
+   - take the first fit, else the first maybe, else the first candidate.
+6. Scale by servings ÷ `yieldCount(recipeYield)` (`servingsScale`): 1/8–3/4
+   below one, otherwise to the quarter, at most 10. The item notes "2
+   servings".
+7. A held `group_create`:
+   - kind `meal-plan`;
+   - tags: the holiday slug, plus a tag the ask names (`askedTag`:
+     "tagged christmas");
+   - dated on the holiday's next date;
+   - named "<Holiday> <year>" unless the model gave a name;
+   - a slug checked free first (the held create has no dry run);
+   - items in a meal's order.
+
+With no holiday, dish or course ("plan five vegetarian dinners"), the plan
+deep-searches the subject, judges, and takes the first N fits, then maybes,
+labelled "Day 1…N".
+
+**The harness.**
+
+- `agent-measure.ts --intent <id|auto>` runs every ask with that intent.
+- A line carries `intent` and `outcome`.
+- An "answer" case (f) of a `mine` run is scored on the plan's fits and
+  maybes (`answeredText`). The prose also names the near misses under
+  "Close, but no", and those must not count as "in the answer".
+
+**Tests (`test/curatorIntents.test.ts`, 19).** Each plan runs end to end
+through `runAgentJob` (with `runJob`, a real job store and transcript) on a
+stand-in model: `standIn.chat` for the plans' calls, and `standIn.model`
+(`RunAgentOptions.model`) for the loop. The pages and SearXNG are served
+on 127.0.0.1, several servers standing for several sites.
+
+- **online:** three held imports, the model's picks first and a repeated
+  pick ignored. No inspect of the page you have, the close name, the list
+  or the pin. Every inspect has `llm: "off"`. **Case e's scorer
+  (`checkNewImports`) passes on it.** Nothing is written.
+- **mine:** a deep search per expansion, the judge's three groups, and
+  **case f's scorer passes**.
+- **plan g:** the tart found by name at ×1/4 (2 servings of 8) and the
+  judge's side; **case g's scorer passes**.
+- **plan h:** the pernil found by its words at ×3/4 (6 of "Serves 8-10"),
+  plus breakfast and dessert, tagged christmas.
+- **The loop:** unset and `any` are the loop, `organize` adds its note,
+  online without SearXNG falls back, and a follow-up refuses a plan's
+  intent.
+- **Units:** the rules, every reading in `text.ts`, the checks of the
+  model's picks, dishes and courses, and `settleIntent`.
+
+#### Decisions (51b)
+
+- **Db1 — a plan's tools are calls in the conversation, run by the loop's
+  `runToolCall`.** One place checks, caps, wraps and previews a call, so a
+  held import or plan from an intent is reviewed exactly like the model's.
+  Ids are `call_plan_<n>` (`[A-Za-z0-9_-]`, as the Claude API takes them).
+- **Db2 — a follow-up is the loop.** `startAgentRun` refuses `online`,
+  `mine`, `plan` or `organize` with `runId` (usage), and `auto` on a
+  follow-up is `any`. A plan answers one ask, and its follow-up is a
+  conversation.
+- **Db3 — `auto` is a value of its own.** Unset must stay exactly today's
+  loop (the brief), so a guess has to be asked for. The start answer says
+  the rules' guess, or that the model will decide (`intentPending`).
+- **Db4 — the model swap inside a held import, avoided rather than
+  measured.**
+  - Inspects pass `llm: "off"`. A page with no recipe data is dropped
+    rather than read by qwen3:8b. With `off`, `notesModeFor` also asks no
+    model for notes.
+  - A held dry run runs inside `withoutNotesLearning` (`agentContext.ts`,
+    read by `importNotes.ts`). The import the person approves runs outside
+    it and learns notes as ever, on `RECIPE_LLM_MODEL` (D5: imports stay on
+    qwen3:8b).
+  - The plan's own calls use the run's model and `num_ctx` (Dc3/Da2).
+  - What's left is a dry run's extraction on a page whose recipe data the
+    importer can't map. To measure it, on the e runs look for `llm.*`
+    steps under `recipe_import` in `recipes jobs show`.
+- **Db5 — online needs SearXNG.** Without `RECIPE_SEARCH_URL` (the Pi) the
+  open loop runs, with Claude's own search, and the result's
+  `intent.fellBack` says why. D2 is not enforced there.
+- **Db6 — what "Close to yours" means in a run.** Close names are listed in
+  the answer with the recipe they are close to, and never held. One page a
+  site keeps the reads polite and the picks varied.
+- **Db7 — `mine` always searches the ask's own words,** and the judge reads
+  the interleaved union, so every expansion gets a say in the 30.
+- **Db8 — `plan`'s defaults:**
+  - "from its menu" with no courses means a main, a side and a dessert;
+  - a course missing from the menu falls back to the site's `tag:<course>`;
+  - the group is dated on the holiday's next date, so Thanksgiving asked
+    on 2026-11-28 is "Thanksgiving 2027".
+- **Db9 — `turns` counts model calls.** A judge of 30 is four, and the
+  classify call is one. The `turn` records number on from the classify
+  call.
+- **Db10 — test seams.**
+  - `judgeRecipes` takes `chat` (default `chatJson`).
+  - `runAgentJob` takes `standIn: {model?, chat?}` for tests only. The
+    `agent` kind's handler never passes it, as with `testing`.
+  - `hostOf` keeps a URL's port, so loopback servers count as sites.
+  - `llm.intent` has a `/jobs` title.
+
+#### Traps (51b)
+
+- **A Claude follow-up of an online run replays a client `web_search`
+  call** (SearXNG's) while the server tool of the same name is declared.
+  No stub test can show whether the Messages API minds this. Try it once
+  on the workstation with the Claude key before 51d leans on it.
+- **The sandbox refused** a shell command whose text held the word
+  "source" (it reads as the shell builtin) and a heredoc it couldn't
+  verify. Use Edit and Python with literal paths.
+
+#### The real check (the orchestrator's, GPU etiquette)
+
+From this worktree's `websites/recipe-website/editor`, with `editor/.env`
+copied (it has `RECIPE_LLM_URL` and `RECIPE_SEARCH_URL`):
+
+```
+pnpm exec tsx scripts/agent-measure.ts \
+  --content-dir /home/roger/.claude/jobs/6f7c677f/tmp/51/scan/content \
+  --model qwen3.5:9b --asks e,f,g,h --intent auto --repeat 3 \
+  --jobs-dir $CLAUDE_JOB_DIR/tmp/51/51b/jobs-9b \
+  --out $CLAUDE_JOB_DIR/tmp/51/51b/qwen3.5-9b.jsonl
+```
+
+**Roger to confirm (51b):**
+
+- b01: the guess rules and their order (online, plan, organize, mine, then
+  the lists → any), and `auto` as the value that asks for a guess.
+- b02: online reads pages with `llm: "off"`, so a page with no recipe
+  data is skipped, not read by the model (Db4).
+- b03: Sally's is searched first on every online ask, kept only when the
+  title holds the subject's words.
+- b04: a close name is listed, never held (to import it, follow up).
+- b05: mine shows at most five "Close, but no".
+- b06: "from its menu" with nothing named means a main, a side and a
+  dessert; a plan is named "<Holiday> <year>" and dated on the next one.
+- b07: a scale under one (the tart at ×1/4) is written as such, with "2
+  servings" in the note.
+- b08: a plan with no holiday or dish is "Day 1…N" from the judged search.
+- b09: a follow-up is always the loop (Db2).
 
 ## 51f — Metric conversions (M–L)
 

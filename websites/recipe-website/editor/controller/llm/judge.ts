@@ -40,6 +40,8 @@ import {
   chatJson,
   contextStep,
   estimateTokens,
+  type ChatJsonRequest,
+  type ChatJsonResult,
   type LlmConfig,
 } from "./client";
 import { claudeCostEstimate, dollarText } from "./cost";
@@ -173,6 +175,11 @@ export interface JudgeOptions {
    */
   maxCostUsd?: number;
   timeoutMs?: number;
+  /**
+   * The model call (51b): `chatJson` unless a test or the curator's stand-in
+   * scripts one. Never a real model in tests (D11).
+   */
+  chat?: (request: ChatJsonRequest) => Promise<ChatJsonResult>;
 }
 
 // --- the candidate's text ----------------------------------------------------
@@ -445,6 +452,7 @@ export async function judgeRecipes(
     think = false,
     maxCostUsd,
     timeoutMs,
+    chat = chatJson,
   }: JudgeOptions,
 ): Promise<JudgeResult> {
   const job = jobContext(run);
@@ -569,7 +577,7 @@ export async function judgeRecipes(
             : {}),
         },
         async (step) => {
-          const answer = await chatJson({
+          const answer = await chat({
             step,
             system: JUDGE_SYSTEM_PROMPT,
             user,
