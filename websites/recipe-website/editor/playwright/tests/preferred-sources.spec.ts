@@ -25,13 +25,15 @@ test.describe("Preferred sources", () => {
     await signIn(page);
     await page.goto("/settings/tools");
     const card = page.getByTestId("preferred-sources");
-    await expectHydrated(card.getByRole("button", { name: "Add" }));
+    await expectHydrated(
+      card.getByRole("button", { name: "Add", exact: true }),
+    );
     await expect(sites(page)).toHaveText(["sallysbakingaddiction.com"]);
     await expect(card.getByRole("button", { name: "Save" })).toBeDisabled();
 
     /* Not a site: said so, nothing added. */
     await card.getByLabel("Add a site", { exact: true }).fill("not a site");
-    await card.getByRole("button", { name: "Add" }).click();
+    await card.getByRole("button", { name: "Add", exact: true }).click();
     await expect(page.getByTestId("preferred-sources-status")).toContainText(
       "is not a site",
     );
@@ -41,7 +43,7 @@ test.describe("Preferred sources", () => {
     await card
       .getByLabel("Add a site", { exact: true })
       .fill("https://www.kingarthurbaking.com/recipes/x");
-    await card.getByRole("button", { name: "Add" }).click();
+    await card.getByRole("button", { name: "Add", exact: true }).click();
     await expect(sites(page)).toHaveText([
       "sallysbakingaddiction.com",
       "kingarthurbaking.com",
@@ -49,7 +51,7 @@ test.describe("Preferred sources", () => {
     await card
       .getByLabel("Add a site", { exact: true })
       .fill("kingarthurbaking.com");
-    await card.getByRole("button", { name: "Add" }).click();
+    await card.getByRole("button", { name: "Add", exact: true }).click();
     await expect(page.getByTestId("preferred-sources-status")).toContainText(
       "already listed",
     );
@@ -80,7 +82,9 @@ test.describe("Preferred sources", () => {
     ]);
 
     /* An empty list is allowed. */
-    await expectHydrated(card.getByRole("button", { name: "Add" }));
+    await expectHydrated(
+      card.getByRole("button", { name: "Add", exact: true }),
+    );
     for (const site of ["kingarthurbaking.com", "sallysbakingaddiction.com"]) {
       await card.getByRole("button", { name: `Remove ${site}` }).click();
     }
@@ -93,11 +97,13 @@ test.describe("Preferred sources", () => {
     await expect(page.getByTestId("preferred-sources-empty")).toBeVisible();
 
     /* The default back. */
-    await expectHydrated(card.getByRole("button", { name: "Add" }));
+    await expectHydrated(
+      card.getByRole("button", { name: "Add", exact: true }),
+    );
     await card
       .getByLabel("Add a site", { exact: true })
       .fill("sallysbakingaddiction.com");
-    await card.getByRole("button", { name: "Add" }).click();
+    await card.getByRole("button", { name: "Add", exact: true }).click();
     await card.getByRole("button", { name: "Save" }).click();
     await expect(page.getByTestId("preferred-sources-status")).toContainText(
       "Saved: 1 preferred site.",
