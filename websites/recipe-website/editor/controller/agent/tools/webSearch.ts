@@ -158,6 +158,14 @@ export async function webSearch(
   };
 }
 
+/** Whether a search service is configured (E6): `RECIPE_SEARCH_URL`, a URL. */
+export function webSearchConfigured(
+  searchUrl: string | undefined = process.env.RECIPE_SEARCH_URL,
+): boolean {
+  const url = searchUrl?.trim();
+  return !!url && URL.canParse(url);
+}
+
 /** The tool, or `undefined` when no search service is configured (E6). */
 export function webSearchTool(
   options: WebSearchOptions = {},
@@ -165,7 +173,7 @@ export function webSearchTool(
   const searchUrl = (
     options.searchUrl ?? process.env.RECIPE_SEARCH_URL
   )?.trim();
-  if (!searchUrl || !URL.canParse(searchUrl)) return undefined;
+  if (!searchUrl || !webSearchConfigured(searchUrl)) return undefined;
   return {
     name: WEB_SEARCH_TOOL,
     description: DESCRIPTION,

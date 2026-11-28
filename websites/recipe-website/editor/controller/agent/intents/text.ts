@@ -158,49 +158,114 @@ export interface ResolvedDish {
   slug: string;
   name: string;
   how: "name" | "words" | "close";
+  /**
+   * The other recipes that answered the dish as well, when nothing settled
+   * which one it is (the menu, the dish's course): the plan says so in a
+   * Heads up rather than picking silently (51b review 2).
+   */
+  others?: NamedRecipe[];
+}
+
+/** What a dish's resolution may prefer: the menu's recipes, its course. */
+export interface ResolvePreference {
+  /** The holiday menu's recipe slugs. */
+  menu?: ReadonlySet<string>;
+  /** The course the dish is ("dessert"), when the ask or its words say. */
+  course?: string;
+  /** A recipe's course (the menu's grouping, else its course tag). */
+  courseOf?: (recipe: NamedRecipe) => string | undefined;
+}
+
+/**
+ * Among recipes that all answer a dish, the one to take: the one recipe on
+ * the menu of the dish's course, else the one on the menu, else the one of
+ * its course — `settled` when one of those singles one out. Otherwise the
+ * best guess, flagged: a name whose last word is the dish's ("the turkey"
+ * is "Roast Turkey", not "Turkey Gravy"), then fewer extra words, then the
+ * shorter name, then the order given.
+ */
+function pickAmong(
+  list: readonly NamedRecipe[],
+  wanted: readonly string[],
+  { menu = new Set(), course, courseOf }: ResolvePreference,
+): { pick: NamedRecipe; others: NamedRecipe[]; settled: boolean } {
+  const others = (pick: NamedRecipe) =>
+    list.filter((recipe) => recipe.slug !== pick.slug);
+  if (list.length === 1) return { pick: list[0], others: [], settled: true };
+  const onMenu = (recipe: NamedRecipe) => menu.has(recipe.slug);
+  const ofCourse = (recipe: NamedRecipe) =>
+    course !== undefined && courseOf?.(recipe) === course;
+  const narrowings = [
+    ...(course ? [list.filter((r) => onMenu(r) && ofCourse(r))] : []),
+    list.filter(onMenu),
+    ...(course ? [list.filter(ofCourse)] : []),
+  ];
+  for (const narrowed of narrowings) {
+    if (narrowed.length === 1) {
+      return { pick: narrowed[0], others: others(narrowed[0]), settled: true };
+    }
+  }
+  const pool = narrowings.find((narrowed) => narrowed.length > 1) ?? list;
+  const head = wanted[wanted.length - 1];
+  const score = (recipe: NamedRecipe) => {
+    const words = nameWords(recipe.name);
+    return {
+      head: words[words.length - 1] === head ? 0 : 1,
+      extra: words.length - wanted.length,
+      length: recipe.name.length,
+    };
+  };
+  const ranked = [...pool].sort((a, b) => {
+    const left = score(a);
+    const right = score(b);
+    return (
+      left.head - right.head ||
+      left.extra - right.extra ||
+      left.length - right.length
+    );
+  });
+  return { pick: ranked[0], others: others(ranked[0]), settled: false };
 }
 
 /**
  * The recipe a dish named in an ask is (the plan's "named dishes are
  * resolved by name in code", 51b): the folded name itself first; then a
  * recipe whose name holds every word of the dish ("the pernil" → "Pernil
- * (Puerto Rican Roast Pork)"); then `closeRecipeName`. Ties go to a recipe in
- * `prefer` (the holiday's menu), then the shortest name, then the order
- * given. `undefined` when none is.
+ * (Puerto Rican Roast Pork)"); then `closeRecipeName`. Several at one stage
+ * go to `pickAmong`, and when nothing settles which, the result carries
+ * the `others`. `undefined` when none is.
  */
 export function resolveDish(
   dish: string,
   recipes: readonly NamedRecipe[],
-  prefer: ReadonlySet<string> = new Set(),
+  prefer: ResolvePreference = {},
 ): ResolvedDish | undefined {
   const wanted = nameWords(dish);
   if (wanted.length === 0) return undefined;
   const key = wanted.join(" ");
-  const rank = (list: NamedRecipe[]) =>
-    [...list].sort(
-      (a, b) =>
-        Number(prefer.has(b.slug)) - Number(prefer.has(a.slug)) ||
-        a.name.length - b.name.length,
-    )[0];
-  const exact = recipes.filter(
-    (recipe) => nameWords(recipe.name).join(" ") === key,
-  );
-  if (exact.length > 0) {
-    const pick = rank(exact);
-    return { slug: pick.slug, name: pick.name, how: "name" };
-  }
-  const holding = recipes.filter((recipe) => {
-    const words = new Set(nameWords(recipe.name));
-    return wanted.every((word) => words.has(word));
-  });
-  if (holding.length > 0) {
-    const pick = rank(holding);
-    return { slug: pick.slug, name: pick.name, how: "words" };
-  }
-  const close = recipes.filter((recipe) => closeRecipeName(dish, recipe.name));
-  if (close.length > 0) {
-    const pick = rank(close);
-    return { slug: pick.slug, name: pick.name, how: "close" };
+  const stages: [ResolvedDish["how"], NamedRecipe[]][] = [
+    [
+      "name",
+      recipes.filter((recipe) => nameWords(recipe.name).join(" ") === key),
+    ],
+    [
+      "words",
+      recipes.filter((recipe) => {
+        const words = new Set(nameWords(recipe.name));
+        return wanted.every((word) => words.has(word));
+      }),
+    ],
+    ["close", recipes.filter((recipe) => closeRecipeName(dish, recipe.name))],
+  ];
+  for (const [how, list] of stages) {
+    if (list.length === 0) continue;
+    const { pick, others, settled } = pickAmong(list, wanted, prefer);
+    return {
+      slug: pick.slug,
+      name: pick.name,
+      how,
+      ...(!settled && others.length > 0 ? { others } : {}),
+    };
   }
   return undefined;
 }

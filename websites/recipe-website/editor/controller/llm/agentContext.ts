@@ -16,11 +16,38 @@ interface AgentModel {
   numCtx: number;
 }
 
-const store = new AsyncLocalStorage<AgentModel>();
+/*
+ * 51b review 6: the stores live on `globalThis`, as the queue's holds do
+ * (`queue.ts`): Next bundles a module once per route, so a module-level
+ * store set by the agent's job would be a different store from the one an
+ * import's code reads in another bundle.
+ */
+interface AgentContextGlobal {
+  __discontentAgentModel?: AsyncLocalStorage<AgentModel>;
+  __discontentNotesLearningHeld?: AsyncLocalStorage<NotesHold>;
+}
+
+function contextGlobal(): AgentContextGlobal {
+  return globalThis as AgentContextGlobal;
+}
+
+function modelStore(): AsyncLocalStorage<AgentModel> {
+  return (contextGlobal().__discontentAgentModel ??= new AsyncLocalStorage());
+}
+
+/** One held dry run's notes: whether a learning was held back in it. */
+interface NotesHold {
+  heldBack: boolean;
+}
+
+function notesStore(): AsyncLocalStorage<NotesHold> {
+  return (contextGlobal().__discontentNotesLearningHeld ??=
+    new AsyncLocalStorage());
+}
 
 /** Run `work` as an agent run on `model` at `numCtx` (a local model's). */
 export function withAgentModel<T>(agent: AgentModel, work: () => T): T {
-  return store.run(agent, work);
+  return modelStore().run(agent, work);
 }
 
 /**
@@ -31,7 +58,7 @@ export function agentNumCtxFor(config: {
   model: string;
   api: string;
 }): number | undefined {
-  const agent = store.getStore();
+  const agent = modelStore().getStore();
   if (!agent || config.api === "anthropic") return undefined;
   return agent.model === config.model ? agent.numCtx : undefined;
 }
@@ -43,15 +70,29 @@ export function agentNumCtxFor(config: {
  * baseline e run 1) and stores the selector in the settings, a write during
  * a dry run. The held dry run's preview never shows notes; the import the
  * person approves runs outside this and learns as ever.
+ *
+ * Run `work` with notes learning held back (a plan's held dry run).
  */
-const notesStore = new AsyncLocalStorage<true>();
-
-/** Run `work` with notes learning held back (a plan's held dry run). */
 export function withoutNotesLearning<T>(work: () => T): T {
-  return notesStore.run(true, work);
+  return notesStore().run({ heldBack: false }, work);
 }
 
 /** Whether an import here must not ask a model to learn a notes selector. */
 export function notesLearningHeld(): boolean {
-  return notesStore.getStore() === true;
+  return notesStore().getStore() !== undefined;
+}
+
+/**
+ * Say that this dry run held a notes learning back (51b review 7): the page
+ * has a Notes heading the import would have asked a model to read, so the
+ * import the person approves may carry notes the preview didn't.
+ */
+export function markNotesHeldBack(): void {
+  const hold = notesStore().getStore();
+  if (hold) hold.heldBack = true;
+}
+
+/** Whether this held dry run held a notes learning back. */
+export function notesHeldBack(): boolean {
+  return notesStore().getStore()?.heldBack === true;
 }

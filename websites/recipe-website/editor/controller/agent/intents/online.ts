@@ -17,7 +17,9 @@
  * 5. **Read the best pages** — `page_inspect`, one at a time, at most 6
  *    (30-D5: sequential, one per site), with `llm: "off"` so a read asks no
  *    model (Db4); a page with no recipe is dropped, and the name it reads
- *    is checked against yours again.
+ *    is checked against yours again. Recipe pages come first; a video
+ *    (YouTube, Vimeo) is read only when the pages leave fewer than N, unless
+ *    the ask wants a video (`readingOrder`, Db12).
  * 6. **The model picks N** with a one-line reason each, from the pages read;
  *    its answer is checked (a number it was shown, once each, at most N).
  * 7. **Held imports** — `recipe_import` × N through the bridge's held branch
@@ -27,6 +29,7 @@
 import { nameWords } from "recipe-website-common/util/closeRecipeName";
 import { fold } from "recipe-website-common/util/fold";
 import { sourceUrlKey } from "recipe-website-common/util/roundupPage";
+import { isVideoUrl } from "recipe-website-common/util/videoUrl";
 import { withoutNotesLearning } from "../../llm/agentContext";
 import { existingBySource } from "../../curation/importList";
 import { readAllRecipeRows } from "../../curation/recipes";
@@ -106,6 +109,30 @@ export interface OnlineCandidate {
   /** Its summary for the pick: time, yield, ingredients. */
   facts?: string;
   description?: string;
+  /** On a video site (YouTube, Vimeo): read only when pages fall short. */
+  video?: true;
+}
+
+/** Whether an ask wants a video ("a video", "on YouTube"). */
+export function asksForVideo(prompt: string): boolean {
+  return /\b(?:videos?|youtube|vimeo)\b/.test(fold(prompt));
+}
+
+/**
+ * The order pages are read in (51b real run miss 10, Db12): recipe pages
+ * first, in search order, then videos — which are read only while the pages
+ * read so far leave fewer than the count. An ask that wants a video keeps
+ * the search order.
+ */
+export function readingOrder(
+  candidates: readonly OnlineCandidate[],
+  wantsVideo: boolean,
+): OnlineCandidate[] {
+  if (wantsVideo) return [...candidates];
+  return [
+    ...candidates.filter((candidate) => !candidate.video),
+    ...candidates.filter((candidate) => candidate.video),
+  ];
 }
 
 /** What an online run proposed and set aside (the job's `outcome`). */
@@ -289,25 +316,44 @@ export async function runOnline(run: IntentRun): Promise<{
       /* One page a site: different sites, and no two reads of one host. */
       if (hosts.has(site)) continue;
       hosts.add(site);
-      candidates.push({ url: item.url, title: item.title, site });
+      candidates.push({
+        url: item.url,
+        title: item.title,
+        site,
+        ...(isVideoUrl(item.url) ? { video: true as const } : {}),
+      });
     }
   };
   await consider(results);
-  if (candidates.length < Math.min(ONLINE_INSPECT_MAX, count + 2)) {
+  const wantsVideo = asksForVideo(run.prompt);
+  const pages = () =>
+    candidates.filter((candidate) => wantsVideo || !candidate.video).length;
+  if (pages() < Math.min(ONLINE_INSPECT_MAX, count + 2)) {
     const before = results.length;
     await searchFor({ query: `best ${subject} recipe` }, false);
     await consider(results.slice(before));
   }
 
-  /* 5. Read the best pages, one at a time (30-D5). */
-  const read6 = candidates.slice(0, ONLINE_INSPECT_MAX);
+  /* 5. Read the best pages, one at a time (30-D5), videos last. */
+  const queue = readingOrder(candidates, wantsVideo);
   const good: OnlineCandidate[] = [];
-  if (read6.length > 0) {
+  const toRead = Math.min(ONLINE_INSPECT_MAX, pages());
+  if (toRead > 0) {
     run.say(
-      `Reading ${read6.length} page${read6.length === 1 ? "" : "s"} that look like recipes you don't have.`,
+      `Reading ${toRead} page${toRead === 1 ? "" : "s"} that look like recipes you don't have.`,
     );
   }
-  for (const candidate of read6) {
+  let readCount = 0;
+  for (const candidate of queue) {
+    if (readCount >= ONLINE_INSPECT_MAX) break;
+    /* A video only when the pages leave fewer than asked for (Db12). */
+    if (candidate.video && !wantsVideo) {
+      if (good.length >= count) break;
+      run.say(
+        `The pages gave ${good.length} of ${count}: reading a video, ${candidate.site}.`,
+      );
+    }
+    readCount += 1;
     const inspected = await run.tool("page_inspect", {
       url: candidate.url,
       llm: "off",
@@ -360,7 +406,7 @@ export async function runOnline(run: IntentRun): Promise<{
       "",
       ...good.map(
         (candidate, index) =>
-          `${index + 1}. ${candidate.name} — ${candidate.site}${candidate.facts ? ` (${candidate.facts})` : ""}${candidate.description ? `\n   ${candidate.description}` : ""}`,
+          `${index + 1}. ${candidate.name} — ${candidate.site}${candidate.video ? " (a video)" : ""}${candidate.facts ? ` (${candidate.facts})` : ""}${candidate.description ? `\n   ${candidate.description}` : ""}`,
       ),
     ].join("\n");
     const picked = await run.json("pick the recipes", {
@@ -499,7 +545,7 @@ export function onlineAnswer(
               `I found ${proposed.length} of the ${count} you asked for that you don't already have.`,
             ]
           : []),
-        ...notes
+        ...[...new Set(notes)]
           .slice(0, 4)
           .map((note) => `${note[0].toUpperCase()}${note.slice(1)}.`),
       ].join(" ")}`,

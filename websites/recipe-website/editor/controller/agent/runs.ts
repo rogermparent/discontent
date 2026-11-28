@@ -54,11 +54,8 @@ import {
   type CuratorModelId,
 } from "./job";
 import { readTranscript, readableRecord, transcriptSize } from "./transcript";
-import {
-  guessIntent,
-  isAgentIntentChoice,
-  type IntentChoice,
-} from "./intents/guess";
+import { intentAtStart, isAgentIntentChoice } from "./intents/guess";
+import { webSearchConfigured } from "./tools/webSearch";
 
 export type {
   AgentRunInput,
@@ -313,33 +310,11 @@ export async function startAgentRun(
     );
   }
   /* 51b: the intent as it stands now, for the page; `auto` the rules guess. */
-  const intentNow = (
-    followUp: boolean,
-  ): {
-    intent?: IntentChoice;
-    intentPending?: true;
-  } => {
-    if (input.intent === undefined) return {};
-    if (followUp) {
-      return {
-        intent:
-          input.intent === "any"
-            ? { id: "any", by: "asked" }
-            : {
-                id: "any",
-                by: "default",
-                why: "a follow-up continues the conversation",
-              },
-      };
-    }
-    if (input.intent !== "auto") {
-      return { intent: { id: input.intent, by: "asked" } };
-    }
-    const ruled = guessIntent(prompt);
-    return ruled
-      ? { intent: { id: ruled.id, by: "rules", why: ruled.why } }
-      : { intentPending: true };
-  };
+  const intentNow = (followUp: boolean) =>
+    intentAtStart(input.intent, prompt, {
+      followUp,
+      search: webSearchConfigured(),
+    });
 
   const start = async (
     continues: string | undefined,

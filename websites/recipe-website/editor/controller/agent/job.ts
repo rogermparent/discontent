@@ -64,6 +64,7 @@ import type { AgentToolName } from "./tools/names";
 import {
   PLANNED_INTENTS,
   type AgentIntentChoice,
+  ONLINE_NO_SEARCH,
   type IntentChoice,
 } from "./intents/guess";
 import { settleIntent } from "./intents/classify";
@@ -571,8 +572,7 @@ export async function runAgentJob(
     !planTools?.some((tool) => tool.name === "web_search")
   ) {
     /* No SearXNG here (the Pi): the loop, with Claude's own search. */
-    intent.fellBack =
-      "there is no web search for the plan here (RECIPE_SEARCH_URL): the open loop runs instead";
+    intent.fellBack = ONLINE_NO_SEARCH;
     planned = undefined;
   }
 

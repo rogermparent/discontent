@@ -87,6 +87,8 @@ export async function settleIntent(
           config,
           step,
           job,
+          /* 51b review 4: a cancel reaches the classify call. */
+          ...(job.signal ? { signal: job.signal } : {}),
           ...(config.api !== "anthropic" && numCtx ? { numCtx } : {}),
         }),
     );

@@ -25,7 +25,7 @@ import {
 import type { ImportedRecipe } from "recipe-website-common/util/importRecipeData";
 import { jobContext, type JobRun } from "../jobs/context";
 import type { LlmMode } from "../llm/mode";
-import { notesLearningHeld } from "../llm/agentContext";
+import { markNotesHeldBack, notesLearningHeld } from "../llm/agentContext";
 import type { EditModels } from "../llm/askEdit";
 import type { SelectorAttempt } from "../llm/notesSelector";
 import {
@@ -152,6 +152,7 @@ async function findNotes(
   }
   /* 51b (Db4): a curator plan's held dry run asks no model here. */
   if (notesLearningHeld()) {
+    markNotesHeldBack();
     return {
       path: "none",
       notes: [],

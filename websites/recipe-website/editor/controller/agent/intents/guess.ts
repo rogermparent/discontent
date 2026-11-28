@@ -143,3 +143,50 @@ export function guessIntent(
   }
   return undefined;
 }
+
+/** Why online runs the open loop here: no web search for the plan (Db5). */
+export const ONLINE_NO_SEARCH =
+  "there is no web search for the plan here (RECIPE_SEARCH_URL): the open loop runs instead";
+
+/**
+ * The intent as the start answer says it (51b), before the job runs: the
+ * asked one, the rules' guess for `auto` (or `pending` when the model will
+ * decide), the loop on a follow-up (Db2) — and, for online with no web
+ * search here, the same `fellBack` the job's result will carry (51b
+ * review 5), so the page never names a plan the run won't take.
+ */
+export function intentAtStart(
+  asked: AgentIntentChoice | undefined,
+  prompt: string,
+  { followUp, search }: { followUp: boolean; search: boolean },
+): { intent?: IntentChoice; intentPending?: true } {
+  if (asked === undefined) return {};
+  if (followUp) {
+    return {
+      intent:
+        asked === "any"
+          ? { id: "any", by: "asked" }
+          : {
+              id: "any",
+              by: "default",
+              why: "a follow-up continues the conversation",
+            },
+    };
+  }
+  const choice: IntentChoice | undefined =
+    asked !== "auto"
+      ? { id: asked, by: "asked" }
+      : (() => {
+          const ruled = guessIntent(prompt);
+          return ruled
+            ? { id: ruled.id, by: "rules" as const, why: ruled.why }
+            : undefined;
+        })();
+  if (!choice) return { intentPending: true };
+  return {
+    intent:
+      choice.id === "online" && !search
+        ? { ...choice, fellBack: ONLINE_NO_SEARCH }
+        : choice,
+  };
+}

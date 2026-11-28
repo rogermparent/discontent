@@ -5,6 +5,7 @@
  * loop's own terms (`AgentStopReason`), so `runAgentJob` records it exactly
  * as it records a loop run. `organize` and `any` are the loop's.
  */
+import { recipeIndexExists } from "../../curation/importList";
 import { LlmError } from "../../llm/client";
 import type { AgentStopReason, AgentUsage } from "../types";
 import type { AgentIntent } from "./guess";
@@ -39,6 +40,15 @@ const PLANS: Record<
   plan: runPlan,
 };
 
+/**
+ * The answer when the recipe index is not built (51b review 3): every plan
+ * reads it to know what you have, and an unbuilt one reads as empty — so
+ * online would propose what you already have, mine find nothing and plan
+ * resolve nothing. Stop and say so instead.
+ */
+export const NO_INDEX_ANSWER =
+  "I can't tell what you already have: the recipe index isn't built here, so I stopped before searching. Reindex (`recipes reindex`, or restart the editor) and ask again.";
+
 /** Run `intent`'s plan. Never throws: the result says how it ended. */
 export async function runIntentPlan(
   intent: PlannedIntent,
@@ -61,6 +71,11 @@ export async function runIntentPlan(
     problems: run.problems,
   });
   try {
+    if (!recipeIndexExists(options.ctx)) {
+      options.job.log.warn("intent", "the recipe index is not built");
+      run.answer(NO_INDEX_ANSWER);
+      return ended("done", { text: NO_INDEX_ANSWER });
+    }
     const { text, outcome } = await PLANS[intent](run);
     run.answer(text);
     return ended("done", { text, outcome });

@@ -184,6 +184,11 @@ export interface AgentHeld {
   /** A batch import's or a roundup's recipes, as the dry run listed them. */
   recipes?: { name: string; slug?: string; status?: string }[];
   /**
+   * The dry run left the page's notes unread (a curator plan's, 51b Db4):
+   * the import reads them when it is approved (51b review 7).
+   */
+  notesOnApproval?: true;
+  /**
    * A `term_assign`'s `add`s as the content stood when it was held: those it
    * would tag, those already tagged, and those that are not recipes (yet:
    * a held import or create may make them).

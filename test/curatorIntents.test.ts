@@ -29,22 +29,31 @@ import {
 } from "../websites/recipe-website/editor/controller/agent/job";
 import { startAgentRun } from "../websites/recipe-website/editor/controller/agent/runs";
 import {
+  ONLINE_NO_SEARCH,
   guessIntent,
+  intentAtStart,
   type AgentIntentChoice,
 } from "../websites/recipe-website/editor/controller/agent/intents/guess";
 import { settleIntent } from "../websites/recipe-website/editor/controller/agent/intents/classify";
 import {
+  MINE_READ_SYSTEM,
   askSearch,
   interleave,
 } from "../websites/recipe-website/editor/controller/agent/intents/mine";
+import { JUDGE_SYSTEM_PROMPT } from "../websites/recipe-website/editor/controller/llm/judge";
 import {
   checkPicks,
+  asksForVideo,
   fallbackSubject,
+  onlineAnswer,
+  readingOrder,
 } from "../websites/recipe-website/editor/controller/agent/intents/online";
+import { NO_INDEX_ANSWER } from "../websites/recipe-website/editor/controller/agent/intents";
 import {
   askedTag,
   checkCourses,
   checkDishes,
+  courseRequest,
   coursesIn,
   holidayIn,
 } from "../websites/recipe-website/editor/controller/agent/intents/plan";
@@ -65,7 +74,16 @@ import {
   transcriptRecords,
   type TranscriptRecord,
 } from "../websites/recipe-website/editor/controller/agent/transcript";
-import { heldCalls } from "../websites/recipe-website/editor/controller/agent/held";
+import {
+  HELD_NOTE,
+  heldCalls,
+  heldPreview,
+} from "../websites/recipe-website/editor/controller/agent/held";
+import {
+  markNotesHeldBack,
+  notesHeldBack,
+  withoutNotesLearning,
+} from "../websites/recipe-website/editor/controller/llm/agentContext";
 import type { CurationContext } from "../websites/recipe-website/editor/controller/curation/context";
 import { createRecipe } from "../websites/recipe-website/editor/controller/curation/recipes";
 import { createTerm } from "../websites/recipe-website/editor/controller/curation/terms";
@@ -137,6 +155,49 @@ describe("the guess (rules)", () => {
   });
 });
 
+describe("the intent the start answer names (51b review 5)", () => {
+  const ask = "3 soups I don't already have";
+  it("says online falls back where there is no web search, as the job will", () => {
+    expect(
+      intentAtStart("auto", ask, { followUp: false, search: false }),
+    ).toEqual({
+      intent: {
+        id: "online",
+        by: "rules",
+        why: "you asked for recipes you don't have",
+        fellBack: ONLINE_NO_SEARCH,
+      },
+    });
+    expect(
+      intentAtStart("online", "soups", { followUp: false, search: false }),
+    ).toEqual({
+      intent: { id: "online", by: "asked", fellBack: ONLINE_NO_SEARCH },
+    });
+  });
+
+  it("names the plan as it is where it can run", () => {
+    expect(
+      intentAtStart("auto", ask, { followUp: false, search: true }).intent,
+    ).not.toHaveProperty("fellBack");
+    /* Only online needs the web search. */
+    expect(
+      intentAtStart("mine", "soups", { followUp: false, search: false }),
+    ).toEqual({ intent: { id: "mine", by: "asked" } });
+    expect(
+      intentAtStart("auto", "soups for a cold night", {
+        followUp: false,
+        search: false,
+      }),
+    ).toEqual({ intentPending: true });
+    expect(
+      intentAtStart(undefined, ask, { followUp: false, search: false }),
+    ).toEqual({});
+    expect(
+      intentAtStart("auto", ask, { followUp: true, search: false }).intent,
+    ).toMatchObject({ id: "any", by: "default" });
+  });
+});
+
 describe("the small readings", () => {
   it("counts what an ask names, bounded", () => {
     expect(askedCount("3 pulled pork recipes I don't already have")).toBe(3);
@@ -190,8 +251,59 @@ describe("the small readings", () => {
       { slug: "roast-pork-b", name: "Roast Pork" },
     ];
     expect(
-      resolveDish("roast pork", two, new Set(["roast-pork-b"]))?.slug,
-    ).toBe("roast-pork-b");
+      resolveDish("roast pork", two, { menu: new Set(["roast-pork-b"]) }),
+    ).toEqual({ slug: "roast-pork-b", name: "Roast Pork", how: "name" });
+  });
+
+  it("says when a named dish could be more than one (51b review 2)", () => {
+    /* The real two: both answer "christmas sugar cookies", both on the menu. */
+    const cookies = [
+      {
+        slug: "christmas-sugar-cookies-recipe-with-easy-icing",
+        name: "Christmas Sugar Cookies Recipe with Easy Icing",
+        tags: ["christmas", "dessert"],
+      },
+      {
+        slug: "drop-style-christmas-sugar-cookies",
+        name: "Drop-Style Christmas Sugar Cookies",
+        tags: ["christmas", "dessert"],
+      },
+    ];
+    const menu = new Set(cookies.map((recipe) => recipe.slug));
+    const both = resolveDish("the christmas sugar cookies", cookies, {
+      menu,
+      course: "dessert",
+      courseOf: () => "dessert",
+    });
+    expect(both).toMatchObject({
+      slug: "drop-style-christmas-sugar-cookies",
+      how: "words",
+      others: [{ slug: "christmas-sugar-cookies-recipe-with-easy-icing" }],
+    });
+    /* The menu settles it: no others. */
+    expect(
+      resolveDish("christmas sugar cookies", cookies, {
+        menu: new Set(["christmas-sugar-cookies-recipe-with-easy-icing"]),
+      }),
+    ).toEqual({
+      slug: "christmas-sugar-cookies-recipe-with-easy-icing",
+      name: "Christmas Sugar Cookies Recipe with Easy Icing",
+      how: "words",
+    });
+    /* "the turkey" is the roast, not the gravy, and the gravy is said. */
+    const turkey = [
+      { slug: "turkey-gravy", name: "Turkey Gravy", tags: ["sauce"] },
+      { slug: "roast-turkey", name: "Roast Turkey", tags: ["main"] },
+    ];
+    const courseOf = (recipe: { tags?: string[] }) => recipe.tags?.[0];
+    expect(resolveDish("the turkey", turkey, { courseOf })).toMatchObject({
+      slug: "roast-turkey",
+      others: [{ slug: "turkey-gravy" }],
+    });
+    /* The dish's course settles it. */
+    expect(
+      resolveDish("the turkey", turkey, { course: "sauce", courseOf }),
+    ).toEqual({ slug: "turkey-gravy", name: "Turkey Gravy", how: "words" });
   });
 
   it("reads a yield, and scales servings to it sanely", () => {
@@ -221,6 +333,60 @@ describe("the small readings", () => {
     expect(servingsScale(8, 8)).toBeUndefined();
     expect(servingsScale(500, 1)).toBe("10");
     expect(servingsScale(2, undefined)).toBeUndefined();
+  });
+
+  it("reads recipe pages before videos (51b real run miss 10)", () => {
+    const page = (site: string) => ({
+      url: `https://${site}/p`,
+      title: site,
+      site,
+    });
+    const video = {
+      url: "https://www.youtube.com/watch?v=x",
+      title: "v",
+      site: "youtube.com",
+      video: true as const,
+    };
+    const list = [video, page("a.com"), page("b.com")];
+    expect(readingOrder(list, false).map((item) => item.site)).toEqual([
+      "a.com",
+      "b.com",
+      "youtube.com",
+    ]);
+    expect(readingOrder(list, true)).toEqual(list);
+    expect(asksForVideo("a pulled pork video")).toBe(true);
+    expect(asksForVideo("pulled pork from YouTube")).toBe(true);
+    expect(asksForVideo("3 pulled pork recipes I don't already have")).toBe(
+      false,
+    );
+  });
+
+  it("reads a generic course as a course, not a dish (51b real run miss 9)", () => {
+    expect(courseRequest("a simple side")).toEqual({
+      course: "side",
+      note: "simple",
+    });
+    expect(courseRequest("simple side")).toEqual({
+      course: "side",
+      note: "simple",
+    });
+    expect(courseRequest("a dessert")).toEqual({ course: "dessert" });
+    expect(courseRequest("a breakfast")).toEqual({ course: "breakfast" });
+    expect(courseRequest("a drink")).toEqual({ course: "drink" });
+    expect(courseRequest("quick vegetarian side dishes")).toEqual({
+      course: "side",
+      note: "quick vegetarian",
+    });
+    /* A dish named as itself stays a dish. */
+    expect(courseRequest("the cranberry sauce")).toBeUndefined();
+    expect(courseRequest("Korean spinach side dish")).toBeUndefined();
+    expect(courseRequest("the cranberry curd tart")).toBeUndefined();
+    expect(courseRequest("the pernil")).toBeUndefined();
+    /* Loose: a dish that named no recipe, round a course's name. */
+    expect(courseRequest("a showstopper side", { loose: true })).toEqual({
+      course: "side",
+      note: "showstopper",
+    });
   });
 
   it("checks the model's picks, dishes and courses", () => {
@@ -304,6 +470,80 @@ describe("the small readings", () => {
   });
 });
 
+describe("the agent's context across bundles (51b review 6)", () => {
+  it("is one store however many copies of the module are loaded", async () => {
+    const first =
+      await import("../websites/recipe-website/editor/controller/llm/agentContext");
+    vi.resetModules();
+    const second =
+      await import("../websites/recipe-website/editor/controller/llm/agentContext");
+    expect(second).not.toBe(first);
+    const config = { model: "qwen3.5:9b", api: "ollama" };
+    expect(
+      first.withAgentModel({ model: "qwen3.5:9b", numCtx: 12_288 }, () =>
+        second.agentNumCtxFor(config),
+      ),
+    ).toBe(12_288);
+    expect(first.withoutNotesLearning(() => second.notesLearningHeld())).toBe(
+      true,
+    );
+    expect(second.notesLearningHeld()).toBe(false);
+    expect(second.agentNumCtxFor(config)).toBeUndefined();
+  });
+});
+
+describe("a held import's notes (51b review 7)", () => {
+  it("says the approved import reads the notes the preview didn't", () => {
+    expect(
+      withoutNotesLearning(() => {
+        const before = notesHeldBack();
+        markNotesHeldBack();
+        return [before, notesHeldBack()];
+      }),
+    ).toEqual([false, true]);
+    /* Outside a held dry run, nothing is marked. */
+    markNotesHeldBack();
+    expect(notesHeldBack()).toBe(false);
+    const url = "https://example.com/tacos";
+    expect(
+      heldPreview(
+        "recipe_import",
+        { url },
+        {
+          held: true,
+          note: HELD_NOTE,
+          notesOnApproval: true,
+          dryRun: { slug: "tacos" },
+        },
+      ),
+    ).toEqual({ url, slug: "tacos", notesOnApproval: true });
+    expect(
+      heldPreview(
+        "recipe_import",
+        { url },
+        { held: true, note: HELD_NOTE, dryRun: { slug: "tacos" } },
+      ),
+    ).toEqual({ url, slug: "tacos" });
+  });
+});
+
+describe("a tool in the ask is judged as what suits it (51b real run miss 8)", () => {
+  it("asks for a criterion that works well with the tool, not one that mentions it", () => {
+    expect(MINE_READ_SYSTEM).toContain(
+      "say what works well with it or suits it",
+    );
+    expect(MINE_READ_SYSTEM).toContain(
+      "never that a recipe must use or mention it",
+    );
+    expect(JUDGE_SYSTEM_PROMPT).toContain(
+      "judge whether the recipe would work well with it or suits it, not whether its text mentions it",
+    );
+    expect(JUDGE_SYSTEM_PROMPT).toContain(
+      "a pot for ten does not suit a small batch",
+    );
+  });
+});
+
 describe("settleIntent", () => {
   const config = {
     url: MODEL_URL,
@@ -336,6 +576,28 @@ describe("settleIntent", () => {
     expect(
       (chat.mock.calls[0] as unknown as [ChatJsonRequest])[0].schemaName,
     ).toBe("intent_classify");
+  });
+
+  it("hands the job's cancel to the classify call (51b review 4)", async () => {
+    const controller = new AbortController();
+    const chat = vi.fn(
+      (request: ChatJsonRequest) =>
+        new Promise<ChatJsonResult>((_, reject) => {
+          const stop = () => reject(new Error("aborted"));
+          if (request.signal?.aborted) stop();
+          request.signal?.addEventListener("abort", stop);
+        }),
+    );
+    const settled = settleIntent("auto", "soups for a cold night", {
+      config,
+      job: { ...NO_JOB, signal: controller.signal },
+      chat,
+    });
+    await vi.waitFor(() => expect(chat).toHaveBeenCalledTimes(1));
+    expect(chat.mock.calls[0][0].signal).toBe(controller.signal);
+    controller.abort();
+    /* A cancel is a cancel, not "the open loop runs". */
+    await expect(settled).rejects.toThrow("aborted");
   });
 
   it("is the loop when the answer is no intent, or it is a follow-up", async () => {
@@ -377,7 +639,11 @@ let ctx: CurationContext;
 const servers: Server[] = [];
 
 /** A JSON-LD recipe page. */
-function recipePage(name: string, yieldText = "6 servings"): string {
+function recipePage(
+  name: string,
+  yieldText = "6 servings",
+  notes?: string,
+): string {
   const node = {
     "@context": "https://schema.org",
     "@type": "Recipe",
@@ -391,7 +657,7 @@ function recipePage(name: string, yieldText = "6 servings"): string {
       { "@type": "HowToStep", text: "Cook it low and slow, then shred." },
     ],
   };
-  return `<!doctype html><html><head><title>${name}</title><script type="application/ld+json">${JSON.stringify(node)}</script></head><body><h1>${name}</h1></body></html>`;
+  return `<!doctype html><html><head><title>${name}</title><script type="application/ld+json">${JSON.stringify(node)}</script></head><body><h1>${name}</h1>${notes ? `<h2>Notes</h2><p>${notes}</p>` : ""}</body></html>`;
 }
 
 /** A server on 127.0.0.1 answering `routes` by path; its origin. */
@@ -575,6 +841,11 @@ describe("online: new recipes from the web (D2, D3)", () => {
                   proper: "Pulled Pork",
                   mine: "Smoky Pulled Pork Bowls",
                 }[name]!,
+                "6 servings",
+                /* A Notes heading no selector has learned (51b review 7). */
+                name === "tacos"
+                  ? "Warm the tortillas in a dry pan first."
+                  : undefined,
               ),
             ),
           }).then((origin) => ({ name, url: `${origin}/${name}` })),
@@ -589,15 +860,18 @@ describe("online: new recipes from the web (D2, D3)", () => {
         const results = q.includes("site:")
           ? []
           : [
+              /* 51b real run miss 10: a video, first in the results. */
+              {
+                title: "Perfect Pulled Pork Starts with Scoring",
+                url: "https://www.youtube.com/watch?v=IHag-hvuKqo",
+              },
               {
                 title: "Pulled Pork Recipe - The Modern Proper",
                 url: at.proper,
               },
               { title: "25 Best Pulled Pork Recipes", url: `${at.oven}x` },
-              {
-                title: "Pulled pork pin",
-                url: "https://www.pinterest.com/pin/1",
-              },
+              /* (SearXNG answers at most 8: the pin made room for the
+               * video; `notRecipeHost` has its own test.) */
               { title: "Smoky Pulled Pork Bowls", url: at.mine },
               { title: "Carolina Pulled Pork", url: at.carolina },
               { title: "Oven Pulled Pork Shoulder", url: at.oven },
@@ -674,6 +948,8 @@ describe("online: new recipes from the web (D2, D3)", () => {
         at.mine,
         at.proper,
         "https://www.pinterest.com/pin/1",
+        /* The pages were enough: the video is never read (Db12). */
+        "https://www.youtube.com/watch?v=IHag-hvuKqo",
       ]).not.toContain((call.input as { url: string }).url);
     }
 
@@ -690,6 +966,9 @@ describe("online: new recipes from the web (D2, D3)", () => {
       at.oven,
     ]);
     expect(held[0].held.slug).toBe("pulled-pork-tacos");
+    /* The tacos page's notes wait for the approval, and the review says so. */
+    expect(held[0].held.notesOnApproval).toBe(true);
+    expect(held[1].held).not.toHaveProperty("notesOnApproval");
     expect(calls.map((call) => call.schemaName)).toEqual([
       "intent_online_ask",
       "intent_online_pick",
@@ -737,6 +1016,52 @@ describe("online: new recipes from the web (D2, D3)", () => {
     /* The transcript's turns count the plan's model calls. */
     expect(records.filter((record) => record.type === "turn")).toHaveLength(2);
     expect(result.turns).toBe(2);
+  });
+
+  it("stops when there is no recipe index to say what you have (51b review 3)", async () => {
+    const searchQueries: string[] = [];
+    const search = await serve({
+      "/search": (url) => {
+        searchQueries.push(url.searchParams.get("q") ?? "");
+        return {
+          type: "application/json",
+          body: JSON.stringify({ results: [] }),
+        };
+      },
+    });
+    vi.stubEnv("RECIPE_SEARCH_URL", search);
+    const { chat, calls } = standInChat({});
+    for (const [prompt, intent] of [
+      ["3 pulled pork recipes I don't already have", "online"],
+      ["recipes that work well with a milk frother", "mine"],
+      ["Plan Thanksgiving with the cranberry curd tart", "plan"],
+    ] as const) {
+      const { result, records } = await run(prompt, intent, { chat });
+      expect(result.stopReason).toBe("done");
+      expect(result.text).toBe(NO_INDEX_ANSWER);
+      expect(toolNames(records)).toEqual([]);
+      expect(heldCalls(records)).toEqual([]);
+    }
+    expect(searchQueries).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it("says a note once", () => {
+    const warning = "the recipes index is missing";
+    const text = onlineAnswer(
+      {
+        kind: "online",
+        subject: "soup",
+        count: 1,
+        proposed: [],
+        close: [],
+        had: [],
+      },
+      [],
+      [warning, warning],
+      true,
+    );
+    expect(text.split("he recipes index is missing").length).toBe(2);
   });
 
   it("falls back to the loop when there is no web search", async () => {
@@ -791,7 +1116,8 @@ describe("mine: which of my recipes fit (D8, D9)", () => {
     const { chat, calls } = standInChat(
       {
         intent_mine_ask: {
-          criterion: "a small batch made with a handheld milk frother",
+          criterion:
+            "A drink of hot or frothed milk, one or two servings, that works well with a handheld milk frother",
           searches: ["hot chocolate", "frother", 'tag:"x" latte'],
         },
       },
@@ -823,6 +1149,11 @@ describe("mine: which of my recipes fit (D8, D9)", () => {
       "recipe_judge",
     ]);
     expect(calls[1].system).toContain("You judge whether recipes fit");
+    /* 51b real run miss 8: the judge reads "works well with", and the
+     * person's own words, never "must use a frother". */
+    expect(calls[1].user).toContain(
+      "Ask: A drink of hot or frothed milk, one or two servings, that works well with a handheld milk frother. The person asked: recipes that work well in small batches with a milk frother",
+    );
     expect(result.outcome).toMatchObject({
       kind: "mine",
       fit: expect.arrayContaining(["london-fog", "hot-chocolate"]),
@@ -954,6 +1285,63 @@ describe("plan: a meal plan in code, held", () => {
     ).rejects.toThrow();
   });
 
+  it("picks g's simple side from the menu when the model reads it as a dish (51b real run miss 9)", async () => {
+    await seedHolidays();
+    await createRecipe(ctx, {
+      name: "Sigeumchi Namul (Korean Spinach Side Dish)",
+      tags: ["side", "korean"],
+      recipeYield: "4 servings",
+      date: 9_000,
+    });
+    /* As qwen3.5:9b read it: "simple side" among the dishes, no courses. */
+    const { chat, calls } = standInChat(
+      {
+        intent_plan_ask: {
+          name: "",
+          holiday: "thanksgiving",
+          servings: 0,
+          dishes: [
+            { name: "cranberry curd tart", servings: 2, course: "dessert" },
+            { name: "simple side", servings: 2, course: "side" },
+          ],
+          courses: [],
+          count: 0,
+          subject: "",
+        },
+      },
+      { "buttery-rolls": "maybe", "green-beans": "fit" },
+    );
+    const { result, records } = await run(
+      "Plan Thanksgiving from its menu as a meal plan tagged thanksgiving; we bring 2 servings of the cranberry curd tart plus a simple side",
+      "auto",
+      { chat },
+    );
+    expect(toolNames(records)).toEqual(["holiday_get", "group_create"]);
+    const judge = calls.find((call) => call.schemaName === "recipe_judge")!;
+    expect(judge.user).toContain("Ask: A simple side for a Thanksgiving meal.");
+    /* The menu's sides were judged, not the spinach that says "side". */
+    expect(judge.user).toContain("## green-beans");
+    expect(judge.user).toContain("## buttery-rolls");
+    expect(judge.user).not.toContain("## sigeumchi-namul");
+    const [held] = heldCalls(records);
+    expect((held.input as { group: { items: unknown[] } }).group.items).toEqual(
+      [
+        { recipe: "green-beans", label: "Side" },
+        {
+          recipe: "cranberry-curd-tart",
+          label: "Dessert",
+          scale: "1/4",
+          note: "2 servings",
+        },
+      ],
+    );
+    expect(result.text).toContain(
+      "- Side: [Green Beans](/recipe/green-beans) — green-beans judged",
+    );
+    expect(result.text).not.toContain("Sigeumchi");
+    expect(result.outcome).toMatchObject({ unresolved: [], empty: [] });
+  });
+
   it("finds the pernil by its words and fills breakfast and dessert (case h)", async () => {
     await seedHolidays();
     const { chat } = standInChat(
@@ -1001,6 +1389,63 @@ describe("plan: a meal plan in code, held", () => {
     ]);
     expect(result.text).toContain(
       "Gingerbread](/recipe/gingerbread) (6 servings; its yield, “4 dozen cookies”, isn't in servings)",
+    );
+  });
+});
+
+describe("plan: a named dish that could be several (51b review 2)", () => {
+  it("takes one and says which others it could be", async () => {
+    for (const term of [
+      { label: "Holidays", slug: "holidays" },
+      { label: "Christmas", parent: "holidays" },
+      { label: "Course", slug: "course" },
+      { label: "Dessert", parent: "course" },
+    ]) {
+      await createTerm(ctx, term);
+    }
+    for (const [name, date] of [
+      ["Christmas Sugar Cookies Recipe with Easy Icing", 1_000],
+      ["Drop-Style Christmas Sugar Cookies", 2_000],
+    ] as const) {
+      await createRecipe(ctx, { name, tags: ["christmas", "dessert"], date });
+    }
+    const { chat } = standInChat({
+      intent_plan_ask: {
+        name: "",
+        holiday: "christmas",
+        servings: 0,
+        dishes: [
+          {
+            name: "the christmas sugar cookies",
+            servings: 0,
+            course: "dessert",
+          },
+        ],
+        courses: [],
+        count: 0,
+        subject: "",
+      },
+    });
+    const { result, records } = await run(
+      "Plan Christmas as a meal plan; we're making the christmas sugar cookies",
+      "plan",
+      { chat },
+    );
+    const [held] = heldCalls(records);
+    expect((held.input as { group: { items: unknown[] } }).group.items).toEqual(
+      [{ recipe: "drop-style-christmas-sugar-cookies", label: "Dessert" }],
+    );
+    expect(result.outcome).toMatchObject({
+      ambiguous: [
+        {
+          dish: "the christmas sugar cookies",
+          slug: "drop-style-christmas-sugar-cookies",
+          others: ["christmas-sugar-cookies-recipe-with-easy-icing"],
+        },
+      ],
+    });
+    expect(result.text).toContain(
+      "**Heads up:** “the christmas sugar cookies” could be more than one of your recipes: I took [Drop-Style Christmas Sugar Cookies](/recipe/drop-style-christmas-sugar-cookies); the other is [Christmas Sugar Cookies Recipe with Easy Icing](/recipe/christmas-sugar-cookies-recipe-with-easy-icing).",
     );
   });
 });
