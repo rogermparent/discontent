@@ -67,9 +67,21 @@ health() {
     grep -E '\[instance\]|\[sync\]' | tail -3 | sed 's/^/   /' || true
 }
 
+# The commit a build is from (51e): `.next/BUILT_FROM` holds the sha the
+# build started at, plus " dirty" when tracked files differed from it, so
+# the curator-drive skill can tell a stale editor without guessing from
+# mtimes. Written only after a build that succeeded.
+stamp_file="$editor/.next/BUILT_FROM"
+
 build() {
   step "Build ($repo)"
+  local sha dirty=""
+  sha=$(git -C "$repo" rev-parse HEAD)
+  [ -z "$(git -C "$repo" status --porcelain --untracked-files=no)" ] || dirty=" dirty"
+  rm -f "$stamp_file"
   (cd "$repo" && pnpm install --frozen-lockfile && pnpm --filter recipe-editor build)
+  printf '%s%s\n' "$sha" "$dirty" > "$stamp_file"
+  note "built from ${sha:0:8}${dirty} ($stamp_file)"
 }
 
 write_env() {

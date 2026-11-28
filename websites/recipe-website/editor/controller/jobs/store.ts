@@ -131,6 +131,7 @@ const LOG = ".log.jsonl";
 const CANCEL = ".cancel";
 const TRANSCRIPT = ".transcript.jsonl";
 const REVIEW = ".review.json";
+const NOTES = ".notes.json";
 const JOB_ID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
 export function metaPath(dir: string, id: string): string {
@@ -157,6 +158,14 @@ export function transcriptPath(dir: string, id: string): string {
  */
 export function reviewPath(dir: string, id: string): string {
   return path.join(dir, `${id}${REVIEW}`);
+}
+
+/**
+ * The review notes on an agent run (51e): `<id>.notes.json`, beside the
+ * run they judge (`reviewNoteStore.ts`). Pruned with its job.
+ */
+export function notesPath(dir: string, id: string): string {
+  return path.join(dir, `${id}${NOTES}`);
 }
 
 /**
@@ -523,6 +532,8 @@ export async function pruneJobs(
     await rm(transcriptPath(dir, id), { force: true });
     /* 48b: its review's decisions too. */
     await rm(reviewPath(dir, id), { force: true });
+    /* 51e: and its review notes. */
+    await rm(notesPath(dir, id), { force: true });
     removed.push(id);
   }
   /*
@@ -535,7 +546,8 @@ export async function pruneJobs(
       (name.endsWith(LOG) && !ids.includes(name.slice(0, -LOG.length))) ||
       (name.endsWith(TRANSCRIPT) &&
         !ids.includes(name.slice(0, -TRANSCRIPT.length))) ||
-      (name.endsWith(REVIEW) && !ids.includes(name.slice(0, -REVIEW.length)));
+      (name.endsWith(REVIEW) && !ids.includes(name.slice(0, -REVIEW.length))) ||
+      (name.endsWith(NOTES) && !ids.includes(name.slice(0, -NOTES.length)));
     if (!orphanLog && !name.endsWith(".tmp") && !name.endsWith(CANCEL)) {
       continue;
     }

@@ -28,7 +28,7 @@ import {
   exitCodeFor,
 } from "../controller/curation/errors";
 import { resolveBackend } from "./backend/resolve";
-import { agentCommand } from "./commands/agent";
+import { agentCommand, agentNoteCommand } from "./commands/agent";
 import { EDITOR_DIRECTORY, loadEditorEnv } from "./editorEnv";
 import { gpuUsedHere, setJobsRoot } from "../controller/jobs/location";
 import { setJobMirror } from "../controller/jobs/log";
@@ -157,6 +157,30 @@ function subcommandTableFor(
     : undefined;
 }
 
+/**
+ * 51e: a plain command that also takes a subcommand. `recipes agent
+ * "<ask>"` is the command; `recipes agent note <run>` its one subcommand.
+ * Only that exact bare word is taken for it, so a quoted ask ("note the
+ * …") stays an ask.
+ */
+const OPTIONAL_SUBCOMMANDS: Record<
+  string,
+  Record<string, CommandDef<unknown>>
+> = {
+  agent: { note: agentNoteCommand },
+};
+
+/** The optional subcommand `token` names after `command`, if any. */
+function optionalSubcommandFor(
+  command: string | undefined,
+  token: string | undefined,
+): CommandDef<unknown> | undefined {
+  if (command === undefined || token === undefined) return undefined;
+  if (!Object.hasOwn(OPTIONAL_SUBCOMMANDS, command)) return undefined;
+  const table = OPTIONAL_SUBCOMMANDS[command];
+  return Object.hasOwn(table, token) ? table[token] : undefined;
+}
+
 const USAGE = `Usage: pnpm recipes <command> [options]
 
   inspect <url> [--out draft.json] [--llm auto|force|off] [--verbose]
@@ -262,7 +286,10 @@ const USAGE = `Usage: pnpm recipes <command> [options]
   git revert <hash> [--yes]
   git restore <type> <slug> <rev> [--yes]
   git push [<remote>] [--set-upstream]
-  agent "<ask>" [--run <id>] [--max-turns 1-40] [--newer-web-tools] [--intent <id>] [--verbose]
+  agent "<ask>" [--run <id>] [--max-turns 1-40] [--newer-web-tools] [--intent <id>]
+        [--hold] [--claude] [--verbose]
+  agent note <run> --verdict approved|left-for-you|rerun|miss
+        (--text "<note>" | --text-file <file|->) [--case <id> …] [--by claude-code|you]
 
 Globals: --json  --content-dir <dir>  --author "Name <email>"  --help
 Remote:  --remote <url>  |  --notify [--editor-url <url>]
@@ -568,6 +595,13 @@ by the model), plan (a meal plan from a holiday's menu and the dishes you
 name), organize (tags) or any (the open loop, the default); auto guesses it. With --remote the editor runs it and this follows it (a
 Ctrl-C stops following, not the run: \`jobs cancel <id>\`). --json prints one
 object at the end; exit 1 when the run failed, 130 when it was cancelled.
+--hold holds the run's writes for review, as /curator's runs do (approve
+them there, or POST /api/agent/<id>/review); --claude asks Claude where the
+editor has it beside a local model. \`agent note <run> --verdict … --text …\`
+keeps a review note beside an ended run (plain text, at most 4,000
+characters): approved, left-for-you, rerun or miss, with --case <id> for the
+cases in editor/scripts/curator-cases.json a miss became. It writes no
+content; with --remote it needs a write token, as approving does.
 
 Piping --json: run it as \`pnpm --silent recipes …\`. Without --silent, pnpm
 prints its own script banner on stdout ahead of the object, so the stream is
@@ -610,6 +644,10 @@ export function splitArgv(argv: string[]): SplitArgv {
     index < argv.length &&
     !argv[index].startsWith("-")
   ) {
+    subcommand = argv[index];
+    index += 1;
+  } else if (optionalSubcommandFor(command, argv[index])) {
+    /* 51e: `agent note`; anything else after `agent` is its ask. */
     subcommand = argv[index];
     index += 1;
   }
@@ -724,7 +762,7 @@ export async function main(argv: string[]): Promise<number> {
       ? chosen && Object.hasOwn(table, chosen)
         ? table[chosen]
         : undefined
-      : COMMANDS[command];
+      : (optionalSubcommandFor(command, subcommand) ?? COMMANDS[command]);
 
     if (!definition) {
       throw new UsageError(

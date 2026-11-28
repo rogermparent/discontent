@@ -54,6 +54,7 @@ import {
   type CuratorModelId,
 } from "./job";
 import { readTranscript, readableRecord, transcriptSize } from "./transcript";
+import { readReviewNotes } from "./reviewNoteStore";
 import { intentAtStart, isAgentIntentChoice } from "./intents/guess";
 import { webSearchConfigured } from "./tools/webSearch";
 
@@ -412,15 +413,16 @@ export async function getAgentRunView(
   if (view.meta.kind !== "agent") {
     throw new NotFoundError(`Job ${view.job} is not an agent run.`);
   }
-  const { records, next, more } = await readTranscript(
-    dir,
-    view.job,
-    transcriptFrom,
-  );
+  const [{ records, next, more }, reviewNotes] = await Promise.all([
+    readTranscript(dir, view.job, transcriptFrom),
+    readReviewNotes(dir, view.job),
+  ]);
   return {
     ...view,
     transcript: records.map(readableRecord),
     transcriptNext: next,
     ...(more ? { transcriptMore: true } : {}),
+    /* 51e: the review notes, whole on every read (a few, small). */
+    ...(reviewNotes.length > 0 ? { reviewNotes } : {}),
   };
 }
