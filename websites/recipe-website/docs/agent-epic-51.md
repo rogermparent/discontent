@@ -1523,6 +1523,47 @@ Decisions:
   command with its two backends for one key is more than the brief's "where
   settings are already exposed". The HTTP route is the one place.
 
+Review fixes (the coordinator's review of 3523c000):
+
+- **Dg4 — dozens, ranges and big whole-item counts** (amends Dg1).
+  "1 1/2 dozen" is 18, "1/2 dozen" and "half a dozen" 6, "3 to 4 dozen"
+  its low end (36, Db11's rule); a lookbehind keeps "1/2" from reading as
+  "2 dozen". A whole-item count above four ("12 cakes", cupcakes) is
+  pieces, one serving each, not 12 × 12.
+- **Dg5 — a preferred source is a registrable domain.** `preferredSourceKey`
+  refuses IPs, ports, single labels, bare public suffixes, wildcards, and
+  labels outside letters, digits and inner hyphens; the domain comes from
+  `registrableDomain` in `common/util/roundupPage.ts` (the editor does not
+  depend on `tldts` itself).
+- The notes control is keyed by run (a note and a draft no longer follow to
+  the next run), focus goes to the new note after Save and back to "Add a
+  note" after Cancel, and the Preferred sources card keeps focus on a
+  neighbour after Remove or Move. `savePreset` and `deletePreset` now write
+  under the settings lock, so a concurrent save can't drop
+  `preferredSources` (a bug on main: test `preferredSourcesRoute.test.ts`).
+  The online plan says "Searching the web." with an empty list. Route auth
+  is tested (401 guest, 403 read token on PUT).
+
+#### Gates (51g)
+
+- `pnpm --filter recipe-editor typecheck` and `recipe-website exec tsc
+--noEmit`: both exit 0 (before the last two small commits: a ref in place
+  of state in `PreferredSources` and spec/test edits; the production builds
+  after them compile it).
+- Full vitest: 4562 passed, 12 failed of 4574 under heavy machine load: 11
+  were 30 s timeouts in `cliJson`, `editFormRoundTrip`, `stepUsesForm` and
+  `makePatterns`' 200 ms timing test (all five files pass when rerun alone,
+  99 passed) and one was my own test reading a label that matched a
+  heading (fixed). Rerun of `curatorReviewNotes`, `curatorIntents`,
+  `preferredSources` and `preferredSourcesRoute`: 54 passed.
+- Playwright in Docker, production: `curator-intents`, `curator` and
+  `preferred-sources` specs, 17 passed. Three baselines moved, all for the
+  empty "Notes" section with its "Add a note" button on a finished run:
+  `curator-online-cards-e2e.png`, `curator-finished-e2e.png` and
+  `curator-phone-e2e.png` (regenerated in Docker, each opened and checked).
+- Dev mode once (`docker-pw.sh`, no `PLAYWRIGHT_BUILD`) for
+  `preferred-sources` and `curator-intents`: 9 passed.
+
 #### Roger to confirm (51g)
 
 - g01: the whole-item serving table (loaf 10, pie and tart 8, cake 12,
