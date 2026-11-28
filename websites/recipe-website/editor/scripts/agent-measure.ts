@@ -461,7 +461,10 @@ async function measure(
         bank,
         commits: facts.commits,
       });
+      /* No index to ask (a clone not reindexed) means "already have" was
+       * not checked: fail, never pass. */
       scored.notes.push(...warnings);
+      if (warnings.length > 0) scored.matched = false;
     } else if (curatorCase.kind === "answer") {
       scored = checkAnswerSlugs({
         text,

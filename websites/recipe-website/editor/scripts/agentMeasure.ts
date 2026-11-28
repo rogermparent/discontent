@@ -8,7 +8,11 @@
 import path from "node:path";
 import { tagSlug } from "recipe-website-common/controller/tagSlug";
 import { closeRecipeName } from "recipe-website-common/util/closeRecipeName";
-import type { AgentMessage, AgentToolCall } from "../controller/agent/types";
+import type {
+  AgentHeld,
+  AgentMessage,
+  AgentToolCall,
+} from "../controller/agent/types";
 
 export type AskId = "a" | "b" | "c" | "d";
 
@@ -204,6 +208,12 @@ export interface CallRecord {
   message?: string;
   /** The tool's answer when it is a JSON object (51a: a held write's `held`, a dry run's draft). */
   answer?: Record<string, unknown>;
+  /**
+   * The loop's preview of a held write, built from the uncut answer: it
+   * survives a result the model saw cut (`capResult`), where `answer` does
+   * not parse.
+   */
+  heldPreview?: AgentHeld;
 }
 
 /** What the loop says before a call it never ran because of the model (Ea8). */
@@ -279,9 +289,11 @@ export function answerObject(
 /** Every tool call of a run, in order, with how it went. */
 export function callRecords(messages: AgentMessage[]): CallRecord[] {
   const results = new Map<string, string>();
+  const previews = new Map<string, AgentHeld>();
   for (const message of messages) {
-    if (message.role === "tool")
-      results.set(message.toolCallId, message.content);
+    if (message.role !== "tool") continue;
+    results.set(message.toolCallId, message.content);
+    if (message.held) previews.set(message.toolCallId, message.held);
   }
   const records: CallRecord[] = [];
   for (const message of messages) {
@@ -297,11 +309,13 @@ export function callRecords(messages: AgentMessage[]): CallRecord[] {
           ? { outcome: "tool_error" as const, message: "no result" }
           : classifyResult(content);
       const answer = content === undefined ? undefined : answerObject(content);
+      const preview = previews.get(call.id);
       records.push({
         name: call.name,
         input: call.input,
         ...read,
         ...(answer ? { answer } : {}),
+        ...(preview ? { heldPreview: preview } : {}),
       });
     }
   }
@@ -764,18 +778,36 @@ function proposals(calls: CallRecord[], tool: string): CallRecord[] {
   );
 }
 
-const wasHeld = (call: CallRecord) => call.answer?.held === true;
+/**
+ * Whether a proposal was held: yes from the answer's `held` or the loop's
+ * held preview (which a cut answer keeps); no from a readable answer that
+ * is not held (it wrote); nothing from an answer that was cut and has no
+ * preview — unscored, never "written".
+ */
+function heldState(call: CallRecord): boolean | undefined {
+  if (call.answer?.held === true || call.heldPreview) return true;
+  return call.answer ? false : undefined;
+}
+
+const HELD_UNSCORED = "the result was cut and has no held preview: unscored";
 
 /** One import the run asked for. */
 export interface ProposedImport {
   url?: string;
   /** From the held answer's dry run (`draft.name`, else `recipe.name`). */
   name?: string;
-  held: boolean;
+  /** Unknown (`undefined`) when the result was cut and carries no preview. */
+  held: boolean | undefined;
 }
 
-/** The distinct held (or applied) `recipe_import`s of a run, one per URL. */
-export function proposedImports(calls: CallRecord[]): ProposedImport[] {
+/**
+ * The distinct held (or applied) `recipe_import`s of a run, one per source
+ * (`keyOf` of the URL, as `existingBySource` keys it; else the raw URL).
+ */
+export function proposedImports(
+  calls: CallRecord[],
+  keyOf: (url: string) => string | undefined = (url) => url,
+): ProposedImport[] {
   const seen = new Set<string>();
   const found: ProposedImport[] = [];
   for (const call of proposals(calls, "recipe_import")) {
@@ -786,7 +818,7 @@ export function proposedImports(calls: CallRecord[]): ProposedImport[] {
         ? input.url
         : typeof dry?.url === "string"
           ? dry.url
-          : undefined;
+          : call.heldPreview?.url;
     const draft = isObject(dry?.draft) ? dry.draft : undefined;
     const recipe = isObject(dry?.recipe) ? dry.recipe : undefined;
     const name =
@@ -794,14 +826,14 @@ export function proposedImports(calls: CallRecord[]): ProposedImport[] {
         ? draft.name
         : typeof recipe?.name === "string"
           ? recipe.name
-          : undefined;
-    const key = url ?? `#${found.length}`;
+          : call.heldPreview?.name;
+    const key = (url ? (keyOf(url) ?? url) : undefined) ?? `#${found.length}`;
     if (seen.has(key)) continue;
     seen.add(key);
     found.push({
       ...(url ? { url } : {}),
       ...(name ? { name } : {}),
-      held: wasHeld(call),
+      held: heldState(call),
     });
   }
   return found;
@@ -825,13 +857,18 @@ export function checkNewImports(facts: {
   commits: number;
 }): CheckResult {
   const notes: string[] = [];
-  const imports = proposedImports(facts.calls);
+  const imports = proposedImports(facts.calls, facts.sourceKey);
+  /* An empty bank means nothing could be compared: not a pass. */
+  if (facts.bank.length === 0) {
+    notes.push("the recipe bank is empty: nothing to check names against");
+  }
   if (imports.length !== facts.count) {
     notes.push(`${imports.length} imports proposed (wanted ${facts.count})`);
   }
   for (const item of imports) {
     const label = item.name ?? item.url ?? "(an import)";
-    if (!item.held) notes.push(`${label}: written, not held`);
+    if (item.held === false) notes.push(`${label}: written, not held`);
+    if (item.held === undefined) notes.push(`${label}: ${HELD_UNSCORED}`);
     const key = item.url ? facts.sourceKey(item.url) : undefined;
     const had = key ? facts.existing.get(key) : undefined;
     if (had) notes.push(`${label}: its source is already ${had}`);
@@ -927,7 +964,9 @@ export function checkHeldGroup(facts: {
     if (slugs.length < facts.minItems) {
       notes.push(`${slugs.length} items (wanted at least ${facts.minItems})`);
     }
-    if (!wasHeld(call)) notes.push("written, not held");
+    const held = heldState(call);
+    if (held === false) notes.push("written, not held");
+    if (held === undefined) notes.push(HELD_UNSCORED);
     return notes;
   });
   const best = judged.reduce((a, b) => (b.length < a.length ? b : a));

@@ -231,19 +231,34 @@ e,f,g,h` works and `--cases file` alone runs every case in it). A case runs
     --jobs-dir $CLAUDE_JOB_DIR/tmp/51/51a/jobs-9b --out $CLAUDE_JOB_DIR/tmp/51/51a/qwen3.5-9b.jsonl
   ```
 
-  Add `--repeat 3` for a spread. qwen3:8b on `h` is optional (it cannot plan:
-  `LOCAL_AGENT_TOOLS` has no group tools, 51b's finding). Needs
-  `RECIPE_LLM_URL` and `RECIPE_SEARCH_URL` in `editor/.env` (copied in).
+  Add `--repeat 3` for a spread. Needs `RECIPE_LLM_URL` and
+  `RECIPE_SEARCH_URL` in `editor/.env` (copied in).
+
+- **Read the "before" g and h as the tool view's limit, not the model's.**
+  `LOCAL_AGENT_TOOLS` (`controller/agent/prompt.ts`) has no `group_create` and
+  no `holiday_get`, and the view is chosen by the API (any local model gets
+  it), not by the model. So g and h fail by construction on every local model,
+  qwen3.5:9b included, until 51b gives the plan intent its tools. Their
+  numbers say "can't plan", and only e and f measure the model.
+- **Da1 (review).** A case needs the index and a bank to compare with: the
+  harness fails e when `existingBySource` warns that the recipe index is
+  missing, or the bank is empty (a pass there would mean nothing was checked).
+- **Da2 (review).** The model reads a held dry run cut by `capResult`, so its
+  text may not parse. Held-ness and the import's name and URL then come from
+  the transcript's held preview (`heldPreview`, built from the uncut answer),
+  and a cut result with no preview is scored "unscored", never "written, not
+  held". Distinct imports are keyed by `sourceUrlKey`, not the raw URL.
+- **Da3.** `recipe_import_list` (a roundup import) is not counted toward e's
+  three: only `recipe_import` is. A run that proposes a roundup scores "0
+  imports proposed". Leave it until a run shows it matters.
+- **Case h** asks "Plan Christmas from its menu as a meal plan tagged
+  christmas; we're making the pernil for 6, plus a breakfast and a dessert"
+  and requires `pernil` ("Pernil (Puerto Rican Roast Pork)", tagged
+  christmas, found in the scratch clone) with at least 3 items.
 
 **Roger to confirm (51a):**
 
-1. Case h's required dish is a **placeholder**, `christmas-sugar-cookies`,
-   which I could not check without reading `editor/content`. A run says "case h
-   names slugs this corpus lacks" if the slug is wrong; replace it in
-   `curator-cases.json` with a Christmas dish that exists (and, if wanted,
-   rewrite the ask to name it).
-2. The "close name" threshold (0.85) and the filler list.
-3. Case h's `minItems` of 3 ("a dish per course").
+1. The "close name" threshold (0.85) and the filler list.
 
 ## 51c — Search steps and notes, then judge (M)
 

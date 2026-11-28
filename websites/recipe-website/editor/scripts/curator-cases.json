@@ -27,12 +27,11 @@
     {
       "id": "h",
       "kind": "plan",
-      "ask": "Plan Christmas dinner from its menu as a meal plan tagged christmas; we bring 2 servings of the christmas sugar cookies plus a simple side",
+      "ask": "Plan Christmas from its menu as a meal plan tagged christmas; we're making the pernil for 6, plus a breakfast and a dessert",
       "tag": "christmas",
-      "require": ["christmas-sugar-cookies"],
+      "require": ["pernil"],
       "minItems": 3,
-      "unverified": ["christmas-sugar-cookies"],
-      "good": "A held group_create tagged christmas from the christmas holiday menu: a dish per course, and the named cookies resolved by name. The dish slug is a placeholder, unchecked against the real content; a run reports a setup fault if the corpus lacks it."
+      "good": "A held group_create tagged christmas from the christmas holiday menu: the pernil resolved by name (Pernil, Puerto Rican Roast Pork; scale 6 servings), plus a breakfast and a dessert."
     }
   ]
 }
