@@ -69,8 +69,18 @@ const CASE_ID = /^[a-z0-9][a-z0-9-]*$/;
  * "<!--"); "< 2 GB" and "3<4" pass.
  */
 const MARKUP = /<\s*[A-Za-z!/?]/;
-/** Control characters other than tab and newline (a CR is folded first). */
-const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f]/;
+/**
+ * Control characters other than tab and newline (a CR is folded first):
+ * C0, DEL and C1 (U+0080–U+009F), and the bidi overrides and isolates
+ * (U+202A–U+202E, U+2066–U+2069) that would make a note read other than
+ * it is.
+ */
+const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f‪-‮⁦-⁩]/;
+
+/** Whether `text` is plain text a note may hold (no tags, no controls). */
+export function isPlainNoteText(text: string): boolean {
+  return !MARKUP.test(text) && !CONTROL.test(text);
+}
 
 /** The text as stored: CRLF folded to LF, trimmed. */
 export function normalizeNoteText(text: string): string {
@@ -134,7 +144,8 @@ export function readStoredNote(value: unknown): ReviewNote | undefined {
   if (!(REVIEW_NOTE_VERDICTS as readonly unknown[]).includes(verdict)) {
     return undefined;
   }
-  if (typeof text !== "string") return undefined;
+  /* A hand-edited file is checked as a posted note is: plain text only. */
+  if (typeof text !== "string" || !isPlainNoteText(text)) return undefined;
   const caseIds = Array.isArray(cases)
     ? cases.filter(
         (entry): entry is string =>

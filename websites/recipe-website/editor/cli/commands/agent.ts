@@ -312,7 +312,7 @@ export const agentNoteCommand: CommandDef<AddReviewNoteResult> = {
         .map((part) => part.trim())
         .filter(Boolean),
     );
-    const text = inline ?? (await readTextInput(file!));
+    const text = inline ?? (await readTextInput(file!, { what: "the note" }));
     return backend.noteAgentRun(id, {
       verdict: verdict as ReviewNoteVerdict,
       text,

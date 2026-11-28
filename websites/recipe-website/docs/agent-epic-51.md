@@ -990,9 +990,10 @@ contentStart, repeat, intent?, models, cases, cells, totals}`.
   each miss into a case and a fix, rerun the cases.
 - `drive.sh` makes every HTTP call:
   - `check` reads the editor's health, the token and whether the editor
-    has 51e. It also says whether the main checkout's build is older than
-    HEAD, whether the build is newer than the service's start, and whether
-    HEAD is behind origin/main (by `ls-remote`).
+    has 51e (a probe of the note route). It also reads the build's stamp
+    (De10) and compares it with the main checkout's HEAD and with
+    origin/main (by `ls-remote`). It says when the build is newer than the
+    service's start. With no stamp, it reports "can't tell", never fresh.
   - `gpu` reads the AMD card's `mem_info_vram_used`, whether parakeet is
     running, and `ollama ps`.
   - The rest: `start` / `start-claude`, `wait`, `answer`, `review`,
@@ -1003,7 +1004,9 @@ contentStart, repeat, intent?, models, cases, cells, totals}`.
 - The skill is not recipe-curator, adds no MCP tool (still 59 tools, 45
   pre-approved) and adds nothing to `.claude/settings.json`.
 - Tried against the live workstation (read-only): `check` reported it stale
-  (it predates 51e, and its build is older than 7ca82714). `answer`,
+  (it predates 51e, and its build has no stamp yet). The stamp branches
+  were dry-checked with `DRIVE_STAMP_FILE`: HEAD and origin/main, another
+  sha, a dirty build, and a build newer than the service's start. `answer`,
   `review` and `wait` read an existing run correctly. `next-case` answers
   `i`.
 
@@ -1019,9 +1022,11 @@ contentStart, repeat, intent?, models, cases, cells, totals}`.
 - **De3 — notes are plain text, and markup is refused rather than
   escaped.** A `<` before a letter, `/`, `!` or `?` is a tag, so "VRAM < 2
   GB" and "3<4" pass. Control characters other than tab and newline are
-  refused too. A stored note that fails the read-back check
-  (`readStoredNote`) is left out of the view. 51d's view must still render
-  the text as text.
+  refused too: C0, DEL, C1 (U+0080–U+009F), and the bidi overrides and
+  isolates (U+202A–U+202E, U+2066–U+2069). A stored note is checked again
+  when it is read (`readStoredNote`, `isPlainNoteText`), and a hand-edited
+  one that fails is left out of the view. 51d's view must still render the
+  text as text.
 - **De4 — notes have their own file** rather than living in the review
   file. `recordDecisions` rewrites `{v, calls}` whole, and a note may come
   from a local CLI as well as the editor. The file takes a cross-process
@@ -1040,6 +1045,15 @@ approve` writes to the real content repository, so Roger's permission
 - **De9 — the skill's triggers are explicit** ("ask the curator", "run it
   through /curator", "drive the curator", "rerun the curator cases").
   recipe-curator keeps the direct MCP work.
+- **De10 — the workstation build stamps its commit** (review 1).
+  `scripts/workstation-editor.sh`'s `build` (run by `install` and `update`)
+  writes `editor/.next/BUILT_FROM` once a build succeeds. The file holds
+  the sha the build started at, plus ` dirty` when tracked files differed
+  from it. A build's mtime against HEAD's commit time was not enough: a
+  commit pulled long after it was made reads as built. The stamp is
+  removed before each build, so a failed build leaves none. The editor
+  that runs today predates the stamp, so `check` says "can't tell" until
+  the next `pnpm workstation update`.
 
 #### Traps (51e)
 

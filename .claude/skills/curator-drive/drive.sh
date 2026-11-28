@@ -79,17 +79,36 @@ check() {
     echo "STALE: the editor predates review notes (51e). Ask Roger, or run: pnpm workstation update (from $MAIN)"
   fi
 
-  # The workstation runs the main checkout's build: is it built from HEAD,
-  # restarted since, and is HEAD origin/main?
-  local head head_at built_at started remote
+  build_check
+}
+
+# The workstation runs the main checkout's build. `pnpm workstation update`
+# stamps the commit it built in .next/BUILT_FROM (51e): compare it with the
+# checkout's HEAD and origin/main, and the build's time with the service's
+# start. No stamp is an older build: never read as fresh.
+build_check() {
+  # DRIVE_STAMP_FILE: another stamp, for a dry check of this logic.
+  local stamp_file=${DRIVE_STAMP_FILE:-$EDITOR_DIR/.next/BUILT_FROM}
+  local head remote built dirty started
   head=$(git -C "$MAIN" rev-parse HEAD)
-  head_at=$(git -C "$MAIN" log -1 --format=%ct HEAD)
-  built_at=$(stat -c %Y "$EDITOR_DIR/.next/BUILD_ID" 2>/dev/null || echo 0)
-  started=$(systemctl --user show recipe-workstation.service -p ActiveEnterTimestamp --value 2>/dev/null || true)
   remote=$(git -C "$MAIN" ls-remote origin refs/heads/main 2>/dev/null | cut -f1 || true)
-  echo "main checkout: ${head:0:8}$( [ -n "$remote" ] && [ "$remote" != "$head" ] && printf ' (origin/main is %s: pnpm workstation update pulls it)' "${remote:0:8}")"
-  [ "$built_at" -ge "$head_at" ] || echo "STALE: the build is older than HEAD: pnpm workstation update"
-  if [ -n "$started" ] && [ "$(date -d "$started" +%s)" -lt "$built_at" ]; then
+  echo "main checkout: ${head:0:8}${remote:+, origin/main ${remote:0:8}}"
+  if [ ! -f "$stamp_file" ]; then
+    echo "STALE?: can't tell which commit the editor was built from (no $stamp_file): run pnpm workstation update"
+    return
+  fi
+  read -r built dirty < "$stamp_file" || true
+  if [ "$built" != "$head" ]; then
+    echo "STALE: built from ${built:0:8}, the checkout is at ${head:0:8}: pnpm workstation update"
+  elif [ -n "$dirty" ]; then
+    echo "STALE?: built from ${built:0:8} with uncommitted changes: pnpm workstation update once they are committed"
+  elif [ -n "$remote" ] && [ "$remote" != "$head" ]; then
+    echo "STALE: built from ${built:0:8}, origin/main is ${remote:0:8}: pnpm workstation update pulls it"
+  else
+    echo "build: from ${built:0:8}, which is HEAD and origin/main"
+  fi
+  started=$(systemctl --user show recipe-workstation.service -p ActiveEnterTimestamp --value 2>/dev/null || true)
+  if [ -n "$started" ] && [ "$(date -d "$started" +%s)" -lt "$(stat -c %Y "$stamp_file")" ]; then
     echo "STALE: built since the editor started: pnpm workstation restart"
   fi
 }

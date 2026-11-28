@@ -24,7 +24,8 @@ token**; the script keeps it off the command line.
 ```
 
 - `editor: up`, `token: accepted`, `code: has review notes (51e)` → go on.
-- `STALE: …` → the workstation runs the main checkout's build, so new code
+- `STALE: …` or `STALE?: …` (the build's commit can't be told, or it had
+  uncommitted changes) → the workstation runs the main checkout's build, so new code
   needs `pnpm workstation update` (it pulls main, builds and restarts; a
   few minutes, heavy). Tell Roger and ask before running it; don't run a
   stale editor's curator to test a fix it doesn't have.

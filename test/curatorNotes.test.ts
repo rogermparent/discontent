@@ -9,7 +9,7 @@
 // score summary (`summarizeRuns`). No model anywhere: the runs are job
 // records written by hand.
 
-import { mkdtemp, pathExists, readFile, rm } from "fs-extra";
+import { mkdtemp, pathExists, readFile, rm, writeFile } from "fs-extra";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -155,6 +155,14 @@ describe("the note's check", () => {
       expect(parse({ verdict: "miss", text }).success).toBe(false);
     }
     expect(parse({ verdict: "miss", text: "bell\u0007" }).success).toBe(false);
+    /* Review fix 2: C1 controls and the bidi overrides and isolates. */
+    for (const char of ["\u0080", "\u0085", "\u009f", "‪", "‮", "⁦", "⁩"]) {
+      expect(parse({ verdict: "miss", text: `a${char}b` }).success).toBe(false);
+    }
+    expect(
+      parse({ verdict: "miss", text: "tabs\tand\nnewlines, é, “quotes” — ok" })
+        .success,
+    ).toBe(true);
     expect(parse({ verdict: "miss", text: "   " }).success).toBe(false);
     expect(
       parse({ verdict: "miss", text: "x".repeat(REVIEW_NOTE_TEXT_MAX + 1) })
@@ -180,6 +188,12 @@ describe("the note's check", () => {
     expect(readStoredNote({ id: "1", by: "you", at: "t", verdict: "x" })).toBe(
       undefined,
     );
+    /* Review fix 3: markup or controls in a stored note drop it. */
+    for (const text of ["<img src=x onerror=alert(1)>", "a‮b", "a\u0007b"]) {
+      expect(
+        readStoredNote({ id: "1", by: "you", at: "t", verdict: "miss", text }),
+      ).toBe(undefined);
+    }
     expect(
       readStoredNote({
         id: "1",
@@ -297,6 +311,22 @@ describe("the store", () => {
       now: Date.now() + 1_000,
     });
     expect(await pathExists(notesPath(dir, id))).toBe(false);
+  });
+
+  it("drops a hand-edited note with markup from the view, and keeps the good ones", async () => {
+    const id = await agentRun();
+    await addReviewNote(id, { verdict: "rerun", text: "Busy GPU." }, { dir });
+    const file = JSON.parse(await readFile(notesPath(dir, id), "utf8"));
+    file.notes.push({
+      ...file.notes[0],
+      id: "edited",
+      text: "<script>alert(1)</script>",
+    });
+    await writeFile(notesPath(dir, id), JSON.stringify(file));
+    expect((await readReviewNotes(dir, id)).map((note) => note.text)).toEqual([
+      "Busy GPU.",
+    ]);
+    expect((await getAgentRunView(id, { dir })).reviewNotes).toHaveLength(1);
   });
 });
 

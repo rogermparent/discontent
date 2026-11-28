@@ -26,11 +26,15 @@ async function readStdin(): Promise<string> {
  * Plain text from a file, or from stdin for `-` (`import --text`, 36c). An
  * unreadable file and empty text are validation errors, not `internal`.
  */
-export async function readTextInput(fileOrDash: string): Promise<string> {
+export async function readTextInput(
+  fileOrDash: string,
+  /** What a terminal is asked to paste (51e: "the note"). */
+  { what = "the recipe" }: { what?: string } = {},
+): Promise<string> {
   const fromStdin = fileOrDash === "-";
   /* A terminal, not a pipe: say how to end the paste (36c review). */
   if (fromStdin && process.stdin.isTTY) {
-    process.stderr.write("Paste the recipe, then press Ctrl-D\n");
+    process.stderr.write(`Paste ${what}, then press Ctrl-D\n`);
   }
   let text: string;
   try {
