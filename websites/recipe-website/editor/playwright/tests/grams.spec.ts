@@ -205,7 +205,10 @@ test.describe("Add grams on the edit page (51f)", () => {
 
     /* Undo one: the line is as it was, and the paste won't propose it again. */
     await page
-      .getByRole("button", { name: "Undo the grams on ingredient 2" })
+      .getByRole("button", {
+        name: "Undo the grams on ingredient 2",
+        exact: true,
+      })
       .click();
     await expect(ingredientInputs(page).nth(1)).toHaveValue(
       '<Multiplyable baseNumber="1 1/2" /> cups water',
@@ -217,7 +220,10 @@ test.describe("Add grams on the edit page (51f)", () => {
 
     /* Keep one, then all: Save is free. */
     await page
-      .getByRole("button", { name: "Keep the grams on ingredient 1" })
+      .getByRole("button", {
+        name: "Keep the grams on ingredient 1",
+        exact: true,
+      })
       .click();
     await expect(marks.first()).toContainText("Kept · Pasted");
     await panel.getByRole("button", { name: "Keep all marked" }).click();
@@ -316,7 +322,10 @@ test.describe("Add grams on the edit page (51f)", () => {
     await expect(ingredientInputs(page).nth(2)).toHaveValue(butter);
 
     await page
-      .getByRole("button", { name: "Undo the grams on ingredient 3" })
+      .getByRole("button", {
+        name: "Undo the grams on ingredient 3",
+        exact: true,
+      })
       .click();
     await expect(ingredientInputs(page).nth(2)).toHaveValue(
       '<Multiplyable baseNumber="1/2" /> cup butter',
@@ -329,10 +338,16 @@ test.describe("Add grams on the edit page (51f)", () => {
 
     /* Keep: focus moves on to Undo, and Save is free. */
     await page
-      .getByRole("button", { name: "Keep the grams on ingredient 1" })
+      .getByRole("button", {
+        name: "Keep the grams on ingredient 1",
+        exact: true,
+      })
       .click();
     await expect(
-      page.getByRole("button", { name: "Undo the grams on ingredient 1" }),
+      page.getByRole("button", {
+        name: "Undo the grams on ingredient 1",
+        exact: true,
+      }),
     ).toBeFocused();
     await expect(
       page.getByRole("button", { name: "Save", exact: true }),
