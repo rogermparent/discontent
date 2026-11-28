@@ -1118,6 +1118,82 @@ a phone):
    goes through.
 8. `/curator` reads the runs and the shopping lists in one `Promise.all`.
 
+**What the first Docker runs found** (the new spec's first run anywhere):
+
+- **`startAgentRun` refused `model: "import"`.** The route's schema took
+  it, but the controller's own check still said `"local" or "claude"`
+  (Dd2's gap). It reads `CURATOR_MODEL_IDS` now, and `curatorHeld` pins
+  it.
+- **Two link names didn't start with their text** (axe
+  `label-content-name-mismatch`). The card's page link and **Import it
+  anyway** now keep their visible words, with the recipe's name added as
+  `sr-only`.
+- **A decided online card was dimmed** with `opacity-80`, which took its
+  muted lines under AA contrast. It isn't dimmed now: its chip and state
+  line say it.
+- **Focus after a decision** moves in an effect once the decided state has
+  rendered, not in a `requestAnimationFrame` that could run before the
+  commit (the plan card's flake).
+- **`curator.spec`'s Stop test:** "Find something slowly" now classifies,
+  so the run has no transcript record while it is held open (Trap 1). A
+  read error replaced the whole view, because `records.length === 0` meant
+  "nothing shown". Now a run shown from its job's spec keeps its view, with
+  the error under it.
+- **`curator.spec`'s phone sweep:** the intent row pushes the examples past
+  the fold, under the pinned tab bar ("partially obscured"). The idle sweep
+  releases the sticky chrome for axe, as 41f's Tf2 does.
+
+#### Gates (51d)
+
+On `73a2aac7` (origin/main `cf4617c9`, 51e's #369, merged in):
+
+- The `recipe-editor` typecheck is clean, and so is the `recipe-website`
+  `tsc --noEmit`.
+- The full `vitest run` (on `b8b67d57`, after the merge): 212 files,
+  4,550 passed. Since then, the touched files have been re-run:
+  `curatorHeld` + `curatorResultCards`, 23 passed; `curatorResultCards`,
+  6 passed after the focus change.
+- **Playwright, Docker, production** (`heavy-pw.sh DOCKER=1`): `curator.spec`
+  - `curator-intents.spec`, **14 passed** (3.1 m). The first run had 6
+    failures, all fixed above.
+- **Dev mode once** (`docker-pw.sh` without `PLAYWRIGHT_BUILD`):
+  `curator-intents.spec` + `curator.spec`, **13 passed, 1 flaky** (4.0 m).
+  The flaky one was `curator.spec`'s "holds a run's writes for review", on
+  its first try: a 10 s `request.get('/recipe/curator-beef-braise')` timed
+  out while `next dev` compiled the recipe page for the first time. It is
+  48b's test, and it passed on the retry.
+- **Baselines, Docker only** (`docker-pw.sh … --update-snapshots`,
+  production). Moved, each opened:
+  - `curator-idle`: the intent row, one example per intent, and "What it
+    will do";
+  - `curator-finished` and `curator-phone`: the run's intent row, "This
+    run's kind of ask";
+  - new: `curator-online-cards` (curator-intents.spec).
+
+#### Roger to confirm (51d)
+
+- d01: the five intents and their labels — Find new recipes online, Search
+  my recipes, Plan meals, Organize and tag, Anything. With no pick the ask
+  goes as `auto` (Dd3).
+- d02: picking another intent after a run is a **new run** with the same
+  ask and model, not a follow-up. It is disabled while the run is live
+  (Dd4).
+- d03: a card's decision is final, with no Undo (Git undoes it) (Dd6).
+- d04: under cards, the answer in words is folded, and "Found on the web"
+  isn't shown (Dd7).
+- d05: cards only on a plan's own run. A follow-up's view is today's
+  review panel (Dd8).
+- d06: the import model is a third choice in "Who answers", offered only
+  when `RECIPE_AGENT_MODEL` differs from `RECIPE_LLM_MODEL` (Dd2).
+- d07: "Close to yours" cards aren't held. **Import it anyway** opens the
+  import form, with its own Save.
+- d08: mine shows up to five "Close, but no" cards and ten "Not judged"
+  links. Each card has Open and Add to shopping list, with 50d's list
+  picker.
+- d09: any ask with `http://` or `https://` in it, even with the address
+  still to type, is guessed **Anything**, the loop that imports a named
+  page. The URL example now shows that (review 5).
+
 #### Traps (51d)
 
 - **No transcript record while the model classifies.** `settleIntent`
@@ -1130,6 +1206,16 @@ a phone):
   each read returns. A `page.route` stub that answers the whole transcript
   or log every time repeats it, so `curator-intents.spec` slices by
   `from` / `transcriptFrom` as the server does.
+- **A choice has two gates.** `POST /api/agent`'s zod schema and
+  `startAgentRun`'s own checks both list the models. A new id needs both,
+  and only a run through the controller (not the route's schema) shows the
+  gap.
+- **`opacity` on a card fails contrast.** Muted text at 12 px is close to
+  AA already, and dimming the card takes it under. Mark a state with
+  words and a chip, not by fading.
+- **A taller idle page meets the tab bar.** At phone width, whatever
+  straddles the fold under the pinned tab bar is "partially obscured" for
+  axe. Release the sticky chrome for the sweep (41f Tf2).
 
 ## 51e — Claude Code drives the curator (M)
 
