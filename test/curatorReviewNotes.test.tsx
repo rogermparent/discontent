@@ -98,7 +98,7 @@ describe("ReviewNotes: Add a note (51g, e06)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add a note" }));
   };
   const write = (text: string) =>
-    fireEvent.change(screen.getByLabelText("Your note"), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Your note" }), {
       target: { value: text },
     });
 
