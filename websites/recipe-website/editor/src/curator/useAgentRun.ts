@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentRunView } from "recipe-editor/controller/agent/follow";
+import type { ReviewNote } from "recipe-editor/controller/agent/reviewNotes";
 import type { TranscriptRecord } from "recipe-editor/controller/agent/transcript";
 import type { JobLine } from "recipe-editor/controller/jobs/log";
 import type { JobRecord } from "recipe-editor/controller/jobs/views";
@@ -21,6 +22,8 @@ export interface AgentRunPoll {
    * each tool, model call and judge; a step's own inner steps left out).
    */
   lines: JobLine[];
+  /** 51e2: the run's review notes (whole on every read), oldest first. */
+  reviewNotes: ReviewNote[];
   /** Still queued or running (true until the first answer says otherwise). */
   live: boolean;
   /** Read at least once. */
@@ -50,6 +53,7 @@ interface State {
   meta?: JobRecord;
   records: TranscriptRecord[];
   lines: JobLine[];
+  reviewNotes: ReviewNote[];
   live: boolean;
   loaded: boolean;
   error?: string;
@@ -85,6 +89,7 @@ export function useAgentRun(
   const [state, setState] = useState<State>({
     records: [],
     lines: [],
+    reviewNotes: [],
     live: true,
     loaded: false,
   });
@@ -137,6 +142,8 @@ export function useAgentRun(
             : view.lines.length
               ? [...before.lines, ...topLevel(view.lines)]
               : before.lines,
+        /* Whole on every read: the last answer's, none when absent. */
+        reviewNotes: view.reviewNotes ?? [],
         live: view.live,
         loaded: true,
       }));
@@ -183,7 +190,12 @@ export function useAgentRun(
                   live: false,
                   loaded: true,
                   ...(before.id !== id
-                    ? { records: [], lines: [], meta: undefined }
+                    ? {
+                        records: [],
+                        lines: [],
+                        reviewNotes: [],
+                        meta: undefined,
+                      }
                     : {}),
                 }
               : {}),
@@ -206,7 +218,14 @@ export function useAgentRun(
   const refresh = useCallback(() => kick.current(), []);
 
   if (!id) {
-    return { records: [], lines: [], live: false, loaded: false, refresh };
+    return {
+      records: [],
+      lines: [],
+      reviewNotes: [],
+      live: false,
+      loaded: false,
+      refresh,
+    };
   }
   if (state.id === id) {
     return {
@@ -214,6 +233,7 @@ export function useAgentRun(
       ...(state.meta ? { meta: state.meta } : {}),
       records: state.records,
       lines: state.lines,
+      reviewNotes: state.reviewNotes,
       live: state.live,
       loaded: state.loaded,
       ...(state.error ? { error: state.error } : {}),
@@ -226,10 +246,18 @@ export function useAgentRun(
       shown: carryFrom,
       records: state.records,
       lines: [],
+      reviewNotes: [],
       live: true,
       loaded: false,
       refresh,
     };
   }
-  return { records: [], lines: [], live: true, loaded: false, refresh };
+  return {
+    records: [],
+    lines: [],
+    reviewNotes: [],
+    live: true,
+    loaded: false,
+    refresh,
+  };
 }

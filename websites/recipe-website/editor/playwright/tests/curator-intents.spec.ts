@@ -124,6 +124,8 @@ interface RunStub {
   outcome?: unknown;
   held: HeldStub[];
   answer: string;
+  /** 51e2: review notes the run's view carries (oldest first). */
+  reviewNotes?: Record<string, unknown>[];
   /** The job's top-level step lines, in order. */
   lines: { step: string; data?: Record<string, unknown>; ok?: boolean }[];
 }
@@ -383,6 +385,7 @@ async function stubRun(
           live: !now.ended,
           transcript: records.slice(transcriptFrom),
           transcriptNext: records.length,
+          ...(run.reviewNotes?.length ? { reviewNotes: run.reviewNotes } : {}),
         },
       });
     },
@@ -735,6 +738,83 @@ test.describe("Curator by intent", () => {
     ]);
     await expect(results).toContainText("2 decided");
     await expect(cards.getByRole("button")).toHaveCount(0);
+    await axeClean(page);
+  });
+
+  test("a run with review notes: Reviewed by Claude Code, newest first, as plain text", async ({
+    page,
+  }) => {
+    await stubRun(page, {
+      ...ONLINE,
+      reviewNotes: [
+        {
+          id: "01JD51E2NOTE0000000000000A",
+          by: "claude-code",
+          at: iso(3_600),
+          verdict: "approved",
+          text: "Approved both imports.\nThe oven one is the better pick.",
+        },
+        {
+          id: "01JD51E2NOTE0000000000000B",
+          by: "claude-code",
+          at: iso(7_200),
+          verdict: "miss",
+          text: "Close-to-yours missed a <b>near duplicate</b>: see https://example.com/x",
+          cases: ["pulled-pork-near-dupes"],
+        },
+      ],
+    });
+    await signInAndOpen(page, `/curator?run=${ONLINE.id}`);
+    await expect(status(page)).toHaveText("Finished", { timeout: RUN });
+
+    const notes = page.getByTestId("curator-notes");
+    await expect(
+      notes.getByRole("heading", { name: "Reviewed by Claude Code" }),
+    ).toBeVisible();
+    const items = notes.getByTestId("curator-note");
+    await expect(items).toHaveCount(2);
+    /* Newest first, each with its verdict chip and a machine-readable time. */
+    await expect(items.nth(0).getByTestId("curator-note-verdict")).toHaveText(
+      "A miss",
+    );
+    await expect(items.nth(1).getByTestId("curator-note-verdict")).toHaveText(
+      "Approved",
+    );
+    await expect(items.nth(0).locator("time")).toHaveAttribute(
+      "datetime",
+      iso(7_200),
+    );
+    await expect(items.nth(0)).toContainText(
+      "Became a case: pulled-pork-near-dupes",
+    );
+    /* Text only: the tag shows as characters, the URL is no link, and the
+     * line break is kept. */
+    const text = items.nth(0).getByTestId("curator-note-text");
+    await expect(text).toHaveText(
+      "Close-to-yours missed a <b>near duplicate</b>: see https://example.com/x",
+    );
+    await expect(text.locator("b, a")).toHaveCount(0);
+    const first = items.nth(1).getByTestId("curator-note-text");
+    expect(await first.innerText()).toBe(
+      "Approved both imports.\nThe oven one is the better pick.",
+    );
+    /* Below the result cards, above the folded transcript. */
+    const order = await page.evaluate(() => {
+      const position = (id: string) =>
+        document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect()
+          .top ?? -1;
+      return {
+        results: position("curator-results"),
+        notes: position("curator-notes"),
+        asks: document.querySelector('[aria-label="Asks"]')
+          ? (
+              document.querySelector('[aria-label="Asks"]') as HTMLElement
+            ).getBoundingClientRect().top
+          : -1,
+      };
+    });
+    expect(order.notes).toBeGreaterThan(order.results);
+    expect(order.asks).toBeGreaterThan(order.notes);
     await axeClean(page);
   });
 

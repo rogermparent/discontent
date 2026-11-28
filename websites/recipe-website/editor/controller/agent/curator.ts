@@ -44,6 +44,7 @@ import { NotFoundError } from "../curation/errors";
 import { changeCount, runChanges, type ChangedRecipe } from "./changes";
 import type { RunChanges } from "./changes";
 import { claudeModelName, modelWords } from "./conversation";
+import { readReviewNotes } from "./reviewNoteStore";
 import {
   historyOf,
   readTranscriptText,
@@ -211,6 +212,8 @@ export interface CuratorRunRow {
   costUsd?: number;
   /** 48b: its last answer carries a heads-up (Db7). */
   headsUp?: true;
+  /** 51e2: Claude Code left a review note on this run. */
+  reviewed?: true;
 }
 
 /** The first line of an ask, for a list. */
@@ -354,6 +357,8 @@ export async function listCuratorRuns({
           ),
         ),
       );
+      /* 51e2: a note by Claude Code on the newest run marks the row. */
+      const notes = await readReviewNotes(dir, meta.id).catch(() => []);
       return {
         id: meta.id,
         ask: askLine(summary.firstAsk ?? specOf(meta).prompt ?? meta.label),
@@ -369,6 +374,9 @@ export async function listCuratorRuns({
         ...(summary.api ? { api: summary.api } : {}),
         ...(summary.costUsd !== undefined ? { costUsd: summary.costUsd } : {}),
         ...(summary.headsUp ? { headsUp: true as const } : {}),
+        ...(notes.some((note) => note.by === "claude-code")
+          ? { reviewed: true as const }
+          : {}),
       };
     }),
   );

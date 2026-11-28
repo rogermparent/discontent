@@ -144,6 +144,14 @@ export function RecentRuns({
                           </span>
                         )}
                         {row.headsUp && <span>heads up</span>}
+                        {row.reviewed && (
+                          <span
+                            data-testid="curator-run-reviewed"
+                            title="Claude Code reviewed this run"
+                          >
+                            Reviewed
+                          </span>
+                        )}
                         {/* UTC from the server, the reader's zone once mounted. */}
                         <When epoch={row.queuedAt} />
                         {state !== "finished" && <span>{state}</span>}
