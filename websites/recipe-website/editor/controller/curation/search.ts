@@ -360,27 +360,45 @@ function scoreEntry(
   entry: CorpusEntry | undefined,
   words: readonly string[],
 ): { score: number; found?: DeepHit } {
+  /* The index fields score each word as `scoreFreeText` does. */
   let score = 0;
-  let found: DeepHit | undefined;
+  const missed: string[] = [];
   for (const word of words) {
     const field = rowFieldFor(row, word);
-    if (field) {
-      score += DEEP_FIELD_WEIGHTS[field];
-      continue;
-    }
-    const hit = entry ? textHit(entry, word) : undefined;
-    if (!hit) continue;
-    score += DEEP_FIELD_WEIGHTS[hit.field];
-    found ??= hit;
+    if (field) score += DEEP_FIELD_WEIGHTS[field];
+    else missed.push(word);
   }
-  return found ? { score, found } : { score };
+  if (!entry) return { score };
+  /*
+   * The steps and notes are stricter (51c review): "dutch oven" must not
+   * keep every recipe that says "Preheat oven". Several words: the whole
+   * phrase in one step or note first, worth a point a word; otherwise the
+   * words the index fields missed must all be there (AND), each worth its
+   * field's point. One word is the same rule either way.
+   */
+  if (words.length > 1) {
+    const phrase = textHit(entry, words.join(" "));
+    if (phrase) return { score: score + words.length, found: phrase };
+  }
+  if (missed.length === 0) return { score };
+  const hits: DeepHit[] = [];
+  for (const word of missed) {
+    const hit = textHit(entry, word);
+    if (!hit) return { score };
+    hits.push(hit);
+  }
+  for (const hit of hits) score += DEEP_FIELD_WEIGHTS[hit.field];
+  return { score, found: hits[0] };
 }
 
 /**
  * `scoreFreeText` with the steps and notes as two more fields at weight 1
- * (D8): each word scores the best field it appears in — name 4, tags 3,
- * ingredients 2, then description, steps and notes 1 — summed. `found` is
- * the first word whose best field was a step or a note.
+ * (D8). Each word scores the best index field it appears in: name 4,
+ * tags 3, ingredients 2, description 1. On top of that, the steps and
+ * notes add 1 a word, in one of two ways:
+ * - the whole phrase in one step or note, which counts every word;
+ * - otherwise, only when every word the index missed is there.
+ * `found` is where the phrase was, or the first of those words.
  */
 export function scoreDeepText(
   row: RecipeRow,

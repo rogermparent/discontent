@@ -231,13 +231,68 @@ describe("searchRecipeText", () => {
 
   it("ranks as the index search does, steps and notes at the description's weight", async () => {
     const result = await searchRecipeText(ctx, "milk frother");
-    /* milk is an ingredient of all three (2); frother adds 1 to two. */
+    /*
+     * milk is an ingredient of all three (2). London Fog's step 2 has the
+     * whole phrase "milk frother" (+2); the pudding's note has frother
+     * alone (+1).
+     */
     expect(result.recipes.map((row) => row.slug)).toEqual([
-      "rice-pudding",
       "london-fog",
+      "rice-pudding",
       "slow-cooker-hot-chocolate",
     ]);
+    expect(result.recipes[0].found).toMatchObject({
+      field: "steps",
+      number: 2,
+    });
     expect(result.recipes[2].found).toBeUndefined();
+  });
+
+  it("several words: the phrase first, else every word the index missed (51c review)", async () => {
+    await createRecipe(ctx, {
+      name: "Braised Short Ribs",
+      date: 1_700_000_000_000,
+      instructions: [
+        "Preheat the oven to 325°F.",
+        "Brown the ribs in a Dutch oven, then braise for 3 hours.",
+      ],
+    });
+    await createRecipe(ctx, {
+      name: "Sugar Cookies",
+      instructions: ["Preheat oven to 350°F.", "Bake for 10 minutes."],
+    });
+    await createRecipe(ctx, {
+      name: "Oven Fries",
+      instructions: ["Toss the potatoes in oil and roast."],
+    });
+    await createRecipe(ctx, {
+      name: "Pot Roast",
+      date: 1_700_000_100_000,
+      instructions: ["Sear the beef, then roast it low in the oven."],
+      notes: ["A Dutch-style pot works best."],
+    });
+    const result = await searchRecipeText(ctx, "dutch oven");
+    /* Oven Fries by its name (4); the ribs by the phrase (2); the roast
+     * has both words, apart (2); the cookies only "Preheat oven": gone. */
+    expect(result.recipes.map((row) => row.slug)).toEqual([
+      "oven-fries",
+      "pot-roast",
+      "braised-short-ribs",
+    ]);
+    expect(result.recipes[0].found).toBeUndefined();
+    expect(result.recipes[1].found).toMatchObject({
+      field: "notes",
+      number: 1,
+    });
+    /* The phrase's step, not the first step that says "oven". */
+    expect(result.recipes[2].found).toMatchObject({
+      field: "steps",
+      number: 2,
+      text: "Brown the ribs in a Dutch oven, then braise for 3 hours.",
+    });
+    /* One word is unchanged: every "oven" step still counts. */
+    const oven = await searchRecipeText(ctx, "oven");
+    expect(oven.recipes.map((row) => row.slug)).toContain("sugar-cookies");
   });
 
   it("takes the same typed terms and negations", async () => {

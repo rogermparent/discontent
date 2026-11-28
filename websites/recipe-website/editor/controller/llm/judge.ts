@@ -54,7 +54,11 @@ export const JUDGE_CHUNK_RECIPES = 8;
 /** The ask, as the model reads it: at most this many characters. */
 export const JUDGE_CRITERION_MAX = 500;
 
-/** Each part of a candidate's text, at most this many characters (Dc2). */
+/**
+ * Each part of a candidate's text, at most this many characters (Dc2); a
+ * name and a yield each `JUDGE_NAME_MAX_CHARS` (51c review).
+ */
+export const JUDGE_NAME_MAX_CHARS = 120;
 export const JUDGE_DESCRIPTION_MAX_CHARS = 200;
 export const JUDGE_INGREDIENTS_MAX_CHARS = 700;
 export const JUDGE_STEPS_MAX_CHARS = 1_000;
@@ -269,8 +273,10 @@ export function judgeRecipeText(slug: string, recipe: Recipe): string {
   const description = plain(recipe.description);
   return [
     `## ${slug}`,
-    `Name: ${plain(recipe.name) || "(no name)"}`,
-    plain(recipe.recipeYield) ? `Yield: ${plain(recipe.recipeYield)}` : "",
+    `Name: ${clip(plain(recipe.name), JUDGE_NAME_MAX_CHARS) || "(no name)"}`,
+    plain(recipe.recipeYield)
+      ? `Yield: ${clip(plain(recipe.recipeYield), JUDGE_NAME_MAX_CHARS)}`
+      : "",
     times ? `Time: ${times}` : "",
     drink ? `Drink: ${drink}` : "",
     description

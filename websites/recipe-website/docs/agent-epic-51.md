@@ -177,13 +177,20 @@ ingredients, trimmed steps and notes, answering
   corpus, best first then newest), so the two differ only in scoring.
   `scoreFreeText` is unchanged in behaviour; its per-word field pick is now
   `rowFieldFor`, which the deep scorer reuses.
-- Each word scores its best field: name 4, tags 3, ingredients 2, then
-  description, **steps** and **notes** 1 (`DEEP_FIELD_WEIGHTS`). Steps are
-  `flatSteps` then `stepPlainText`; notes are `cleanNotes` then the same
-  plain-words pass. A word found only in a step or a note gives the row a
-  `found: {field: "steps"|"notes", number, text}`: the 1-based step or note
-  and about 120 characters around the match, cut at words. That way a model
-  reading the row sees why "frother" found it.
+- Each word scores its best index field as `scoreFreeText` does: name 4,
+  tags 3, ingredients 2, description 1. **Steps** and **notes** then add 1
+  a word (`DEEP_FIELD_WEIGHTS`), more strictly since the review (Dc9):
+  - With two or more words, the whole folded phrase in one step or note is
+    tried first. A hit adds `words.length` and sets `found` there.
+  - Otherwise every word the index fields missed must be in the steps or
+    notes (AND). If one isn't, the deep part adds nothing.
+  - A single word works as before.
+  - Steps are `flatSteps` then `stepPlainText`; notes are `cleanNotes` then
+    the same plain-words pass.
+  - A row the steps or notes found gets
+    `found: {field: "steps"|"notes", number, text}`: the 1-based step or
+    note and about 120 characters around the match, cut at words. That way
+    a model reading the row sees why "frother" found it.
 - `matchIndex` is `fieldMatches`' rule with a position. A test holds the two
   side by side over ten needles. It filters with `indexOf` first, which is
   what made the warm search fast (see below).
@@ -233,7 +240,7 @@ think?, maxCostUsd?, timeoutMs?})` in `controller/llm/judge.ts`:
   - A non-list answer fails that chunk.
   - A slug is matched leniently: `## London-Fog` reads as `london-fog`.
 - **The candidate's text** (`judgeRecipeText`) is a `## <slug>` heading,
-  then name, yield, times, the drink spec, the description (≤ 200), the
+  then name and yield (≤ 120 each), times, the drink spec, the description (≤ 200), the
   ingredients (≤ 700) and the notes (≤ 400).
   - Steps get ≤ 1,000 characters, shared by `shareBudget`: the short steps
     stay whole, the long ones split what's left, and every step keeps at
@@ -268,8 +275,16 @@ free. The numbers are wall times of single calls, three runs each.
   `london-fog-acouplecooks` (step 2, "…a handheld frother or a whisk").
   `frother tag:drink` finds the same two. `froth` deep finds 24, from
   hollandaise to dinner rolls ("foamy and frothy on top").
-- Deep matches are loose: `dutch oven` has 28 of its first 30 rows found by
-  "Preheat oven…". That is the judge's job, and SKILL.md says so.
+- **`dutch oven`, before and after the review's AND rule (Dc9).**
+  - Before: 398 rows, with 28 of the first 30 found by "Preheat oven…".
+  - After: 69 rows on a fresh clone (warm 95–155 ms).
+  - The real Dutch-oven steps come in by the phrase, e.g.
+    `new-mexico-carne-adovada` step 11, "a large, heavy Dutch oven".
+  - Bakes with **Dutch-process cocoa** still rank with "Preheat oven". The
+    ingredient gives "dutch" 2 and the step gives "oven" 1, which outscores
+    a phrase hit's 2 (`chocolate-chess-pie`, `maine-whoopie-pies`).
+  - Single-word deep matches stay loose (every bake says "oven"). Sorting
+    that out is the judge's job, and SKILL.md says so.
 - `hot-chocolate-acouplecooks` (case f) says no "frother" anywhere, so
   `mine` must search expansions (51b's `chatJson` step), not the bare word.
 
@@ -318,6 +333,17 @@ exec tsc --noEmit` are clean.
   is summed in `costEstimateUsd`.
 - **Dc8 — a failed chunk doesn't fail the judge.** Its slugs are unjudged
   and said. The status is `failed` only when nothing was judged.
+- **Dc9 (review) — several words in the steps and notes are a phrase or an
+  AND.**
+  - The index-field scoring is untouched.
+  - The phrase in one step or note scores a point a word, with `found`
+    there.
+  - Otherwise every word the index missed must be in the steps or notes.
+  - This is pinned by `searchText.test.ts`: "dutch oven" keeps the
+    Dutch-oven step and drops a recipe whose only match is "Preheat oven".
+  - The local text's "typed terms as the guide says" is held by a test in
+    `agentLocal.test.ts`: `skill-local.md` must name `tag:`, `ingredient:`,
+    `name:`, `source:` and `time:`.
 
 #### Traps (51c)
 

@@ -26,6 +26,7 @@ import {
   JUDGE_INGREDIENTS_MAX_CHARS,
   JUDGE_JSON_SCHEMA,
   JUDGE_MAX_RECIPES,
+  JUDGE_NAME_MAX_CHARS,
   JUDGE_NOTES_MAX_CHARS,
   JUDGE_STEPS_MAX_CHARS,
   JUDGE_STEP_MIN_CHARS,
@@ -134,6 +135,21 @@ describe("a candidate's text (judgeRecipeText)", () => {
     for (let i = 1; i <= 10; i += 1) {
       expect(line("Steps: ")).toContain(`${i}. Step word${i}.`);
     }
+    /* A name or a yield pasted with a paragraph in it is cut too (review). */
+    const wordy = judgeRecipeText("wordy", {
+      name: "Best ".repeat(60),
+      date: 1,
+      recipeYield: "about ".repeat(60),
+    });
+    const wordyLine = (label: string) =>
+      wordy.split("\n").find((each) => each.startsWith(label))!;
+    expect(wordyLine("Name: ").length).toBeLessThanOrEqual(
+      "Name: ".length + JUDGE_NAME_MAX_CHARS,
+    );
+    expect(wordyLine("Name: ")).toMatch(/…$/);
+    expect(wordyLine("Yield: ").length).toBeLessThanOrEqual(
+      "Yield: ".length + JUDGE_NAME_MAX_CHARS,
+    );
   });
 });
 
