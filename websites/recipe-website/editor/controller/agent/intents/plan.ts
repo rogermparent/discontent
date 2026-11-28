@@ -139,7 +139,10 @@ export interface PlanItem {
   why?: string;
   scale?: string;
   servings?: number;
+  /** The servings its yield says (`yieldCount`), when it says them. */
   yields?: number;
+  /** Its yield as written, when that is not a count of servings. */
+  yieldText?: string;
 }
 
 /** What a plan run proposed (the job's `outcome`). */
@@ -503,6 +506,11 @@ export async function runPlan(run: IntentRun): Promise<{
     );
     const yields = yieldCount(recipe?.recipeYield);
     if (yields) item.yields = yields;
+    else {
+      /* "4 dozen cookies": not servings, so no scale (51b review 1). */
+      const written = cleanText(recipe?.recipeYield, 40);
+      if (written) item.yieldText = written;
+    }
     const scale = servingsScale(item.servings, yields);
     if (scale) item.scale = scale;
   }
@@ -602,7 +610,7 @@ export function planAnswer(
       const scaled = item.scale
         ? ` ×${item.scale} (${item.servings} servings${item.yields ? `; it makes ${item.yields}` : ""})`
         : item.servings
-          ? ` (${item.servings} servings${item.yields ? "" : "; its yield doesn't say how many"})`
+          ? ` (${item.servings} servings${item.yields ? "" : item.yieldText ? `; its yield, “${item.yieldText}”, isn't in servings` : "; its yield doesn't say how many"})`
           : "";
       lines.push(
         `- ${item.label}: [${item.name.replace(/[[\]]/g, "")}](/recipe/${item.slug})${scaled}${item.why ? ` — ${item.why}` : ""}`,

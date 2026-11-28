@@ -205,22 +205,54 @@ export function resolveDish(
   return undefined;
 }
 
+/** Number words a yield may spell ("Serves four"). */
+const YIELD_NUMBER_WORDS: Readonly<Record<string, number>> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  twelve: 12,
+};
+
+const YIELD_NUMBER = `(\\d+(?:\\.\\d+)?|${Object.keys(YIELD_NUMBER_WORDS).join("|")})`;
+const YIELD_RANGE = `(?:\\s*(?:-|–|to)\\s*\\d+(?:\\.\\d+)?)?`;
+
+/** "8 servings", "6-8 people", "8 slices": a count of servings. */
+const COUNTED = new RegExp(
+  `\\b${YIELD_NUMBER}${YIELD_RANGE}\\s*(?:servings?|people|persons?|portions?|slices?|pieces?)\\b`,
+);
+/** "Serves 6", "feeds 8", "Servings: 4". */
+const SERVES = new RegExp(
+  `\\b(?:serves|feeds|servings?:?)\\s+${YIELD_NUMBER}\\b`,
+);
+/** A yield that is only a number ("8", "Yield: 8"): schema.org's servings. */
+const BARE = new RegExp(`^(?:yields?:?\\s*)?${YIELD_NUMBER}${YIELD_RANGE}$`);
+
 /**
- * A yield's count of servings: "Serves 6–8" → 6, "8 servings" → 8, "1
- * (9-inch) tart, 8 slices" → 8, "12 cookies" → 12. A count of servings,
- * people, portions, slices or pieces wins over the first number; a range
- * reads as its low end. `undefined` when there is no number (or it is 0 or
- * past 200).
+ * A yield's count of **servings** (51b review 1): "Serves 6–8" → 6, "8
+ * servings" → 8, "1 (9-inch) tart, 8 slices" → 8, a bare "8" → 8. Only a
+ * number tied to servings, people, portions, slices or pieces, or after
+ * "serves" or "feeds", counts: "1 9x13-inch pan", "4 dozen cookies",
+ * "Makes 2 loaves" and "One 9-inch pie" are what a recipe makes, not how
+ * many it serves, so they read as `undefined` and the plan does not scale
+ * them. A range reads as its low end. `undefined` too for 0 or past 200.
  */
 export function yieldCount(text: string | undefined): number | undefined {
   if (!text) return undefined;
-  const plain = fold(text).replace(/\(.*?\)/g, " ");
-  const counted = plain.match(
-    /(\d+(?:\.\d+)?)\s*(?:(?:-|–|to)\s*\d+(?:\.\d+)?\s*)?(?:servings?|people|persons?|portions?|slices?|pieces?)\b/,
-  );
-  const serves = plain.match(/\b(?:serves|feeds|makes)\s+(\d+(?:\.\d+)?)/);
-  const first = plain.match(/(\d+(?:\.\d+)?)/);
-  const value = Number((counted ?? serves ?? first)?.[1]);
+  const plain = fold(text)
+    .replace(/\(.*?\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const match =
+    plain.match(COUNTED) ?? plain.match(SERVES) ?? plain.match(BARE);
+  if (!match) return undefined;
+  const value = YIELD_NUMBER_WORDS[match[1]] ?? Number(match[1]);
   return Number.isFinite(value) && value > 0 && value <= 200
     ? value
     : undefined;

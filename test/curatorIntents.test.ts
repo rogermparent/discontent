@@ -198,8 +198,23 @@ describe("the small readings", () => {
     expect(yieldCount("8 servings")).toBe(8);
     expect(yieldCount("Serves 8-10")).toBe(8);
     expect(yieldCount("1 (9-inch) tart, 8 slices")).toBe(8);
-    expect(yieldCount("12 cookies")).toBe(12);
+    expect(yieldCount("Serves four")).toBe(4);
+    expect(yieldCount("Servings: 6")).toBe(6);
+    expect(yieldCount("8")).toBe(8);
+    expect(yieldCount("6-8 people")).toBe(6);
+    expect(yieldCount("One 9-inch pie, 8 slices")).toBe(8);
     expect(yieldCount("a big pot")).toBeUndefined();
+    /* What a recipe makes is not how many it serves (51b review 1). */
+    for (const made of [
+      "1 9x13-inch pan",
+      "4 dozen cookies",
+      "Makes 2 loaves",
+      "One 9-inch pie",
+      "12 cookies",
+      "1 (9-inch) tart",
+    ]) {
+      expect(yieldCount(made), made).toBeUndefined();
+    }
     expect(servingsScale(2, 8)).toBe("1/4");
     expect(servingsScale(6, 8)).toBe("3/4");
     expect(servingsScale(12, 8)).toBe("1.5");
@@ -864,7 +879,12 @@ describe("plan: a meal plan in code, held", () => {
         date: 6_000,
       },
       { name: "Bûche de Noël", tags: ["christmas", "dessert"], date: 7_000 },
-      { name: "Gingerbread", tags: ["christmas", "dessert"], date: 8_000 },
+      {
+        name: "Gingerbread",
+        tags: ["christmas", "dessert"],
+        recipeYield: "4 dozen cookies",
+        date: 8_000,
+      },
     ]) {
       await createRecipe(ctx, recipe);
     }
@@ -941,7 +961,7 @@ describe("plan: a meal plan in code, held", () => {
         intent_plan_ask: {
           name: "",
           holiday: "",
-          servings: 0,
+          servings: 6,
           dishes: [{ name: "the pernil", servings: 6 }],
           courses: [
             { course: "breakfast", note: "" },
@@ -965,15 +985,23 @@ describe("plan: a meal plan in code, held", () => {
     ).group;
     expect(group.tags).toEqual(["christmas"]);
     expect(group.items).toEqual([
-      { recipe: "christmas-morning-casserole", label: "Breakfast" },
+      {
+        recipe: "christmas-morning-casserole",
+        label: "Breakfast",
+        note: "6 servings",
+      },
       {
         recipe: "pernil-puerto-rican-roast-pork",
         label: "Main",
         scale: "3/4",
         note: "6 servings",
       },
-      { recipe: "gingerbread", label: "Dessert" },
+      /* "4 dozen cookies" is not servings: no scale (51b review 1). */
+      { recipe: "gingerbread", label: "Dessert", note: "6 servings" },
     ]);
+    expect(result.text).toContain(
+      "Gingerbread](/recipe/gingerbread) (6 servings; its yield, “4 dozen cookies”, isn't in servings)",
+    );
   });
 });
 
