@@ -274,6 +274,13 @@ survives a cleared context.
   group picker with holiday tag chips (#362). Closed and deployed
   2026-11-24; the confirm page (with the linked-recipe dry run s01–s05) is
   linked in the Close-out.
+- `websites/recipe-website/docs/agent-epic-51.md` — epic 51, the curator
+  by intent: `RECIPE_AGENT_MODEL` (qwen3.5:9b) and test cases e–h in the
+  harness (51a), search over steps and notes plus a judge step (51c),
+  intents as code-run plans with "already have" in code and held writes
+  (51b), gram conversions with a bank in the content repo (51f), the
+  `/curator` redesign (51d) and Claude Code driving the curator (51e).
+  SearXNG is permanent on the workstation.
 - `websites/recipe-website/docs/deploy-pi.md` — `pnpm deploy:pi`: the arm64
   editor image built here, run on the Pi `uraninite` with `docker run`,
   indexes built here and swapped in; setup, rollback, traps, and the proposed
