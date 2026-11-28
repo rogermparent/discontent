@@ -692,7 +692,7 @@ test.describe("Curator by intent", () => {
     await expect(close).toContainText("Like your Existing Recipe.");
     await expect(close.getByRole("button")).toHaveCount(0);
     await expect(
-      close.getByRole("link", { name: "Import Pulled Pork anyway" }),
+      close.getByRole("link", { name: /^Import it anyway\W+Pulled Pork$/ }),
     ).toHaveAttribute(
       "href",
       `/new-recipe?import=${encodeURIComponent("https://themodernproper.com/pulled-pork")}`,

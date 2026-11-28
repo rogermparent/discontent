@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
-import { useId, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { cn } from "@discontent/component-library/lib/utils";
 import {
@@ -147,8 +154,10 @@ export interface CardReview {
 /**
  * One call decided at a time through the review API (48b's): apply or
  * skip, the review as it now stands handed up, and focus moved to the
- * card's state line (its buttons are gone). A refusal says why on the card
- * and reads the review again (51d review 2).
+ * card's state line (its buttons are gone) once the decided state has
+ * rendered there — an effect in `HeldActions`, not a frame that may run
+ * before the commit. A refusal says why on the card and reads the review
+ * again (51d review 2).
  */
 function useDecide(
   id: string,
@@ -157,8 +166,13 @@ function useDecide(
   busy?: string;
   errors: Record<string, string>;
   decide: (call: string, apply: boolean, focusId: string) => Promise<void>;
+  /** The state line to focus once its call shows decided. */
+  focus?: string;
+  focused: () => void;
 } {
   const [busy, setBusy] = useState<string>();
+  const [focus, setFocus] = useState<string>();
+  const focused = useCallback(() => setFocus(undefined), []);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const decide = async (call: string, apply: boolean, focusId: string) => {
     setBusy(call);
@@ -173,9 +187,15 @@ function useDecide(
       return;
     }
     onReviewed(answer.review);
-    requestAnimationFrame(() => document.getElementById(focusId)?.focus());
+    setFocus(focusId);
   };
-  return { ...(busy ? { busy } : {}), errors, decide };
+  return {
+    ...(busy ? { busy } : {}),
+    errors,
+    decide,
+    ...(focus ? { focus } : {}),
+    focused,
+  };
 }
 
 /** How a held call stands, in words, on its card. */
@@ -228,9 +248,19 @@ function HeldActions({
   stateId: string;
 }) {
   const error = call ? decider.errors[call.id] : undefined;
+  const lineRef = useRef<HTMLParagraphElement>(null);
+  const wanted = decider.focus === stateId;
+  const decided = call !== undefined && call.state !== "pending";
+  const { focused } = decider;
+  useEffect(() => {
+    if (!wanted || !decided) return;
+    lineRef.current?.focus();
+    focused();
+  }, [wanted, decided, focused]);
   return (
     <>
       <p
+        ref={lineRef}
         id={stateId}
         tabIndex={-1}
         data-testid="curator-card-state"
@@ -397,11 +427,9 @@ function OnlineResults({
                 key={item.url}
                 data-testid="curator-online-card"
                 data-state={call?.state ?? (written ? "written" : "none")}
-                className={cn(
-                  card,
-                  ((call && call.state !== "pending") || written) &&
-                    "opacity-80",
-                )}
+                /* Not dimmed once decided: opacity took its muted lines
+                 * under AA (axe); the chip and state line say it. */
+                className={card}
               >
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <p className="font-display font-semibold [overflow-wrap:anywhere]">
@@ -472,9 +500,9 @@ function OnlineResults({
                   >
                     <Link
                       href={`/new-recipe?import=${encodeURIComponent(item.url)}`}
-                      aria-label={`Import ${item.name} anyway`}
                     >
                       Import it anyway
+                      <span className="sr-only">: {item.name}</span>
                     </Link>
                   </Button>
                 </div>
