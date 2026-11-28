@@ -42,6 +42,7 @@ import type {
   AgentRunView,
   AgentStartResult,
 } from "../../controller/agent/follow";
+import type { AddReviewNoteResult } from "../../controller/agent/reviewNoteStore";
 import type {
   CuratorBackend,
   DeleteResult,
@@ -1057,8 +1058,10 @@ export function createHttpBackend({
           ...(input.newerWebTools ? { newerWebTools: true } : {}),
           ...(input.intent ? { intent: input.intent } : {}),
           /* 48b (Db9): the CLI writes as Claude Code does; the editor's
-           * route holds a run's writes unless told not to. */
-          hold: false,
+           * route holds a run's writes unless told not to. 51e: `--hold`
+           * asks for the route's way. */
+          hold: input.hold === true,
+          ...(input.model ? { model: input.model } : {}),
         },
       });
       const every = pollMs ?? agentFollowMs();
@@ -1074,6 +1077,32 @@ export function createHttpBackend({
           wait: () => interruptibleSleep(every),
         },
       );
+    },
+
+    /*
+     * 51e: a review note on a run, kept by the editor beside it. An editor
+     * from before 51e has no route: Next's own 404 page, said plainly.
+     */
+    async noteAgentRun(id, input) {
+      try {
+        return await call<AddReviewNoteResult>(
+          "POST",
+          `/api/agent/${encodeURIComponent(id)}/note`,
+          { body: input },
+        );
+      } catch (error) {
+        if (
+          error instanceof CurationError &&
+          error.code === "not_found" &&
+          /^The editor answered 404/.test(error.message)
+        ) {
+          throw new CurationError(
+            "not_found",
+            `The editor at ${new URL(root).origin} predates review notes (51e) — update it (the workstation: pnpm workstation update).`,
+          );
+        }
+        throw error;
+      }
     },
 
     /* The server revalidated in the same request; there is nothing to report. */

@@ -9,6 +9,7 @@
 import type { JobView } from "../jobs/views";
 import type { AgentIntentChoice, IntentChoice } from "./intents/guess";
 import type { AgentJobResult } from "./job";
+import type { ReviewNote } from "./reviewNotes";
 import type { TranscriptRecord } from "./transcript";
 
 /** The longest ask the agent takes (Ec7): a prompt, not a document. */
@@ -68,6 +69,12 @@ export interface AgentRunView extends JobView {
   transcriptNext: number;
   /** The read was cut at its size cap: ask again at once for the rest. */
   transcriptMore?: boolean;
+  /**
+   * 51e: the review notes on this run (Claude Code's or the person's),
+   * oldest first, whole on every read; absent when there are none. Plain
+   * text: shown as text only.
+   */
+  reviewNotes?: ReviewNote[];
 }
 
 /** How a run ended, as `recipes agent --json` prints it. */

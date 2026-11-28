@@ -990,3 +990,166 @@ export function checkHeldGroup(facts: {
   if (facts.commits > 0) notes.push(`${facts.commits} commits on a held ask`);
   return result(notes);
 }
+
+/* ------------------------------------------------------------------ */
+/* The score summary (51e)                                              */
+/* ------------------------------------------------------------------ */
+
+/** The fields of a run's line (as `agent-measure.ts` prints it) the summary reads. */
+export interface RunLine {
+  model?: string;
+  ask: string;
+  matched?: boolean;
+  /** A line for an ask that could not run here (`askSkipped`). */
+  skipped?: unknown;
+  wallMs?: number;
+  elapsedMs?: number;
+}
+
+/** One case on one model, over its repeats. */
+export interface SummaryCell {
+  case: string;
+  model: string;
+  /** Runs that ran (skipped ones are not counted). */
+  runs: number;
+  passed: number;
+  skipped: number;
+  /** The median run's time (`wallMs`, else `elapsedMs`), or null with no run. */
+  medianMs: number | null;
+}
+
+export interface RunSummary {
+  /** In the order they first appear. */
+  models: string[];
+  cases: string[];
+  cells: SummaryCell[];
+  /** Per model, every case's runs together. */
+  totals: Array<{ model: string; runs: number; passed: number }>;
+}
+
+/** The median of `values` (the mean of the middle two for an even count). */
+export function median(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[middle]
+    : Math.round((sorted[middle - 1] + sorted[middle]) / 2);
+}
+
+/**
+ * The score summary (51e, D7): case × model, the passes over the repeats
+ * and the median time. `only` keeps the asks given (the case ids); others
+ * (the built-in a–d) are left out unless it is omitted.
+ */
+export function summarizeRuns(
+  lines: readonly RunLine[],
+  { only }: { only?: ReadonlySet<string> } = {},
+): RunSummary {
+  const models: string[] = [];
+  const cases: string[] = [];
+  const groups = new Map<string, RunLine[]>();
+  for (const line of lines) {
+    if (only && !only.has(line.ask)) continue;
+    const model = line.model ?? "?";
+    if (!models.includes(model)) models.push(model);
+    if (!cases.includes(line.ask)) cases.push(line.ask);
+    const key = `${line.ask}\u0000${model}`;
+    groups.set(key, [...(groups.get(key) ?? []), line]);
+  }
+  const cells: SummaryCell[] = [];
+  for (const id of cases) {
+    for (const model of models) {
+      const group = groups.get(`${id}\u0000${model}`);
+      if (!group) continue;
+      const ran = group.filter((line) => line.skipped === undefined);
+      const times = ran
+        .map((line) => line.wallMs ?? line.elapsedMs)
+        .filter(
+          (ms): ms is number => typeof ms === "number" && Number.isFinite(ms),
+        );
+      cells.push({
+        case: id,
+        model,
+        runs: ran.length,
+        passed: ran.filter((line) => line.matched === true).length,
+        skipped: group.length - ran.length,
+        medianMs: median(times),
+      });
+    }
+  }
+  const totals = models.map((model) => {
+    const mine = cells.filter((cell) => cell.model === model);
+    return {
+      model,
+      runs: mine.reduce((sum, cell) => sum + cell.runs, 0),
+      passed: mine.reduce((sum, cell) => sum + cell.passed, 0),
+    };
+  });
+  return { models, cases, cells, totals };
+}
+
+/** "8.4 s", "71 s", "3.2 min". */
+export function formatDuration(ms: number | null): string {
+  if (ms === null) return "–";
+  const seconds = ms / 1000;
+  if (seconds < 10) return `${seconds.toFixed(1)} s`;
+  if (seconds < 600) return `${Math.round(seconds)} s`;
+  return `${(seconds / 60).toFixed(1)} min`;
+}
+
+/** The summary as a plain table: a row per case, a column per model, then the totals. */
+export function formatSummary(summary: RunSummary): string {
+  const cellText = (id: string, model: string): string => {
+    const cell = summary.cells.find(
+      (entry) => entry.case === id && entry.model === model,
+    );
+    if (!cell) return "";
+    if (cell.runs === 0) return `skipped ×${cell.skipped}`;
+    return `${cell.passed}/${cell.runs} · ${formatDuration(cell.medianMs)}`;
+  };
+  const rows: string[][] = [
+    ["case", ...summary.models],
+    ...summary.cases.map((id) => [
+      id,
+      ...summary.models.map((model) => cellText(id, model)),
+    ]),
+    [
+      "total",
+      ...summary.totals.map((total) => `${total.passed}/${total.runs}`),
+    ],
+  ];
+  const widths = rows[0].map((_, column) =>
+    Math.max(...rows.map((row) => row[column].length)),
+  );
+  return rows
+    .map((row) =>
+      row
+        .map((text, column) => text.padEnd(widths[column]))
+        .join("  ")
+        .trimEnd(),
+    )
+    .join("\n");
+}
+
+/** Where the JSON summary goes beside `--out`: `runs.jsonl` → `runs.summary.json`. */
+export function summaryPathFor(out: string): string {
+  return out.endsWith(".jsonl")
+    ? `${out.slice(0, -".jsonl".length)}.summary.json`
+    : `${out}.summary.json`;
+}
+
+/**
+ * The models `--model a,b` (or `--models a,b`) names, in order, each once;
+ * blanks dropped.
+ */
+export function modelList(...flags: Array<string | undefined>): string[] {
+  const models: string[] = [];
+  for (const flag of flags) {
+    for (const part of (flag ?? "").split(",")) {
+      const model = part.trim();
+      if (model && !models.includes(model)) models.push(model);
+    }
+  }
+  return models;
+}

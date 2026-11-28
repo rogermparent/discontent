@@ -6,6 +6,8 @@
  * from next time (Ec4: two files, two offsets). A read carries at most a
  * megabyte of transcript; `transcriptMore: true` says ask again at once.
  * Claude's raw blocks are left out; nothing secret is in a transcript.
+ * `reviewNotes` (51e) is the run's review notes, whole on every read and
+ * absent when there are none (`POST /api/agent/<id>/note` adds one).
  *
  * `<id>` is the whole ULID, or the eight characters the step lines show. A
  * job that is not an agent run is 404. Curation auth, read scope (E5: a

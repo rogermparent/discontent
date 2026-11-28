@@ -928,3 +928,162 @@ Scope: the plan's 51d.
 ## 51e — Claude Code drives the curator (M)
 
 Scope: the plan's 51e.
+
+### Results (51e, first pass: backend, runner, skill)
+
+Built beside 51d (which redesigns `src/curator/*`), so this pass touches no
+page: the notes are in the run's API answer, and "Reviewed by Claude Code" on
+the run comes once 51d is merged.
+
+**Review notes** (`controller/agent/reviewNotes.ts`, `reviewNoteStore.ts`).
+
+- A note is `{id, by: "claude-code" | "you", at, verdict: "approved" |
+"left-for-you" | "rerun" | "miss", text, cases?}`. `id` is a ULID and `at`
+  is the server's ISO time. `text` is at most 4,000 characters, with CRLF
+  folded and the ends trimmed. `cases` holds up to 20 case ids in the case
+  file's form, deduped.
+- The shape, the zod check and the labels are in `reviewNotes.ts`, which is
+  browser-safe, so 51d's run view can import it.
+- Notes are stored in `<job>.notes.json` beside the run (`notesPath` in
+  `jobs/store.ts`), written atomically, at most 20 per run, oldest first.
+  They are pruned with the run, and an orphaned file is swept like an
+  orphaned review file.
+- A note goes only on an agent run that has ended. A live run is `job_live`
+  (409), and a job that is not an agent run is 404.
+- **Endpoints:**
+  - `POST /api/agent/<id>/note` takes `{verdict, text, by?, cases?}` and
+    answers 201 `{job, note, notes}`. A bad body is 400 `validation` with
+    its issues.
+  - `GET /api/agent/<id>/note` answers `{job, notes}` (read scope).
+  - `GET /api/agent/<id>` (the run view, `getAgentRunView`) carries
+    `reviewNotes` whole on every read, and leaves it out when there are none.
+- **The CLI:** `recipes agent note <run> --verdict … (--text "…" |
+--text-file <file|->) [--case i …] [--by you] [--json]`. It writes to the
+  local job store, or with `--remote` to the editor's. It is `agent`'s one
+  optional subcommand (`OPTIONAL_SUBCOMMANDS` in `cli/index.ts`), and only
+  the bare word `note` selects it, so an ask quoted whole ("note the …")
+  stays an ask. An editor from before 51e answers Next's 404 page, which the
+  HTTP backend reports as "predates review notes (51e) — update it (the
+  workstation: pnpm workstation update)".
+- **`recipes agent --hold` and `--claude`.** The skill can run a held run
+  from the CLI as well as with curl. `--hold` sends `hold: true` (the curator
+  page's way). Without it the HTTP backend still sends `hold: false` (48b,
+  Db9). `--claude` sends `model: "claude"`.
+
+**The runner** (`scripts/agent-measure.ts`, `agentMeasure.ts`).
+
+- `--model a,b` (or `--models a,b`) runs every ask on each model in turn.
+- Each run's line is unchanged on stdout and in `--out`.
+- When any case from the case file ran, the end prints a table on stderr:
+  case × model, the passes over the repeats and the median run time
+  (`wallMs`, else `elapsedMs`), then a total per model.
+- It also writes the summary as JSON to `--summary <file>`, else beside
+  `--out` (`runs.jsonl` → `runs.summary.json`). The JSON has `{at,
+contentStart, repeat, intent?, models, cases, cells, totals}`.
+- The pure parts (`summarizeRuns`, `formatSummary`, `median`,
+  `formatDuration`, `summaryPathFor`, `modelList`) are unit-tested.
+
+**The skill** (`.claude/skills/curator-drive/`, for Claude Code only).
+
+- `SKILL.md` is short and procedural, in nine steps: check the editor, mind
+  the GPU, run held, read, judge, approve only the sure calls, note, turn
+  each miss into a case and a fix, rerun the cases.
+- `drive.sh` makes every HTTP call:
+  - `check` reads the editor's health, the token and whether the editor
+    has 51e (a probe of the note route). It also reads the build's stamp
+    (De10) and compares it with the main checkout's HEAD and with
+    origin/main (by `ls-remote`). It says when the build is newer than the
+    service's start. With no stamp, it reports "can't tell", never fresh.
+  - `gpu` reads the AMD card's `mem_info_vram_used`, whether parakeet is
+    running, and `ollama ps`.
+  - The rest: `start` / `start-claude`, `wait`, `answer`, `review`,
+    `approve`, `note`, `notes` and `next-case`.
+- The token comes from `RECIPE_API_TOKEN` or the main checkout's
+  `editor/.env`, read by name and never sourced. It goes to curl through
+  `-H @<(…)`, never on argv, and is never printed.
+- The skill is not recipe-curator, adds no MCP tool (still 59 tools, 45
+  pre-approved) and adds nothing to `.claude/settings.json`.
+- Tried against the live workstation (read-only): `check` reported it stale
+  (it predates 51e, and its build has no stamp yet). The stamp branches
+  were dry-checked with `DRIVE_STAMP_FILE`: HEAD and origin/main, another
+  sha, a dirty build, and a build newer than the service's start. `answer`,
+  `review` and `wait` read an existing run correctly. `next-case` answers
+  `i`.
+
+#### Decisions (51e)
+
+- **De1 — a note needs write scope.** That is the narrowest scope that can
+  approve a review (`/review`'s `POST`): a signed-in session or a write
+  token. A read token may read notes (`GET …/note` and the run view), and is
+  403 on a note.
+- **De2 — `by` is what the caller says,** `claude-code` by default (the
+  skill's caller). There is one owner and no other people, so nothing
+  checks it.
+- **De3 — notes are plain text, and markup is refused rather than
+  escaped.** A `<` before a letter, `/`, `!` or `?` is a tag, so "VRAM < 2
+  GB" and "3<4" pass. Control characters other than tab and newline are
+  refused too: C0, DEL, C1 (U+0080–U+009F), and the bidi overrides and
+  isolates (U+202A–U+202E, U+2066–U+2069). A stored note is checked again
+  when it is read (`readStoredNote`, `isPlainNoteText`), and a hand-edited
+  one that fails is left out of the view. 51d's view must still render the
+  text as text.
+- **De4 — notes have their own file** rather than living in the review
+  file. `recordDecisions` rewrites `{v, calls}` whole, and a note may come
+  from a local CLI as well as the editor. The file takes a cross-process
+  lock (`<job>.notes.lock`, the cms `fileLock`, as `runs.ts`'s continue
+  lock does) where the review file has `withReviewLock`'s in-process one.
+- **De5 — a note goes on the run named,** not on its whole conversation,
+  and only once the run has ended.
+- **De6 — the skill never skips or narrows a call.** Approving is the only
+  decision it makes, and only on what is plainly right. Everything else
+  stays pending for Roger, with the note saying what it would skip and why.
+- **De7 — the summary goes to stderr and a file of its own.** `--out` stays
+  one JSON line per run, so a summary line can't break a reader of it.
+- **De8 — no `allowed-tools` in the skill's frontmatter.** `drive.sh
+approve` writes to the real content repository, so Roger's permission
+  settings decide rather than a blanket pre-approval.
+- **De9 — the skill's triggers are explicit** ("ask the curator", "run it
+  through /curator", "drive the curator", "rerun the curator cases").
+  recipe-curator keeps the direct MCP work.
+- **De10 — the workstation build stamps its commit** (review 1).
+  `scripts/workstation-editor.sh`'s `build` (run by `install` and `update`)
+  writes `editor/.next/BUILT_FROM` once a build succeeds. The file holds
+  the sha the build started at, plus ` dirty` when tracked files differed
+  from it. A build's mtime against HEAD's commit time was not enough: a
+  commit pulled long after it was made reads as built. The stamp is
+  removed before each build, so a failed build leaves none. The editor
+  that runs today predates the stamp, so `check` says "can't tell" until
+  the next `pnpm workstation update`.
+
+#### Traps (51e)
+
+- **The sandbox refused heredocs and `python3 - <<EOF` edits** in a
+  worktree-isolated agent as "too complex to verify". Edit with the Edit
+  tool.
+- **The workstation has no `nvidia-smi`** (an RX 6600). VRAM is
+  `/sys/class/drm/card*/device/mem_info_vram_used`.
+
+#### Gates (51e)
+
+After the review fixes, on `00007994` (origin/main unmoved at `7ca82714`),
+through `heavy.sh`:
+
+- The `recipe-editor` typecheck is clean, and so is the `recipe-website`
+  `tsc --noEmit`.
+- The full `vitest run`: 209 files, 4,533 tests, 4,532 passed
+  (`curatorNotes` 19).
+  - The one failure was `editFormRoundTrip.test.tsx`'s "cleared and
+    retyped, its headings follow once, on blur", a 5 s timeout under the
+    machine's load. It is in a module 51e doesn't touch.
+  - That file run again beside `curatorNotes`: 2 files, 36 tests passed.
+- `bash -n` is clean on `drive.sh` and `workstation-editor.sh`.
+- `drive.sh check` was dry-checked against the live workstation.
+- No Playwright: this pass has no UI.
+
+#### Roger to confirm (51e)
+
+- e01: `drive.sh` isn't pre-approved (De8). Pre-approve `Bash(.claude/skills/curator-drive/drive.sh:*)` if you want the skill to run without prompts. Approving still writes your content.
+- e02: Claude Code approves only what is plainly right, and never skips or narrows a call (De6).
+- e03: the skill runs only when you ask for the curator (De9), not for every curation ask.
+- e04: a note's markup is refused, not escaped (De3).
+- e05: `recipes agent --hold` and `--claude` are new; without `--hold` the CLI still writes at once.

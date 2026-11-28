@@ -18,6 +18,18 @@
  * - `--intent online|mine|plan|organize|any|auto` (51b, D1): what the ask is
  *   for — the first three run as plans in code — or `auto` for a guess.
  *   Unset: the open loop, as before.
+ * - `--hold` (51e) holds the run's writes for review, as the curator page's
+ *   runs do: they wait in `/curator` (and `/api/agent/<id>/review`) and
+ *   nothing is written until they are approved. Without it the CLI writes
+ *   as before (48b, Db9). `--claude` asks Claude where the editor has it
+ *   beside a local model (48b, Db5); unset, the editor's own model.
+ *
+ * `recipes agent note <run> --verdict … --text …` (51e) adds a review note
+ * to an ended run, kept beside it in the job store (with `--remote`, the
+ * editor's): what Claude Code (or you, `--by you`) made of it. `--text-file
+ * <file|->` reads a longer note; `--case <id>` (repeatable) names the cases
+ * in `curator-cases.json` a miss became. Plain text, at most 4,000
+ * characters, no HTML tags.
  *
  * A Claude run stops at its cost budget (46d: `RECIPE_AGENT_MAX_COST_USD`,
  * default $1) with `stopReason: "budget:cost"`.
@@ -40,9 +52,20 @@ import {
 } from "../../controller/agent/intents/guess";
 import { formatJobLine } from "../../controller/jobs/log";
 import {
+  REVIEW_NOTE_AUTHORS,
+  REVIEW_NOTE_AUTHOR_LABELS,
+  REVIEW_NOTE_VERDICTS,
+  REVIEW_NOTE_VERDICT_LABELS,
+  type ReviewNoteAuthor,
+  type ReviewNoteVerdict,
+} from "../../controller/agent/reviewNotes";
+import type { AddReviewNoteResult } from "../../controller/agent/reviewNoteStore";
+import { readTextInput } from "../input";
+import {
   VERBOSE_OPTION,
   booleanOption,
   numberOption,
+  stringListOption,
   stringOption,
   type CommandDef,
 } from "./types";
@@ -124,12 +147,14 @@ function usageLine(outcome: AgentRunOutcome): string | undefined {
 export const agentCommand: CommandDef<AgentRunOutcome> = {
   name: "agent",
   usage:
-    'recipes agent "<ask>" [--run <id>] [--max-turns 1-40] [--newer-web-tools] [--intent online|mine|plan|organize|any|auto] [--verbose] [--json]',
+    'recipes agent "<ask>" [--run <id>] [--max-turns 1-40] [--newer-web-tools] [--intent online|mine|plan|organize|any|auto] [--hold] [--claude] [--verbose] [--json]\nrecipes agent note <run> --verdict approved|left-for-you|rerun|miss (--text "<note>" | --text-file <file|->) [--case <id> …] [--by claude-code|you] [--json]',
   options: {
     run: { type: "string" },
     intent: { type: "string" },
     "max-turns": { type: "string" },
     "newer-web-tools": { type: "boolean" },
+    hold: { type: "boolean" },
+    claude: { type: "boolean" },
     ...VERBOSE_OPTION,
   },
   write: true,
@@ -169,6 +194,12 @@ export const agentCommand: CommandDef<AgentRunOutcome> = {
           ? { newerWebTools: true }
           : {}),
         ...(intent ? { intent } : {}),
+        /* 51e: hold its writes for the review (the curator page's way). */
+        ...(booleanOption(options, "hold") ? { hold: true } : {}),
+        /* 51e: Claude where the editor has it beside a local model. */
+        ...(booleanOption(options, "claude")
+          ? { model: "claude" as const }
+          : {}),
       },
       json
         ? {}
@@ -225,5 +256,78 @@ export const agentCommand: CommandDef<AgentRunOutcome> = {
       return 1;
     }
     return 0;
+  },
+};
+
+/**
+ * `recipes agent note <run> --verdict … --text …` (51e): a review note on
+ * an ended run. Writes no content (no commit): the note is the job store's.
+ */
+export const agentNoteCommand: CommandDef<AddReviewNoteResult> = {
+  name: "agent note",
+  usage:
+    'recipes agent note <run> --verdict approved|left-for-you|rerun|miss (--text "<note>" | --text-file <file|->) [--case <id> …] [--by claude-code|you] [--json]',
+  options: {
+    verdict: { type: "string" },
+    text: { type: "string" },
+    "text-file": { type: "string" },
+    case: { type: "string", multiple: true },
+    by: { type: "string" },
+  },
+  async run({ backend, positionals, options }) {
+    const [id, ...extra] = positionals;
+    if (!id || extra.length > 0) {
+      throw new UsageError(
+        'recipes agent note takes one run id: recipes agent note <run> --verdict left-for-you --text "…"',
+      );
+    }
+    const verdict = stringOption(options, "verdict");
+    if (
+      !verdict ||
+      !(REVIEW_NOTE_VERDICTS as readonly string[]).includes(verdict)
+    ) {
+      throw new UsageError(
+        `--verdict takes ${REVIEW_NOTE_VERDICTS.join(", ")}${verdict ? ` — not "${verdict}"` : ""}.`,
+      );
+    }
+    const inline = stringOption(options, "text");
+    const file = stringOption(options, "text-file");
+    if ((inline === undefined) === (file === undefined)) {
+      throw new UsageError(
+        "Give the note as --text or --text-file (one of them).",
+      );
+    }
+    const by = stringOption(options, "by");
+    if (
+      by !== undefined &&
+      !(REVIEW_NOTE_AUTHORS as readonly string[]).includes(by)
+    ) {
+      throw new UsageError(
+        `--by takes ${REVIEW_NOTE_AUTHORS.join(" or ")} — not "${by}".`,
+      );
+    }
+    const cases = stringListOption(options, "case").flatMap((entry) =>
+      entry
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean),
+    );
+    const text = inline ?? (await readTextInput(file!, { what: "the note" }));
+    return backend.noteAgentRun(id, {
+      verdict: verdict as ReviewNoteVerdict,
+      text,
+      ...(by ? { by: by as ReviewNoteAuthor } : {}),
+      ...(cases.length > 0 ? { cases } : {}),
+    });
+  },
+  format({ job, note, notes }) {
+    const lines = [
+      `noted run ${job}: ${REVIEW_NOTE_VERDICT_LABELS[note.verdict]} (${REVIEW_NOTE_AUTHOR_LABELS[note.by]}, ${note.at})`,
+    ];
+    if (note.cases?.length) lines.push(`cases: ${note.cases.join(", ")}`);
+    lines.push(
+      `${notes.length} note${notes.length === 1 ? "" : "s"} on this run`,
+    );
+    return lines.join("\n");
   },
 };
