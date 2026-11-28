@@ -679,6 +679,13 @@ export function createLocalBackend({
       );
     },
 
+    /* 51e: a review note, to this machine's job store (no commit, no author). */
+    async noteAgentRun(id, input) {
+      const { addReviewNote } =
+        await import("../../controller/agent/reviewNoteStore");
+      return addReviewNote(id, input);
+    },
+
     /*
      * Spread rather than a property that returns `undefined`: the seam declares
      * `afterWrite?()`, `registry.ts` and the CLI both call it with `?.()`, and

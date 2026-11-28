@@ -6,10 +6,17 @@
  * `editor/content`.
  *
  *   pnpm --filter recipe-editor exec tsx scripts/agent-measure.ts \
- *     --content-dir /scratch/content-clone --model qwen3:8b \
+ *     --content-dir /scratch/content-clone --model qwen3:8b[,qwen3.5:9b] \
  *     [--think] [--num-ctx 12288|16384] [--asks a,b,c,d,e,f,g,h] [--cases file.json] [--repeat N] \
  *     [--max-turns N] [--newer-web-tools] [--intent online|mine|plan|organize|any|auto]
- *     [--jobs-dir DIR] [--out runs.jsonl] [--verbose]
+ *     [--jobs-dir DIR] [--out runs.jsonl] [--summary scores.json] [--verbose]
+ *
+ * `--model a,b` (or `--models a,b`; 51e) runs every ask on each model in
+ * turn, on the configured server. When any case of the case file ran, the
+ * end prints the scores on stderr — case × model, the passes over the
+ * repeats and the median run time (`summarizeRuns`, `formatSummary`) —
+ * and writes them as JSON to `--summary`, else beside `--out`
+ * (`runs.jsonl` → `runs.summary.json`). Each run's line is unchanged.
  *
  * `--intent` (51b) runs every ask with that intent (`auto`: guessed, as the
  * curator page will); unset, the open loop as before. A line then carries
@@ -61,6 +68,7 @@ import {
   readFile,
   realpath,
   stat,
+  writeFile,
 } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
@@ -114,13 +122,18 @@ import {
   checkSallysList,
   checkTahini,
   contentDirectoryRefusal,
+  formatSummary,
+  modelList,
   parseCases,
   positiveInt,
   prepareCorpus,
   slugsFromPaths,
+  summarizeRuns,
+  summaryPathFor,
   urlKey,
   writesOf,
   type AskId,
+  type RunLine,
   type CheckResult,
   type CorpusCounts,
   type CuratorCase,
@@ -616,10 +629,11 @@ async function measure(
 
 async function main() {
   const given = flag("content-dir");
-  const model = flag("model");
-  if (!given || !model) {
+  /* 51e: several models in one go, `--model a,b` or `--models a,b`. */
+  const models = modelList(flag("model"), flag("models"));
+  if (!given || models.length === 0) {
     fail(
-      "usage: tsx scripts/agent-measure.ts --content-dir <clone> --model <name> [--think] [--num-ctx N] [--asks a,b,c,d] [--repeat N] [--max-turns N] [--newer-web-tools] [--intent <id|auto>] [--jobs-dir DIR] [--out file.jsonl] [--verbose]",
+      "usage: tsx scripts/agent-measure.ts --content-dir <clone> --model <name>[,<name>…] [--think] [--num-ctx N] [--asks a,b,c,d] [--cases file.json] [--repeat N] [--max-turns N] [--newer-web-tools] [--intent <id|auto>] [--jobs-dir DIR] [--out file.jsonl] [--summary file.json] [--verbose]",
     );
   }
   const contentDirectory = await checkedContentDirectory(given);
@@ -644,9 +658,12 @@ async function main() {
   await mkdir(jobsDir, { recursive: true });
 
   /* The run's settings win over editor/.env; the model's URL comes from it. */
-  process.env.RECIPE_LLM_MODEL = model;
-  /* 51a: RECIPE_AGENT_MODEL (editor/.env) would win for the curator. */
-  process.env.RECIPE_AGENT_MODEL = model;
+  const selectModel = (model: string) => {
+    process.env.RECIPE_LLM_MODEL = model;
+    /* 51a: RECIPE_AGENT_MODEL (editor/.env) would win for the curator. */
+    process.env.RECIPE_AGENT_MODEL = model;
+  };
+  selectModel(models[0]);
   process.env.RECIPE_AGENT_NUM_CTX = String(numCtx);
   process.env.RECIPE_AGENT_THINK = has("think") ? "1" : "0";
   process.env.RECIPE_JOBS_DIR = jobsDir;
@@ -654,8 +671,7 @@ async function main() {
   /* 46a: the importer's guard lets the fixture server through, as the
    * agent's does (`testing` below). */
   setFetchGuardTesting({ allowHosts: ["127.0.0.1"] });
-  const config = llmConfig();
-  if (!config)
+  if (!llmConfig())
     fail(
       "no model configured: set RECIPE_LLM_URL (editor/.env) or the Claude API",
     );
@@ -699,6 +715,13 @@ async function main() {
   }
   const out = flag("out") ? path.resolve(flag("out")!) : undefined;
   if (out) await mkdir(path.dirname(out), { recursive: true });
+  /* 51e: the score summary's JSON, beside `--out` unless named. */
+  const summaryFile = flag("summary")
+    ? path.resolve(flag("summary")!)
+    : out
+      ? summaryPathFor(out)
+      : undefined;
+  if (summaryFile) await mkdir(path.dirname(summaryFile), { recursive: true });
 
   const ctx: CurationContext = { contentDirectory };
   const backend = createLocalBackend({ ...ctx, inProcess: true });
@@ -736,42 +759,80 @@ async function main() {
     ...(intent ? { intent } : {}),
     verbose: has("verbose"),
   };
-  console.error(
-    `agent-measure: ${config.api} ${config.model}, num_ctx ${numCtx}, think ${has("think") ? "on" : "off"}; ${contentDirectory} at ${start.slice(0, 8)}; jobs in ${jobsDir}; fixture ${origin}${FIXTURE_PATH}`,
-  );
-
+  /* 51e: every line, for the score summary at the end. */
+  const lines: RunLine[] = [];
   try {
-    for (const ask of asks) {
-      for (let index = 0; index < repeat; index += 1) {
-        let line: Record<string, unknown>;
-        const skipped = cases.has(ask)
-          ? undefined
-          : askSkipped(ask as AskId, config.api, process.env);
-        if (skipped) {
-          line = {
-            at: new Date().toISOString(),
-            model: config.model,
-            ask,
-            run: index + 1,
-            skipped,
-          };
-        } else {
-          console.error(`agent-measure: ask ${ask}, run ${index + 1}…`);
-          line = await measure(ask, index, settings);
-          if (await putBack(settings)) {
+    for (const model of models) {
+      selectModel(model);
+      const config = llmConfig();
+      if (!config) fail(`no model configured for ${model}`);
+      console.error(
+        `agent-measure: ${config.api} ${config.model}, num_ctx ${numCtx}, think ${has("think") ? "on" : "off"}; ${contentDirectory} at ${start.slice(0, 8)}; jobs in ${jobsDir}; fixture ${origin}${FIXTURE_PATH}`,
+      );
+      for (const ask of asks) {
+        for (let index = 0; index < repeat; index += 1) {
+          let line: Record<string, unknown>;
+          const skipped = cases.has(ask)
+            ? undefined
+            : askSkipped(ask as AskId, config.api, process.env);
+          if (skipped) {
+            line = {
+              at: new Date().toISOString(),
+              model: config.model,
+              ask,
+              run: index + 1,
+              skipped,
+            };
+          } else {
             console.error(
-              `agent-measure: put the clone back at ${start.slice(0, 8)}`,
+              `agent-measure: ${config.model}, ask ${ask}, run ${index + 1}…`,
             );
+            line = await measure(ask, index, settings);
+            if (await putBack(settings)) {
+              console.error(
+                `agent-measure: put the clone back at ${start.slice(0, 8)}`,
+              );
+            }
           }
+          const text = JSON.stringify(line);
+          console.log(text);
+          if (out) await appendFile(out, `${text}\n`);
+          /* Keyed by the model asked for, whatever the line's says. */
+          lines.push({ ...(line as unknown as RunLine), model });
         }
-        const text = JSON.stringify(line);
-        console.log(text);
-        if (out) await appendFile(out, `${text}\n`);
       }
     }
   } finally {
     server.close();
     await closeCachedEnvironments();
+  }
+  /*
+   * 51e (D7): the scores, case × model — on stderr, so stdout stays one
+   * JSON line per run — and as JSON beside `--out` (or `--summary`).
+   */
+  const caseIds = new Set(asks.filter((id) => cases.has(id)));
+  if (caseIds.size > 0) {
+    const summary = summarizeRuns(lines, { only: caseIds });
+    console.error(
+      `agent-measure: scores (passes / runs · median time)\n${formatSummary(summary)}`,
+    );
+    if (summaryFile) {
+      await writeFile(
+        summaryFile,
+        `${JSON.stringify(
+          {
+            at: new Date().toISOString(),
+            contentStart: start,
+            repeat,
+            ...(intent ? { intent } : {}),
+            ...summary,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      console.error(`agent-measure: summary in ${summaryFile}`);
+    }
   }
   console.error(
     `agent-measure: steps and transcripts in ${jobsDir} (RECIPE_JOBS_DIR=${jobsDir} pnpm recipes jobs show <job>)`,

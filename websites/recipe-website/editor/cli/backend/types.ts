@@ -67,6 +67,8 @@ import type {
   AgentRunOutcome,
   AgentRunView,
 } from "../../controller/agent/follow";
+import type { ReviewNoteInput } from "../../controller/agent/reviewNotes";
+import type { AddReviewNoteResult } from "../../controller/agent/reviewNoteStore";
 import type { LlmMode } from "../../controller/llm/mode";
 import type {
   ImportListOptions,
@@ -716,6 +718,16 @@ export interface CuratorBackend {
     input: AgentRunInput,
     options?: AgentRunOptions,
   ): Promise<AgentRunOutcome>;
+
+  /**
+   * Add a review note to an ended agent run (51e): locally to this
+   * machine's job store, remotely `POST /api/agent/<id>/note` (write scope).
+   * A note writes nothing to the content repository.
+   */
+  noteAgentRun(
+    id: string,
+    input: ReviewNoteInput,
+  ): Promise<AddReviewNoteResult>;
 
   /**
    * Run after a command whose `write` flag is set; the string it resolves to is
