@@ -34,6 +34,7 @@ import {
   withGrams,
 } from "recipe-website-common/util/suggestGrams";
 import { GRAMS_PER_CUP } from "recipe-website-common/util/shoppingMerges";
+import { placeGramMarks } from "recipe-website-common/util/lineMarks";
 
 /** Stored as the form stores a typed line. */
 const stored = (text: string) => createIngredient(text)!.ingredient;
@@ -467,5 +468,44 @@ describe("Show grams on the recipe page (answer 6)", () => {
       undefined,
       undefined,
     ]);
+  });
+});
+
+/* Review findings 2 and 3: a gram mark is its own, by id and row. */
+describe("placing gram marks on rows", () => {
+  const BUTTER = "1/2 cup (113g) butter";
+  const mark = (id: string, at: number, after = BUTTER) => ({ id, at, after });
+  const rows = (...texts: string[]) =>
+    texts.map((ingredient) => ({ ingredient }));
+
+  it("gives two identical lines a mark each", () => {
+    const placed = placeGramMarks(
+      [mark("a", 0), mark("b", 2)],
+      rows(BUTTER, "2 eggs", BUTTER),
+    );
+    expect(placed.map((each) => each?.id)).toEqual(["a", undefined, "b"]);
+  });
+
+  it("keeps the other identical line's mark when one is undone", () => {
+    /* Undo on row 2: its line is back, its mark removed by id. */
+    const placed = placeGramMarks(
+      [mark("a", 0)],
+      rows(BUTTER, "2 eggs", "1/2 cup butter"),
+    );
+    expect(placed.map((each) => each?.id)).toEqual(["a", undefined, undefined]);
+  });
+
+  it("follows a line moved or pushed down, as a remount finds it", () => {
+    const placed = placeGramMarks(
+      [mark("a", 0), mark("b", 1, "2 eggs (100g)")],
+      rows("1 tsp salt", BUTTER, "2 eggs (100g)"),
+    );
+    expect(placed.map((each) => each?.id)).toEqual([undefined, "a", "b"]);
+  });
+
+  it("drops a mark whose line was edited by hand", () => {
+    expect(
+      placeGramMarks([mark("a", 0)], rows("1/2 cup (120g) butter")),
+    ).toEqual([undefined]);
   });
 });

@@ -236,6 +236,109 @@ test.describe("Add grams on the edit page (51f)", () => {
     await expect(list).toContainText("2 eggs (100g)");
   });
 
+  /* Review finding 2: Edit with AI remounts the form; the marks and Save's
+   * hold come back with it. And Enter in a field doesn't save around it. */
+  test("the marks and Save's hold outlive Edit with AI, and Enter doesn't save", async ({
+    page,
+    request,
+    createApiToken,
+  }) => {
+    test.slow();
+    await useModel(request, modelUrl);
+    await writeRecipe(request, await createApiToken());
+    await page.goto(`/recipe/${SLUG}/edit`);
+    await fillSignInForm(page);
+    await markdownEditorReady(page, "description");
+    const open = page.getByRole("button", { name: "Add grams", exact: true });
+    await expectHydrated(open);
+    await open.click();
+    const panel = page.getByTestId("grams-panel");
+    await panel.getByLabel(/Paste the source's metric ingredients/).fill(PASTE);
+    await panel.getByRole("button", { name: "Match to lines" }).click();
+    const marks = page.getByTestId("grams-line-mark");
+    await expect(marks).toHaveCount(7);
+    const save = page.getByRole("button", { name: "Save", exact: true });
+    await expect(save).toBeDisabled();
+
+    /* Edit with AI: a request that adds a tag, the form remounted. */
+    const box = page.getByTestId("edit-with-ai");
+    const field = box.getByLabel("What should change?", { exact: true });
+    await field.fill("Add a vegetarian tag");
+    await box.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(box.getByTestId("edit-summary")).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(ingredientInputs(page).first()).toHaveValue(
+      '<Multiplyable baseNumber="2" /> cups (<Multiplyable baseNumber="400" />g) brown sugar',
+    );
+    await expect(marks).toHaveCount(7);
+    await expect(save).toBeDisabled();
+    await expect(page.getByTestId("recipe-form-held")).toHaveText(
+      "Keep or undo the 7 marked gram lines before saving.",
+    );
+
+    /* Enter in a field: the form refuses the submit while Save is held. */
+    const name = page.getByLabel("Name").first();
+    await name.focus();
+    await name.press("Enter");
+    await page.waitForTimeout(1500);
+    await expect(page).toHaveURL(new RegExp(`/recipe/${SLUG}/edit$`));
+    const stored = await (await request.get(`/api/recipe/${SLUG}`)).json();
+    expect(stored.ingredients[0].ingredient).toBe(
+      '<Multiplyable baseNumber="2" /> cups brown sugar',
+    );
+  });
+
+  /* Review finding 3: identical lines keep a mark each. */
+  test("two identical lines are marked, kept and undone one at a time", async ({
+    page,
+    request,
+    createApiToken,
+  }) => {
+    await writeRecipe(request, await createApiToken(), [
+      "1/2 cup butter",
+      "2 eggs",
+      "1/2 cup butter",
+    ]);
+    await page.goto(`/recipe/${SLUG}/edit`);
+    await fillSignInForm(page);
+    await markdownEditorReady(page, "description");
+    const open = page.getByRole("button", { name: "Add grams", exact: true });
+    await expectHydrated(open);
+    await open.click();
+    const panel = page.getByTestId("grams-panel");
+    await panel.getByRole("button", { name: "Fill from the bank" }).click();
+    const marks = page.getByTestId("grams-line-mark");
+    await expect(marks).toHaveCount(2);
+    const butter =
+      '<Multiplyable baseNumber="1/2" /> cup (<Multiplyable baseNumber="114" />g) butter';
+    await expect(ingredientInputs(page).nth(0)).toHaveValue(butter);
+    await expect(ingredientInputs(page).nth(2)).toHaveValue(butter);
+
+    await page
+      .getByRole("button", { name: "Undo the grams on ingredient 3" })
+      .click();
+    await expect(ingredientInputs(page).nth(2)).toHaveValue(
+      '<Multiplyable baseNumber="1/2" /> cup butter',
+    );
+    await expect(ingredientInputs(page).nth(0)).toHaveValue(butter);
+    await expect(marks).toHaveCount(1);
+    await expect(page.getByTestId("recipe-form-held")).toHaveText(
+      "Keep or undo the 1 marked gram line before saving.",
+    );
+
+    /* Keep: focus moves on to Undo, and Save is free. */
+    await page
+      .getByRole("button", { name: "Keep the grams on ingredient 1" })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Undo the grams on ingredient 1" }),
+    ).toBeFocused();
+    await expect(
+      page.getByRole("button", { name: "Save", exact: true }),
+    ).toBeEnabled();
+  });
+
   test("Save to the bank keeps a pasted value for next time", async ({
     page,
     request,

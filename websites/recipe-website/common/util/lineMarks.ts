@@ -53,3 +53,46 @@ export const GRAMS_SOURCE_LABEL: Record<GramsSource, string> = {
   bank: "Bank",
   model: "≈ Model",
 };
+
+/**
+ * A gram mark with its own id and the row it was made on (review findings
+ * 2 and 3): held above the form's keyed shell, so it outlives a remount
+ * ("Edit with AI", "Fill gaps"), and told apart from a mark on an
+ * identical line ("½ cup butter" twice) by its id.
+ */
+export interface PlacedGramMark extends GramsLineMark {
+  id: string;
+  /** The row it was made (or last kept) on. */
+  at: number;
+}
+
+/**
+ * Each row's gram mark: a mark sits on its own row while that row holds
+ * what it wrote; a row moved or a line put in above it, it sits on the
+ * first other row holding that text that no mark has. A mark with no such
+ * row is gone (the line was edited by hand, or undone). One mark a row.
+ */
+export function placeGramMarks<M extends { after: string; at: number }>(
+  marks: readonly M[],
+  lines: readonly { ingredient: string }[],
+): (M | undefined)[] {
+  const placed: (M | undefined)[] = lines.map(() => undefined);
+  const waiting: M[] = [];
+  for (const mark of marks) {
+    if (lines[mark.at]?.ingredient === mark.after && !placed[mark.at]) {
+      placed[mark.at] = mark;
+    } else {
+      waiting.push(mark);
+    }
+  }
+  for (const mark of waiting) {
+    const row = lines.findIndex(
+      (line, index) => line.ingredient === mark.after && !placed[index],
+    );
+    if (row >= 0) placed[row] = mark;
+  }
+  return placed;
+}
+
+/** "Save to the bank" only from a measure big enough to set a cup by (¼ cup and up). */
+export const SAVE_TO_BANK_MIN_CUPS = 0.24;

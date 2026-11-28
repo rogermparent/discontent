@@ -72,6 +72,7 @@ import {
   GramsProvider,
   type GramsSurface,
 } from "recipe-website-common/components/Form/Ingredients/gramsContext";
+import { GramMarksProvider } from "recipe-website-common/components/Form/Ingredients/gramMarks";
 import type { GramsBankEntry } from "recipe-website-common/util/gramsBank";
 import {
   gramsResultAction,
@@ -561,47 +562,51 @@ export default function EditRecipeForm({
       />
       <ModelChoicesProvider value={modelChoices}>
         <GramsProvider value={gramsSurface}>
-          <RecipeFormShell
-            key={failed ? failed.message : (fill?.key ?? undoKey)}
-            action={dispatch}
-            recipe={effectiveRecipe}
-            slug={effectiveSlug}
-            tagPicker={tagPicker}
-            className="flex w-full flex-col gap-7"
-          >
-            <ValuesProbe readRef={readForm} />
-            <UpdateRecipeFields
+          {/* 51f review finding 2: the gram marks outlive the shell's
+              remounts (a fill, Edit with AI, an Undo of either). */}
+          <GramMarksProvider>
+            <RecipeFormShell
+              key={failed ? failed.message : (fill?.key ?? undoKey)}
+              action={dispatch}
               recipe={effectiveRecipe}
               slug={effectiveSlug}
-              state={withSlugConflict(shown)}
-              defaultImage={defaultImage}
-              fill={fill?.marks}
-              pictures={fill?.pictures}
-            />
-            {/* Last: on a phone its save bar ends the form, sticky above the tab bar. */}
-            <RecipeFormRail
-              mode="edit"
-              eyebrow="Editing"
-              picture={
-                fill?.pictures
-                  ? "new"
-                  : fill?.recipe.imageImportUrl &&
-                      fill.marks.filled.includes("image")
-                    ? "page"
-                    : defaultImage
-                      ? "saved"
-                      : "none"
-              }
-              errors={withSlugConflict(shown).errors}
-              saveLabel="Save"
-              cancelHref={`/recipe/${slug}`}
-              message={shown.message || undefined}
-              overwrite={shown.slugConflict ? overwriteDispatch : undefined}
-              baseline={baseline}
-              fill={fill?.marks}
-              extraChanges={fill?.extraChanges}
-            />
-          </RecipeFormShell>
+              tagPicker={tagPicker}
+              className="flex w-full flex-col gap-7"
+            >
+              <ValuesProbe readRef={readForm} />
+              <UpdateRecipeFields
+                recipe={effectiveRecipe}
+                slug={effectiveSlug}
+                state={withSlugConflict(shown)}
+                defaultImage={defaultImage}
+                fill={fill?.marks}
+                pictures={fill?.pictures}
+              />
+              {/* Last: on a phone its save bar ends the form, sticky above the tab bar. */}
+              <RecipeFormRail
+                mode="edit"
+                eyebrow="Editing"
+                picture={
+                  fill?.pictures
+                    ? "new"
+                    : fill?.recipe.imageImportUrl &&
+                        fill.marks.filled.includes("image")
+                      ? "page"
+                      : defaultImage
+                        ? "saved"
+                        : "none"
+                }
+                errors={withSlugConflict(shown).errors}
+                saveLabel="Save"
+                cancelHref={`/recipe/${slug}`}
+                message={shown.message || undefined}
+                overwrite={shown.slugConflict ? overwriteDispatch : undefined}
+                baseline={baseline}
+                fill={fill?.marks}
+                extraChanges={fill?.extraChanges}
+              />
+            </RecipeFormShell>
+          </GramMarksProvider>
         </GramsProvider>
       </ModelChoicesProvider>
     </RecipeFormFrame>

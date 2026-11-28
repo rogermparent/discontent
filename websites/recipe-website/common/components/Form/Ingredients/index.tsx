@@ -2,16 +2,19 @@
 
 import type { LinkedLineMark } from "../../../util/linkedLines";
 import {
+  SAVE_TO_BANK_MIN_CUPS,
   holdsSave,
   linkLineMarks,
-  type GramsLineMark,
+  placeGramMarks,
   type LineMark,
+  type PlacedGramMark,
 } from "../../../util/lineMarks";
-import { gramsTableOf, type GramsBankEntry } from "../../../util/gramsBank";
+import { gramsTableOf } from "../../../util/gramsBank";
 import type { GramsSuggestion } from "../../../util/suggestGrams";
 import { useHoldSave } from "../saveHold";
 import { useGramsSurface } from "./gramsContext";
 import { GramsPanel } from "./GramsPanel";
+import { nextGramMarkId, useGramMarks } from "./gramMarks";
 import { LineMarkNote } from "./LineMarkNote";
 import {
   Fragment,
@@ -743,28 +746,34 @@ export function IngredientsSection({
 
   /* 51f: "Add grams" (the edit page's surface) and the lines it marked. A
    * gram mark shows while its row holds what it wrote; Keep quiets it, Undo
-   * puts the line back (and that step won't propose it again). */
+   * puts the line back (and that step won't propose it again). The marks
+   * are the page's, above the form's keyed shell (`GramMarksProvider`), so
+   * a remount keeps them and Save's hold (review finding 2); each has its
+   * own id, so identical lines keep their own (finding 3). */
   const gramsSurface = useGramsSurface();
-  const [gramsOpen, setGramsOpen] = useState(false);
-  const [gramMarks, setGramMarks] = useState<readonly GramsLineMark[]>([]);
-  const [undoneGrams, setUndoneGrams] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  /* Saved to the bank on this page: the bank step reads them at once. */
-  const [savedEntries, setSavedEntries] = useState<readonly GramsBankEntry[]>(
-    [],
-  );
+  const {
+    marks: gramMarks,
+    setMarks: setGramMarks,
+    undone: undoneGrams,
+    setUndone: setUndoneGrams,
+    saved: savedEntries,
+    setSaved: setSavedEntries,
+    open: gramsOpen,
+    setOpen: setGramsOpen,
+  } = useGramMarks();
   const bankEntries = gramsSurface?.entries;
   const gramsTable = useMemo(
     () => gramsTableOf([...(bankEntries ?? []), ...savedEntries]),
     [bankEntries, savedEntries],
   );
-  const gramMarkOf = (index: number): GramsLineMark | undefined => {
-    const stored = lines[index]?.ingredient;
-    return gramMarks.find((mark) => mark.after === stored);
-  };
-  const liveGramMarks = gramMarks.filter((mark) =>
-    lines.some((line) => line.ingredient === mark.after),
+  const placedGrams = useMemo(
+    () => placeGramMarks(gramMarks, lines),
+    [gramMarks, lines],
+  );
+  const gramMarkOf = (index: number): PlacedGramMark | undefined =>
+    placedGrams[index];
+  const liveGramMarks = placedGrams.filter(
+    (mark): mark is PlacedGramMark => mark !== undefined,
   );
   const pendingGrams = liveGramMarks.filter(holdsSave).length;
   useHoldSave(
@@ -775,7 +784,7 @@ export function IngredientsSection({
   );
   const applyGrams = (suggestions: GramsSuggestion[]): number => {
     const next = [...form.state.values.ingredients];
-    const marks: GramsLineMark[] = [];
+    const marks: PlacedGramMark[] = [];
     for (const suggestion of suggestions) {
       if (next[suggestion.line]?.ingredient !== suggestion.before) continue;
       if (undoneGrams.has(`${suggestion.source}|${suggestion.before}`)) {
@@ -786,6 +795,8 @@ export function IngredientsSection({
         ingredient: suggestion.after,
       };
       marks.push({
+        id: nextGramMarkId(),
+        at: suggestion.line,
         source: suggestion.source,
         before: suggestion.before,
         after: suggestion.after,
@@ -799,12 +810,13 @@ export function IngredientsSection({
     }
     if (marks.length > 0) {
       setLines(next);
-      setGramMarks((old) => [
-        ...old.filter(
-          (mark) => !marks.some((made) => made.after === mark.after),
-        ),
-        ...marks,
-      ]);
+      /* The marks still on a row stay; one whose row has gone goes. */
+      setGramMarks((old) => {
+        const still = new Set(
+          placeGramMarks(old, next).flatMap((mark) => (mark ? [mark.id] : [])),
+        );
+        return [...old.filter((mark) => still.has(mark.id)), ...marks];
+      });
     }
     return marks.length;
   };
@@ -818,7 +830,9 @@ export function IngredientsSection({
       mark.source === "link" ||
       mark.source === "bank" ||
       !mark.key ||
-      !mark.gramsPerCup
+      !mark.gramsPerCup ||
+      /* A teaspoon's rounding, times 48, is no cup's weight (finding 7). */
+      mark.grams / mark.gramsPerCup < SAVE_TO_BANK_MIN_CUPS
     ) {
       return undefined;
     }
@@ -926,19 +940,19 @@ export function IngredientsSection({
                   onRemove={() => setLines(lines.filter((_, i) => i !== index))}
                   mark={markOf(index)}
                   onKeepMark={() => {
-                    const mark = markOf(index);
-                    if (!mark) return;
-                    if (mark.source === "link") {
-                      setKeptLinks((old) => [...old, mark.after]);
+                    const gram = gramMarkOf(index);
+                    if (gram) {
+                      setGramMarks((old) =>
+                        old.map((each) =>
+                          each.id === gram.id
+                            ? { ...each, kept: true, at: index }
+                            : each,
+                        ),
+                      );
                       return;
                     }
-                    setGramMarks((old) =>
-                      old.map((each) =>
-                        each.after === mark.after
-                          ? { ...each, kept: true }
-                          : each,
-                      ),
-                    );
+                    const mark = linkMarkOf(index);
+                    if (mark) setKeptLinks((old) => [...old, mark.after]);
                   }}
                   onUndoMark={() => {
                     const mark = markOf(index);
@@ -947,9 +961,10 @@ export function IngredientsSection({
                       ...old,
                       ingredient: mark.before,
                     }));
-                    if (mark.source !== "link") {
+                    const gram = gramMarkOf(index);
+                    if (gram) {
                       setGramMarks((old) =>
-                        old.filter((each) => each.after !== mark.after),
+                        old.filter((each) => each.id !== gram.id),
                       );
                       setUndoneGrams(
                         (old) =>

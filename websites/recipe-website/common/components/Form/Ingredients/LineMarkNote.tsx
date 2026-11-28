@@ -4,9 +4,10 @@
  * The note under a row the form changed (`LineMark`): 50e's "The import
  * linked this line to …" with Keep the link / Undo, and 51f's grams —
  * where they came from (Pasted, Bank, ≈ Model), why, Keep / Undo, and for
- * a pasted or model value on a measured line, "Save to the bank".
+ * a pasted or model value on a measured line of ¼ cup or more, "Save to
+ * the bank".
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@discontent/component-library/components/Button";
 import { cn } from "@discontent/component-library/lib/utils";
 import { GRAMS_SOURCE_LABEL, type LineMark } from "../../../util/lineMarks";
@@ -36,6 +37,17 @@ export function LineMarkNote({
 }) {
   const [saved, setSaved] = useState<string>();
   const [saving, setSaving] = useState(false);
+  /* Keep goes once pressed: focus moves on to Undo, not to the page's
+   * start (review finding 7). */
+  const undoRef = useRef<HTMLButtonElement>(null);
+  const keptHere = useRef(false);
+  const kept = mark.source !== "link" && mark.kept;
+  useEffect(() => {
+    if (kept && keptHere.current) {
+      keptHere.current = false;
+      undoRef.current?.focus();
+    }
+  }, [kept]);
   if (mark.source === "link") {
     return (
       <div
@@ -110,12 +122,16 @@ export function LineMarkNote({
             size="sm"
             className="max-sm:h-11"
             aria-label={`Keep the grams on ingredient ${number}`}
-            onClick={onKeep}
+            onClick={() => {
+              keptHere.current = true;
+              onKeep();
+            }}
           >
             Keep
           </Button>
         )}
         <Button
+          ref={undoRef}
           variant="ghost"
           size="sm"
           className="max-sm:h-11"
