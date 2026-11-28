@@ -99,14 +99,14 @@ Plan page and mock-up: https://claude.ai/artifact/V9LtB7eAeAf7DLaoQWpcLD.
 
 ## Roadmap
 
-| Phase | Branch                        | Size | Status | What                                                                                                                             |
-| ----- | ----------------------------- | ---- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| 51a   | `agent/51a-curator-cases`     | S–M  | 🟡     | `RECIPE_AGENT_MODEL`; the case file and cases e–h in the harness; the `num_ctx` reload; the baseline.                            |
-| 51c   | `agent/51c-deep-search-judge` | M    | 🟡     | `searchRecipeText` over steps and notes (`recipe_search` `deep`), and `judgeRecipes` (fit / maybe / no).                         |
-| 51b   | `agent/51b-intents`           | L    | 📝     | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any. |
-| 51f   | `agent/51f-grams`             | M–L  | 📝     | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                        |
-| 51d   | `agent/51d-curator-ui`        | L    | 📝     | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                  |
-| 51e   | `agent/51e-curator-drive`     | M    | 📝     | Claude Code drives the curator: a skill, review notes on runs, the case runner.                                                  |
+| Phase | Branch                        | Size | Status  | What                                                                                                                             |
+| ----- | ----------------------------- | ---- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| 51a   | `agent/51a-curator-cases`     | S–M  | ✅ #366 | `RECIPE_AGENT_MODEL`; the case file and cases e–h in the harness; the `num_ctx` reload; the baseline.                            |
+| 51c   | `agent/51c-deep-search-judge` | M    | 🟡      | `searchRecipeText` over steps and notes (`recipe_search` `deep`), and `judgeRecipes` (fit / maybe / no).                         |
+| 51b   | `agent/51b-intents`           | L    | 📝      | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any. |
+| 51f   | `agent/51f-grams`             | M–L  | 📝      | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                        |
+| 51d   | `agent/51d-curator-ui`        | L    | 📝      | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                  |
+| 51e   | `agent/51e-curator-drive`     | M    | 📝      | Claude Code drives the curator: a skill, review notes on runs, the case runner.                                                  |
 
 Order: **51a + 51c** in parallel → **51b** (with **51f** in parallel once its
 mock-up is answered) → **51d** → **51e**. At most two workers at once; one PR
@@ -134,12 +134,20 @@ the seasonal plan check.
 Filled by 51a (before) and after each curator phase. Scratch clone, the
 case runner, SearXNG on.
 
-| Case | qwen3:8b before | qwen3.5:9b before | qwen3.5:9b after 51b | after 51d/51e |
-| ---- | --------------- | ----------------- | -------------------- | ------------- |
-| e    |                 |                   |                      |               |
-| f    |                 |                   |                      |               |
-| g    |                 |                   |                      |               |
-| h    |                 |                   |                      |               |
+#### Before (51a baseline, 2026-11-28)
+
+Scratch clone at e9f34a56 (1,007 recipes), the case runner on #366's code, SearXNG on, GPU free (qwen3:8b 100% GPU, num_ctx 12,288, think off). e and f were run 3 times per model, g once, and h once on qwen3.5:9b only.
+
+| Case | qwen3:8b                                                          | qwen3.5:9b                                                                                                                                   |
+| ---- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| e    | 0 / 3: no imports proposed (8–24 s, 1–3 calls)                    | 0 / 3: 3 held imports each time (101–164 s, 9–11 calls); one is always The Modern Proper's "Pulled Pork", close to Roger's own `pulled-pork` |
+| f    | 0 / 3: eggnogs; London Fog and Hot Chocolate never named (7–58 s) | **3 / 3** (42–46 s, 5–6 calls)                                                                                                               |
+| g    | 0 / 1: no tool call, a plan in prose (7 s)                        | 0 / 1: a plan in prose, plus two held `term_assign` calls (38 s); no group tool in the local view                                            |
+| h    | not run                                                           | 0 / 1: a plan in prose with the pernil (62 s); no group tool                                                                                 |
+
+Reading it: f measures the model, and qwen3.5:9b gets it every time. e fails only on the close-name rule (D2), which 51b's online plan applies in code before it picks. g and h fail by construction until 51b's plan intent makes the group in code.
+
+The `num_ctx` question (51a): in qwen3.5:9b's e run 1, one held import ran an `llm.notes` step on qwen3:8b (11.3 s), and that import took 30 s, consistent with a model swap; the other two runs had no model step inside an import. The queue waits (about 14 s) are polite pacing, not reloads. 51b's online plan should keep the import's model calls on the agent's model, or skip notes in a held dry run.
 
 ## 51a — Test cases, the curator's own model setting (S–M)
 
