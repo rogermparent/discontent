@@ -321,11 +321,17 @@ function servingsCount(plain: string): number | undefined {
 
 /** Counted pieces: one is one serving (Dg1). */
 const PIECE_NOUNS =
-  "cookies?|sandwich(?:es)?|bars?|muffins?|rolls?|buns?|biscuits?|pieces?|slices?|squares?|truffles?|balls?";
+  "cookies?|cupcakes?|sandwich(?:es)?|bars?|muffins?|rolls?|buns?|biscuits?|pieces?|slices?|squares?|truffles?|balls?";
 const PIECES = new RegExp(
   `\\b${YIELD_NUMBER}${YIELD_RANGE}\\s+(?:[a-z-]+\\s+){0,3}?(?:${PIECE_NOUNS})\\b`,
 );
-const DOZEN = new RegExp(`\\b(?:${YIELD_NUMBER}|an?)\\s+dozen\\b`);
+/** "a dozen", "4 dozen", "3 to 4 dozen" (its low end); never the end of "1/2". */
+const DOZEN = new RegExp(
+  `(?<![\\d/.])(?:${YIELD_NUMBER}${YIELD_RANGE}|an?)\\s+dozen\\b`,
+);
+/** "1/2 dozen", "1 1/2 dozen". */
+const DOZEN_FRACTION = /(?<![\d/.])(?:(\d+)\s+)?(\d+)\/(\d+)\s+dozen\b/;
+const DOZEN_HALF = /\bhalf\s+(?:a\s+)?dozen\b/;
 
 /**
  * Whole items and the servings one is taken to make (Dg1): an estimate, kept
@@ -398,9 +404,19 @@ export function yieldReading(
   const servings = servingsCount(plain);
   if (servings !== undefined) return { count: servings, estimate: false };
 
-  const dozen = plain.match(DOZEN);
-  if (dozen) {
-    const value = (dozen[1] ? number(dozen[1]) : 1) * 12;
+  const fraction = plain.match(DOZEN_FRACTION);
+  const dozen = fraction ? null : plain.match(DOZEN);
+  const dozens = fraction
+    ? Number(fraction[1] ?? 0) + Number(fraction[2]) / Number(fraction[3])
+    : DOZEN_HALF.test(plain)
+      ? 0.5
+      : dozen
+        ? dozen[1]
+          ? number(dozen[1])
+          : 1
+        : undefined;
+  if (dozens !== undefined) {
+    const value = Math.round(dozens * 12);
     return sane(value)
       ? { count: value, how: piecesHow, estimate: false }
       : undefined;
@@ -435,6 +451,12 @@ export function yieldReading(
     return match[1] ? number(match[1]) : 1;
   };
   const whole = (qty: number, each: number): YieldReading | undefined => {
+    /* "12 cakes", "24 cupcakes": a big count is pieces, not 12 x 12. */
+    if (qty > 4) {
+      return sane(qty)
+        ? { count: qty, how: piecesHow, estimate: false }
+        : undefined;
+    }
     const value = qty * each;
     return sane(value)
       ? {

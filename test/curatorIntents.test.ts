@@ -335,6 +335,19 @@ describe("the small readings", () => {
       how: "12 cookies, 1 a serving",
       estimate: false,
     });
+    /* Fractions and ranges of dozens, and a big count of whole items. */
+    expect(yieldCount("1 1/2 dozen cookies")).toBe(18);
+    expect(yieldCount("1/2 dozen muffins")).toBe(6);
+    expect(yieldCount("Half a dozen rolls")).toBe(6);
+    expect(yieldCount("3 to 4 dozen cookies")).toBe(36);
+    expect(yieldCount("2-3 dozen cookies")).toBe(24);
+    expect(yieldCount("12 cakes")).toBe(12);
+    expect(yieldReading("24 cupcakes")).toMatchObject({
+      count: 24,
+      estimate: false,
+    });
+    expect(yieldReading("12 cakes")).toMatchObject({ estimate: false });
+    expect(yieldCount("2 cakes")).toBe(24);
     /* Whole items: a per-kind estimate, marked as one (Dg1). */
     expect(yieldCount("Makes 2 loaves")).toBe(20);
     expect(yieldCount("One 9-inch pie")).toBe(8);

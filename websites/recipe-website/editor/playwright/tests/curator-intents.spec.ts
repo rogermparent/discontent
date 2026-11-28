@@ -871,6 +871,7 @@ test.describe("Curator by intent", () => {
     await form.getByRole("button", { name: "Save note" }).click();
     const note = notes.getByTestId("curator-note");
     await expect(note).toHaveCount(1);
+    await expect(note).toBeFocused();
     await expect(note.getByTestId("curator-note-verdict")).toHaveText("A miss");
     await expect(note.getByTestId("curator-note-text")).toHaveText(
       "It missed the near duplicate.",
@@ -1191,6 +1192,10 @@ test.describe("Curator by intent", () => {
       "todo",
     );
     await expect(page.getByTestId("curator-results-waiting")).toBeVisible();
+    /* 51g: no Add a note while the run is live (the server says 409). */
+    await expect(page.getByRole("button", { name: "Add a note" })).toHaveCount(
+      0,
+    );
     /* The steps say where it is without a live region of their own. */
     const plan = page.getByTestId("curator-plan");
     await expect(
@@ -1202,6 +1207,10 @@ test.describe("Curator by intent", () => {
       "done",
     );
     await expect(page.getByTestId("curator-online-card")).toHaveCount(2);
+    /* Ended: the control is there. */
+    await expect(
+      page.getByRole("button", { name: "Add a note" }),
+    ).toBeVisible();
   });
 });
 

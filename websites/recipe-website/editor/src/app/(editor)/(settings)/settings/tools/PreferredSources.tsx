@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { ArrowDown, ArrowUp, X } from "lucide-react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Input } from "@discontent/component-library/components/ui/input";
@@ -21,6 +21,19 @@ export function PreferredSources({ initial }: { initial: string[] }) {
   const [draft, setDraft] = useState("");
   const [message, setMessage] = useState<{ text: string; ok: boolean }>();
   const [pending, startTransition] = useTransition();
+
+  const root = useRef<HTMLDivElement>(null);
+  /** The control to focus once the list has re-rendered (aria-label). */
+  const focusLabel = useRef<string>(undefined);
+  useEffect(() => {
+    const label = focusLabel.current;
+    if (!label) return;
+    focusLabel.current = undefined;
+    const target = [
+      ...(root.current?.querySelectorAll<HTMLElement>("[aria-label]") ?? []),
+    ].find((element) => element.getAttribute("aria-label") === label);
+    target?.focus();
+  }, [sites]);
 
   const dirty = sites.join("\n") !== saved.join("\n");
 
@@ -46,6 +59,13 @@ export function PreferredSources({ initial }: { initial: string[] }) {
     const next = [...sites];
     [next[index], next[index + by]] = [next[index + by], next[index]];
     setSites(next);
+    /* The button just used may now be disabled: keep focus on the row. */
+    const site = sites[index];
+    const at = index + by;
+    const same = by === -1 ? `Move ${site} up` : `Move ${site} down`;
+    const other = by === -1 ? `Move ${site} down` : `Move ${site} up`;
+    const stuck = by === -1 ? at === 0 : at === next.length - 1;
+    focusLabel.current = stuck ? other : same;
   };
   const save = () =>
     startTransition(async () => {
@@ -58,7 +78,7 @@ export function PreferredSources({ initial }: { initial: string[] }) {
     });
 
   return (
-    <div className="space-y-3" data-testid="preferred-sources">
+    <div ref={root} className="space-y-3" data-testid="preferred-sources">
       {sites.length === 0 ? (
         <p
           className="text-sm text-muted-foreground"
@@ -102,7 +122,14 @@ export function PreferredSources({ initial }: { initial: string[] }) {
                 variant="outline"
                 size="sm"
                 aria-label={`Remove ${site}`}
-                onClick={() => setSites(sites.filter((_, i) => i !== index))}
+                onClick={() => {
+                  const rest = sites.filter((_, i) => i !== index);
+                  setSites(rest);
+                  const neighbour = rest[index] ?? rest[index - 1];
+                  focusLabel.current = neighbour
+                    ? `Remove ${neighbour}`
+                    : "Add a site";
+                }}
               >
                 <X className="size-4" aria-hidden />
               </Button>

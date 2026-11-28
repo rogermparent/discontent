@@ -28,6 +28,36 @@ describe("parsePreferredSources", () => {
     expect(preferredSourceKey("")).toBeUndefined();
   });
 
+  it("refuses what is not a registrable site", () => {
+    for (const bad of [
+      "localhost",
+      "localhost:3000",
+      "example.com:8080",
+      "127.0.0.1",
+      "169.254.169.254",
+      "[::1]",
+      "co.uk",
+      "example",
+      "*.com",
+      "-foo.com",
+      "foo-.com",
+      "foo_bar.com",
+      "foo..com",
+      "user@example.com",
+    ]) {
+      expect(preferredSourceKey(bad), bad).toBeUndefined();
+      expect(() => parsePreferredSources([bad]), bad).toThrow(
+        PreferredSourcesError,
+      );
+    }
+    expect(preferredSourceKey("shop.bbcgoodfood.co.uk")).toBe(
+      "bbcgoodfood.co.uk",
+    );
+    expect(preferredSourceKey("https://x-y.example.com./a?b")).toBe(
+      "example.com",
+    );
+  });
+
   it("dedupes keeping the first, skips blanks, and allows an empty list", () => {
     expect(
       parsePreferredSources([

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@discontent/component-library/components/ui/button";
 import { Textarea } from "@discontent/component-library/components/ui/textarea";
 import {
@@ -57,6 +57,11 @@ export function ReviewNotes({
   canAdd?: boolean;
 }) {
   const [added, setAdded] = useState<readonly ReviewNote[]>([]);
+  /** The note just written: it takes focus when the form closes. */
+  const [focusId, setFocusId] = useState<string>();
+  useEffect(() => {
+    if (focusId) document.getElementById(`curator-note-${focusId}`)?.focus();
+  }, [focusId, added]);
   const writable = canAdd && !!id;
   const known = new Set(notes.map((note) => note.id));
   const all = [...notes, ...added.filter((note) => !known.has(note.id))];
@@ -74,9 +79,11 @@ export function ReviewNotes({
         {newestFirst(all).map((note) => (
           <li
             key={note.id}
+            id={`curator-note-${note.id}`}
+            tabIndex={-1}
             data-testid="curator-note"
             data-verdict={note.verdict}
-            className="flex min-w-0 flex-col gap-1.5"
+            className="flex min-w-0 flex-col gap-1.5 rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >
             <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs">
               <span
@@ -107,7 +114,10 @@ export function ReviewNotes({
         <AddNote
           id={id}
           hasNotes={all.length > 0}
-          onAdded={(next) => setAdded(next)}
+          onAdded={(next, noteId) => {
+            setAdded(next);
+            setFocusId(noteId);
+          }}
         />
       )}
     </section>
@@ -128,18 +138,29 @@ function AddNote({
 }: {
   id: string;
   hasNotes: boolean;
-  onAdded: (notes: ReviewNote[]) => void;
+  onAdded: (notes: ReviewNote[], noteId?: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [verdict, setVerdict] = useState<ReviewNoteVerdict>("approved");
   const [text, setText] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  /* The form unmounts on Save and Cancel: Cancel hands focus back to the
+   * button that opened it (Save hands it to the new note, in the parent). */
+  const addButton = useRef<HTMLButtonElement>(null);
+  const backToButton = useRef(false);
+  useEffect(() => {
+    if (!open && backToButton.current) {
+      backToButton.current = false;
+      addButton.current?.focus();
+    }
+  }, [open]);
 
   if (!open) {
     return (
       <div className={hasNotes ? "mt-4" : "mt-3"}>
         <Button
+          ref={addButton}
           type="button"
           variant="outline"
           size="sm"
@@ -174,14 +195,19 @@ function AddNote({
         },
       );
       const body = (await response.json().catch(() => undefined)) as
-        { notes?: ReviewNote[]; error?: { message?: string } } | undefined;
+        | {
+            note?: ReviewNote;
+            notes?: ReviewNote[];
+            error?: { message?: string };
+          }
+        | undefined;
       if (!response.ok || !body?.notes) {
         setError(
           body?.error?.message ?? `The editor answered ${response.status}.`,
         );
         return;
       }
-      onAdded(body.notes);
+      onAdded(body.notes, body.note?.id ?? body.notes.at(-1)?.id);
       setText("");
       setOpen(false);
     } catch (failure) {
@@ -259,6 +285,7 @@ function AddNote({
           size="sm"
           disabled={busy}
           onClick={() => {
+            backToButton.current = true;
             setOpen(false);
             setError(undefined);
           }}

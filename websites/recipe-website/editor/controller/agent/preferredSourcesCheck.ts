@@ -3,7 +3,7 @@
  * the Settings card checks a site as it is added; the store is
  * `preferredSources.ts`.
  */
-import { paceKey } from "recipe-website-common/util/roundupPage";
+import { registrableDomain } from "recipe-website-common/util/roundupPage";
 
 /** Sites asked first when nothing is saved (Sally's, 2026-10-13). */
 export const DEFAULT_PREFERRED_SOURCES: readonly string[] = [
@@ -21,17 +21,32 @@ export class PreferredSourcesError extends Error {
   }
 }
 
+/** A DNS label: letters, digits and inner hyphens. */
+const LABEL = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+
 /**
  * One site as the person typed it ("https://www.Example.com/recipes",
  * "example.com") → its registrable domain, or `undefined` when it is not a
- * site.
+ * site: an IP address, a port, a single label ("localhost"), a bare public
+ * suffix ("co.uk"), a wildcard, or a label outside letters, digits and
+ * inner hyphens.
  */
 export function preferredSourceKey(raw: string): string | undefined {
   const text = raw.trim();
   if (!text || /\s/.test(text)) return undefined;
-  return paceKey(
-    /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `https://${text}`,
-  );
+  const host = text
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, "")
+    .split(/[/?#]/, 1)[0]
+    .toLowerCase()
+    .replace(/\.$/, "");
+  if (!host || host.length > 253) return undefined;
+  const labels = host.split(".");
+  if (labels.length < 2 || !labels.every((label) => LABEL.test(label))) {
+    return undefined;
+  }
+  /* An IPv4 address is all digits and dots: its last label is no suffix. */
+  if (/^\d+$/.test(labels[labels.length - 1])) return undefined;
+  return registrableDomain(host);
 }
 
 /**

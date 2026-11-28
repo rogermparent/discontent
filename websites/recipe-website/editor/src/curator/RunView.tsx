@@ -852,6 +852,7 @@ export function RunView({
       )}
 
       <ReviewNotes
+        key={id ?? "no-run"}
         notes={poll.reviewNotes}
         {...(id ? { id } : {})}
         canAdd={ended && shownHere}

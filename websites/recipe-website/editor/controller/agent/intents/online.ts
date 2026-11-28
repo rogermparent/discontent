@@ -274,7 +274,11 @@ export async function runOnline(run: IntentRun): Promise<{
       results.push({ title, url, preferred });
     }
   };
-  run.say("Searching the web, your preferred site first.");
+  run.say(
+    run.preferredSites.length > 0
+      ? "Searching the web, your preferred sites first."
+      : "Searching the web.",
+  );
   for (const site of run.preferredSites) {
     await searchFor({ query: [subject, ...constraints].join(" "), site }, true);
   }

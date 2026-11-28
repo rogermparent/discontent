@@ -202,4 +202,79 @@ describe("ReviewNotes: Add a note (51g, e06)", () => {
     );
     expect(screen.queryByTestId("curator-note")).toBeNull();
   });
+
+  it("moves focus: Save to the new note, Cancel back to Add a note", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        const made = note({
+          id: "01JD51G0NOTE000000000000002",
+          by: "you",
+          verdict: body.verdict,
+          text: body.text,
+        });
+        return new Response(
+          JSON.stringify({ job: "job1", note: made, notes: [made] }),
+          { status: 201 },
+        );
+      }),
+    );
+    render(<ReviewNotes notes={[]} id="job1" canAdd />);
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "Add a note" }),
+      ),
+    );
+    open();
+    write("Fine.");
+    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByTestId("curator-note")),
+    );
+  });
+
+  it("a note and a draft do not follow to the next run (RunView keys it by run)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        const made = note({
+          id: "01JD51G0NOTE000000000000003",
+          by: "you",
+          verdict: body.verdict,
+          text: body.text,
+        });
+        return new Response(
+          JSON.stringify({ job: "run-a", note: made, notes: [made] }),
+          { status: 201 },
+        );
+      }),
+    );
+    const view = (id: string) => (
+      <ReviewNotes key={id} notes={[]} id={id} canAdd />
+    );
+    const { rerender } = render(view("run-a"));
+    open();
+    write("Only for run A.");
+    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+    await waitFor(() =>
+      expect(screen.getAllByTestId("curator-note")).toHaveLength(1),
+    );
+    open();
+    write("A draft for run A.");
+    rerender(view("run-b"));
+    expect(screen.queryByTestId("curator-note")).toBeNull();
+    expect(screen.queryByTestId("curator-note-form")).toBeNull();
+    open();
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Your note",
+        }) as HTMLTextAreaElement
+      ).value,
+    ).toBe("");
+  });
 });
