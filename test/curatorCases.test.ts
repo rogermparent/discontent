@@ -60,10 +60,11 @@ describe("closeRecipeName (51a)", () => {
 describe("the case file (51a)", () => {
   const cases = parseCases(JSON.parse(readFileSync(FILE, "utf8")));
 
-  it("holds cases e, f, g and h, with Roger's own words for the first three", () => {
+  it("holds cases e, f, i, g and h, with Roger's own words for the first three", () => {
     expect(cases.map((entry) => [entry.id, entry.kind])).toEqual([
       ["e", "new-imports"],
       ["f", "answer"],
+      ["i", "answer"],
       ["g", "plan"],
       ["h", "plan"],
     ]);
@@ -78,16 +79,29 @@ describe("the case file (51a)", () => {
       include: ["london-fog-acouplecooks", "hot-chocolate-acouplecooks"],
       exclude: ["homemade-slow-cooker-hot-chocolate"],
     });
+    /* Db18: the stricter bar on the same ask. */
+    expect(ask("i")).toBe(ask("f"));
     expect(cases[2]).toMatchObject({
+      include: [
+        "london-fog-acouplecooks",
+        "hot-chocolate-acouplecooks",
+        "gingerbread-hot-chocolate-acouplecooks",
+      ],
+      exclude: [
+        "homemade-slow-cooker-hot-chocolate",
+        "vegan-coconut-panna-cotta",
+      ],
+    });
+    expect(cases[3]).toMatchObject({
       tag: "thanksgiving",
       require: ["cranberry-curd-tart"],
     });
-    expect(cases[3]).toMatchObject({
+    expect(cases[4]).toMatchObject({
       tag: "christmas",
       require: ["pernil"],
       minItems: 3,
     });
-    expect(cases[3].unverified).toBeUndefined();
+    expect(cases[4].unverified).toBeUndefined();
   });
 
   it("refuses a bad file in a sentence", () => {
@@ -112,7 +126,7 @@ describe("the case file (51a)", () => {
   });
 
   it("says when a case names slugs the corpus lacks", () => {
-    const plan = cases[2];
+    const plan = cases.find((entry) => entry.id === "g")!;
     expect(caseFileFaults(plan, new Set(["cranberry-curd-tart"]))).toEqual([]);
     expect(caseFileFaults(plan, new Set())).toEqual([
       "case g names slugs this corpus lacks: cranberry-curd-tart",

@@ -768,6 +768,31 @@ on 127.0.0.1, several servers standing for several sites.
   `notesOnApproval` and a sentence in its note, `heldPreview` copies it,
   and the review's detail line adds "its notes are read when you approve
   it". A page whose notes were read, or had none, says nothing.
+- **Db18 — the criterion keeps the ask's size and kind** (the first driven
+  run, workstation, qwen3.5:9b, job `01M8H1MNK37Q3Z63FJY9B73M0X`, mine on
+  "recipes that work well in small batches with a milk frother"). The read
+  wrote "single-serving drinks or desserts that use steamed or frothed
+  milk", and the judge then (1) took `vegan-coconut-panna-cotta` as a fit
+  ("desserts" was the model's own addition; a frother does nothing for a
+  set dessert) and (2) turned down `gingerbread-hot-chocolate-acouplecooks`
+  for "two servings" while `london-fog-acouplecooks`, also two, fit. Fixes:
+  the read's prompt keeps the ask's words for size ("small batch" is a few
+  servings, about 1 to 4, never "single-serving" unless the ask says one)
+  and never widens the kind of dish (a milk frother implies milk drinks);
+  `guardCriterion` puts that back in code (a "single-serving" the ask
+  didn't say becomes "small-batch (a few servings)"; a dessert, snack,
+  treat or sweet the ask never named is cut from a list); the judge's
+  prompt reads a yield as a range when the criterion is about batch size
+  and says a set dessert is not a drink for a frother. Case **i** (the same
+  ask as f, the stricter bar): includes London fog, hot chocolate and the
+  gingerbread hot chocolate (a maybe counts; `answeredText` scores fits and
+  maybes), excludes the slow-cooker hot chocolate and the panna cotta from
+  both. No scorer change was needed. Tests pin the prompt text, the guard
+  and a stand-in mine run; the real check is the case runner on f and i.
+  **Real run** (qwen3.5:9b, scratch clone e9f34a56, `--intent auto`): f 3/3
+  (46–77 s) and i 3/3 (47–54 s); the criterion is now "A recipe for a few
+  servings of a hot or frothed milk drink". Regression check, e, g and h
+  once each: all 1/1.
 - **Db4, measured** (the real run). The one `llm.*` step under a
   `recipe_import` in the e runs was run 1's YouTube video dry run
   (`call_plan_12`, job `01M8GG4JD7KSYQ5FE8CRKPWHZY`): `llm.extract` on

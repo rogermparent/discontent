@@ -37,6 +37,7 @@ import {
 import { settleIntent } from "../websites/recipe-website/editor/controller/agent/intents/classify";
 import {
   MINE_READ_SYSTEM,
+  guardCriterion,
   askSearch,
   interleave,
 } from "../websites/recipe-website/editor/controller/agent/intents/mine";
@@ -530,6 +531,44 @@ describe("a held import's notes (51b review 7)", () => {
         { held: true, note: HELD_NOTE, dryRun: { slug: "tacos" } },
       ),
     ).toEqual({ url, slug: "tacos" });
+  });
+});
+
+describe("the criterion keeps the ask's size and kind (Db18)", () => {
+  const ask = "recipes that work well in small batches with a milk frother";
+  it("says it in both prompts", () => {
+    expect(MINE_READ_SYSTEM).toContain(
+      'a "small batch" means a few servings, about 1 to 4, never "single-serving" unless the ask says one serving',
+    );
+    expect(MINE_READ_SYSTEM).toContain(
+      "milk frother implies milk drinks, not desserts",
+    );
+    expect(JUDGE_SYSTEM_PROMPT).toContain("read a recipe's yield as a range");
+    expect(JUDGE_SYSTEM_PROMPT).toContain(
+      "a set dessert is not a drink for a milk frother",
+    );
+  });
+
+  it("puts back a size and a kind the model made up", () => {
+    const read =
+      "single-serving drinks or desserts that use steamed or frothed milk";
+    expect(guardCriterion(read, ask)).toBe(
+      "small-batch (a few servings) drinks that use steamed or frothed milk",
+    );
+    expect(guardCriterion("Drinks, desserts and snacks of milk", ask)).toBe(
+      "Drinks of milk",
+    );
+  });
+
+  it("leaves what the ask itself said alone", () => {
+    expect(
+      guardCriterion("a single-serving dessert", "a single serving dessert"),
+    ).toBe("a single-serving dessert");
+    expect(guardCriterion("drinks or desserts", "drinks or desserts")).toBe(
+      "drinks or desserts",
+    );
+    const fine = "a drink of hot or frothed milk, one to four servings";
+    expect(guardCriterion(fine, ask)).toBe(fine);
   });
 });
 
@@ -1198,6 +1237,40 @@ describe("mine: which of my recipes fit (D8, D9)", () => {
       }).matched,
     ).toBe(true);
     expect(heldCalls(records)).toEqual([]);
+  });
+
+  it("judges on the ask's size and kind, not the read's (Db18, case i)", async () => {
+    await createRecipe(ctx, {
+      name: "Hot Chocolate",
+      date: 2_000,
+      recipeYield: "2 mugs",
+      ingredients: ["2 cups milk", "2 tbsp cocoa"],
+      instructions: ["Whisk the cocoa into warm milk."],
+    });
+    const { chat, calls } = standInChat(
+      {
+        intent_mine_ask: {
+          criterion:
+            "single-serving drinks or desserts that use steamed or frothed milk",
+          searches: ["hot chocolate"],
+        },
+      },
+      { "hot-chocolate": "fit" },
+    );
+    const { result } = await run(
+      "recipes that work well in small batches with a milk frother",
+      "auto",
+      { chat },
+    );
+    const judge = calls.find((call) => call.schemaName === "recipe_judge");
+    expect(judge?.user).toContain(
+      "Ask: small-batch (a few servings) drinks that use steamed or frothed milk. The person asked:",
+    );
+    expect(judge?.user).not.toMatch(/single-serving|dessert/);
+    expect(result.outcome).toMatchObject({
+      criterion:
+        "small-batch (a few servings) drinks that use steamed or frothed milk",
+    });
   });
 });
 
