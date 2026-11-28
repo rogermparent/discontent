@@ -118,6 +118,18 @@ describe("the local prompt and tools fit", () => {
     for (const name of tools_) expect(offered).toContain(name);
   });
 
+  it("keeps recipe_search's typed terms in skill-local.md, which its local text defers to (51c)", () => {
+    expect(LOCAL_TOOL_TEXT.recipe_search?.description).toContain(
+      "as the guide says",
+    );
+    expect(LOCAL_TOOL_TEXT.recipe_search?.description).toContain(
+      "`deep: true`",
+    );
+    for (const term of ["tag:", "ingredient:", "name:", "source:", "time:"]) {
+      expect(CURATOR_LOCAL_SKILL_TEXT).toContain(`\`${term}`);
+    }
+  });
+
   it("leaves Claude's tools as the MCP server describes them", () => {
     const backend = createLocalBackend({ ...ctx, inProcess: true });
     const plain = agentTools(backend, { only: LOCAL_AGENT_TOOLS });

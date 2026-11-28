@@ -2707,6 +2707,10 @@ const ALLOWED: RegExp[] = [
    * marks name fields alike: constant lists, labels and pure functions, with
    * one type-only import of the form's section ids. */
   /^recipe-website-common\/components\/Form\/fillMarks$/,
+  /* The step reader joined at 51c, so the curator's deep search reads a
+   * recipe's steps in the order every reader does (`flatSteps`): pure
+   * functions over `util/*` and type imports, no React, no Next API. */
+  /^recipe-website-common\/components\/Form\/Instructions\/stepChecks$/,
   /* The settings store joined at 41i: the editor's saved staples
    * (`settings.makeStaples`), read with `fs-extra` — no Next API. */
   /^@discontent\/cms\/settings$/,

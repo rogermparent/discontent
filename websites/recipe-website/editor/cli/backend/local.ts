@@ -27,7 +27,11 @@ import {
 import * as inventory from "../../controller/curation/inventory";
 import * as recipes from "../../controller/curation/recipes";
 import * as shopping from "../../controller/curation/shopping";
-import { listTags, searchRecipes } from "../../controller/curation/search";
+import {
+  listTags,
+  searchRecipeText,
+  searchRecipes,
+} from "../../controller/curation/search";
 import * as terms from "../../controller/curation/terms";
 import { closeCachedEnvironments } from "@discontent/cms/lmdb/environmentCache";
 import { absoluteLink } from "./link";
@@ -306,7 +310,10 @@ export function createLocalBackend({
     },
     getRecipe: (slug) => recipes.getRecipe(ctx, slug),
     listRecipes: (options) => recipes.listRecipes(ctx, options),
-    searchRecipes: (query, options) => searchRecipes(ctx, query, options),
+    searchRecipes: (query, { deep, ...options } = {}) =>
+      deep
+        ? searchRecipeText(ctx, query, options)
+        : searchRecipes(ctx, query, options),
     async deleteRecipe(slug) {
       await guard();
       return recipes.deleteRecipe(ctx, slug);

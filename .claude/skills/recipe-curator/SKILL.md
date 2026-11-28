@@ -99,6 +99,13 @@ dried, cooked), `name:x`, `description:x`, `source:x` (a site's name or host, e.
 `AND`/`OR`/`NOT`, parentheses. A recipe with no timing never matches a
 `time:` query. **Prefer an existing recipe over a new import.**
 
+For a tool, a method or a technique the name and ingredients don't carry
+("milk frother", "Dutch oven", "no-knead"), add `"deep": true`: the same
+query also searches each recipe's steps and notes, at the description's
+weight, and a row found there carries `found` — `{field, number, text}`, the
+step or note and the words around the match. Deep matches are loose (every
+baked recipe says "preheat the oven"): read a recipe before calling it a fit.
+
 ## 4. Find candidates on the web
 
 **Sally's first.** For anything baked or sweet — cookies, pies, cakes,

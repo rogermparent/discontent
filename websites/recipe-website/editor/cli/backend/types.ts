@@ -125,7 +125,10 @@ import type {
   JobRetryResult,
   JobView,
 } from "../../controller/jobs/views";
-import type { SearchResult } from "../../controller/curation/search";
+import type {
+  DeepSearchResult,
+  SearchResult,
+} from "../../controller/curation/search";
 import type {
   TermAssignResult,
   TermDeleteResult,
@@ -188,6 +191,7 @@ export type {
   RecipeListResult,
   RecipeWriteResult,
   ReindexResult,
+  DeepSearchResult,
   SearchResult,
   ShoppingAddResult,
   ShoppingClearResult,
@@ -421,10 +425,14 @@ export interface CuratorBackend {
     offset?: number;
     tag?: string;
   }): Promise<RecipeListResult>;
+  /**
+   * `deep` (51c): the steps and notes searched too (`searchRecipeText`),
+   * the curator's search; a row a step or note found carries `found`.
+   */
   searchRecipes(
     query: string,
-    options?: { limit?: number; offset?: number },
-  ): Promise<SearchResult>;
+    options?: { limit?: number; offset?: number; deep?: boolean },
+  ): Promise<SearchResult | DeepSearchResult>;
   deleteRecipe(slug: string): Promise<DeleteResult>;
 
   createGroup(

@@ -383,10 +383,13 @@ export function toolPhrase(
   const slug = str(input.slug);
   const site = siteOf(input.url);
   switch (call.name) {
-    case "recipe_search":
+    case "recipe_search": {
+      /* 51c: a deep search read the steps and notes too. */
+      const deep = input.deep === true ? ", steps and notes too," : "";
       return str(input.query)
-        ? `Searched your recipes for “${short(String(input.query), 40)}”`
+        ? `Searched your recipes${deep} for “${short(String(input.query), 40)}”`
         : "Searched your recipes";
+    }
     case "recipe_list":
       return str(input.tag)
         ? `Listed your recipes tagged ${short(String(input.tag), 40)}`

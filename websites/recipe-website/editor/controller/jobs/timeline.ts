@@ -213,6 +213,9 @@ export function stepTitle(node: Pick<StepNode, "step" | "data">): string {
       return data.task === "revise"
         ? "Model answers the note on a suggestion"
         : "Model tidies the list";
+    /* 51c: the curator's judge — do these recipes fit the ask? */
+    case "llm.judge":
+      return `Model judges the recipes${part}`;
     case "llm.reload":
       return "Reload the model";
     case "llm.unload":

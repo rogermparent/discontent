@@ -99,14 +99,14 @@ Plan page and mock-up: https://claude.ai/artifact/V9LtB7eAeAf7DLaoQWpcLD.
 
 ## Roadmap
 
-| Phase | Branch                        | Size | Status | What                                                                                                                             |
-| ----- | ----------------------------- | ---- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| 51a   | `agent/51a-curator-cases`     | S–M  | 🟡     | `RECIPE_AGENT_MODEL`; the case file and cases e–h in the harness; the `num_ctx` reload; the baseline.                            |
-| 51c   | `agent/51c-deep-search-judge` | M    | 🟡     | `searchRecipeText` over steps and notes (`recipe_search` `deep`), and `judgeRecipes` (fit / maybe / no).                         |
-| 51b   | `agent/51b-intents`           | L    | 📝     | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any. |
-| 51f   | `agent/51f-grams`             | M–L  | 📝     | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                        |
-| 51d   | `agent/51d-curator-ui`        | L    | 📝     | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                  |
-| 51e   | `agent/51e-curator-drive`     | M    | 📝     | Claude Code drives the curator: a skill, review notes on runs, the case runner.                                                  |
+| Phase | Branch                        | Size | Status  | What                                                                                                                             |
+| ----- | ----------------------------- | ---- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| 51a   | `agent/51a-curator-cases`     | S–M  | ✅ #366 | `RECIPE_AGENT_MODEL`; the case file and cases e–h in the harness; the `num_ctx` reload; the baseline.                            |
+| 51c   | `agent/51c-deep-search-judge` | M    | 🟡      | `searchRecipeText` over steps and notes (`recipe_search` `deep`), and `judgeRecipes` (fit / maybe / no).                         |
+| 51b   | `agent/51b-intents`           | L    | 📝      | Intents as code-run plans: online (already-have in code), mine (search + judge), plan (named dishes, held group), organize, any. |
+| 51f   | `agent/51f-grams`             | M–L  | 📝      | Gram conversions: a bank in the content repo, paste / bank / model on the edit page, marked for approval.                        |
+| 51d   | `agent/51d-curator-ui`        | L    | 📝      | `/curator` redesign: the intent row and guess, live plan steps, result cards, the model picker.                                  |
+| 51e   | `agent/51e-curator-drive`     | M    | 📝      | Claude Code drives the curator: a skill, review notes on runs, the case runner.                                                  |
 
 Order: **51a + 51c** in parallel → **51b** (with **51f** in parallel once its
 mock-up is answered) → **51d** → **51e**. At most two workers at once; one PR
@@ -134,12 +134,20 @@ the seasonal plan check.
 Filled by 51a (before) and after each curator phase. Scratch clone, the
 case runner, SearXNG on.
 
-| Case | qwen3:8b before | qwen3.5:9b before | qwen3.5:9b after 51b | after 51d/51e |
-| ---- | --------------- | ----------------- | -------------------- | ------------- |
-| e    |                 |                   |                      |               |
-| f    |                 |                   |                      |               |
-| g    |                 |                   |                      |               |
-| h    |                 |                   |                      |               |
+#### Before (51a baseline, 2026-11-28)
+
+Scratch clone at e9f34a56 (1,007 recipes), the case runner on #366's code, SearXNG on, GPU free (qwen3:8b 100% GPU, num_ctx 12,288, think off). e and f were run 3 times per model, g once, and h once on qwen3.5:9b only.
+
+| Case | qwen3:8b                                                          | qwen3.5:9b                                                                                                                                   |
+| ---- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| e    | 0 / 3: no imports proposed (8–24 s, 1–3 calls)                    | 0 / 3: 3 held imports each time (101–164 s, 9–11 calls); one is always The Modern Proper's "Pulled Pork", close to Roger's own `pulled-pork` |
+| f    | 0 / 3: eggnogs; London Fog and Hot Chocolate never named (7–58 s) | **3 / 3** (42–46 s, 5–6 calls)                                                                                                               |
+| g    | 0 / 1: no tool call, a plan in prose (7 s)                        | 0 / 1: a plan in prose, plus two held `term_assign` calls (38 s); no group tool in the local view                                            |
+| h    | not run                                                           | 0 / 1: a plan in prose with the pernil (62 s); no group tool                                                                                 |
+
+Reading it: f measures the model, and qwen3.5:9b gets it every time. e fails only on the close-name rule (D2), which 51b's online plan applies in code before it picks. g and h fail by construction until 51b's plan intent makes the group in code.
+
+The `num_ctx` question (51a): in qwen3.5:9b's e run 1, one held import ran an `llm.notes` step on qwen3:8b (11.3 s), and that import took 30 s, consistent with a model swap; the other two runs had no model step inside an import. The queue waits (about 14 s) are polite pacing, not reloads. 51b's online plan should keep the import's model calls on the agent's model, or skip notes in a held dry run.
 
 ## 51a — Test cases, the curator's own model setting (S–M)
 
@@ -273,6 +281,219 @@ on `runShoppingAsk`'s pattern (a `job.log.step` + `chatJson` per chunk,
 `num_ctx` sized like `tidyContext`), each candidate's name, yield,
 ingredients, trimmed steps and notes, answering
 `{slug, verdict: fit|maybe|no, why}` for at most 30.
+
+### Results (51c)
+
+**The deep search** — `searchRecipeText(ctx, query, {limit, offset})` in
+`controller/curation/search.ts`:
+
+- It shares `searchRecipes`' filtering and sort (a new private `rankRows`:
+  the same `parseQuery`, `matchesFilter`, `tag:` resolver and `group:`
+  corpus, best first then newest), so the two differ only in scoring.
+  `scoreFreeText` is unchanged in behaviour; its per-word field pick is now
+  `rowFieldFor`, which the deep scorer reuses.
+- Each word scores its best index field as `scoreFreeText` does: name 4,
+  tags 3, ingredients 2, description 1. **Steps** and **notes** then add 1
+  a word (`DEEP_FIELD_WEIGHTS`), more strictly since the review (Dc9):
+  - With two or more words, the whole folded phrase in one step or note is
+    tried first. A hit adds 2 a word (`DEEP_PHRASE_WEIGHT`, Dc9) and sets `found` there.
+  - Otherwise every word the index fields missed must be in the steps or
+    notes (AND). If one isn't, the deep part adds nothing.
+  - A single word works as before.
+  - Steps are `flatSteps` then `stepPlainText`; notes are `cleanNotes` then
+    the same plain-words pass.
+  - A row the steps or notes found gets
+    `found: {field: "steps"|"notes", number, text}`: the 1-based step or
+    note and about 120 characters around the match, cut at words. That way
+    a model reading the row sees why "frother" found it.
+- `matchIndex` is `fieldMatches`' rule with a position. A test holds the two
+  side by side over ten needles. It filters with `indexOf` first, which is
+  what made the warm search fast (see below).
+- **The corpus** is every indexed recipe's `recipe.json`, read through the
+  engine's `readContentFileOrNull` in batches of 32.
+  - It needs no new filesystem call in traced code, so no
+    `turbopackIgnore` annotation.
+  - The index says which recipes exist, and a reader never builds one
+    (F30).
+  - An unreadable file counts as a recipe with no text.
+  - It is kept in **one** entry (`corpusCache`), keyed by content directory
+    and HEAD (`readHead`). A new HEAD reads it again. Outside a repository
+    nothing is kept.
+  - With no free text, no file is read.
+- **Surfaces:**
+  - `recipe_search` takes `deep: true`. There is no new tool, so 59/45
+    stay, and the description grew one sentence.
+  - The `CuratorBackend.searchRecipes` option `deep`: the local backend
+    calls `searchRecipeText`, and the HTTP backend sends `?deep=1` to
+    `GET /api/recipes`, which honours it.
+  - `recipes search --deep` (`--json` as ever) prints the `found` lines
+    under the table.
+  - The curator's step reads "Searched your recipes, steps and notes too,
+    for “…”".
+  - SKILL.md §3 says when to use it, and `skillText.generated.ts` is
+    regenerated. `skill-local.md` is unchanged: its 1,200-token budget had
+    no room (see Dc1).
+  - `/search` is unchanged.
+
+**The judge** — `judgeRecipes(ctx, {criterion, slugs, model, job?, numCtx?,
+think?, maxCostUsd?, timeoutMs?})` in `controller/llm/judge.ts`:
+
+- It follows `runShoppingAsk`'s pattern. The candidates go in even chunks of
+  at most 8 (30 makes 8/8/7/7). Each chunk is one `llm.judge` step ("Model
+  judges the recipes 2/4" on `/jobs`) and one `chatJson` call with
+  `JUDGE_JSON_SCHEMA`, no tools and no thinking unless asked.
+- The answer is `{verdicts: [{slug, why, verdict: fit|maybe|no}]}`. It
+  returns a `JudgeResult` with:
+  - `verdicts` in the order given, each with the recipe's name;
+  - `unjudged`, `dropped` (past 30), `missing` (no such recipe), `ignored`
+    (answers set aside, with why) and `problems` (a failed chunk);
+  - the model, calls, tokens, `numCtx` and the Claude cost.
+- **Nothing the model says is trusted** (`checkJudgeAnswer`):
+  - A slug that wasn't asked about is set aside, and so is a second answer
+    for the same slug.
+  - A verdict other than the three is no verdict.
+  - A non-list answer fails that chunk.
+  - A slug is matched leniently: `## London-Fog` reads as `london-fog`.
+- **The candidate's text** (`judgeRecipeText`) is a `## <slug>` heading,
+  then name and yield (≤ 120 each), times, the drink spec, the description (≤ 200), the
+  ingredients (≤ 700) and the notes (≤ 400).
+  - Steps get ≤ 1,000 characters, shared by `shareBudget`: the short steps
+    stay whole, the long ones split what's left, and every step keeps at
+    least 80 characters of its start.
+  - Past the budget, whole steps drop from the end, counted as "(+N
+    more)". This is adapted from `estimateUserPrompt`, which cuts the whole
+    text at 12,000.
+- A test shows a chunk of eight pathologically long recipes fits under
+  12,288 tokens. Real ones land well under 8,192.
+- **Not a tool, not a job kind.** No MCP tool calls it. 51b's intents call
+  it from code inside their own job, so its steps nest in the agent job's
+  log.
+
+#### Measurements (scratch clone of the content, 1,007 recipes, reindexed; never `editor/content`)
+
+The machine was busy: 51a's vitest held the heavy slot, and about 2 GB was
+free. The numbers are wall times of single calls, three runs each.
+
+| What                                        | Time                        |
+| ------------------------------------------- | --------------------------- |
+| `readHead` (two git spawns), warm           | 8–15 ms                     |
+| Deep search, cold (read + parse + fold all) | 310–490 ms                  |
+| Index search (`searchRecipes`), warm        | 56–141 ms                   |
+| Deep search, warm, same queries             | 57–193 ms                   |
+| Heap after the corpus is kept               | ~136 MB (whole tsx process) |
+
+- The first warm pass, before `matchIndex`'s `indexOf` prefilter, was
+  80–305 ms ("dutch oven" 305 ms). It used a `matchAll` word scan per step
+  per word.
+- On the clone, `frother` finds nothing by the index and 2 deep:
+  `eggnog-latte` (step 1, "…milk frother and heat and foam…") and
+  `london-fog-acouplecooks` (step 2, "…a handheld frother or a whisk").
+  `frother tag:drink` finds the same two. `froth` deep finds 24, from
+  hollandaise to dinner rolls ("foamy and frothy on top").
+- **`dutch oven`, before and after the review's AND rule (Dc9).**
+  - Before: 398 rows, with 28 of the first 30 found by "Preheat oven…".
+  - After: 69 rows on a fresh clone (warm 95–155 ms).
+  - The real Dutch-oven steps come in by the phrase, e.g.
+    `new-mexico-carne-adovada` step 11, "a large, heavy Dutch oven".
+  - **Dutch-process cocoa** bakes (`chocolate-chess-pie`,
+    `maine-whoopie-pies`) score 3: "dutch" 2 in an ingredient, plus 1 for
+    "Preheat oven".
+    - When the phrase hit counted 1 a word (2 in all), they ranked above
+      the real Dutch-oven steps.
+    - Since Dc9's 2 a word, a phrase hit scores 4 and outranks them. The
+      unit test pins this. It was not re-measured on the clone.
+  - Single-word deep matches stay loose (every bake says "oven"). Sorting
+    that out is the judge's job, and SKILL.md says so.
+- `hot-chocolate-acouplecooks` (case f) says no "frother" anywhere, so
+  `mine` must search expansions (51b's `chatJson` step), not the bare word.
+
+#### Gates (51c)
+
+- `pnpm --filter recipe-editor typecheck` and `pnpm --filter recipe-website
+exec tsc --noEmit` are clean.
+- `pnpm exec vitest run`: 4,451 of 4,452 passed (206 files). The one failure
+  was `editFormRoundTrip.test.tsx` "cleared and retyped…", a 5 s timeout
+  under load (51a's suite was in the slot beside it). Alone it passes,
+  17/17. It touches nothing here.
+- After the review fixes and merging main with 51a (#366): both typechecks
+  are clean and vitest passes 4,482 of 4,482 (207 files).
+- New: `test/searchText.test.ts` (16) and `test/judge.test.ts` (15), plus
+  one guard in `test/agentLocal.test.ts`.
+  `test/curation.test.ts`' D8 allow-list gains `Form/Instructions/stepChecks`
+  (`flatSteps`).
+- No Playwright spec covers this phase: no UI changed (`/search` is
+  untouched). CI's shards are the e2e gate.
+
+#### Decisions (51c)
+
+- **Dc1 — the local view exposes `deep`,** because the frother case is a
+  local-model case. It is in `LOCAL_TOOL_TEXT.recipe_search` only:
+  "`deep: true` searches steps and notes too (a tool, a method)".
+  - A sentence in `skill-local.md` too took the skill to 1,228 of 1,200
+    tokens, and the prompt plus tools to 3,564 of 3,500
+    (`test/agentLocal.test.ts`).
+  - To pay for the tool sentence, the tool's list of typed terms became "as
+    the guide says": `skill-local.md` step 1 lists the same terms word for
+    word.
+- **Dc2 — the judge reads 8 a call, with fixed budgets per part** (above).
+  With four calls for 30, each call's answer stays short and each recipe is
+  judged beside few others.
+- **Dc3 — one `num_ctx` for every chunk.** It is the caller's `numCtx` when
+  that holds them all (an agent run's 12,288), else the largest chunk's
+  step. Then the judge never makes Ollama reload the model between chunks,
+  or against the run that called it (51a's 14 s reload).
+- **Dc4 — `why` comes before `verdict` in the schema,** so the model gives
+  its reason before it decides.
+- **Dc5 — the corpus is read through the engine, kept per HEAD,** in one
+  entry, and not at all outside a repository (above).
+- **Dc6 — deep rows carry `found`.** The MCP answer and the CLI show it. A
+  shallow search's rows are unchanged.
+- **Dc7 — the judge's Claude cost is the caller's to cap.** `maxCostUsd`
+  (the run's remaining budget) is checked against each chunk's expected
+  cost before the call, not against the `ANTHROPIC_MAX_TOKENS` worst case,
+  which would refuse almost any judge under the $1 run cap. The actual cost
+  is summed in `costEstimateUsd`.
+- **Dc8 — a failed chunk doesn't fail the judge.** Its slugs are unjudged
+  and said. The status is `failed` only when nothing was judged.
+- **Dc9 (review) — several words in the steps and notes are a phrase or an
+  AND.**
+  - The index-field scoring is untouched.
+  - The phrase in one step or note scores 2 a word (`DEEP_PHRASE_WEIGHT`),
+    with `found` there. So "dutch oven" in a step (4) beats "dutch" in an
+    ingredient plus "oven" in a step (3), and a full name match (8) still
+    ranks above both.
+  - Otherwise every word the index missed must be in the steps or notes, 1
+    a word.
+  - This is pinned by `searchText.test.ts`:
+    - "dutch oven" ranks the whole-name bread, then the Dutch-oven step,
+      then the Dutch-process-cocoa cake;
+    - it drops a recipe whose only match is "Preheat oven";
+    - `found` points at the phrase's step.
+  - The local text's "typed terms as the guide says" is held by a test in
+    `agentLocal.test.ts`: `skill-local.md` must name `tag:`, `ingredient:`,
+    `name:`, `source:` and `time:`.
+
+#### Traps (51c)
+
+- **A hand edit isn't seen until HEAD moves.** Every engine write commits,
+  so the editor, CLI and MCP never hit this. A `recipe.json` edited on disk
+  and not committed is searched as it was (a test pins this).
+- **`fieldMatches` with punctuation.** A needle with punctuation ("1/2",
+  "half-and") is in no word: it matches only at the text's start. The
+  `indexOf` fast path keeps that.
+- **The sandbox refused Python heredocs** whose text had template literals
+  or the word "git". Edit and Write worked.
+
+#### Roger to confirm (51c)
+
+- c01: deep search is the curator's only — `recipe_search` `deep`,
+  `recipes search --deep`, `GET /api/recipes?deep=1` — and `/search` is
+  untouched (D8).
+- c02: a deep row's `found` snippet (about 120 characters around the first
+  step or note match).
+- c03: the judge's reasons are asked for in at most 20 words, kept to 160
+  characters.
+- c04: the local view advertises `deep` (Dc1).
 
 ## 51b — Intents as code-run plans (L)
 

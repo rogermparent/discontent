@@ -25,7 +25,10 @@ import {
   listRecipes,
   previewCreateRecipe,
 } from "recipe-editor/controller/curation/recipes";
-import { searchRecipes } from "recipe-editor/controller/curation/search";
+import {
+  searchRecipeText,
+  searchRecipes,
+} from "recipe-editor/controller/curation/search";
 
 export async function GET(request: Request) {
   try {
@@ -36,7 +39,12 @@ export async function GET(request: Request) {
 
     const query = url.searchParams.get("q");
     if (query !== null) {
-      return Response.json(await searchRecipes(ctx, query, { limit, offset }));
+      /* `?deep=1` (51c): the curator's search, steps and notes too. */
+      return Response.json(
+        boolParam(url, "deep")
+          ? await searchRecipeText(ctx, query, { limit, offset })
+          : await searchRecipes(ctx, query, { limit, offset }),
+      );
     }
 
     return Response.json(
